@@ -1,0 +1,27 @@
+{
+  "contradiction": {
+    "mean": 0.620463490486145,
+    "std": 0.18749649822711945,
+    "min": 0.1810474991798401,
+    "max": 0.977713942527771,
+    "n": 70
+  },
+  "entailment": {
+    "mean": 0.6431599259376526,
+    "std": 0.1276288777589798,
+    "n": 41
+  },
+  "neutral": {
+    "mean": 0.053239576518535614,
+    "std": 0.05374686419963837,
+    "n": 41
+  },
+  "tests": {
+    "contradiction_vs_neutral_U": 2868.0,
+    "contradiction_vs_neutral_p": 1.0428007488514597e-18,
+    "contradiction_higher_than_neutral": true,
+    "contradiction_vs_entailment_U": 1378.0,
+    "contradiction_vs_entailment_p": 0.7299330830574036
+  },
+  "paradox_confirmed": true
+}

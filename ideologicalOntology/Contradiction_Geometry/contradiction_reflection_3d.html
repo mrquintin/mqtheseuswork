@@ -1,0 +1,493 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Contradiction Geometry: The Reflection Plane</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { background: #0a0a1a; color: #ddd; font-family: 'Segoe UI', Arial, sans-serif; overflow: hidden; }
+#container { width: 100vw; height: 100vh; }
+#info-panel {
+  position: absolute; top: 16px; left: 16px;
+  background: rgba(10,10,30,0.92); border: 1px solid rgba(100,100,200,0.3);
+  border-radius: 10px; padding: 18px 22px; max-width: 360px;
+  backdrop-filter: blur(12px); z-index: 10;
+}
+#info-panel h1 { font-size: 18px; color: #8af; margin-bottom: 6px; font-weight: 600; }
+#info-panel h2 { font-size: 13px; color: #aaa; margin-bottom: 12px; font-weight: 400; }
+#info-panel p { font-size: 12px; color: #999; line-height: 1.5; margin-bottom: 8px; }
+.stat { display: flex; justify-content: space-between; padding: 3px 0; font-size: 12px; }
+.stat-label { color: #888; }
+.stat-value { color: #ccc; font-weight: 600; }
+
+#controls {
+  position: absolute; bottom: 20px; left: 50%; transform: translateX(-50%);
+  display: flex; gap: 12px; align-items: center; z-index: 10;
+  background: rgba(10,10,30,0.88); border: 1px solid rgba(100,100,200,0.25);
+  border-radius: 30px; padding: 10px 24px; backdrop-filter: blur(8px);
+}
+.btn {
+  background: rgba(80,80,180,0.3); border: 1px solid rgba(100,100,200,0.4);
+  color: #aaf; padding: 6px 16px; border-radius: 20px; cursor: pointer;
+  font-size: 12px; transition: all 0.2s;
+}
+.btn:hover { background: rgba(80,80,180,0.6); color: #fff; }
+.btn.active { background: rgba(100,140,255,0.5); color: #fff; border-color: #88f; }
+
+#tooltip {
+  position: absolute; display: none; pointer-events: none;
+  background: rgba(10,10,30,0.95); border: 1px solid rgba(100,100,200,0.4);
+  border-radius: 8px; padding: 12px 16px; max-width: 420px; z-index: 20;
+  backdrop-filter: blur(12px);
+}
+#tooltip .tt-label { font-size: 11px; color: #888; margin-bottom: 2px; }
+#tooltip .tt-sent { font-size: 13px; color: #ddd; margin-bottom: 6px; line-height: 1.4; }
+#tooltip .tt-stat { font-size: 11px; color: #aaa; }
+
+#legend {
+  position: absolute; top: 16px; right: 16px;
+  background: rgba(10,10,30,0.88); border: 1px solid rgba(100,100,200,0.25);
+  border-radius: 10px; padding: 14px 18px; z-index: 10;
+}
+#legend h3 { font-size: 13px; color: #aaa; margin-bottom: 10px; }
+.legend-item { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; font-size: 12px; }
+.legend-dot { width: 10px; height: 10px; border-radius: 50%; }
+
+#filter-panel {
+  position: absolute; top: 16px; right: 200px;
+  background: rgba(10,10,30,0.88); border: 1px solid rgba(100,100,200,0.25);
+  border-radius: 10px; padding: 14px 18px; z-index: 10;
+}
+#filter-panel h3 { font-size: 13px; color: #aaa; margin-bottom: 10px; }
+.filter-btn {
+  background: rgba(60,60,120,0.3); border: 1px solid rgba(80,80,160,0.3);
+  color: #99a; padding: 4px 12px; border-radius: 14px; cursor: pointer;
+  font-size: 11px; margin: 2px; display: inline-block; transition: all 0.2s;
+}
+.filter-btn.active { background: rgba(100,140,255,0.4); color: #ccf; border-color: #88f; }
+</style>
+</head>
+<body>
+<div id="container"></div>
+
+<div id="info-panel">
+  <h1>The Contradiction Reflection Plane</h1>
+  <h2>How contradiction is a mirror in embedding space</h2>
+  <p>Each pair of connected points represents a sentence and its contradiction.
+     The <span style="color:#8af">blue plane</span> is the learned contradiction hyperplane,
+     perpendicular to <b>c&#x0302;</b>.</p>
+  <p>Reflecting a statement through this plane (v' = v &minus; 2(v&middot;c&#x0302;)c&#x0302;) flips its logical polarity.
+     Ghost points show where reflections land.</p>
+  <div class="stat"><span class="stat-label">Pairs loaded</span><span class="stat-value" id="stat-pairs">0</span></div>
+  <div class="stat"><span class="stat-label">Reflection hit rate</span><span class="stat-value">80% exact / 93% top-3</span></div>
+  <div class="stat"><span class="stat-label">Mean cos(reflected, target)</span><span class="stat-value">0.645</span></div>
+</div>
+
+<div id="legend">
+  <h3>Points</h3>
+  <div class="legend-item"><div class="legend-dot" style="background:#ff6b6b"></div> Sentence A (original)</div>
+  <div class="legend-item"><div class="legend-dot" style="background:#51cf66"></div> Sentence B (contradiction)</div>
+  <div class="legend-item"><div class="legend-dot" style="background:#ff6b6b; opacity:0.3"></div> Reflected A (ghost)</div>
+  <div class="legend-item"><div class="legend-dot" style="background:#4dabf7"></div> Entailment pair</div>
+  <div class="legend-item"><div class="legend-dot" style="background:#868e96"></div> Neutral pair</div>
+  <h3 style="margin-top:12px">Connections</h3>
+  <div class="legend-item"><div style="width:20px;height:2px;background:#ff6b6b"></div> Original pair</div>
+  <div class="legend-item"><div style="width:20px;height:2px;background:rgba(255,107,107,0.25);border-top:1px dashed rgba(255,107,107,0.5)"></div> Reflection path</div>
+</div>
+
+<div id="controls">
+  <span class="btn active" id="btn-contra" onclick="toggleFilter('contradiction')">Contradictions</span>
+  <span class="btn" id="btn-entail" onclick="toggleFilter('entailment')">Entailments</span>
+  <span class="btn" id="btn-neutral" onclick="toggleFilter('neutral')">Neutrals</span>
+  <span style="color:#555">|</span>
+  <span class="btn" id="btn-reflect" onclick="toggleReflections()">Show Reflections</span>
+  <span class="btn" id="btn-plane" onclick="togglePlane()">Show Plane</span>
+  <span class="btn" id="btn-lines" onclick="toggleLines()">Show Links</span>
+  <span style="color:#555">|</span>
+  <span class="btn" onclick="animateReflection()">Animate Reflection</span>
+</div>
+
+<div id="tooltip">
+  <div class="tt-label">Sentence A:</div>
+  <div class="tt-sent" id="tt-a"></div>
+  <div class="tt-label">Sentence B:</div>
+  <div class="tt-sent" id="tt-b"></div>
+  <div class="tt-stat" id="tt-stats"></div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+// ─── DATA ──────────────────────────────────────────────────────────────────
+const DATA = {"pairs": [{"sent_a": "The store is open today.", "sent_b": "The store is closed today.", "label": "contradiction", "domain": "general", "subtype": "negation", "a": {"c": -0.21308000734478888, "x": 0.05625621744515234, "y": -0.3816981060555368}, "b": {"c": 0.08065211322631038, "x": 0.0906474293699916, "y": -0.26672624782097176}, "reflected_a": {"c": 0.21308000734478888, "x": 0.05625621744515235, "y": -0.3816981060555368}, "cosine_ab": 0.5867900848388672, "cosine_reflected_b": 0.6211607555319573}, {"sent_a": "She passed the exam.", "sent_b": "She failed the exam.", "label": "contradiction", "domain": "general", "subtype": "antonym", "a": {"c": -0.23243906528291308, "x": 0.26191675407669757, "y": -0.3606349639900185}, "b": {"c": 0.17107362448116664, "x": 0.1244772156138324, "y": -0.23517610900614955}, "reflected_a": {"c": 0.23243906528291308, "x": 0.26191675407669757, "y": -0.3606349639900185}, "cosine_ab": 0.6026633381843567, "cosine_reflected_b": 0.6821917025603963}, {"sent_a": "The project was completed on time.", "sent_b": "The project was delayed significantly.", "label": "contradiction", "domain": "general", "subtype": "antonym", "a": {"c": -0.2636696419279939, "x": 0.08162522074626298, "y": -0.3116464150217124}, "b": {"c": 0.2169378525007281, "x": -0.06038907119989677, "y": -0.17122335703911312}, "reflected_a": {"c": 0.26366964192799386, "x": 0.08162522074626297, "y": -0.3116464150217124}, "cosine_ab": 0.359316885471344, "cosine_reflected_b": 0.47371671818710903}, {"sent_a": "Revenue increased this quarter.", "sent_b": "Revenue declined this quarter.", "label": "contradiction", "domain": "general", "subtype": "antonym", "a": {"c": -0.14487707780736309, "x": -0.14411209273244163, "y": -0.3398576034613454}, "b": {"c": 0.2114757309372431, "x": -0.1370488165116553, "y": -0.2784915976932191}, "reflected_a": {"c": 0.14487707780736303, "x": -0.14411209273244163, "y": -0.3398576034613454}, "cosine_ab": 0.5997853875160217, "cosine_reflected_b": 0.661061269882894}, {"sent_a": "The team supports the proposal.", "sent_b": "The team opposes the proposal.", "label": "contradiction", "domain": "general", "subtype": "antonym", "a": {"c": -0.2681033744289548, "x": -0.09386927806068292, "y": -0.09784440869834787}, "b": {"c": 0.21374811681181924, "x": -0.17583161810686937, "y": -0.017552250157224433}, "reflected_a": {"c": 0.2681033744289547, "x": -0.09386927806068289, "y": -0.09784440869834787}, "cosine_ab": 0.518488883972168, "cosine_reflected_b": 0.6331020445402348}, {"sent_a": "Water freezes at zero degrees Celsius.", "sent_b": "Water remains liquid at zero degrees Celsius.", "label": "contradiction", "domain": "general", "subtype": "factual", "a": {"c": 0.14117581305671853, "x": 0.23358839821524774, "y": -0.05048458897200188}, "b": {"c": 0.09329196839087874, "x": 0.27654032613084056, "y": -0.020611766224284844}, "reflected_a": {"c": -0.1411758130567185, "x": 0.23358839821524774, "y": -0.05048458897200185}, "cosine_ab": 0.8569518327713013, "cosine_reflected_b": 0.8306107055374262}, {"sent_a": "The company is profitable.", "sent_b": "The company is losing money.", "label": "contradiction", "domain": "general", "subtype": "antonym", "a": {"c": -0.2283226250271687, "x": -0.3038065703398704, "y": -0.26752321371604615}, "b": {"c": 0.09262090016605838, "x": -0.3232825590291271, "y": -0.27896393722569557}, "reflected_a": {"c": 0.22832262502716869, "x": -0.3038065703398704, "y": -0.26752321371604615}, "cosine_ab": 0.6323446035385132, "cosine_reflected_b": 0.6746395075744926}, {"sent_a": "He arrived early.", "sent_b": "He arrived late.", "label": "contradiction", "domain": "general", "subtype": "scalar", "a": {"c": -0.013449906600058563, "x": 0.15770448322662897, "y": -0.34959363952320466}, "b": {"c": 0.2449718798583255, "x": 0.16270595099948065, "y": -0.29432267137604273}, "reflected_a": {"c": 0.013449906600058563, "x": 0.15770448322662897, "y": -0.34959363952320466}, "cosine_ab": 0.8100012540817261, "cosine_reflected_b": 0.8165908962720319}, {"sent_a": "The policy reduces inequality.", "sent_b": "The policy increases inequality.", "label": "contradiction", "domain": "general", "subtype": "antonym", "a": {"c": -0.1537785223795058, "x": -0.4357985981275555, "y": -0.031269193005724616}, "b": {"c": -0.035626878389297026, "x": -0.5134550573204497, "y": -0.00204487793023328}, "reflected_a": {"c": 0.15377852237950576, "x": -0.4357985981275555, "y": -0.031269193005724616}, "cosine_ab": 0.6852248907089233, "cosine_reflected_b": 0.6742676198642604}, {"sent_a": "Demand is growing rapidly.", "sent_b": "Demand is shrinking rapidly.", "label": "contradiction", "domain": "general", "subtype": "antonym", "a": {"c": -0.1533525803755893, "x": -0.3122364280801066, "y": -0.19265335430965838}, "b": {"c": 0.1677981519784166, "x": -0.217507542211484, "y": -0.18099447267235672}, "reflected_a": {"c": 0.15335258037558927, "x": -0.3122364280801066, "y": -0.19265335430965835}, "cosine_ab": 0.41828155517578125, "cosine_reflected_b": 0.46974609868995454}, {"sent_a": "The experiment confirmed the hypothesis.", "sent_b": "The experiment refuted the hypothesis.", "label": "contradiction", "domain": "general", "subtype": "antonym", "a": {"c": -0.05065544985949583, "x": 0.18797315678403337, "y": 0.03264881250460605}, "b": {"c": 0.33501935150854667, "x": 0.1611247376709301, "y": 0.069983269578241}, "reflected_a": {"c": 0.05065544985949584, "x": 0.18797315678403337, "y": 0.03264881250460597}, "cosine_ab": 0.6914833188056946, "cosine_reflected_b": 0.7254244079796722}, {"sent_a": "The bridge is safe for traffic.", "sent_b": "The bridge is structurally unsound and dangerous.", "label": "contradiction", "domain": "general", "subtype": "factual", "a": {"c": -0.1439120337913159, "x": 0.08853199786652383, "y": -0.2555152175587737}, "b": {"c": 0.12927602301729707, "x": -0.06906541572032608, "y": -0.1461673155739983}, "reflected_a": {"c": 0.14391203379131587, "x": 0.08853199786652381, "y": -0.2555152175587737}, "cosine_ab": 0.5523528456687927, "cosine_reflected_b": 0.5895615512198534}, {"sent_a": "All students passed the test.", "sent_b": "No student passed the test.", "label": "contradiction", "domain": "general", "subtype": "quantifier", "a": {"c": -0.24352143159414547, "x": 0.1666434657648611, "y": -0.20103347896040877}, "b": {"c": 0.1526029816298398, "x": 0.10962861468545486, "y": -0.12046854946981062}, "reflected_a": {"c": 0.2435214315941454, "x": 0.16664346576486117, "y": -0.20103347896040874}, "cosine_ab": 0.5595213174819946, "cosine_reflected_b": 0.6338455280217453}, {"sent_a": "The medication has no side effects.", "sent_b": "The medication causes severe side effects.", "label": "contradiction", "domain": "general", "subtype": "negation", "a": {"c": 0.021346017918051158, "x": 0.17881191887057452, "y": -0.14903344756132575}, "b": {"c": 0.1407639190918179, "x": -0.01796398591341137, "y": -0.12346934547738733}, "reflected_a": {"c": -0.021346017918051158, "x": 0.17881191887057452, "y": -0.14903344756132575}, "cosine_ab": 0.48894280195236206, "cosine_reflected_b": 0.4829332923981969}, {"sent_a": "The city is growing.", "sent_b": "The city is shrinking.", "label": "contradiction", "domain": "general", "subtype": "antonym", "a": {"c": -0.058288415360947005, "x": -0.20773652854079866, "y": -0.23145123050669708}, "b": {"c": 0.19223189116797643, "x": -0.19072603123414544, "y": -0.17737714965850862}, "reflected_a": {"c": 0.058288415360947025, "x": -0.20773652854079866, "y": -0.23145123050669708}, "cosine_ab": 0.6193522810935974, "cosine_reflected_b": 0.6417620628017242}, {"sent_a": "Private property is the foundation of all civilization.", "sent_b": "Private property is the root of all exploitation and must be abolished.", "label": "contradiction", "domain": "political", "subtype": "ideological", "a": {"c": -0.10312499748241788, "x": -0.4098390292297949, "y": 0.1658245420250455}, "b": {"c": -0.09271267555986419, "x": -0.556891265694559, "y": 0.13965219978142931}, "reflected_a": {"c": 0.10312499748241785, "x": -0.409839029229795, "y": 0.1658245420250455}, "cosine_ab": 0.7405701279640198, "cosine_reflected_b": 0.7214481468405272}, {"sent_a": "The free market allocates resources efficiently.", "sent_b": "The market produces chaos and crises of overproduction.", "label": "contradiction", "domain": "political", "subtype": "ideological", "a": {"c": -0.24797664504759998, "x": -0.463990581125493, "y": 0.0021599662935786745}, "b": {"c": 0.08938223596455225, "x": -0.5004725338085132, "y": 0.05439831186796709}, "reflected_a": {"c": 0.24797664504759998, "x": -0.463990581125493, "y": 0.0021599662935786745}, "cosine_ab": 0.43402713537216187, "cosine_reflected_b": 0.4783565453488311}, {"sent_a": "The state must wither away for true freedom.", "sent_b": "A strong state is necessary to protect individual rights.", "label": "contradiction", "domain": "political", "subtype": "ideological", "a": {"c": -0.12681304553389983, "x": -0.2728069442433301, "y": 0.08799503853422705}, "b": {"c": -0.21309819434559818, "x": -0.3259409661741182, "y": 0.09907396120170589}, "reflected_a": {"c": 0.1268130455338998, "x": -0.2728069442433301, "y": 0.08799503853422705}, "cosine_ab": 0.6200759410858154, "cosine_reflected_b": 0.5660286249206244}, {"sent_a": "Class struggle is the engine of historical progress.", "sent_b": "Class harmony and cooperation drive social advancement.", "label": "contradiction", "domain": "political", "subtype": "ideological", "a": {"c": -0.11841239961626555, "x": -0.3405119329139707, "y": 0.12066607738855883}, "b": {"c": -0.1307269528890446, "x": -0.33710833803098234, "y": 0.16485984308858184}, "reflected_a": {"c": 0.11841239961626554, "x": -0.34051193291397064, "y": 0.12066607738855883}, "cosine_ab": 0.57286536693573, "cosine_reflected_b": 0.5419059350323753}, {"sent_a": "Taxation is theft.", "sent_b": "Taxation is the price of civilization.", "label": "contradiction", "domain": "political", "subtype": "ideological", "a": {"c": -0.12425300805562478, "x": -0.35368029527701295, "y": 0.10110669286177204}, "b": {"c": -0.11064270275682833, "x": -0.4452046103621503, "y": 0.1292891919859305}, "reflected_a": {"c": 0.12425300805562478, "x": -0.35368029527701295, "y": 0.10110669286177201}, "cosine_ab": 0.7161046266555786, "cosine_reflected_b": 0.6886091696791874}, {"sent_a": "Workers are exploited under capitalism.", "sent_b": "Workers freely choose to sell their labor.", "label": "contradiction", "domain": "political", "subtype": "ideological", "a": {"c": -0.11230325158231604, "x": -0.5065745153282696, "y": 0.0029681202325636535}, "b": {"c": -0.13866795685175967, "x": -0.4285999008079206, "y": -0.05967841747446713}, "reflected_a": {"c": 0.112303251582316, "x": -0.5065745153282696, "y": 0.002968120232563598}, "cosine_ab": 0.563512921333313, "cosine_reflected_b": 0.5323671740038718}, {"sent_a": "Central planning can rationally allocate resources.", "sent_b": "No central planner can replicate the information in market prices.", "label": "contradiction", "domain": "political", "subtype": "ideological", "a": {"c": -0.2895211228730954, "x": -0.3637495305972518, "y": 0.07427400698650538}, "b": {"c": 0.17990589648241176, "x": -0.18671636432485178, "y": 0.09443481712516627}, "reflected_a": {"c": 0.28952112287309534, "x": -0.3637495305972518, "y": 0.07427400698650535}, "cosine_ab": 0.2475668489933014, "cosine_reflected_b": 0.35173994968386224}, {"sent_a": "Democracy is the best form of government.", "sent_b": "Democracy is the tyranny of the majority.", "label": "contradiction", "domain": "political", "subtype": "ideological", "a": {"c": -0.2231971880583475, "x": -0.21927404727364602, "y": 0.13224710431983958}, "b": {"c": -0.06968448818359119, "x": -0.21180730729146424, "y": 0.13067385942419238}, "reflected_a": {"c": 0.22319718805834746, "x": -0.21927404727364602, "y": 0.1322471043198397}, "cosine_ab": 0.7236461043357849, "cosine_reflected_b": 0.692539312542854}, {"sent_a": "Profit is the reward for serving consumers.", "sent_b": "Profit is extracted surplus value stolen from workers.", "label": "contradiction", "domain": "political", "subtype": "ideological", "a": {"c": -0.23937047783710175, "x": -0.3307195973699647, "y": -0.06174751528788987}, "b": {"c": 0.009866075566007437, "x": -0.5503239426436365, "y": -0.07988874031713468}, "reflected_a": {"c": 0.23937047783710166, "x": -0.3307195973699647, "y": -0.061747515287889854}, "cosine_ab": 0.5673048496246338, "cosine_reflected_b": 0.5720281265842628}, {"sent_a": "Individual liberty is the highest political value.", "sent_b": "Collective welfare must take priority over individual freedom.", "label": "contradiction", "domain": "political", "subtype": "ideological", "a": {"c": -0.18472564998001947, "x": -0.28825103188125256, "y": 0.12427389695850907}, "b": {"c": -0.12750983062652058, "x": -0.4477221754624083, "y": 0.19063245148522293}, "reflected_a": {"c": 0.1847256499800195, "x": -0.2882510318812526, "y": 0.12427389695850907}, "cosine_ab": 0.6525055170059204, "cosine_reflected_b": 0.6053967774503537}, {"sent_a": "The bourgeoisie is a revolutionary class.", "sent_b": "The bourgeoisie is a parasitic class.", "label": "contradiction", "domain": "political", "subtype": "ideological", "a": {"c": -0.10370511272162053, "x": -0.33460919049874754, "y": 0.03851056518619886}, "b": {"c": -0.026766857921925322, "x": -0.43800541305138785, "y": 0.10301863041025916}, "reflected_a": {"c": 0.10370511272162049, "x": -0.33460919049874754, "y": 0.038510565186198886}, "cosine_ab": 0.7144615650177002, "cosine_reflected_b": 0.7089098556142622}, {"sent_a": "Economic inequality is natural and productive.", "sent_b": "Economic inequality is artificial and destructive.", "label": "contradiction", "domain": "political", "subtype": "ideological", "a": {"c": -0.15468004137551353, "x": -0.5233097660800871, "y": 0.13898134938471876}, "b": {"c": 0.047316670446156076, "x": -0.5411539107635625, "y": 0.23000464845203103}, "reflected_a": {"c": 0.1546800413755135, "x": -0.5233097660800871, "y": 0.13898134938471882}, "cosine_ab": 0.8108111619949341, "cosine_reflected_b": 0.8254489747351333}, {"sent_a": "Trade unions protect workers.", "sent_b": "Trade unions distort labor markets.", "label": "contradiction", "domain": "political", "subtype": "ideological", "a": {"c": -0.18958127848110762, "x": -0.38732614444449626, "y": -0.10078965445073176}, "b": {"c": 0.07890641687547292, "x": -0.4777367558583207, "y": 0.030463520890978674}, "reflected_a": {"c": 0.18958127848110762, "x": -0.3873261444444962, "y": -0.10078965445073176}, "cosine_ab": 0.7000758051872253, "cosine_reflected_b": 0.7299940576386711}, {"sent_a": "Imperialism is the highest stage of capitalism.", "sent_b": "Free trade between nations promotes peace and prosperity.", "label": "contradiction", "domain": "political", "subtype": "ideological", "a": {"c": -0.10621691796911054, "x": -0.34060285933700307, "y": 0.08271598276423617}, "b": {"c": -0.1084949967454572, "x": -0.31113846834187797, "y": 0.04241127615410473}, "reflected_a": {"c": 0.10621691796911051, "x": -0.34060285933700307, "y": 0.08271598276423617}, "cosine_ab": 0.26237305998802185, "cosine_reflected_b": 0.23932503833870933}, {"sent_a": "Religion is the opium of the people.", "sent_b": "Religion is the moral foundation of civilization.", "label": "contradiction", "domain": "political", "subtype": "ideological", "a": {"c": -0.06699752077940133, "x": -0.1070838603512577, "y": 0.1981587994362153}, "b": {"c": -0.075618898779021, "x": -0.06861415717322689, "y": 0.2490855128087973}, "reflected_a": {"c": 0.06699752077940131, "x": -0.10708386035125773, "y": 0.1981587994362153}, "cosine_ab": 0.6285462379455566, "cosine_reflected_b": 0.6184136891277954}, {"sent_a": "Free will is an illusion determined by prior causes.", "sent_b": "Humans possess genuine free will independent of causation.", "label": "contradiction", "domain": "philosophical", "subtype": "metaphysical", "a": {"c": -0.020837060296726745, "x": 0.043411629831832534, "y": 0.4699431837549827}, "b": {"c": -0.1333837870349406, "x": -0.05156050966648115, "y": 0.46284866781266487}, "reflected_a": {"c": 0.020837060296726717, "x": 0.04341162983183253, "y": 0.46994318375498256}, "cosine_ab": 0.7048341035842896, "cosine_reflected_b": 0.699275459906951}, {"sent_a": "Morality is objective and universal.", "sent_b": "Morality is relative to culture and circumstance.", "label": "contradiction", "domain": "philosophical", "subtype": "ethical", "a": {"c": -0.1763885988487044, "x": -0.07369678859597231, "y": 0.29812438488813886}, "b": {"c": 0.07562579061532179, "x": -0.130050556021226, "y": 0.2600691430095875}, "reflected_a": {"c": 0.17638859884870436, "x": -0.07369678859597234, "y": 0.29812438488813875}, "cosine_ab": 0.7366575002670288, "cosine_reflected_b": 0.7633365127977193}, {"sent_a": "The mind is identical to the brain.", "sent_b": "The mind is fundamentally distinct from physical matter.", "label": "contradiction", "domain": "philosophical", "subtype": "metaphysical", "a": {"c": -0.16772706941244897, "x": 0.29330980687034225, "y": 0.3761783676093695}, "b": {"c": 0.02990716996378747, "x": 0.243404185983911, "y": 0.4934376211591628}, "reflected_a": {"c": 0.16772706941244897, "x": 0.2933098068703423, "y": 0.3761783676093695}, "cosine_ab": 0.6794856190681458, "cosine_reflected_b": 0.6895180343319988}, {"sent_a": "Knowledge requires certainty.", "sent_b": "All knowledge is probabilistic and fallible.", "label": "contradiction", "domain": "philosophical", "subtype": "epistemic", "a": {"c": -0.21029787203034017, "x": 0.1494403118250615, "y": 0.23931215517216295}, "b": {"c": -0.027925562191253948, "x": 0.13832947771457105, "y": 0.3009160224623999}, "reflected_a": {"c": 0.21029787203034012, "x": 0.1494403118250615, "y": 0.2393121551721629}, "cosine_ab": 0.6230883002281189, "cosine_reflected_b": 0.6113428789063927}, {"sent_a": "Meaning is determined by the speaker's intention.", "sent_b": "Meaning is determined by social convention and use.", "label": "contradiction", "domain": "philosophical", "subtype": "linguistic", "a": {"c": -0.1499911723422705, "x": 0.06482170387897426, "y": 0.18661748229509498}, "b": {"c": -0.11492131783682635, "x": -0.0828755911177718, "y": 0.24452011356847855}, "reflected_a": {"c": 0.14999117234227047, "x": 0.06482170387897425, "y": 0.18661748229509492}, "cosine_ab": 0.7122848033905029, "cosine_reflected_b": 0.6778104288500535}, {"sent_a": "The universe has a purpose.", "sent_b": "The universe is fundamentally purposeless.", "label": "contradiction", "domain": "philosophical", "subtype": "metaphysical", "a": {"c": -0.16944752345728992, "x": 0.07697384754514507, "y": 0.25607665225963117}, "b": {"c": -0.01646805937163608, "x": 0.13736447672321606, "y": 0.3295483080206778}, "reflected_a": {"c": 0.16944752345728992, "x": 0.07697384754514507, "y": 0.25607665225963117}, "cosine_ab": 0.787060558795929, "cosine_reflected_b": 0.7814796517867579}, {"sent_a": "Mathematics is discovered, not invented.", "sent_b": "Mathematics is a human invention.", "label": "contradiction", "domain": "philosophical", "subtype": "metaphysical", "a": {"c": -0.01387580302468503, "x": 0.11661610397892493, "y": 0.1548373787909947}, "b": {"c": -0.044488892482322503, "x": 0.019990977665974487, "y": 0.242519892709842}, "reflected_a": {"c": 0.013875803024685034, "x": 0.11661610397892493, "y": 0.1548373787909947}, "cosine_ab": 0.8254956007003784, "cosine_reflected_b": 0.8242610268735696}, {"sent_a": "Beauty is in the eye of the beholder.", "sent_b": "Beauty is an objective property of things.", "label": "contradiction", "domain": "philosophical", "subtype": "aesthetic", "a": {"c": -0.01654125467488357, "x": 0.1384379649337864, "y": 0.04924667047164594}, "b": {"c": -0.07380693897471277, "x": 0.063054152269262, "y": 0.26124409104891466}, "reflected_a": {"c": 0.016541254674883574, "x": 0.1384379649337864, "y": 0.04924667047164594}, "cosine_ab": 0.6540627479553223, "cosine_reflected_b": 0.6516210380348815}, {"sent_a": "Consciousness can be fully explained by physics.", "sent_b": "Consciousness requires explanation beyond physical processes.", "label": "contradiction", "domain": "philosophical", "subtype": "metaphysical", "a": {"c": -0.15846862189371796, "x": 0.3528861721401335, "y": 0.3592293719939398}, "b": {"c": -0.06569098540212903, "x": 0.24938268612899805, "y": 0.44035093449829266}, "reflected_a": {"c": 0.15846862189371796, "x": 0.35288617214013346, "y": 0.3592293719939398}, "cosine_ab": 0.7717640399932861, "cosine_reflected_b": 0.7509440983031339}, {"sent_a": "Language determines the limits of thought.", "sent_b": "Thought is prior to and independent of language.", "label": "contradiction", "domain": "philosophical", "subtype": "linguistic", "a": {"c": 0.008798928106626244, "x": 0.09173197242663762, "y": 0.46929766018792707}, "b": {"c": -0.0004945883301604205, "x": 0.1910798716599721, "y": 0.3913596756643969}, "reflected_a": {"c": -0.00879892810662624, "x": 0.09173197242663764, "y": 0.46929766018792707}, "cosine_ab": 0.7418294548988342, "cosine_reflected_b": 0.741838164067465}, {"sent_a": "Existence precedes essence.", "sent_b": "Essence precedes existence.", "label": "contradiction", "domain": "philosophical", "subtype": "existential", "a": {"c": -0.12154462620972822, "x": 0.14787362410743504, "y": 0.3265589806336604}, "b": {"c": -0.1121108068832343, "x": 0.15188471204841586, "y": 0.348642303802696}, "reflected_a": {"c": 0.12154462620972818, "x": 0.14787362410743501, "y": 0.3265589806336605}, "cosine_ab": 0.977713942527771, "cosine_reflected_b": 0.950461029949417}, {"sent_a": "The good life consists in pleasure.", "sent_b": "The good life consists in virtue regardless of pleasure.", "label": "contradiction", "domain": "philosophical", "subtype": "ethical", "a": {"c": -0.18666710589466237, "x": 0.04484888137811793, "y": 0.06500042160315977}, "b": {"c": -0.13980679662687392, "x": 0.0005228100761983587, "y": 0.12691675167600128}, "reflected_a": {"c": 0.18666710589466237, "x": 0.04484888137811794, "y": 0.06500042160315977}, "cosine_ab": 0.8679339289665222, "cosine_reflected_b": 0.8157392126453861}, {"sent_a": "Time is real and fundamental.", "sent_b": "Time is an illusion arising from more basic processes.", "label": "contradiction", "domain": "philosophical", "subtype": "metaphysical", "a": {"c": -0.039078172172506205, "x": 0.15879280926492448, "y": 0.30410041702182844}, "b": {"c": 0.06956716534779318, "x": 0.22361740743214759, "y": 0.3650946129344521}, "reflected_a": {"c": 0.039078172172506184, "x": 0.15879280926492445, "y": 0.30410041702182844}, "cosine_ab": 0.7921013832092285, "cosine_reflected_b": 0.797538449594029}, {"sent_a": "Personal identity persists through change.", "sent_b": "There is no enduring self, only momentary states.", "label": "contradiction", "domain": "philosophical", "subtype": "metaphysical", "a": {"c": -0.16857313632395887, "x": -0.056161113421549974, "y": 0.15148670013296536}, "b": {"c": -0.07265475505078575, "x": 0.14695660718081816, "y": 0.3222751974375836}, "reflected_a": {"c": 0.16857313632395887, "x": -0.056161113421549974, "y": 0.15148670013296542}, "cosine_ab": 0.5300895571708679, "cosine_reflected_b": 0.5055943084220865}, {"sent_a": "Logic is the foundation of all rational thought.", "sent_b": "Reason has limits that logic alone cannot overcome.", "label": "contradiction", "domain": "philosophical", "subtype": "epistemic", "a": {"c": -0.1279568730680873, "x": 0.05356369050135971, "y": 0.2675471398588264}, "b": {"c": 0.03475111411656021, "x": 0.07891830856854239, "y": 0.3379684763673805}, "reflected_a": {"c": 0.12795687306808728, "x": 0.05356369050135971, "y": 0.2675471398588263}, "cosine_ab": 0.6586639285087585, "cosine_reflected_b": 0.6675572391437321}, {"sent_a": "The Earth is approximately 4.5 billion years old.", "sent_b": "The Earth is less than 10,000 years old.", "label": "contradiction", "domain": "empirical", "subtype": "factual", "a": {"c": 0.057949902127511145, "x": 0.29774583101098573, "y": -0.08192654307002004}, "b": {"c": 0.10710990633889442, "x": 0.25781106074198196, "y": -0.024373126123726857}, "reflected_a": {"c": -0.05794990212751114, "x": 0.29774583101098573, "y": -0.08192654307002}, "cosine_ab": 0.7940741181373596, "cosine_reflected_b": 0.7816600382577399}, {"sent_a": "Vaccines prevent disease effectively.", "sent_b": "Vaccines cause the diseases they claim to prevent.", "label": "contradiction", "domain": "empirical", "subtype": "factual", "a": {"c": -0.2582978471539843, "x": -0.028907459432410618, "y": -0.01792085143349685}, "b": {"c": -0.04627964350851788, "x": -0.14540679053133193, "y": 0.07072581869576575}, "reflected_a": {"c": 0.2582978471539843, "x": -0.028907459432410618, "y": -0.017920851433496837}, "cosine_ab": 0.797758936882019, "cosine_reflected_b": 0.7738509820731659}, {"sent_a": "Human activity is the primary driver of climate change.", "sent_b": "Climate change is entirely natural and unrelated to human activity.", "label": "contradiction", "domain": "empirical", "subtype": "causal", "a": {"c": -0.0048671835823848875, "x": -0.09406802155892059, "y": 0.03527225264827491}, "b": {"c": 0.09003525610820111, "x": 0.01077725089891847, "y": 0.04379570424540305}, "reflected_a": {"c": 0.004867183582384919, "x": -0.09406802155892059, "y": 0.03527225264827491}, "cosine_ab": 0.6246247887611389, "cosine_reflected_b": 0.6255011556334816}, {"sent_a": "Evolution explains the diversity of life.", "sent_b": "All species were created in their present form.", "label": "contradiction", "domain": "empirical", "subtype": "theoretical", "a": {"c": -0.09100884081839503, "x": 0.11956568416098257, "y": 0.16322714615558617}, "b": {"c": 0.006541317607494258, "x": 0.17239984068673586, "y": 0.11298020591532584}, "reflected_a": {"c": 0.091008840818395, "x": 0.11956568416098255, "y": 0.16322714615558617}, "cosine_ab": 0.5114447474479675, "cosine_reflected_b": 0.5126353643015407}, {"sent_a": "Antibiotics kill bacteria.", "sent_b": "Antibiotics have no effect on bacteria.", "label": "contradiction", "domain": "empirical", "subtype": "factual", "a": {"c": -0.03901400641829017, "x": 0.06720665002996129, "y": 0.00818512097430324}, "b": {"c": 0.16944713117653995, "x": 0.1098640124991013, "y": -0.022160714086034927}, "reflected_a": {"c": 0.03901400641829017, "x": 0.06720665002996129, "y": 0.00818512097430324}, "cosine_ab": 0.6964781880378723, "cosine_reflected_b": 0.7096997840356841}, {"sent_a": "The universe is expanding.", "sent_b": "The universe is static and unchanging.", "label": "contradiction", "domain": "empirical", "subtype": "factual", "a": {"c": -0.08008561347251461, "x": 0.14505098312190856, "y": 0.04697239005702816}, "b": {"c": 0.000515599549092572, "x": 0.2412571372476251, "y": 0.2673703740427352}, "reflected_a": {"c": 0.08008561347251461, "x": 0.14505098312190856, "y": 0.04697239005702816}, "cosine_ab": 0.5917659401893616, "cosine_reflected_b": 0.5918485011292626}, {"sent_a": "Smoking causes lung cancer.", "sent_b": "Smoking has no causal relationship to cancer.", "label": "contradiction", "domain": "empirical", "subtype": "causal", "a": {"c": 0.009153227469135682, "x": -0.025424839781074897, "y": 0.023282735739448113}, "b": {"c": 0.12556427453867233, "x": 0.05461504749424538, "y": 0.08639904455328037}, "reflected_a": {"c": -0.00915322746913568, "x": -0.025424839781074897, "y": 0.023282735739448168}, "cosine_ab": 0.7329158186912537, "cosine_reflected_b": 0.7306171384761846}, {"sent_a": "Light travels faster than sound.", "sent_b": "Sound travels faster than light.", "label": "contradiction", "domain": "empirical", "subtype": "factual", "a": {"c": 0.04155526293833927, "x": 0.2741163851549049, "y": -0.0007371672718245181}, "b": {"c": 0.0859012970333897, "x": 0.2961339418350747, "y": 0.04107563482169874}, "reflected_a": {"c": -0.04155526293833929, "x": 0.27411638515490483, "y": -0.0007371672718245181}, "cosine_ab": 0.9396283626556396, "cosine_reflected_b": 0.9324890203722344}, {"sent_a": "Exercise improves cardiovascular health.", "sent_b": "Exercise damages cardiovascular health.", "label": "contradiction", "domain": "empirical", "subtype": "causal", "a": {"c": -0.15966109515387372, "x": -0.029682913837463132, "y": -0.07381493346650958}, "b": {"c": -0.012816430247023607, "x": -0.0637517086919902, "y": -0.02476189248195164}, "reflected_a": {"c": 0.1596610951538737, "x": -0.029682913837463132, "y": -0.07381493346650958}, "cosine_ab": 0.888499915599823, "cosine_reflected_b": 0.884407317036765}, {"sent_a": "The brain controls behavior.", "sent_b": "Behavior is independent of brain function.", "label": "contradiction", "domain": "empirical", "subtype": "causal", "a": {"c": -0.12851735288126187, "x": 0.09317870292913652, "y": 0.3942221317513277}, "b": {"c": -0.049953282684648236, "x": 0.18647414797661238, "y": 0.31109737185797826}, "reflected_a": {"c": 0.12851735288126187, "x": 0.09317870292913649, "y": 0.3942221317513278}, "cosine_ab": 0.714337170124054, "cosine_reflected_b": 0.7014974379524325}, {"sent_a": "Gravity is proportional to mass.", "sent_b": "Gravity is unrelated to mass.", "label": "contradiction", "domain": "empirical", "subtype": "factual", "a": {"c": 0.048879293471301, "x": 0.14816701886085365, "y": 0.10509795771301206}, "b": {"c": 0.1267280946921443, "x": 0.22353370286023438, "y": 0.15937684038750413}, "reflected_a": {"c": -0.04887929347130101, "x": 0.14816701886085368, "y": 0.10509795771301206}, "cosine_ab": 0.8247321248054504, "cosine_reflected_b": 0.8123432872039842}, {"sent_a": "DNA carries genetic information.", "sent_b": "DNA has no role in heredity.", "label": "contradiction", "domain": "empirical", "subtype": "factual", "a": {"c": -0.04500603309842117, "x": 0.17551223397755167, "y": 0.1566482582769443}, "b": {"c": 0.17813802457612887, "x": 0.11592649167881594, "y": 0.12180209677660217}, "reflected_a": {"c": 0.04500603309842116, "x": 0.17551223397755167, "y": 0.1566482582769443}, "cosine_ab": 0.4918489456176758, "cosine_reflected_b": 0.5078835210294943}, {"sent_a": "Ocean acidification harms coral reefs.", "sent_b": "Ocean acidification benefits coral reefs.", "label": "contradiction", "domain": "empirical", "subtype": "causal", "a": {"c": 0.09493180365591503, "x": -0.04670555526469472, "y": -0.15582121319183623}, "b": {"c": -0.026472469485293266, "x": -0.05638257342520202, "y": -0.15184126735104722}, "reflected_a": {"c": -0.09493180365591503, "x": -0.04670555526469475, "y": -0.15582121319183623}, "cosine_ab": 0.9109114408493042, "cosine_reflected_b": 0.9159375755305066}, {"sent_a": "Sleep deprivation impairs cognitive function.", "sent_b": "Sleep deprivation improves cognitive function.", "label": "contradiction", "domain": "empirical", "subtype": "causal", "a": {"c": -0.007212967962516775, "x": 0.0893518955413568, "y": 0.19356268911439853}, "b": {"c": -0.07468483524274883, "x": 0.06560195643195836, "y": 0.1474531650272989}, "reflected_a": {"c": 0.007212967962516756, "x": 0.0893518955413568, "y": 0.19356268911439858}, "cosine_ab": 0.9154941439628601, "cosine_reflected_b": 0.914416702894436}, {"sent_a": "Plate tectonics causes earthquakes.", "sent_b": "Earthquakes have no relationship to plate tectonics.", "label": "contradiction", "domain": "empirical", "subtype": "causal", "a": {"c": 0.04677117347239903, "x": 0.011504539993142934, "y": -0.0011540345987629264}, "b": {"c": 0.23233145494580662, "x": 0.08518874579569366, "y": 0.04237817293704682}, "reflected_a": {"c": -0.04677117347239902, "x": 0.01150453999314294, "y": -0.0011540345987629125}, "cosine_ab": 0.7093715071678162, "cosine_reflected_b": 0.6876386010987258}, {"sent_a": "He is a lifelong bachelor.", "sent_b": "His wife called him.", "label": "contradiction", "domain": "pragmatic", "subtype": "world_knowledge", "a": {"c": -0.09535841004352745, "x": 0.1796669574372174, "y": -0.12207538972299585}, "b": {"c": 0.08832974696249152, "x": 0.16966194132875723, "y": -0.3235822908536101}, "reflected_a": {"c": 0.09535841004352746, "x": 0.1796669574372174, "y": -0.12207538972299584}, "cosine_ab": 0.2896810472011566, "cosine_reflected_b": 0.3065270010153424}, {"sent_a": "She is an only child.", "sent_b": "Her brother visited yesterday.", "label": "contradiction", "domain": "pragmatic", "subtype": "world_knowledge", "a": {"c": -0.07137883525104535, "x": 0.1951760478346961, "y": -0.20159502710097515}, "b": {"c": -0.00023981071143045277, "x": 0.19804164459136386, "y": -0.394977174731189}, "reflected_a": {"c": 0.07137883525104533, "x": 0.1951760478346961, "y": -0.20159502710097515}, "cosine_ab": 0.408743679523468, "cosine_reflected_b": 0.40870939219274655}, {"sent_a": "The company went bankrupt last year.", "sent_b": "The company reported record profits last year.", "label": "contradiction", "domain": "pragmatic", "subtype": "temporal", "a": {"c": 0.004972829240903686, "x": -0.07647221523119704, "y": -0.33634512543540784}, "b": {"c": -0.13595932516012452, "x": -0.10436503111596303, "y": -0.3494171688532714}, "reflected_a": {"c": -0.004972829240903675, "x": -0.07647221523119703, "y": -0.3363451254354078}, "cosine_ab": 0.3821066617965698, "cosine_reflected_b": 0.38345888404424927}, {"sent_a": "He has never left the country.", "sent_b": "He described his trip to Paris.", "label": "contradiction", "domain": "pragmatic", "subtype": "world_knowledge", "a": {"c": -0.10442192067699639, "x": 0.1542271029491637, "y": -0.17660317880203488}, "b": {"c": 0.15429992778076032, "x": 0.1447075443693795, "y": -0.19780405844457633}, "reflected_a": {"c": 0.10442192067699638, "x": 0.1542271029491637, "y": -0.17660317880203488}, "cosine_ab": 0.18104760348796844, "cosine_reflected_b": 0.21327219682274362}, {"sent_a": "The building was demolished in 2019.", "sent_b": "The building hosted an event in 2023.", "label": "contradiction", "domain": "pragmatic", "subtype": "temporal", "a": {"c": 0.011687236820184767, "x": 0.024081654921808124, "y": -0.2719045085322948}, "b": {"c": -0.0059592436556333865, "x": -0.025392831298544367, "y": -0.22768613263705914}, "reflected_a": {"c": -0.011687236820184795, "x": 0.024081654921808124, "y": -0.2719045085322948}, "cosine_ab": 0.47427690029144287, "cosine_reflected_b": 0.4744162226462173}, {"sent_a": "She is a strict vegan.", "sent_b": "She ordered the steak.", "label": "contradiction", "domain": "pragmatic", "subtype": "world_knowledge", "a": {"c": -0.04973774222440574, "x": 0.20165267396679398, "y": -0.23479475956229726}, "b": {"c": 0.013083402390283896, "x": 0.14304240986523462, "y": -0.3037369210758103}, "reflected_a": {"c": 0.049737742224405725, "x": 0.20165267396679398, "y": -0.23479475956229723}, "cosine_ab": 0.40148377418518066, "cosine_reflected_b": 0.4027852537921259}, {"sent_a": "He is completely deaf.", "sent_b": "He described the sound of the orchestra.", "label": "contradiction", "domain": "pragmatic", "subtype": "world_knowledge", "a": {"c": 0.0035359031727953925, "x": 0.20865305572807474, "y": -0.08847565205457233}, "b": {"c": 0.08575924072082272, "x": 0.12171933278299567, "y": -0.12213019440515256}, "reflected_a": {"c": -0.0035359031727954047, "x": 0.20865305572807474, "y": -0.08847565205457233}, "cosine_ab": 0.2320021390914917, "cosine_reflected_b": 0.23139567556140594}, {"sent_a": "The river has been dry for decades.", "sent_b": "The flood from the river destroyed the town.", "label": "contradiction", "domain": "pragmatic", "subtype": "temporal", "a": {"c": 0.047469018434724196, "x": 0.1178878328926859, "y": -0.16729061712664894}, "b": {"c": 0.2553535920263591, "x": -0.017457805178040034, "y": -0.20427488064841007}, "reflected_a": {"c": -0.04746901843472421, "x": 0.11788783289268592, "y": -0.16729061712664897}, "cosine_ab": 0.2932329475879669, "cosine_reflected_b": 0.26899016808541126}, {"sent_a": "She has never learned to read.", "sent_b": "She reviewed the manuscript carefully.", "label": "contradiction", "domain": "pragmatic", "subtype": "world_knowledge", "a": {"c": 0.06227300914695642, "x": 0.12054001786222354, "y": -0.07431171142837327}, "b": {"c": -0.039169827822098824, "x": 0.15525317607331326, "y": -0.2105510351319561}, "reflected_a": {"c": -0.062273009146956396, "x": 0.12054001786222357, "y": -0.07431171142837326}, "cosine_ab": 0.23060356080532074, "cosine_reflected_b": 0.2354819910964439}, {"sent_a": "He is a committed pacifist.", "sent_b": "He enlisted in the army to fight.", "label": "contradiction", "domain": "pragmatic", "subtype": "world_knowledge", "a": {"c": -0.17898092710985178, "x": 0.045120296783842884, "y": -0.04897207355987657}, "b": {"c": 0.004231000641156064, "x": 0.12072784966089037, "y": -0.2487422965571024}, "reflected_a": {"c": 0.17898092710985175, "x": 0.04512029678384287, "y": -0.04897207355987655}, "cosine_ab": 0.3963673412799835, "cosine_reflected_b": 0.39788187524093266}, {"sent_a": "The cat is black.", "sent_b": "The cat has a color.", "label": "entailment", "domain": "general", "subtype": "hypernym", "a": {"c": -0.06446740509673324, "x": 0.12194344302499517, "y": -0.15215548272003748}, "b": {"c": -0.10039528090418215, "x": 0.1860523681074579, "y": -0.19461269232444536}, "reflected_a": {"c": 0.06446740509673321, "x": 0.12194344302499517, "y": -0.15215548272003748}, "cosine_ab": 0.6999697685241699, "cosine_reflected_b": 0.6870253404539249}, {"sent_a": "She ran a marathon.", "sent_b": "She exercised.", "label": "entailment", "domain": "general", "subtype": "hypernym", "a": {"c": -0.007603042885102364, "x": 0.2074618304925211, "y": -0.35982030137760085}, "b": {"c": -0.05651047018949387, "x": 0.15892276743990297, "y": -0.35709625120190913}, "reflected_a": {"c": 0.007603042885102352, "x": 0.2074618304925211, "y": -0.3598203013776008}, "cosine_ab": 0.5804415941238403, "cosine_reflected_b": 0.5795823066913939}, {"sent_a": "The restaurant is closed on Sundays.", "sent_b": "The restaurant is not open every day.", "label": "entailment", "domain": "general", "subtype": "implication", "a": {"c": 0.09122975243553637, "x": 0.08943834810149467, "y": -0.24264146896735295}, "b": {"c": -0.029306405055357015, "x": 0.040598458601499396, "y": -0.32172589626813586}, "reflected_a": {"c": -0.09122975243553635, "x": 0.08943834810149465, "y": -0.242641468967353}, "cosine_ab": 0.5292738676071167, "cosine_reflected_b": 0.5346210794560312}, {"sent_a": "He is a doctor.", "sent_b": "He works in healthcare.", "label": "entailment", "domain": "general", "subtype": "hypernym", "a": {"c": -0.09494698146037236, "x": 0.1693903162951066, "y": -0.18647398316378816}, "b": {"c": -0.15604857645272047, "x": 0.04893802167009034, "y": -0.25904022159382056}, "reflected_a": {"c": 0.09494698146037235, "x": 0.1693903162951066, "y": -0.18647398316378816}, "cosine_ab": 0.7940089702606201, "cosine_reflected_b": 0.7643762389651084}, {"sent_a": "It rained all day.", "sent_b": "The ground got wet.", "label": "entailment", "domain": "general", "subtype": "causal", "a": {"c": 0.13217489907440805, "x": 0.09701256832095917, "y": -0.30379259144956483}, "b": {"c": 0.07336595252516068, "x": 0.13578740031862108, "y": -0.2218659109175966}, "reflected_a": {"c": -0.13217489907440805, "x": 0.09701256832095917, "y": -0.30379259144956483}, "cosine_ab": 0.441656231880188, "cosine_reflected_b": 0.42226187842253693}, {"sent_a": "The population doubled.", "sent_b": "The population increased.", "label": "entailment", "domain": "general", "subtype": "scalar", "a": {"c": 0.0030015227250073883, "x": -0.143344217007501, "y": -0.19768939649302641}, "b": {"c": -0.07802127066391437, "x": -0.22083917834436878, "y": -0.1905380455304468}, "reflected_a": {"c": -0.0030015227250073965, "x": -0.143344217007501, "y": -0.19768939649302641}, "cosine_ab": 0.8570892214775085, "cosine_reflected_b": 0.8575575436267917}, {"sent_a": "She speaks French fluently.", "sent_b": "She knows French.", "label": "entailment", "domain": "general", "subtype": "implication", "a": {"c": -0.0897491720119152, "x": 0.21445400984041812, "y": -0.19013458884017848}, "b": {"c": -0.10234101163822043, "x": 0.23737930787070438, "y": -0.1545576367856331}, "reflected_a": {"c": 0.08974917201191521, "x": 0.21445400984041812, "y": -0.19013458884017845}, "cosine_ab": 0.9020830392837524, "cosine_reflected_b": 0.8837129741568142}, {"sent_a": "Every seat is taken.", "sent_b": "The room is full.", "label": "entailment", "domain": "general", "subtype": "implication", "a": {"c": -0.18365608111369155, "x": -0.010545001526269034, "y": -0.19368951759824288}, "b": {"c": -0.08069042099833915, "x": 0.05939311173809582, "y": -0.20930154926119865}, "reflected_a": {"c": 0.18365608111369153, "x": -0.010545001526269027, "y": -0.19368951759824288}, "cosine_ab": 0.5467044115066528, "cosine_reflected_b": 0.5170657983236211}, {"sent_a": "He broke his leg.", "sent_b": "He was injured.", "label": "entailment", "domain": "general", "subtype": "hypernym", "a": {"c": 0.10851508808934981, "x": 0.11872760612574793, "y": -0.3262106989561212}, "b": {"c": 0.11385756549330928, "x": 0.14472856748935978, "y": -0.26768500767346826}, "reflected_a": {"c": -0.10851508808934979, "x": 0.11872760612574791, "y": -0.3262106989561212}, "cosine_ab": 0.7247159481048584, "cosine_reflected_b": 0.7000054281650929}, {"sent_a": "The sun is a star.", "sent_b": "The sun is a celestial body.", "label": "entailment", "domain": "general", "subtype": "hypernym", "a": {"c": -0.0041110076770394886, "x": 0.2687890020461761, "y": 0.03720065769534556}, "b": {"c": -0.019814569591061475, "x": 0.2255209941200617, "y": 0.09961727815497418}, "reflected_a": {"c": 0.004111007677039486, "x": 0.26878900204617606, "y": 0.03720065769534553}, "cosine_ab": 0.832202672958374, "cosine_reflected_b": 0.8320397640810044}, {"sent_a": "All mammals are warm-blooded.", "sent_b": "Dogs are warm-blooded.", "label": "entailment", "domain": "general", "subtype": "instantiation", "a": {"c": -0.12353855895066462, "x": 0.24166363928886686, "y": -0.027131069045750356}, "b": {"c": -0.09992187732315905, "x": 0.1763305905317526, "y": 0.014162972746860042}, "reflected_a": {"c": 0.12353855895066462, "x": 0.24166363928886692, "y": -0.027131069045750328}, "cosine_ab": 0.7005948424339294, "cosine_reflected_b": 0.6759064492162308}, {"sent_a": "The car is red.", "sent_b": "The car is not colorless.", "label": "entailment", "domain": "general", "subtype": "negation_entail", "a": {"c": 0.0300357698245927, "x": 0.056632467248138474, "y": -0.23329925273589935}, "b": {"c": 0.0036477623989947527, "x": 0.11397527219831916, "y": -0.19111744234602543}, "reflected_a": {"c": -0.03003576982459269, "x": 0.056632467248138474, "y": -0.23329925273589938}, "cosine_ab": 0.6844994425773621, "cosine_reflected_b": 0.6842802865861063}, {"sent_a": "The cat is black.", "sent_b": "The car is fast.", "label": "neutral", "domain": "general", "subtype": "unrelated", "a": {"c": -0.06446740509673324, "x": 0.12194344302499517, "y": -0.15215548272003748}, "b": {"c": 0.01340545312868123, "x": 0.05897093799308215, "y": -0.24761246520851765}, "reflected_a": {"c": 0.06446740509673321, "x": 0.12194344302499517, "y": -0.15215548272003748}, "cosine_ab": 0.08389551192522049, "cosine_reflected_b": 0.08562394172840274}, {"sent_a": "Revenue increased this quarter.", "sent_b": "The weather was mild.", "label": "neutral", "domain": "general", "subtype": "unrelated", "a": {"c": -0.14487707780736309, "x": -0.14411209273244163, "y": -0.3398576034613454}, "b": {"c": -0.04378428309115417, "x": 0.23708746536191738, "y": -0.2711097041433383}, "reflected_a": {"c": 0.14487707780736303, "x": -0.14411209273244163, "y": -0.3398576034613454}, "cosine_ab": 0.03584878519177437, "cosine_reflected_b": 0.02316209851471488}, {"sent_a": "She passed the exam.", "sent_b": "The bridge is being repaired.", "label": "neutral", "domain": "general", "subtype": "unrelated", "a": {"c": -0.23243906528291308, "x": 0.26191675407669757, "y": -0.3606349639900185}, "b": {"c": -0.03192924034517754, "x": 0.02241602778419901, "y": -0.31199582755214306}, "reflected_a": {"c": 0.23243906528291308, "x": 0.26191675407669757, "y": -0.3606349639900185}, "cosine_ab": 0.08165335655212402, "cosine_reflected_b": 0.06681015218379087}, {"sent_a": "The store is open today.", "sent_b": "Jupiter has many moons.", "label": "neutral", "domain": "general", "subtype": "unrelated", "a": {"c": -0.21308000734478888, "x": 0.05625621744515234, "y": -0.3816981060555368}, "b": {"c": 0.038501239026102654, "x": 0.10963775444517952, "y": -0.07155877923905346}, "reflected_a": {"c": 0.21308000734478888, "x": 0.05625621744515235, "y": -0.3816981060555368}, "cosine_ab": 0.04626401886343956, "cosine_reflected_b": 0.06267170250382924}, {"sent_a": "He arrived early.", "sent_b": "The painting is beautiful.", "label": "neutral", "domain": "general", "subtype": "unrelated", "a": {"c": -0.013449906600058563, "x": 0.15770448322662897, "y": -0.34959363952320466}, "b": {"c": 0.006350514433334533, "x": 0.13236832181480426, "y": -0.13145981604498222}, "reflected_a": {"c": 0.013449906600058563, "x": 0.15770448322662897, "y": -0.34959363952320466}, "cosine_ab": -0.0003909301303792745, "cosine_reflected_b": -0.00022010710815917716}, {"sent_a": "The team won the game.", "sent_b": "The library closes at nine.", "label": "neutral", "domain": "general", "subtype": "unrelated", "a": {"c": -0.1185105900105369, "x": 0.10359186732753556, "y": -0.26613657537771623}, "b": {"c": 0.05806493950688415, "x": 0.10728356044303983, "y": -0.16439082774970618}, "reflected_a": {"c": 0.11851059001053688, "x": 0.10359186732753557, "y": -0.2661365753777162}, "cosine_ab": -0.040217626839876175, "cosine_reflected_b": -0.026455009381864354}, {"sent_a": "The economy is growing.", "sent_b": "The sunset was beautiful.", "label": "neutral", "domain": "general", "subtype": "unrelated", "a": {"c": -0.2067912461596449, "x": -0.36958814685489816, "y": -0.19645495914699068}, "b": {"c": 0.02525047596468288, "x": 0.2294662756761921, "y": -0.24879129754262724}, "reflected_a": {"c": 0.20679124615964484, "x": -0.36958814685489816, "y": -0.19645495914699068}, "cosine_ab": 0.05677993223071098, "cosine_reflected_b": 0.06722308550250178}, {"sent_a": "Water freezes at zero degrees.", "sent_b": "Shakespeare wrote Hamlet.", "label": "neutral", "domain": "general", "subtype": "unrelated", "a": {"c": 0.12404527746829572, "x": 0.23978560003277372, "y": -0.03667768072179971}, "b": {"c": 0.05413701833309868, "x": 0.05846631196390213, "y": 0.04284948718441006}, "reflected_a": {"c": -0.12404527746829568, "x": 0.23978560003277372, "y": -0.03667768072179971}, "cosine_ab": 0.06343644112348557, "cosine_reflected_b": 0.050005548279699864}, {"sent_a": "The medication works well.", "sent_b": "The train arrived on time.", "label": "neutral", "domain": "general", "subtype": "unrelated", "a": {"c": -0.28737731829890856, "x": 0.049151959891321116, "y": -0.1321025976032557}, "b": {"c": -0.2093202860701722, "x": 0.1615267527026535, "y": -0.33448167277450364}, "reflected_a": {"c": 0.28737731829890845, "x": 0.04915195989132111, "y": -0.1321025976032557}, "cosine_ab": 0.2005515694618225, "cosine_reflected_b": 0.08024375590857204}, {"sent_a": "She speaks French.", "sent_b": "The mountain is tall.", "label": "neutral", "domain": "general", "subtype": "unrelated", "a": {"c": -0.03358915615258852, "x": 0.1836049986076324, "y": -0.21838186623208392}, "b": {"c": 0.07723132697757663, "x": 0.11171831304392563, "y": -0.19314397972555744}, "reflected_a": {"c": 0.03358915615258853, "x": 0.1836049986076324, "y": -0.2183818662320839}, "cosine_ab": 0.04872588813304901, "cosine_reflected_b": 0.053914156129919684}, {"sent_a": "The building was demolished.", "sent_b": "Coffee prices are rising.", "label": "neutral", "domain": "general", "subtype": "unrelated", "a": {"c": 0.1020130637066793, "x": -0.01334504496338653, "y": -0.25633412405972145}, "b": {"c": -0.08816158555858014, "x": -0.2948890332256294, "y": -0.19574733120226395}, "reflected_a": {"c": -0.10201306370667924, "x": -0.013345044963386551, "y": -0.25633412405972134}, "cosine_ab": 0.055307235568761826, "cosine_reflected_b": 0.07329449837330024}, {"sent_a": "The dog is sleeping.", "sent_b": "The algorithm is efficient.", "label": "neutral", "domain": "general", "subtype": "unrelated", "a": {"c": 0.07969395488273137, "x": 0.11610704272738558, "y": -0.14185261727945708}, "b": {"c": -0.16694464447951263, "x": 0.058545189244329464, "y": -0.2073374175960407}, "reflected_a": {"c": -0.07969395488273139, "x": 0.11610704272738558, "y": -0.1418526172794571}, "cosine_ab": -0.06426108628511429, "cosine_reflected_b": -0.03765212675138788}], "c_hat_info": {"method": "logistic_regression", "cosine_with_mean_direction": 0.8228636263180795}};
+
+// ─── SCENE SETUP ───────────────────────────────────────────────────────────
+const container = document.getElementById('container');
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x0a0a1a);
+scene.fog = new THREE.FogExp2(0x0a0a1a, 0.15);
+
+const camera = new THREE.PerspectiveCamera(55, window.innerWidth / window.innerHeight, 0.1, 100);
+camera.position.set(3.5, 2.5, 4);
+camera.lookAt(0, 0, 0);
+
+const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+renderer.setSize(window.innerWidth, window.innerHeight);
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+container.appendChild(renderer.domElement);
+
+// ─── LIGHTS ────────────────────────────────────────────────────────────────
+scene.add(new THREE.AmbientLight(0x334466, 0.6));
+const dirLight = new THREE.DirectionalLight(0xaabbff, 0.8);
+dirLight.position.set(5, 8, 5);
+scene.add(dirLight);
+const pointLight = new THREE.PointLight(0x6688ff, 0.5, 20);
+pointLight.position.set(-3, 4, -2);
+scene.add(pointLight);
+
+// ─── ORBIT CONTROLS (inline) ──────────────────────────────────────────────
+let isDragging = false, prevMouse = {x:0, y:0};
+let spherical = {theta: 0.6, phi: 1.0, radius: 6};
+
+function updateCamera() {
+  camera.position.x = spherical.radius * Math.sin(spherical.phi) * Math.cos(spherical.theta);
+  camera.position.y = spherical.radius * Math.cos(spherical.phi);
+  camera.position.z = spherical.radius * Math.sin(spherical.phi) * Math.sin(spherical.theta);
+  camera.lookAt(0, 0, 0);
+}
+updateCamera();
+
+renderer.domElement.addEventListener('mousedown', e => { isDragging = true; prevMouse = {x: e.clientX, y: e.clientY}; });
+renderer.domElement.addEventListener('mousemove', e => {
+  if (!isDragging) return;
+  const dx = e.clientX - prevMouse.x, dy = e.clientY - prevMouse.y;
+  spherical.theta -= dx * 0.005;
+  spherical.phi = Math.max(0.1, Math.min(Math.PI - 0.1, spherical.phi + dy * 0.005));
+  prevMouse = {x: e.clientX, y: e.clientY};
+  updateCamera();
+});
+renderer.domElement.addEventListener('mouseup', () => isDragging = false);
+renderer.domElement.addEventListener('wheel', e => {
+  spherical.radius = Math.max(2, Math.min(15, spherical.radius + e.deltaY * 0.005));
+  updateCamera();
+});
+
+// ─── SCALING ───────────────────────────────────────────────────────────────
+const SCALE = 5.0;  // scale factor for visibility
+function sc(pt) { return [pt.x * SCALE, pt.c * SCALE, pt.y * SCALE]; }
+
+// ─── AXES ──────────────────────────────────────────────────────────────────
+function makeAxis(from, to, color, label) {
+  const mat = new THREE.LineBasicMaterial({ color, transparent: true, opacity: 0.4 });
+  const geo = new THREE.BufferGeometry().setFromPoints([
+    new THREE.Vector3(...from), new THREE.Vector3(...to)
+  ]);
+  scene.add(new THREE.Line(geo, mat));
+
+  // Label
+  const canvas = document.createElement('canvas');
+  canvas.width = 300; canvas.height = 40;
+  const ctx = canvas.getContext('2d');
+  ctx.font = '600 22px Arial';
+  ctx.fillStyle = '#' + color.toString(16).padStart(6, '0');
+  ctx.globalAlpha = 0.7;
+  ctx.fillText(label, 4, 28);
+  const tex = new THREE.CanvasTexture(canvas);
+  const spriteMat = new THREE.SpriteMaterial({ map: tex, transparent: true });
+  const sprite = new THREE.Sprite(spriteMat);
+  sprite.position.set(to[0] * 1.12, to[1] * 1.12, to[2] * 1.12);
+  sprite.scale.set(2.0, 0.28, 1);
+  scene.add(sprite);
+}
+
+const axLen = 1.8;
+makeAxis([0,0,0], [axLen, 0, 0], 0x666688, 'PC1 (residual)');
+makeAxis([0,0,0], [0, axLen, 0], 0x88aaff, 'c\u0302 (contradiction)');
+makeAxis([0,0,0], [0, 0, axLen], 0x666688, 'PC2 (residual)');
+
+// ─── REFLECTION PLANE ──────────────────────────────────────────────────────
+const planeGeo = new THREE.PlaneGeometry(5, 5);
+const planeMat = new THREE.MeshBasicMaterial({
+  color: 0x4488ff, transparent: true, opacity: 0.08,
+  side: THREE.DoubleSide, depthWrite: false
+});
+const planeMesh = new THREE.Mesh(planeGeo, planeMat);
+planeMesh.rotation.x = Math.PI / 2;  // plane perpendicular to Y (c_hat axis)
+planeMesh.position.y = 0;
+scene.add(planeMesh);
+
+// Plane grid lines
+const gridMat = new THREE.LineBasicMaterial({ color: 0x4488ff, transparent: true, opacity: 0.06 });
+for (let i = -2.5; i <= 2.5; i += 0.5) {
+  const g1 = new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(i, 0, -2.5), new THREE.Vector3(i, 0, 2.5)]);
+  const g2 = new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(-2.5, 0, i), new THREE.Vector3(2.5, 0, i)]);
+  scene.add(new THREE.Line(g1, gridMat));
+  scene.add(new THREE.Line(g2, gridMat));
+}
+
+// Plane label
+const planeCanvas = document.createElement('canvas');
+planeCanvas.width = 500; planeCanvas.height = 50;
+const planeCtx = planeCanvas.getContext('2d');
+planeCtx.font = '400 20px Arial';
+planeCtx.fillStyle = '#4488ff';
+planeCtx.globalAlpha = 0.5;
+planeCtx.fillText('Reflection Plane (c\u0302 = 0)', 10, 32);
+const planeTex = new THREE.CanvasTexture(planeCanvas);
+const planeSprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: planeTex, transparent: true }));
+planeSprite.position.set(2.8, 0.15, 2.8);
+planeSprite.scale.set(3.2, 0.35, 1);
+scene.add(planeSprite);
+
+// ─── DATA POINTS ───────────────────────────────────────────────────────────
+const groups = { contradiction: [], entailment: [], neutral: [] };
+const reflectionGroup = new THREE.Group();
+const lineGroup = new THREE.Group();
+const reflectionLineGroup = new THREE.Group();
+scene.add(reflectionGroup);
+scene.add(lineGroup);
+scene.add(reflectionLineGroup);
+
+const raycaster = new THREE.Raycaster();
+raycaster.params.Points.threshold = 0.15;
+const mouse = new THREE.Vector2();
+const allPointMeshes = [];
+
+function makeSphere(pos, color, opacity, size) {
+  const geo = new THREE.SphereGeometry(size, 12, 12);
+  const mat = new THREE.MeshPhongMaterial({ color, transparent: true, opacity, emissive: color, emissiveIntensity: 0.3 });
+  const mesh = new THREE.Mesh(geo, mat);
+  mesh.position.set(...pos);
+  return mesh;
+}
+
+DATA.pairs.forEach((pair, idx) => {
+  const posA = sc(pair.a);
+  const posB = sc(pair.b);
+  const posR = sc(pair.reflected_a);
+
+  let colorA, colorB, size, opacity;
+  if (pair.label === 'contradiction') {
+    colorA = 0xff6b6b; colorB = 0x51cf66; size = 0.06; opacity = 0.85;
+  } else if (pair.label === 'entailment') {
+    colorA = 0x4dabf7; colorB = 0x4dabf7; size = 0.05; opacity = 0.6;
+  } else {
+    colorA = 0x868e96; colorB = 0x868e96; size = 0.04; opacity = 0.4;
+  }
+
+  const meshA = makeSphere(posA, colorA, opacity, size);
+  const meshB = makeSphere(posB, colorB, opacity, size);
+  meshA.userData = { pairIdx: idx, point: 'a' };
+  meshB.userData = { pairIdx: idx, point: 'b' };
+  scene.add(meshA);
+  scene.add(meshB);
+  allPointMeshes.push(meshA, meshB);
+
+  // Connecting line
+  const lineMat = new THREE.LineBasicMaterial({
+    color: pair.label === 'contradiction' ? 0xff6b6b : pair.label === 'entailment' ? 0x4dabf7 : 0x555555,
+    transparent: true, opacity: pair.label === 'contradiction' ? 0.3 : 0.15
+  });
+  const lineGeo = new THREE.BufferGeometry().setFromPoints([
+    new THREE.Vector3(...posA), new THREE.Vector3(...posB)
+  ]);
+  const line = new THREE.Line(lineGeo, lineMat);
+  lineGroup.add(line);
+
+  // Reflection ghost + dashed line (only for contradictions)
+  if (pair.label === 'contradiction') {
+    const ghostMesh = makeSphere(posR, 0xff6b6b, 0.2, 0.04);
+    reflectionGroup.add(ghostMesh);
+
+    // Dashed line from A to reflected A
+    const dashMat = new THREE.LineDashedMaterial({
+      color: 0xff6b6b, transparent: true, opacity: 0.2,
+      dashSize: 0.1, gapSize: 0.06
+    });
+    const dashGeo = new THREE.BufferGeometry().setFromPoints([
+      new THREE.Vector3(...posA), new THREE.Vector3(...posR)
+    ]);
+    const dashLine = new THREE.Line(dashGeo, dashMat);
+    dashLine.computeLineDistances();
+    reflectionLineGroup.add(dashLine);
+  }
+
+  groups[pair.label].push({ meshA, meshB, line, idx });
+});
+
+document.getElementById('stat-pairs').textContent = DATA.pairs.length;
+
+// ─── TOOLTIP / RAYCASTING ──────────────────────────────────────────────────
+const tooltip = document.getElementById('tooltip');
+let hoveredPair = -1;
+
+renderer.domElement.addEventListener('mousemove', e => {
+  mouse.x = (e.clientX / window.innerWidth) * 2 - 1;
+  mouse.y = -(e.clientY / window.innerHeight) * 2 + 1;
+
+  raycaster.setFromCamera(mouse, camera);
+  const intersects = raycaster.intersectObjects(allPointMeshes);
+
+  if (intersects.length > 0) {
+    const hit = intersects[0].object;
+    const idx = hit.userData.pairIdx;
+    if (idx !== undefined && idx !== hoveredPair) {
+      hoveredPair = idx;
+      const pair = DATA.pairs[idx];
+      document.getElementById('tt-a').textContent = pair.sent_a;
+      document.getElementById('tt-b').textContent = pair.sent_b;
+      document.getElementById('tt-stats').textContent =
+        `${pair.label} (${pair.domain}/${pair.subtype}) | cos(A,B) = ${pair.cosine_ab.toFixed(3)}` +
+        (pair.label === 'contradiction' ? ` | cos(reflected,B) = ${pair.cosine_reflected_b.toFixed(3)}` : '');
+      tooltip.style.display = 'block';
+    }
+    tooltip.style.left = (e.clientX + 16) + 'px';
+    tooltip.style.top = (e.clientY - 10) + 'px';
+    // keep tooltip on screen
+    const r = tooltip.getBoundingClientRect();
+    if (r.right > window.innerWidth) tooltip.style.left = (e.clientX - r.width - 16) + 'px';
+    if (r.bottom > window.innerHeight) tooltip.style.top = (e.clientY - r.height - 10) + 'px';
+  } else {
+    tooltip.style.display = 'none';
+    hoveredPair = -1;
+  }
+});
+
+// ─── CONTROLS ──────────────────────────────────────────────────────────────
+const visibility = { contradiction: true, entailment: false, neutral: false };
+let showReflections = false, showPlane = true, showLines = true;
+
+// Initialize button states
+document.getElementById('btn-reflect').classList.remove('active');
+document.getElementById('btn-plane').classList.add('active');
+document.getElementById('btn-lines').classList.add('active');
+document.getElementById('btn-entail').classList.remove('active');
+document.getElementById('btn-neutral').classList.remove('active');
+
+// Hide entailments and neutrals initially
+groups.entailment.forEach(g => { g.meshA.visible = false; g.meshB.visible = false; });
+groups.neutral.forEach(g => { g.meshA.visible = false; g.meshB.visible = false; });
+
+function toggleFilter(label) {
+  visibility[label] = !visibility[label];
+  document.getElementById('btn-' + (label === 'contradiction' ? 'contra' : label === 'entailment' ? 'entail' : 'neutral'))
+    .classList.toggle('active');
+  groups[label].forEach(g => {
+    g.meshA.visible = visibility[label];
+    g.meshB.visible = visibility[label];
+    g.line.visible = visibility[label] && showLines;
+  });
+}
+
+function toggleReflections() {
+  showReflections = !showReflections;
+  document.getElementById('btn-reflect').classList.toggle('active');
+  reflectionGroup.visible = showReflections;
+  reflectionLineGroup.visible = showReflections;
+}
+reflectionGroup.visible = false;
+reflectionLineGroup.visible = false;
+
+function togglePlane() {
+  showPlane = !showPlane;
+  document.getElementById('btn-plane').classList.toggle('active');
+  planeMesh.visible = showPlane;
+}
+
+function toggleLines() {
+  showLines = !showLines;
+  document.getElementById('btn-lines').classList.toggle('active');
+  lineGroup.visible = showLines;
+  reflectionLineGroup.visible = showReflections && showLines;
+}
+
+// ─── ANIMATE REFLECTION ────────────────────────────────────────────────────
+let animating = false, animProgress = 0, animDirection = 1;
+const animDuration = 2.0;
+const originalPositions = [];
+const targetPositions = [];
+
+function animateReflection() {
+  if (animating) return;
+  animating = true;
+  animProgress = 0;
+  animDirection = 1;
+  originalPositions.length = 0;
+  targetPositions.length = 0;
+
+  // Store original positions and compute reflection targets
+  groups.contradiction.forEach(g => {
+    const pair = DATA.pairs[g.idx];
+    const posA = sc(pair.a);
+    const posR = sc(pair.reflected_a);
+    originalPositions.push({ mesh: g.meshA, from: posA, to: posR });
+  });
+
+  // Make sure reflections are visible during animation
+  if (!showReflections) toggleReflections();
+}
+
+// ─── PARTICLES (ambient dust) ──────────────────────────────────────────────
+const particleGeo = new THREE.BufferGeometry();
+const particleCount = 200;
+const particlePos = new Float32Array(particleCount * 3);
+for (let i = 0; i < particleCount; i++) {
+  particlePos[i*3] = (Math.random() - 0.5) * 8;
+  particlePos[i*3+1] = (Math.random() - 0.5) * 8;
+  particlePos[i*3+2] = (Math.random() - 0.5) * 8;
+}
+particleGeo.setAttribute('position', new THREE.BufferAttribute(particlePos, 3));
+const particleMat = new THREE.PointsMaterial({ color: 0x334466, size: 0.02, transparent: true, opacity: 0.4 });
+scene.add(new THREE.Points(particleGeo, particleMat));
+
+// ─── RENDER LOOP ───────────────────────────────────────────────────────────
+function animate() {
+  requestAnimationFrame(animate);
+
+  // Slow auto-rotation when not dragging
+  if (!isDragging) {
+    spherical.theta += 0.001;
+    updateCamera();
+  }
+
+  // Reflection animation
+  if (animating) {
+    animProgress += 0.012 * animDirection;
+    if (animProgress >= 1) {
+      animProgress = 1;
+      animDirection = -1;
+      setTimeout(() => { animDirection = -1; }, 800);
+    }
+    if (animProgress <= 0 && animDirection === -1) {
+      animating = false;
+      animProgress = 0;
+      // Snap back
+      originalPositions.forEach(op => {
+        op.mesh.position.set(...op.from);
+      });
+    } else {
+      const t = animProgress * animProgress * (3 - 2 * animProgress); // smoothstep
+      originalPositions.forEach(op => {
+        op.mesh.position.set(
+          op.from[0] + (op.to[0] - op.from[0]) * t,
+          op.from[1] + (op.to[1] - op.from[1]) * t,
+          op.from[2] + (op.to[2] - op.from[2]) * t
+        );
+      });
+    }
+  }
+
+  // Plane pulse
+  planeMat.opacity = 0.06 + 0.03 * Math.sin(Date.now() * 0.002);
+
+  renderer.render(scene, camera);
+}
+animate();
+
+window.addEventListener('resize', () => {
+  camera.aspect = window.innerWidth / window.innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(window.innerWidth, window.innerHeight);
+});
+</script>
+</body>
+</html>

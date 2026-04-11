@@ -1,0 +1,102 @@
+{
+  "linear_f1": {
+    "mean": 0.6983027277382117,
+    "std": 0.07208712059905185
+  },
+  "mlp_f1": {
+    "mean": 0.6372317337834579,
+    "std": 0.12707268763042315,
+    "hidden_layers": [
+      64,
+      32
+    ]
+  },
+  "rbf_svm_f1": {
+    "mean": 0.7358763298251618,
+    "std": 0.07158657722316693
+  },
+  "improvement_mlp_over_linear": -0.061070993954753794,
+  "manifold_evidence": "none",
+  "subtypes": {
+    "negation": {
+      "n": 2,
+      "linear_accuracy": 1.0,
+      "mean_hoyer": 0.20682212743045705
+    },
+    "antonym": {
+      "n": 9,
+      "linear_accuracy": 1.0,
+      "mean_hoyer": 0.22769892982261147
+    },
+    "factual": {
+      "n": 9,
+      "linear_accuracy": 1.0,
+      "mean_hoyer": 0.22122350500539792
+    },
+    "scalar": {
+      "n": 1,
+      "linear_accuracy": 1.0,
+      "mean_hoyer": 0.23354957908683377
+    },
+    "quantifier": {
+      "n": 1,
+      "linear_accuracy": 1.0,
+      "mean_hoyer": 0.2154755873717033
+    },
+    "ideological": {
+      "n": 15,
+      "linear_accuracy": 1.0,
+      "mean_hoyer": 0.2339010578790912
+    },
+    "metaphysical": {
+      "n": 7,
+      "linear_accuracy": 1.0,
+      "mean_hoyer": 0.2257849059107789
+    },
+    "ethical": {
+      "n": 2,
+      "linear_accuracy": 1.0,
+      "mean_hoyer": 0.22391105696527724
+    },
+    "epistemic": {
+      "n": 2,
+      "linear_accuracy": 1.0,
+      "mean_hoyer": 0.22632555175784624
+    },
+    "linguistic": {
+      "n": 2,
+      "linear_accuracy": 1.0,
+      "mean_hoyer": 0.22963175059787866
+    },
+    "aesthetic": {
+      "n": 1,
+      "linear_accuracy": 1.0,
+      "mean_hoyer": 0.21124251899248508
+    },
+    "existential": {
+      "n": 1,
+      "linear_accuracy": 1.0,
+      "mean_hoyer": 0.24035133490709737
+    },
+    "causal": {
+      "n": 7,
+      "linear_accuracy": 1.0,
+      "mean_hoyer": 0.21449016818132477
+    },
+    "theoretical": {
+      "n": 1,
+      "linear_accuracy": 1.0,
+      "mean_hoyer": 0.23142486936666176
+    },
+    "world_knowledge": {
+      "n": 7,
+      "linear_accuracy": 1.0,
+      "mean_hoyer": 0.23318196071941483
+    },
+    "temporal": {
+      "n": 3,
+      "linear_accuracy": 1.0,
+      "mean_hoyer": 0.22297772554385611
+    }
+  }
+}

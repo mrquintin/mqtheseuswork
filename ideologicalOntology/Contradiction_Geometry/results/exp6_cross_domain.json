@@ -1,0 +1,48 @@
+{
+  "train_domain": "general",
+  "train_accuracy": 1.0,
+  "test_domains": {
+    "general": {
+      "accuracy": 1.0,
+      "f1": 1.0,
+      "n_samples": 45,
+      "n_contradictions": 15
+    },
+    "political": {
+      "accuracy": 0.6571428571428571,
+      "f1": 0.5,
+      "n_samples": 35,
+      "n_contradictions": 15
+    },
+    "philosophical": {
+      "accuracy": 0.5483870967741935,
+      "f1": 0.3,
+      "n_samples": 31,
+      "n_contradictions": 15
+    },
+    "empirical": {
+      "accuracy": 0.5161290322580645,
+      "f1": 0.2857142857142857,
+      "n_samples": 31,
+      "n_contradictions": 15
+    }
+  },
+  "combined_features": {
+    "general": {
+      "accuracy": 1.0,
+      "f1": 1.0
+    },
+    "political": {
+      "accuracy": 0.6285714285714286,
+      "f1": 0.43478260869565216
+    },
+    "philosophical": {
+      "accuracy": 0.5483870967741935,
+      "f1": 0.3
+    },
+    "empirical": {
+      "accuracy": 0.5161290322580645,
+      "f1": 0.2857142857142857
+    }
+  }
+}
