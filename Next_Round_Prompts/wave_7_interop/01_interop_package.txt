@@ -1,0 +1,73 @@
+WAVE 7 / PROMPT 1 — Build interop/ package (Methodology Interoperability Package)
+
+═══════════════════════════════════════════════════════════════════════════════
+YOUR TASK
+═══════════════════════════════════════════════════════════════════════════════
+You are an implementation agent. Your job is to create `noosphere/noosphere/interop/`: code that builds distributable MIP bundles (packaged methods + compiled docs + cascade schema + gate-check subset + minimal workflow language), runs them on an adopter's host via Docker, scaffolds adopter projects, and accepts transfer-study submissions back through the rigor gate.
+
+You are the sole prompt in wave 7. No parallelism concern.
+
+═══════════════════════════════════════════════════════════════════════════════
+PREREQUISITES
+═══════════════════════════════════════════════════════════════════════════════
+- Wave 5 is done: `transfer.package_method` produces packaged methods.
+- Wave 6 is done: `docgen.compile_method_doc` produces method docs; `rigor_gate.checks.*` and `cascade.graph` are importable.
+
+═══════════════════════════════════════════════════════════════════════════════
+FILES TOUCHED
+═══════════════════════════════════════════════════════════════════════════════
+- `noosphere/noosphere/interop/__init__.py`          CREATE
+- `noosphere/noosphere/interop/builder.py`           CREATE
+- `noosphere/noosphere/interop/runner.py`            CREATE
+- `noosphere/noosphere/interop/workflow.py`          CREATE
+- `noosphere/noosphere/interop/adoption.py`          CREATE
+- `noosphere/noosphere/interop/submit_transfer.py`   CREATE
+- `noosphere/noosphere/interop/leak_check.py`        CREATE
+- `docs/interop/MIP_SPEC.md`                         CREATE
+- `noosphere/tests/test_mip_manifest.py`             CREATE
+- `noosphere/tests/test_mip_runner.py`               CREATE
+- `noosphere/tests/test_mip_workflow_validation.py`  CREATE
+- `noosphere/tests/test_mip_adoption_scaffold.py`    CREATE
+- `noosphere/tests/test_mip_license_coherence.py`    CREATE
+
+═══════════════════════════════════════════════════════════════════════════════
+STEP-BY-STEP
+═══════════════════════════════════════════════════════════════════════════════
+1. Write `docs/interop/MIP_SPEC.md` documenting the on-disk layout: manifest.json, methods/, cascade/, gate/, ledger/, docs/, LICENSE, CITATION.cff.
+2. Build `builder.py` with `build_mip(methods, include_gate_checks, name, version, out_dir) -> MIPPath`. It invokes `transfer.package_method` for each method, copies their outputs into `methods/`, uses `docgen.compile_method_doc` to produce the docs, writes the manifest with content hashes, signs via `ledger.keys.KeyRing`.
+3. Build `workflow.py` with a minimal YAML parser:
+     - Allowed keys: `name`, `steps`, `output`.
+     - Each step: `id`, `method`, `input`, `when` (equality predicate only).
+     - No shell-out. No conditionals beyond equality. No loops.
+     - `validate(workflow_yaml, available_methods) -> list[str]` returns validation errors.
+4. Build `runner.py` with `run_mip(mip_path, workflow_name, input, out_dir)`:
+     verifies manifest signature and checksums, parses workflow, runs steps via Docker (each method in its own container), writes local ledger entries, produces a run report.
+5. Build `adoption.py` with `scaffold_adoption(mip_path, out_dir)`: writes a ready-to-run example directory, stub adapter, local scoreboard setup, README explaining how to cite the MIP.
+6. Build `submit_transfer.py` accepting a `TransferStudy` produced by adopters; passes through `rigor_gate.submit` for review before display on the firm's public transfer-profile page.
+7. Build `leak_check.py` scanning the bundle against a deny-list of firm-private identifiers + filenames; fails on hit.
+8. Write tests.
+9. `pytest noosphere/tests/test_mip_*.py -v`.
+
+═══════════════════════════════════════════════════════════════════════════════
+TESTS
+═══════════════════════════════════════════════════════════════════════════════
+test_mip_manifest.py — build a MIP with two methods; manifest valid; checksums verify; tampering a method file fails verification.
+test_mip_runner.py — run a sample MIP on a clean host via Docker; produces a report with valid metrics; no network calls.
+test_mip_workflow_validation.py — malformed workflows (missing step id, unknown method, disallowed key) produce specific errors; valid workflow validates clean.
+test_mip_adoption_scaffold.py — `scaffold_adoption` produces a directory whose example run succeeds.
+test_mip_license_coherence.py — conflicting sub-licenses inside the bundle fail build unless declared.
+
+═══════════════════════════════════════════════════════════════════════════════
+HOW TO VERIFY YOU ARE DONE
+═══════════════════════════════════════════════════════════════════════════════
+1. `pytest noosphere/tests/test_mip_*.py -v` — green.
+2. `python -c "import noosphere.noosphere.interop"` — imports.
+3. Building a two-method MIP, scaffolding an adopter dir, and running the workflow end-to-end produces a valid report on a clean host.
+
+═══════════════════════════════════════════════════════════════════════════════
+DO NOT
+═══════════════════════════════════════════════════════════════════════════════
+- Grow the workflow language beyond equality `when` predicates. If logic is needed, propose a new method, not a language extension.
+- Permit phone-home telemetry in a built MIP.
+- Let bundles contain firm-private identifiers; `leak_check` is load-bearing.
+- Touch any file outside FILES TOUCHED.

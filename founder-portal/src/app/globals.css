@@ -1,0 +1,207 @@
+@import url('https://fonts.googleapis.com/css2?family=EB+Garamond:ital,wght@0,400;0,500;0,600;1,400;1,500&family=Cinzel:wght@400;500;600&family=Inter:wght@300;400;500&display=swap');
+@import "tailwindcss";
+
+/* ── Theseus Design Tokens (from Codex) ──────────────────────────────────── */
+
+:root {
+  --stone: #0d0c0b;
+  --stone-light: #1a1814;
+  --stone-mid: #252218;
+  --parchment: #e8dcc8;
+  --parchment-dim: #b8aa90;
+  --gold: #c9a84c;
+  --gold-dim: #8a6e2a;
+  --ember: #8b3a2a;
+  --border: #2e2a1e;
+  --success: #4a7a3a;
+  --info: #3a5a7a;
+}
+
+[data-theme="light"] {
+  --stone: #f2e8d9;
+  --stone-light: #ede0cc;
+  --stone-mid: #e4d4ba;
+  --parchment: #2a2318;
+  --parchment-dim: #5a4e3a;
+  --gold: #7a5218;
+  --gold-dim: #9a6c28;
+  --ember: #8b3a2a;
+  --border: #cbbfa8;
+  --success: #3a6a2a;
+  --info: #2a4a6a;
+}
+
+html { transition: background 0.25s, color 0.25s; }
+
+@theme inline {
+  --color-background: var(--stone);
+  --color-foreground: var(--parchment);
+}
+
+* { box-sizing: border-box; }
+
+html, html[data-theme] {
+  background: var(--stone);
+  color: var(--parchment);
+}
+
+body {
+  background: var(--stone);
+  color: var(--parchment);
+  font-family: 'EB Garamond', Georgia, serif;
+  font-size: 17px;
+  line-height: 1.7;
+  min-height: 100vh;
+}
+
+h1, h2, h3, h4 {
+  font-family: 'Cinzel', 'Palatino Linotype', serif;
+  font-weight: 500;
+  letter-spacing: 0.05em;
+}
+
+/* ── Scrollbar ───────────────────────────────────────────────────────────── */
+::-webkit-scrollbar { width: 6px; }
+::-webkit-scrollbar-track { background: var(--stone); }
+::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+::selection { background: var(--gold-dim); color: var(--parchment); }
+
+/* ── Form elements ───────────────────────────────────────────────────────── */
+input, textarea, select {
+  background: var(--stone-light);
+  border: 1px solid var(--border);
+  color: var(--parchment);
+  font-family: 'EB Garamond', Georgia, serif;
+  font-size: 1rem;
+  padding: 0.6rem 0.9rem;
+  border-radius: 2px;
+  outline: none;
+  transition: border-color 0.2s;
+  width: 100%;
+}
+
+input:focus, textarea:focus, select:focus {
+  border-color: var(--gold-dim);
+}
+
+input::placeholder, textarea::placeholder {
+  color: var(--parchment-dim);
+  opacity: 0.5;
+}
+
+/* ── Buttons ─────────────────────────────────────────────────────────────── */
+.btn {
+  font-family: 'Cinzel', serif;
+  font-size: 0.75rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  padding: 0.6rem 1.4rem;
+  border: 1px solid var(--gold-dim);
+  background: transparent;
+  color: var(--gold);
+  cursor: pointer;
+  transition: all 0.2s;
+  border-radius: 1px;
+}
+
+.btn:hover {
+  background: var(--gold-dim);
+  color: var(--stone);
+}
+
+.btn-solid {
+  background: var(--gold-dim);
+  color: var(--stone);
+  border-color: var(--gold-dim);
+}
+
+.btn-solid:hover {
+  background: var(--gold);
+  border-color: var(--gold);
+}
+
+/* ── Cards ───────────────────────────────────────────────────────────────── */
+.portal-card {
+  background: var(--stone-light);
+  border: 1px solid var(--border);
+  border-radius: 2px;
+  padding: 1.5rem;
+  transition: border-color 0.2s;
+}
+
+.portal-card:hover {
+  border-color: var(--gold-dim);
+}
+
+/* ── Upload zone ─────────────────────────────────────────────────────────── */
+.upload-zone {
+  border: 2px dashed var(--border);
+  border-radius: 2px;
+  padding: 3rem 2rem;
+  text-align: center;
+  transition: all 0.2s;
+  cursor: pointer;
+}
+
+.upload-zone:hover, .upload-zone.dragover {
+  border-color: var(--gold-dim);
+  background: var(--stone-light);
+}
+
+/* ── Status badges ───────────────────────────────────────────────────────── */
+.badge {
+  font-family: 'Inter', sans-serif;
+  font-size: 0.65rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  padding: 0.2rem 0.6rem;
+  border-radius: 1px;
+  display: inline-block;
+}
+
+.badge-pending { background: var(--stone-mid); color: var(--parchment-dim); }
+.badge-processing { background: var(--info); color: var(--parchment); }
+.badge-ingested { background: var(--success); color: var(--parchment); }
+.badge-failed { background: var(--ember); color: var(--parchment); }
+
+/* ── Stat card ───────────────────────────────────────────────────────────── */
+.stat-card {
+  background: var(--stone-light);
+  border: 1px solid var(--border);
+  border-radius: 2px;
+  padding: 1.2rem;
+  text-align: center;
+}
+
+.stat-value {
+  font-family: 'Cinzel', serif;
+  font-size: 2rem;
+  color: var(--gold);
+  font-weight: 500;
+}
+
+.stat-label {
+  font-family: 'Inter', sans-serif;
+  font-size: 0.65rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--parchment-dim);
+  margin-top: 0.3rem;
+}
+
+/* ── Ornament ────────────────────────────────────────────────────────────── */
+.ornament::before {
+  content: '— ✦ —';
+  color: var(--gold-dim);
+  font-family: 'Cinzel', serif;
+  font-size: 0.75rem;
+  letter-spacing: 0.3em;
+}
+
+/* ── Animation ───────────────────────────────────────────────────────────── */
+@keyframes fadeUp {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.fade-up { animation: fadeUp 0.4s ease forwards; }

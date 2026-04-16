@@ -1,0 +1,96 @@
+# Claude Code Prompt 8 of 26 — Build the cascade/ package (typed evidence-flow graph)
+
+**Sequence:** prompt 8 of 26. Complete prompts 1..7 before starting this one. When you finish, report back with: files you created/modified, any notable choices, any blockers. I'll then paste the next prompt.
+
+**Parallelism (optional):** prompts 7, 8, 9, 10 touch disjoint files and could run in parallel Claude Code sessions if you want.
+
+**Before you start — read current state:**
+1. Run `git status` and `git branch` to see the current branch state.
+2. If you see stray branches matching `round3/*` or a `.orchestrator/` directory from a prior automated run, tell me and stop; we'll clean them up before continuing.
+3. For every file listed under SCOPE below, check whether it already exists and what it contains. If parts of the work described here are already done (from a previous attempt), INSPECT what is there and only add the missing pieces. Do NOT overwrite existing, correct work. Do NOT duplicate types or tests that already exist.
+4. If you find partial work that is clearly broken or half-finished, ask me whether to complete it or discard and restart that piece.
+## Your task
+You are an implementation agent. Your job is to create a self-contained `noosphere/noosphere/cascade/` package implementing a typed, cycle-free, append-only graph of evidence between artifacts/chunks/claims/principles/conclusions. Every edge in the graph is attributed to a specific method_invocation_id from the ledger. You will register a post-hook with the method decorator so that ported methods automatically emit edges declared via `emits_edges` in their `@register_method` call.
+
+ 
+
+## Prerequisites
+- Wave 3 is done: ported methods carry an `emits_edges` declaration.
+- `Store.insert_cascade_node`, `Store.insert_cascade_edge`, `Store.retract_cascade_edge`, `Store.iter_cascade_edges` exist.
+- `CascadeNode`, `CascadeEdge`, `CascadeEdgeRelation` pydantic types exist.
+
+SCOPE (files you may create or modify — stay within this list)
+- `noosphere/noosphere/cascade/__init__.py`          CREATE
+- `noosphere/noosphere/cascade/graph.py`             CREATE
+- `noosphere/noosphere/cascade/traverse.py`          CREATE
+- `noosphere/noosphere/cascade/render.py`            CREATE
+- `noosphere/noosphere/cascade/diagnostics.py`       CREATE
+- `noosphere/noosphere/cascade/export.py`            CREATE
+- `noosphere/noosphere/cascade/hooks.py`             CREATE
+- `noosphere/tests/test_cascade_edges.py`            CREATE
+- `noosphere/tests/test_cascade_cycle.py`            CREATE
+- `noosphere/tests/test_cascade_cut.py`              CREATE
+- `noosphere/tests/test_cascade_proof.py`            CREATE
+- `noosphere/tests/test_cascade_declaration_parity.py` CREATE
+- `noosphere/tests/fixtures/cascade_decl/<method_name>.json`  CREATE (at least 2 fixtures)
+
+## Step-by-step
+1. Build `graph.py` with a `CascadeGraph(store)` class wrapping typed node/edge access.
+2. Build `traverse.py` with `explain(node_id)`, `downstream(node_id)`, `cut(node_id) -> CutReport`.
+3. Build `render.py` with Mermaid and Graphviz string emitters.
+4. Build `diagnostics.py` with edge-density, critical-path, SPOF, and cycle-detection helpers.
+5. Build `export.py` with `export_proof(conclusion_id, out_path)` producing a tar.gz bundle.
+6. Build `hooks.py`. On import of `cascade/__init__.py`, register a post-hook `cascade.emit_edges` that reads a method's `emits_edges` declaration and the method's output, and inserts edges accordingly.
+7. The convention for reading emitted edges from a method's output: the output's pydantic model is expected to have fields named `<relation>_targets` (e.g. `supports_targets: list[str]`) when the method's spec lists that relation in `emits_edges`. Mismatch causes `CascadeEdgeDeclarationError` at startup.
+8. Add a startup-time declaration-parity check: iterate every registered method, load `tests/fixtures/cascade_decl/<method>.json` (if present), invoke the method, and verify emitted edges match declared relations.
+9. Write all five test files.
+10. `pytest noosphere/tests/test_cascade_*.py -v`.
+
+CascadeGraph.add_edge (exact contract)
+def add_edge(self, *, src: str, dst: str, relation: CascadeEdgeRelation,
+             method_invocation_id: str, confidence: float, unresolved: bool = False) -> str:
+    # 1. Validate method_invocation_id exists in Store.method_invocations; else CascadeEdgeOrphanError.
+    # 2. If relation in {supports, refutes}, check for a non-retracted conflicting edge at same (src, dst)
+    #    in the complementary relation; raise CascadeEdgeConflictError if present.
+    # 3. If relation == depends_on, check that adding this edge does not create a cycle in depends_on
+    #    subgraph (incremental BFS from dst forward looking for src); raise CascadeCycleError if cycle.
+    # 4. Build CascadeEdge, call Store.insert_cascade_edge, return edge_id.
+
+Hook behavior (hooks.py)
+On import:
+  register_post_hook("cascade.emit_edges", _emit_edges)
+
+def _emit_edges(spec, inv, input, result):
+    for relation in spec.emits_edges:
+        field_name = f"{relation}_targets"
+        if hasattr(result, field_name):
+            targets = getattr(result, field_name)
+            for dst in targets:
+                CascadeGraph(store).add_edge(src=input.primary_src,       # or input.node_id, depending on method
+                                             dst=dst, relation=relation,
+                                             method_invocation_id=inv.id,
+                                             confidence=getattr(result, "confidence", 1.0))
+
+The exact `primary_src` resolution is spec-specific; document the convention in cascade/hooks.py docstring. For methods whose input does not carry a single source node (e.g. aggregators), require the method output itself to contain `emitted_edges: list[{src,dst,relation,confidence}]` instead and follow that structure.
+
+## Tests
+test_cascade_edges.py — basic insert, retract, iter with include_retracted flag.
+test_cascade_cycle.py — an injected cycle in depends_on raises CascadeCycleError at insert time.
+test_cascade_cut.py — cutting a synthetic node produces the expected confidence deltas on dependent conclusions.
+test_cascade_proof.py — a proof bundle round-trips and verifies against the registered methods; private chunks are redacted.
+test_cascade_declaration_parity.py — a method whose output lacks a declared `<relation>_targets` field causes startup error; a matching method passes.
+
+## How to verify
+1. `pytest noosphere/tests/test_cascade_*.py -v` — green.
+2. `python -c "import noosphere.noosphere.cascade"` — imports and registers hook.
+3. Invoking a representative ported method (e.g. nli_scorer) emits cascade edges automatically.
+
+## Do not
+- Modify the decorator or any file in `methods/`.
+- Store orphan edges.
+- Delete retracted edges — they persist with `retracted_at` set.
+- Touch any file outside FILES TOUCHED.
+
+---
+
+**When you're finished:** report back with (a) files you created/modified, (b) any non-obvious choices you made, (c) any blockers. I'll paste the next prompt after I've reviewed your summary.

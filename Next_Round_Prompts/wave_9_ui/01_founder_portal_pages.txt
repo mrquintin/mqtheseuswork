@@ -1,0 +1,78 @@
+WAVE 9 / PROMPT 1 — Founder portal: round-3 pages and mutation handlers
+
+═══════════════════════════════════════════════════════════════════════════════
+YOUR TASK
+═══════════════════════════════════════════════════════════════════════════════
+You are an implementation agent. Your job is to add all round-3 founder-portal pages (provenance, cascade explorer, eval runs, post-mortem, peer review, decay dashboard, rigor gate, methods registry) and the authenticated API handlers that back them. Every mutating handler must use the `@gated(kind=...)` decorator from the rigor gate.
+
+Two sibling agents in wave 9 are on the public site and the shared API router. Stay inside your manifest.
+
+═══════════════════════════════════════════════════════════════════════════════
+PREREQUISITES
+═══════════════════════════════════════════════════════════════════════════════
+- Waves 5 and 7 are done: `rigor_gate`, `peer_review`, `decay`, `inference`, `transfer`, `docgen`, `interop` are importable.
+- The founder-portal Next.js app exists at `founder-portal/src/` with the round-1/round-2 app router structure.
+
+═══════════════════════════════════════════════════════════════════════════════
+FILES TOUCHED
+═══════════════════════════════════════════════════════════════════════════════
+Pages (each a new file):
+- `founder-portal/src/app/provenance/page.tsx`                                CREATE
+- `founder-portal/src/app/cascade/[conclusionId]/page.tsx`                    CREATE
+- `founder-portal/src/app/eval/page.tsx`                                      CREATE
+- `founder-portal/src/app/eval/runs/[runId]/page.tsx`                         CREATE
+- `founder-portal/src/app/post-mortem/page.tsx`                               CREATE
+- `founder-portal/src/app/peer-review/[conclusionId]/page.tsx`                CREATE
+- `founder-portal/src/app/decay/page.tsx`                                     CREATE
+- `founder-portal/src/app/rigor-gate/page.tsx`                                CREATE
+- `founder-portal/src/app/rigor-gate/[submissionId]/page.tsx`                 CREATE
+- `founder-portal/src/app/methods/page.tsx`                                   CREATE
+- `founder-portal/src/app/methods/[name]/[version]/page.tsx`                  CREATE
+- `founder-portal/src/app/methods/candidates/page.tsx`                        CREATE
+- `founder-portal/src/app/conclusions/[id]/provenance-tab.tsx`                CREATE
+- `founder-portal/src/app/conclusions/[id]/cascade-tab.tsx`                   CREATE
+- `founder-portal/src/app/conclusions/[id]/peer-review-tab.tsx`               CREATE
+- `founder-portal/src/app/layout.tsx`                                         MODIFY (nav links)
+- `founder-portal/src/lib/api/round3.ts`                                      CREATE (typed fetchers)
+
+API handlers (Next.js route handlers):
+- `founder-portal/src/app/api/round3/inverse/run/route.ts`                    CREATE
+- `founder-portal/src/app/api/round3/review/run/route.ts`                     CREATE
+- `founder-portal/src/app/api/round3/decay/revalidate/route.ts`               CREATE
+- `founder-portal/src/app/api/round3/gate/submit/route.ts`                    CREATE
+- `founder-portal/src/app/api/round3/gate/[id]/override/route.ts`             CREATE
+- `founder-portal/src/app/api/round3/methods/package/route.ts`                CREATE
+- `founder-portal/src/app/api/round3/methods/document/route.ts`               CREATE
+- `founder-portal/src/app/api/round3/interop/build/route.ts`                  CREATE
+
+Tests:
+- `founder-portal/src/__tests__/round3_pages.test.tsx`                        CREATE
+- `founder-portal/src/__tests__/round3_api_gated.test.ts`                     CREATE
+
+═══════════════════════════════════════════════════════════════════════════════
+STEP-BY-STEP
+═══════════════════════════════════════════════════════════════════════════════
+1. Build the typed fetchers in `lib/api/round3.ts` — one function per endpoint returning a typed response (use shared types from `packages/theseus-api-types/` if the sibling agent has created it; otherwise declare interfaces locally and flag the shared-types gap in a TODO file).
+2. For each page, write a React server component that fetches via the typed client and renders tables/cards. Use the project's existing UI kit; do NOT introduce a new component library.
+3. For each API route handler, wrap the handler body in `withGated(kind="...", async (req) => { ... })` where `withGated` is a TypeScript helper that calls through to Python's `rigor_gate.submit`. Build `withGated` in `lib/api/round3.ts`.
+4. Update `layout.tsx` to add nav links for the new pages; do not remove existing nav items.
+5. Every mutation surfaces the resulting ledger entry ID in a toast so the user can cite it.
+6. Every table page exposes a "Download CSV/JSON" button.
+7. Write pages test (renders without error with seeded data) and gated-API test (mutations without `@gated` are rejected).
+8. `pnpm test founder-portal/src/__tests__/round3_*` — green.
+
+═══════════════════════════════════════════════════════════════════════════════
+HOW TO VERIFY YOU ARE DONE
+═══════════════════════════════════════════════════════════════════════════════
+1. All new pages load without error against a seeded database.
+2. Every mutation handler is wrapped in `withGated`; an integration test with a bypass attempt fails.
+3. Vitest suite green.
+
+═══════════════════════════════════════════════════════════════════════════════
+DO NOT
+═══════════════════════════════════════════════════════════════════════════════
+- Let any UI mutation path skip the rigor gate.
+- Read from the DB directly — every page goes through the API.
+- Touch `theseus-public/src/` — that is the sibling agent.
+- Touch `researcher_api/` — that is the third sibling agent.
+- Touch any file outside FILES TOUCHED.

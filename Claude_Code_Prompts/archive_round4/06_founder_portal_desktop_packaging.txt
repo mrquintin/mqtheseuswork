@@ -1,0 +1,250 @@
+# Claude Code Prompt 6 of 8 — Founder Portal: electron-builder packaging for macOS and Windows
+
+**Sequence:** prompt 6 of 8 (Wave 2 — depends on prompt 02). When you finish, report back with: files you created/modified, any notable choices, any blockers.
+
+**Before you start — read current state:**
+1. Run `git status` and `git branch`.
+2. Confirm prompt 02 deliverables exist: `founder-portal/desktop/main.ts`, `founder-portal/desktop/preload.ts`, `founder-portal/desktop/next-server.ts`, `founder-portal/desktop/db-path.ts`.
+3. Read `founder-portal/package.json` to confirm `electron` and `electron-builder` are in devDependencies and the `desktop:*` scripts exist.
+4. Read `founder-portal/desktop/main.ts` to understand the Electron main process structure.
+5. For every file listed under SCOPE below, check whether it already exists. Do NOT overwrite existing correct work.
+
+## Your task
+
+You are an implementation agent. Your job is to configure `electron-builder` to produce distributable desktop packages of the Founder Portal for macOS (.app in .dmg) and Windows (.exe via NSIS installer). This includes:
+- `electron-builder.yml` configuration
+- Build scripts that compile TypeScript, build Next.js, and run electron-builder
+- Auto-update configuration using `electron-updater`
+- Platform-specific icon generation
+- Proper bundling of the Next.js standalone output, Prisma client, and SQLite database seed
+
+When you finish, verify the configuration is valid. Do not proceed to any other work.
+
+## Prerequisites
+- Prompt 02 has been applied (Electron main process and supporting files exist).
+- Node.js 20+, npm, and the project's dependencies are installed.
+- `electron` and `electron-builder` are in devDependencies.
+
+SCOPE (files you may create or modify — stay within this list)
+- `founder-portal/electron-builder.yml`                CREATE
+- `founder-portal/scripts/build_desktop_macos.sh`      CREATE
+- `founder-portal/scripts/build_desktop_windows.ps1`   CREATE
+- `founder-portal/scripts/generate_icons.js`           CREATE
+- `founder-portal/desktop/updater.ts`                  CREATE
+- `founder-portal/desktop/main.ts`                     MODIFY (add auto-updater integration)
+- `founder-portal/package.json`                        MODIFY (add desktop:dist scripts)
+- `founder-portal/assets/icon.icns`                    CREATE (generated from icon.png)
+- `founder-portal/assets/icon.ico`                     CREATE (generated from icon.png)
+
+## Step-by-step
+
+1. **Create `founder-portal/scripts/generate_icons.js`**:
+   - Read `founder-portal/assets/icon.png` (512×512 placeholder from prompt 02).
+   - Generate `icon.icns` for macOS using `png2icons` npm package or by shelling out to `iconutil` on macOS.
+   - Generate `icon.ico` for Windows using `png2icons` or `sharp`.
+   - Script should be runnable via `node scripts/generate_icons.js`.
+   - Add `png2icons` or `sharp` to devDependencies if needed.
+   - Fallback: if on a platform that can't generate the other platform's icons, skip with a warning.
+
+2. **Create `founder-portal/electron-builder.yml`**:
+   ```yaml
+   appId: com.theseus.founder-portal
+   productName: "Theseus Founder Portal"
+   copyright: "Copyright © 2026 Theseus"
+
+   directories:
+     output: dist-electron
+     buildResources: assets
+
+   files:
+     - dist-desktop/**/*
+     - .next/standalone/**/*
+     - .next/static/**/*
+     - public/**/*
+     - prisma/**/*
+     - node_modules/.prisma/**/*
+     - node_modules/@prisma/**/*
+     - node_modules/better-sqlite3/**/*
+     - package.json
+
+   extraResources:
+     - from: data/seed.db
+       to: seed.db
+       filter:
+         - "**/*"
+
+   mac:
+     category: public.app-category.business
+     icon: assets/icon.icns
+     target:
+       - target: dmg
+         arch: [universal]
+     darkModeSupport: true
+     hardenedRuntime: true
+     gatekeeperAssess: false
+     entitlements: assets/entitlements.mac.plist
+     entitlementsInherit: assets/entitlements.mac.plist
+
+   dmg:
+     contents:
+       - x: 150
+         y: 190
+         type: file
+       - x: 450
+         y: 190
+         type: link
+         path: /Applications
+     window:
+       width: 600
+       height: 400
+
+   win:
+     icon: assets/icon.ico
+     target:
+       - target: nsis
+         arch: [x64]
+
+   nsis:
+     oneClick: false
+     allowToChangeInstallationDirectory: true
+     installerIcon: assets/icon.ico
+     uninstallerIcon: assets/icon.ico
+     createDesktopShortcut: true
+     createStartMenuShortcut: true
+     shortcutName: "Theseus Founder Portal"
+     menuCategory: "Theseus"
+
+   publish:
+     provider: github
+     owner: OWNER_PLACEHOLDER
+     repo: REPO_PLACEHOLDER
+   ```
+   Note: `publish` is configured for GitHub Releases — the owner/repo are placeholders to be filled when a real GitHub repo is set up.
+
+3. **Create `founder-portal/assets/entitlements.mac.plist`** (within the scope of the `assets/` directory which prompt 02 already created):
+   ```xml
+   <?xml version="1.0" encoding="UTF-8"?>
+   <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+   <plist version="1.0">
+   <dict>
+     <key>com.apple.security.cs.allow-jit</key>
+     <true/>
+     <key>com.apple.security.cs.allow-unsigned-executable-memory</key>
+     <true/>
+     <key>com.apple.security.cs.allow-dyld-environment-variables</key>
+     <true/>
+     <key>com.apple.security.network.client</key>
+     <true/>
+     <key>com.apple.security.files.user-selected.read-write</key>
+     <true/>
+   </dict>
+   </plist>
+   ```
+
+4. **Create `founder-portal/desktop/updater.ts`** — auto-update module using `electron-updater`:
+   ```typescript
+   import { autoUpdater } from 'electron-updater';
+   import { BrowserWindow, dialog } from 'electron';
+   import log from 'electron-log';
+
+   autoUpdater.logger = log;
+
+   export function initAutoUpdater(mainWindow: BrowserWindow): void {
+     // Check for updates on launch (silently)
+     autoUpdater.checkForUpdatesAndNotify();
+
+     autoUpdater.on('update-available', (info) => {
+       dialog.showMessageBox(mainWindow, {
+         type: 'info',
+         title: 'Update Available',
+         message: `Version ${info.version} is available. It will be downloaded in the background.`,
+       });
+     });
+
+     autoUpdater.on('update-downloaded', (info) => {
+       dialog.showMessageBox(mainWindow, {
+         type: 'info',
+         title: 'Update Ready',
+         message: `Version ${info.version} has been downloaded. Restart to apply the update?`,
+         buttons: ['Restart', 'Later'],
+       }).then((result) => {
+         if (result.response === 0) {
+           autoUpdater.quitAndInstall();
+         }
+       });
+     });
+
+     autoUpdater.on('error', (err) => {
+       log.error('Auto-updater error:', err);
+     });
+   }
+   ```
+   Add `electron-updater` and `electron-log` to devDependencies in `package.json`.
+
+5. **Modify `founder-portal/desktop/main.ts`** — add auto-updater integration:
+   - Import `initAutoUpdater` from `./updater`.
+   - After the BrowserWindow is created and the page is loaded, call `initAutoUpdater(mainWindow)`.
+   - Wrap it in a try/catch so a missing GitHub release config doesn't crash the app:
+     ```typescript
+     try { initAutoUpdater(mainWindow); } catch (e) { console.warn('Auto-updater not configured:', e); }
+     ```
+
+6. **Update `founder-portal/package.json`** — add scripts and dependencies:
+   - Add to `devDependencies`: `"electron-updater": "^6.0.0"`, `"electron-log": "^5.0.0"`, `"png2icons": "^2.0.0"` (or `"sharp": "^0.33.0"` — whichever you chose for icon generation).
+   - Add scripts:
+     ```json
+     "desktop:icons": "node scripts/generate_icons.js",
+     "desktop:dist": "npm run desktop:build && electron-builder --config electron-builder.yml",
+     "desktop:dist-mac": "npm run desktop:build && electron-builder --mac --config electron-builder.yml",
+     "desktop:dist-win": "npm run desktop:build && electron-builder --win --config electron-builder.yml"
+     ```
+   - Do NOT remove or modify existing scripts.
+
+7. **Create build scripts:**
+
+   **`founder-portal/scripts/build_desktop_macos.sh`**:
+   ```bash
+   #!/usr/bin/env bash
+   set -euo pipefail
+   cd "$(dirname "$0")/.."
+   echo "=== Generating icons ==="
+   node scripts/generate_icons.js
+   echo "=== Building Next.js ==="
+   npm run build
+   echo "=== Compiling Electron TypeScript ==="
+   npx tsc -p desktop/tsconfig.json
+   echo "=== Building macOS distribution ==="
+   npx electron-builder --mac --config electron-builder.yml
+   echo "=== Done: check dist-electron/ ==="
+   ```
+
+   **`founder-portal/scripts/build_desktop_windows.ps1`**:
+   ```powershell
+   $ErrorActionPreference = "Stop"
+   Set-Location (Split-Path -Parent $PSScriptRoot)
+   Write-Host "=== Generating icons ===" -ForegroundColor Cyan
+   node scripts\generate_icons.js
+   Write-Host "=== Building Next.js ===" -ForegroundColor Cyan
+   npm run build
+   Write-Host "=== Compiling Electron TypeScript ===" -ForegroundColor Cyan
+   npx tsc -p desktop\tsconfig.json
+   Write-Host "=== Building Windows distribution ===" -ForegroundColor Cyan
+   npx electron-builder --win --config electron-builder.yml
+   Write-Host "=== Done: check dist-electron\ ===" -ForegroundColor Green
+   ```
+
+## Verification
+- `npx electron-builder --config electron-builder.yml --dir` (dry-run directory build) completes OR at minimum: `electron-builder.yml` parses as valid YAML.
+- `founder-portal/desktop/updater.ts` compiles with `npx tsc -p desktop/tsconfig.json --noEmit`.
+- `founder-portal/assets/entitlements.mac.plist` is valid XML.
+- `package.json` contains all four `desktop:dist*` scripts.
+- `electron-updater` and `electron-log` are in devDependencies.
+
+## Prohibitions
+- Do NOT run a full production build or produce actual .dmg/.exe files (CI/CD in prompt 07 handles that).
+- Do NOT modify any Next.js pages, components, or API routes.
+- Do NOT change the Prisma schema or database configuration.
+- Do NOT modify `next.config.ts`.
+- Do NOT use `nodeIntegration: true` anywhere.
+- Do NOT hardcode version numbers — electron-builder reads from `package.json`.
+- Do NOT modify `desktop/next-server.ts`, `desktop/preload.ts`, or `desktop/db-path.ts` (prompt 02's deliverables) unless strictly necessary for updater integration.

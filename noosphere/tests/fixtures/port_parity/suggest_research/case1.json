@@ -1,0 +1,16 @@
+{
+  "episode_number": 5,
+  "episode_title": "Competitive Advantage and Network Effects",
+  "claim_texts": [
+    "Network effects create durable moats in platform businesses.",
+    "Switching costs are the primary driver of platform lock-in.",
+    "Most moats are illusory and erode within 5 years."
+  ],
+  "new_principle_texts": [
+    "Evaluate moats by asking what would destroy them.",
+    "Base rate analysis should precede any specific prediction."
+  ],
+  "contradiction_pairs": [
+    ["Network effects create durable moats.", "Most moats are illusory and erode within 5 years."]
+  ]
+}

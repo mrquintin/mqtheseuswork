@@ -1,0 +1,21 @@
+services:
+  founder-portal:
+    build:
+      context: ./founder-portal
+    image: theseus-founder-portal:latest
+    ports:
+      - "3000:3000"
+    volumes:
+      - portal-data:/app/data
+    restart: unless-stopped
+
+  theseus-public:
+    build:
+      context: ./theseus-public
+    image: theseus-public:latest
+    ports:
+      - "8080:80"
+    restart: unless-stopped
+
+volumes:
+  portal-data:

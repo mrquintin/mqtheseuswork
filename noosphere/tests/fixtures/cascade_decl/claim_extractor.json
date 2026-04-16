@@ -1,0 +1,11 @@
+{
+  "method_name": "claim_extractor",
+  "version": "1.0",
+  "emits_edges": ["extracted_from"],
+  "output_fields": [
+    "extracted_from_targets",
+    "claims",
+    "confidence"
+  ],
+  "description": "Claim extractor emits extracted_from edges linking claims to source chunks."
+}

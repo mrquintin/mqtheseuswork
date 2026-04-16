@@ -1,0 +1,83 @@
+# Claude Code Prompt 12 of 26 — Build external_battery/ scaffolding (protocol, canonicalization, runner; NO adapters)
+
+**Sequence:** prompt 12 of 26. Complete prompts 1..11 before starting this one. When you finish, report back with: files you created/modified, any notable choices, any blockers. I'll then paste the next prompt.
+
+**Parallelism (optional):** prompts 11, 12, 13, 14, 15 touch disjoint files and could run in parallel Claude Code sessions if you want.
+
+**Before you start — read current state:**
+1. Run `git status` and `git branch` to see the current branch state.
+2. If you see stray branches matching `round3/*` or a `.orchestrator/` directory from a prior automated run, tell me and stop; we'll clean them up before continuing.
+3. For every file listed under SCOPE below, check whether it already exists and what it contains. If parts of the work described here are already done (from a previous attempt), INSPECT what is there and only add the missing pieces. Do NOT overwrite existing, correct work. Do NOT duplicate types or tests that already exist.
+4. If you find partial work that is clearly broken or half-finished, ask me whether to complete it or discard and restart that piece.
+## Your task
+You are an implementation agent. Your job is to create the scaffolding for the external-corpus benchmarking system: the `CorpusAdapter` Protocol, `ExternalItem` canonicalization, failure taxonomy, and `BatteryRunner`. The actual per-corpus adapter implementations are NOT your responsibility — they land in wave_6/01.
+
+ 
+
+## Prerequisites
+- Wave 4 is done: `evaluation.metrics`, `evaluation.CorpusSlicer` are importable.
+- `CorpusBundle`, `ExternalItem`, `BatteryRunResult`, `LicenseTag` exist in models.py.
+
+SCOPE (files you may create or modify — stay within this list)
+- `noosphere/noosphere/external_battery/__init__.py`          CREATE
+- `noosphere/noosphere/external_battery/adapters/__init__.py` CREATE (protocol only)
+- `noosphere/noosphere/external_battery/canonical.py`         CREATE
+- `noosphere/noosphere/external_battery/failures.py`          CREATE
+- `noosphere/noosphere/external_battery/run.py`               CREATE
+- `docs/eval/external_corpora.md`                             CREATE
+- `docs/eval/external/README.md`                              CREATE
+- `noosphere/tests/test_external_canonicalize.py`             CREATE
+- `noosphere/tests/test_external_failures.py`                 CREATE
+- `noosphere/tests/test_external_endtoend_mock.py`            CREATE
+
+## Step-by-step
+1. In `adapters/__init__.py`, define a `runtime_checkable` Protocol `CorpusAdapter`:
+     class CorpusAdapter(Protocol):
+         name: str
+         license: LicenseTag
+         def fetch(self, cache_dir: Path) -> CorpusBundle: ...
+         def iter_items(self, bundle: CorpusBundle) -> Iterator[ExternalItem]: ...
+         def resolve(self, item: ExternalItem, bundle: CorpusBundle) -> Outcome | None: ...
+2. Build `canonical.py` with `canonicalize(item: ExternalItem) -> ClaimOrPrediction` converting external items into internal canonical form so registered methods operate uniformly.
+3. Build `failures.py` with a five-way taxonomy: off_topic / mis_extraction / calibrated_but_wrong / confidently_wrong / hallucinated_dependency. Provide `classify_failure(item, method_output, resolution) -> FailureKind` and per-(method, corpus) histogram helpers.
+4. Build `run.py` with `BatteryRunner.run(adapter, methods, sample_size) -> BatteryRunResult`, decorated as a registered method (name="external_battery_run", nondeterministic=True). For each item:
+   a. Set `correlation_id` prefix to `cf-ext-<corpus>-...` so the evaluation embargo hook kicks in.
+   b. Construct a `TemporalCut(as_of=item.as_of, ...)`.
+   c. Call each method with the item canonicalized and `frozen_cut_id=cut.cut_id` in context.
+   d. Compare method output to `adapter.resolve(item, bundle)`.
+   e. Compute metrics via `evaluation.metrics`.
+   f. Classify failures.
+   g. Write report to `docs/eval/external/<corpus>/<date>/`.
+   h. Emit red-flag ticket (via Store) if Brier regression past threshold vs prior run.
+5. Write `docs/eval/external_corpora.md` as a stub listing the adapters that wave_6 will ship, with license notes per corpus.
+6. Write `docs/eval/external/README.md` explaining the directory layout.
+7. Write the three tests using a mock adapter you inline in `tests/conftest.py` or a helper module.
+8. `pytest noosphere/tests/test_external_*.py -v`.
+
+Mock adapter for tests (create at `noosphere/tests/mock_adapter.py`)
+class MockAdapter:
+    name = "mock"
+    license = LicenseTag.custom
+    def fetch(self, cache_dir): return CorpusBundle(source="mock", content_hash="abc123", ...)
+    def iter_items(self, bundle): yield ExternalItem(source="mock", source_id="q1", ...)
+    def resolve(self, item, bundle): return Outcome(outcome_id="r1", kind=OutcomeKind.binary, ...)
+
+## Tests
+test_external_canonicalize.py — ExternalItem.canonicalize round-trips correctly across all three OutcomeKind shapes.
+test_external_failures.py — synthetic fixtures for each failure class are classified correctly.
+test_external_endtoend_mock.py — MockAdapter runs through BatteryRunner with a toy registered method, produces a BatteryRunResult with valid metrics, writes a report file.
+
+## How to verify
+1. `pytest noosphere/tests/test_external_*.py -v` — green.
+2. `python -c "import noosphere.noosphere.external_battery"` — imports.
+3. The mock adapter end-to-end report is a valid markdown file with metrics tables.
+
+## Do not
+- Implement any real adapter; that is wave_6/01.
+- Write upstream to any external corpus; read-only.
+- Allow silent fetch retries that mask non-deterministic content hashes.
+- Touch any file outside FILES TOUCHED.
+
+---
+
+**When you're finished:** report back with (a) files you created/modified, (b) any non-obvious choices you made, (c) any blockers. I'll paste the next prompt after I've reviewed your summary.

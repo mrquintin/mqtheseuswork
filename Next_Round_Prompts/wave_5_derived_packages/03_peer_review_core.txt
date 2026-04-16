@@ -1,0 +1,98 @@
+WAVE 5 / PROMPT 3 — Build peer_review/ scaffolding (Reviewer base, swarm, rebuttal, calibration; NO roles)
+
+═══════════════════════════════════════════════════════════════════════════════
+YOUR TASK
+═══════════════════════════════════════════════════════════════════════════════
+You are an implementation agent. Your job is to build the core of the peer-review swarm: a `Reviewer` base class, a `SwarmOrchestrator`, a `RebuttalRegistry` that enforces structured responses, and a `ReviewerCalibration` tracker. The seven concrete reviewer roles are NOT your job — they land in wave_6/02.
+
+Four sibling agents in wave 5 are on other subsystems. Stay inside your manifest.
+
+═══════════════════════════════════════════════════════════════════════════════
+PREREQUISITES
+═══════════════════════════════════════════════════════════════════════════════
+- Wave 4 is done: `ledger` is importable.
+- `Finding`, `ReviewReport`, `Rebuttal`, `SwarmReport` pydantic types exist.
+- `Store.insert_review_report`, `Store.insert_rebuttal`, `Store.list_review_reports` exist.
+
+═══════════════════════════════════════════════════════════════════════════════
+FILES TOUCHED
+═══════════════════════════════════════════════════════════════════════════════
+- `noosphere/noosphere/peer_review/__init__.py`               CREATE
+- `noosphere/noosphere/peer_review/reviewer.py`               CREATE
+- `noosphere/noosphere/peer_review/swarm.py`                  CREATE
+- `noosphere/noosphere/peer_review/rebuttal.py`               CREATE
+- `noosphere/noosphere/peer_review/calibration.py`            CREATE
+- `noosphere/noosphere/peer_review/hooks.py`                  CREATE
+- `noosphere/noosphere/peer_review/reviewers/__init__.py`     CREATE (empty registry; wave_6 populates)
+- `docs/peer_review/reviewers.md`                             CREATE (stub to be filled in wave_6)
+- `noosphere/tests/test_peer_review_independence.py`          CREATE
+- `noosphere/tests/test_rebuttal_required.py`                 CREATE
+- `noosphere/tests/test_reviewer_calibration.py`              CREATE
+- `noosphere/tests/test_swarm_endtoend.py`                    CREATE
+
+═══════════════════════════════════════════════════════════════════════════════
+STEP-BY-STEP
+═══════════════════════════════════════════════════════════════════════════════
+1. Build `reviewer.py`:
+     @dataclass
+     class BiasProfile:
+         name: str
+         prior: str            # one-paragraph description of the reviewer's prior / perspective
+         known_blindspots: list[str]
+     class Reviewer(ABC):
+         name: str
+         bias_profile: BiasProfile
+         @abstractmethod
+         def review(self, conclusion, context) -> ReviewReport: ...
+2. Build `reviewers/__init__.py` with a registry:
+     _REVIEWERS: dict[str, type[Reviewer]] = {}
+     def register(cls: type[Reviewer]) -> type[Reviewer]: ...   # decorator; idempotent by name
+     def all_reviewers() -> list[type[Reviewer]]: ...
+3. Build `swarm.py` with `SwarmOrchestrator(store)`:
+     def run(self, conclusion_id: str) -> SwarmReport:
+         reviewers = [cls() for cls in all_reviewers()]
+         reports = run_in_parallel([r.review(conclusion, context) for r in reviewers])  # no shared state
+         swarm_report = SwarmReport(conclusion_id=conclusion_id, reviews=reports, rebuttals=[])
+         store.insert_review_reports(reports)
+         return swarm_report
+   Use `concurrent.futures.ThreadPoolExecutor`. Do NOT pass `reports` into subsequent reviewers — strict independence.
+4. Build `rebuttal.py`:
+     def required_rebuttals(swarm_report: SwarmReport) -> list[Finding]
+     def submit_rebuttal(finding_id: str, rebuttal: Rebuttal) -> None
+     `reject_with_reason` form REQUIRES `rebuttal.by_actor.kind == "human"`; agent actors raise.
+     Unresolved major/blocker findings block `advance_to_publication(conclusion_id)`.
+5. Build `calibration.py` with `ReviewerCalibration`:
+     def track_outcome(reviewer_name: str, finding: Finding, subsequent_outcome: str) -> None
+     def discount_factor(reviewer_name: str) -> float
+     Findings are never dropped; only discounted at aggregation.
+6. Build `hooks.py`:
+     register_post_hook("peer_review.auto_queue", _on_firm_tier_conclusion)
+     def _on_firm_tier_conclusion(spec, inv, input, result):
+         if isinstance(result, Conclusion) and result.tier == "firm":
+             enqueue_swarm_review(result.id)   # async via scheduler table in Store
+7. Write `docs/peer_review/reviewers.md` as a stub table with columns `| Role | Bias Profile | Tools |` that wave_6/02 will fill in.
+8. Write the four tests using two mock reviewer classes inlined in the test files.
+9. `pytest noosphere/tests/test_peer_review_*.py -v` and `pytest noosphere/tests/test_rebuttal_required.py test_reviewer_calibration.py test_swarm_endtoend.py -v`.
+
+═══════════════════════════════════════════════════════════════════════════════
+TESTS
+═══════════════════════════════════════════════════════════════════════════════
+test_peer_review_independence.py — run swarm with two mock reviewers twice, with invocation order randomized; assert each reviewer's individual report is stable.
+test_rebuttal_required.py — a conclusion with an unresolved blocker finding cannot advance; an agent attempting `reject_with_reason` raises; a human actor succeeds.
+test_reviewer_calibration.py — seed synthetic reviewer history; assert discount factor matches formula.
+test_swarm_endtoend.py — end-to-end: register two mock reviewers, run swarm on a seeded conclusion, submit rebuttals for each blocker, verify advance.
+
+═══════════════════════════════════════════════════════════════════════════════
+HOW TO VERIFY YOU ARE DONE
+═══════════════════════════════════════════════════════════════════════════════
+1. `pytest noosphere/tests/test_peer_review_independence.py test_rebuttal_required.py test_reviewer_calibration.py test_swarm_endtoend.py -v` — green.
+2. `python -c "import noosphere.noosphere.peer_review"` — imports and registers auto-queue hook.
+
+═══════════════════════════════════════════════════════════════════════════════
+DO NOT
+═══════════════════════════════════════════════════════════════════════════════
+- Implement any concrete reviewer role; that is wave_6/02.
+- Let reviewers see each other's reports during the first pass.
+- Collapse disagreements at aggregation — preserve every report.
+- Drop findings based on calibration — only discount.
+- Touch any file outside FILES TOUCHED.

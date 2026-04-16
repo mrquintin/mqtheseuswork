@@ -1,0 +1,100 @@
+{"claim_a": "The door is open.", "claim_b": "The door is not open.", "label": "contradict", "source": "ontology_exp3", "id": "g0000"}
+{"claim_a": "The door is open.", "claim_b": "The door is closed.", "label": "contradict", "source": "ontology_exp3", "id": "g0001"}
+{"claim_a": "The door is open.", "claim_b": "The door is shut tight.", "label": "contradict", "source": "ontology_exp3", "id": "g0002"}
+{"claim_a": "The door is open.", "claim_b": "The door is barely ajar.", "label": "contradict", "source": "ontology_exp3", "id": "g0003"}
+{"claim_a": "The door is open.", "claim_b": "The door cannot be open.", "label": "contradict", "source": "ontology_exp3", "id": "g0004"}
+{"claim_a": "The door is open.", "claim_b": "No door in this building is open.", "label": "contradict", "source": "ontology_exp3", "id": "g0005"}
+{"claim_a": "The economy is growing.", "claim_b": "The economy is not growing.", "label": "contradict", "source": "ontology_exp3", "id": "g0006"}
+{"claim_a": "The economy is growing.", "claim_b": "The economy is shrinking.", "label": "contradict", "source": "ontology_exp3", "id": "g0007"}
+{"claim_a": "The economy is growing.", "claim_b": "The economy is in recession.", "label": "contradict", "source": "ontology_exp3", "id": "g0008"}
+{"claim_a": "The economy is growing.", "claim_b": "The economy is stagnant.", "label": "contradict", "source": "ontology_exp3", "id": "g0009"}
+{"claim_a": "The economy is growing.", "claim_b": "The economy cannot grow.", "label": "contradict", "source": "ontology_exp3", "id": "g0010"}
+{"claim_a": "The economy is growing.", "claim_b": "No sector of the economy is growing.", "label": "contradict", "source": "ontology_exp3", "id": "g0011"}
+{"claim_a": "She is happy.", "claim_b": "She is not happy.", "label": "contradict", "source": "ontology_exp3", "id": "g0012"}
+{"claim_a": "She is happy.", "claim_b": "She is sad.", "label": "contradict", "source": "ontology_exp3", "id": "g0013"}
+{"claim_a": "She is happy.", "claim_b": "She is in distress.", "label": "contradict", "source": "ontology_exp3", "id": "g0014"}
+{"claim_a": "She is happy.", "claim_b": "She is slightly content.", "label": "contradict", "source": "ontology_exp3", "id": "g0015"}
+{"claim_a": "She is happy.", "claim_b": "She cannot be happy.", "label": "contradict", "source": "ontology_exp3", "id": "g0016"}
+{"claim_a": "She is happy.", "claim_b": "Nobody in her family is happy.", "label": "contradict", "source": "ontology_exp3", "id": "g0017"}
+{"claim_a": "The experiment succeeded.", "claim_b": "The experiment did not succeed.", "label": "contradict", "source": "ontology_exp3", "id": "g0018"}
+{"claim_a": "The experiment succeeded.", "claim_b": "The experiment failed.", "label": "contradict", "source": "ontology_exp3", "id": "g0019"}
+{"claim_a": "The experiment succeeded.", "claim_b": "The experiment produced no usable results.", "label": "contradict", "source": "ontology_exp3", "id": "g0020"}
+{"claim_a": "The experiment succeeded.", "claim_b": "The experiment barely produced results.", "label": "contradict", "source": "ontology_exp3", "id": "g0021"}
+{"claim_a": "The experiment succeeded.", "claim_b": "The experiment could not succeed.", "label": "contradict", "source": "ontology_exp3", "id": "g0022"}
+{"claim_a": "The experiment succeeded.", "claim_b": "None of the experiments succeeded.", "label": "contradict", "source": "ontology_exp3", "id": "g0023"}
+{"claim_a": "The government supports free trade.", "claim_b": "The government does not support free trade.", "label": "contradict", "source": "ontology_exp3", "id": "g0024"}
+{"claim_a": "The government supports free trade.", "claim_b": "The government opposes free trade.", "label": "contradict", "source": "ontology_exp3", "id": "g0025"}
+{"claim_a": "The government supports free trade.", "claim_b": "The government has imposed tariffs and trade barriers.", "label": "contradict", "source": "ontology_exp3", "id": "g0026"}
+{"claim_a": "The government supports free trade.", "claim_b": "The government is ambivalent about free trade.", "label": "contradict", "source": "ontology_exp3", "id": "g0027"}
+{"claim_a": "The government supports free trade.", "claim_b": "The government cannot support free trade.", "label": "contradict", "source": "ontology_exp3", "id": "g0028"}
+{"claim_a": "The government supports free trade.", "claim_b": "No government supports free trade.", "label": "contradict", "source": "ontology_exp3", "id": "g0029"}
+{"claim_a": "Private property is sacred.", "claim_b": "Private property is not sacred.", "label": "contradict", "source": "ontology_exp3", "id": "g0030"}
+{"claim_a": "Private property is sacred.", "claim_b": "Private property is illegitimate.", "label": "contradict", "source": "ontology_exp3", "id": "g0031"}
+{"claim_a": "Private property is sacred.", "claim_b": "Property claims are social constructs with no inherent sanctity.", "label": "contradict", "source": "ontology_exp3", "id": "g0032"}
+{"claim_a": "Private property is sacred.", "claim_b": "Private property is merely tolerated.", "label": "contradict", "source": "ontology_exp3", "id": "g0033"}
+{"claim_a": "Private property is sacred.", "claim_b": "Private property cannot be considered sacred.", "label": "contradict", "source": "ontology_exp3", "id": "g0034"}
+{"claim_a": "Private property is sacred.", "claim_b": "No form of property is sacred.", "label": "contradict", "source": "ontology_exp3", "id": "g0035"}
+{"claim_a": "All humans are equal.", "claim_b": "Not all humans are equal.", "label": "contradict", "source": "ontology_exp3", "id": "g0036"}
+{"claim_a": "All humans are equal.", "claim_b": "Humans are fundamentally unequal.", "label": "contradict", "source": "ontology_exp3", "id": "g0037"}
+{"claim_a": "All humans are equal.", "claim_b": "Natural hierarchies exist among people.", "label": "contradict", "source": "ontology_exp3", "id": "g0038"}
+{"claim_a": "All humans are equal.", "claim_b": "Humans are approximately equal in some respects.", "label": "contradict", "source": "ontology_exp3", "id": "g0039"}
+{"claim_a": "All humans are equal.", "claim_b": "Humans cannot be truly equal.", "label": "contradict", "source": "ontology_exp3", "id": "g0040"}
+{"claim_a": "All humans are equal.", "claim_b": "No two humans are truly equal.", "label": "contradict", "source": "ontology_exp3", "id": "g0041"}
+{"claim_a": "The market is efficient.", "claim_b": "The market is not efficient.", "label": "contradict", "source": "ontology_exp3", "id": "g0042"}
+{"claim_a": "The market is efficient.", "claim_b": "The market is wasteful.", "label": "contradict", "source": "ontology_exp3", "id": "g0043"}
+{"claim_a": "The market is efficient.", "claim_b": "Resources are systematically misallocated.", "label": "contradict", "source": "ontology_exp3", "id": "g0044"}
+{"claim_a": "The market is efficient.", "claim_b": "The market is sometimes efficient.", "label": "contradict", "source": "ontology_exp3", "id": "g0045"}
+{"claim_a": "The market is efficient.", "claim_b": "The market cannot be efficient.", "label": "contradict", "source": "ontology_exp3", "id": "g0046"}
+{"claim_a": "The market is efficient.", "claim_b": "No market is truly efficient.", "label": "contradict", "source": "ontology_exp3", "id": "g0047"}
+{"claim_a": "Democracy produces good outcomes.", "claim_b": "Democracy does not produce good outcomes.", "label": "contradict", "source": "ontology_exp3", "id": "g0048"}
+{"claim_a": "Democracy produces good outcomes.", "claim_b": "Democracy produces terrible outcomes.", "label": "contradict", "source": "ontology_exp3", "id": "g0049"}
+{"claim_a": "Democracy produces good outcomes.", "claim_b": "The democratic process leads to mediocre governance.", "label": "contradict", "source": "ontology_exp3", "id": "g0050"}
+{"claim_a": "Democracy produces good outcomes.", "claim_b": "Democracy sometimes produces acceptable outcomes.", "label": "contradict", "source": "ontology_exp3", "id": "g0051"}
+{"claim_a": "Democracy produces good outcomes.", "claim_b": "Democracy cannot produce good outcomes.", "label": "contradict", "source": "ontology_exp3", "id": "g0052"}
+{"claim_a": "Democracy produces good outcomes.", "claim_b": "No democratic system produces good outcomes.", "label": "contradict", "source": "ontology_exp3", "id": "g0053"}
+{"claim_a": "Violence is never justified.", "claim_b": "Violence is not never justified.", "label": "contradict", "source": "ontology_exp3", "id": "g0054"}
+{"claim_a": "Violence is never justified.", "claim_b": "Violence is sometimes necessary.", "label": "contradict", "source": "ontology_exp3", "id": "g0055"}
+{"claim_a": "Violence is never justified.", "claim_b": "There are circumstances where force is the only option.", "label": "contradict", "source": "ontology_exp3", "id": "g0056"}
+{"claim_a": "Violence is never justified.", "claim_b": "Violence is rarely justified.", "label": "contradict", "source": "ontology_exp3", "id": "g0057"}
+{"claim_a": "Violence is never justified.", "claim_b": "It cannot be said that violence is never justified.", "label": "contradict", "source": "ontology_exp3", "id": "g0058"}
+{"claim_a": "Violence is never justified.", "claim_b": "Every society has justified violence at some point.", "label": "contradict", "source": "ontology_exp3", "id": "g0059"}
+{"claim_a": "Capital cities are political centers. [0]", "claim_b": "National capitals host government institutions. [0]", "label": "cohere", "source": "synthetic", "id": "g0060"}
+{"claim_a": "Water boils at 100C at sea level. [1]", "claim_b": "At standard pressure, liquid water reaches boiling at 100C. [1]", "label": "cohere", "source": "synthetic", "id": "g0061"}
+{"claim_a": "Firms should document decisions. [2]", "claim_b": "Organizations benefit from written decision records. [2]", "label": "cohere", "source": "synthetic", "id": "g0062"}
+{"claim_a": "Capital cities are political centers. [3]", "claim_b": "National capitals host government institutions. [3]", "label": "cohere", "source": "synthetic", "id": "g0063"}
+{"claim_a": "Water boils at 100C at sea level. [4]", "claim_b": "At standard pressure, liquid water reaches boiling at 100C. [4]", "label": "cohere", "source": "synthetic", "id": "g0064"}
+{"claim_a": "Firms should document decisions. [5]", "claim_b": "Organizations benefit from written decision records. [5]", "label": "cohere", "source": "synthetic", "id": "g0065"}
+{"claim_a": "Capital cities are political centers. [6]", "claim_b": "National capitals host government institutions. [6]", "label": "cohere", "source": "synthetic", "id": "g0066"}
+{"claim_a": "Water boils at 100C at sea level. [7]", "claim_b": "At standard pressure, liquid water reaches boiling at 100C. [7]", "label": "cohere", "source": "synthetic", "id": "g0067"}
+{"claim_a": "Firms should document decisions. [8]", "claim_b": "Organizations benefit from written decision records. [8]", "label": "cohere", "source": "synthetic", "id": "g0068"}
+{"claim_a": "Capital cities are political centers. [9]", "claim_b": "National capitals host government institutions. [9]", "label": "cohere", "source": "synthetic", "id": "g0069"}
+{"claim_a": "Water boils at 100C at sea level. [10]", "claim_b": "At standard pressure, liquid water reaches boiling at 100C. [10]", "label": "cohere", "source": "synthetic", "id": "g0070"}
+{"claim_a": "Firms should document decisions. [11]", "claim_b": "Organizations benefit from written decision records. [11]", "label": "cohere", "source": "synthetic", "id": "g0071"}
+{"claim_a": "Capital cities are political centers. [12]", "claim_b": "National capitals host government institutions. [12]", "label": "cohere", "source": "synthetic", "id": "g0072"}
+{"claim_a": "Water boils at 100C at sea level. [13]", "claim_b": "At standard pressure, liquid water reaches boiling at 100C. [13]", "label": "cohere", "source": "synthetic", "id": "g0073"}
+{"claim_a": "Firms should document decisions. [14]", "claim_b": "Organizations benefit from written decision records. [14]", "label": "cohere", "source": "synthetic", "id": "g0074"}
+{"claim_a": "Capital cities are political centers. [15]", "claim_b": "National capitals host government institutions. [15]", "label": "cohere", "source": "synthetic", "id": "g0075"}
+{"claim_a": "Water boils at 100C at sea level. [16]", "claim_b": "At standard pressure, liquid water reaches boiling at 100C. [16]", "label": "cohere", "source": "synthetic", "id": "g0076"}
+{"claim_a": "Firms should document decisions. [17]", "claim_b": "Organizations benefit from written decision records. [17]", "label": "cohere", "source": "synthetic", "id": "g0077"}
+{"claim_a": "Capital cities are political centers. [18]", "claim_b": "National capitals host government institutions. [18]", "label": "cohere", "source": "synthetic", "id": "g0078"}
+{"claim_a": "Water boils at 100C at sea level. [19]", "claim_b": "At standard pressure, liquid water reaches boiling at 100C. [19]", "label": "cohere", "source": "synthetic", "id": "g0079"}
+{"claim_a": "Firms should document decisions. [20]", "claim_b": "Organizations benefit from written decision records. [20]", "label": "cohere", "source": "synthetic", "id": "g0080"}
+{"claim_a": "Capital cities are political centers. [21]", "claim_b": "National capitals host government institutions. [21]", "label": "cohere", "source": "synthetic", "id": "g0081"}
+{"claim_a": "Water boils at 100C at sea level. [22]", "claim_b": "At standard pressure, liquid water reaches boiling at 100C. [22]", "label": "cohere", "source": "synthetic", "id": "g0082"}
+{"claim_a": "Firms should document decisions. [23]", "claim_b": "Organizations benefit from written decision records. [23]", "label": "cohere", "source": "synthetic", "id": "g0083"}
+{"claim_a": "Capital cities are political centers. [24]", "claim_b": "National capitals host government institutions. [24]", "label": "cohere", "source": "synthetic", "id": "g0084"}
+{"claim_a": "Water boils at 100C at sea level. [25]", "claim_b": "At standard pressure, liquid water reaches boiling at 100C. [25]", "label": "cohere", "source": "synthetic", "id": "g0085"}
+{"claim_a": "Firms should document decisions. [26]", "claim_b": "Organizations benefit from written decision records. [26]", "label": "cohere", "source": "synthetic", "id": "g0086"}
+{"claim_a": "Capital cities are political centers. [27]", "claim_b": "National capitals host government institutions. [27]", "label": "cohere", "source": "synthetic", "id": "g0087"}
+{"claim_a": "Water boils at 100C at sea level. [28]", "claim_b": "At standard pressure, liquid water reaches boiling at 100C. [28]", "label": "cohere", "source": "synthetic", "id": "g0088"}
+{"claim_a": "Firms should document decisions. [29]", "claim_b": "Organizations benefit from written decision records. [29]", "label": "cohere", "source": "synthetic", "id": "g0089"}
+{"claim_a": "Capital cities are political centers. [30]", "claim_b": "National capitals host government institutions. [30]", "label": "cohere", "source": "synthetic", "id": "g0090"}
+{"claim_a": "Water boils at 100C at sea level. [31]", "claim_b": "At standard pressure, liquid water reaches boiling at 100C. [31]", "label": "cohere", "source": "synthetic", "id": "g0091"}
+{"claim_a": "Firms should document decisions. [32]", "claim_b": "Organizations benefit from written decision records. [32]", "label": "cohere", "source": "synthetic", "id": "g0092"}
+{"claim_a": "Capital cities are political centers. [33]", "claim_b": "National capitals host government institutions. [33]", "label": "cohere", "source": "synthetic", "id": "g0093"}
+{"claim_a": "Water boils at 100C at sea level. [34]", "claim_b": "At standard pressure, liquid water reaches boiling at 100C. [34]", "label": "cohere", "source": "synthetic", "id": "g0094"}
+{"claim_a": "Firms should document decisions. [35]", "claim_b": "Organizations benefit from written decision records. [35]", "label": "cohere", "source": "synthetic", "id": "g0095"}
+{"claim_a": "Capital cities are political centers. [36]", "claim_b": "National capitals host government institutions. [36]", "label": "cohere", "source": "synthetic", "id": "g0096"}
+{"claim_a": "Water boils at 100C at sea level. [37]", "claim_b": "At standard pressure, liquid water reaches boiling at 100C. [37]", "label": "cohere", "source": "synthetic", "id": "g0097"}
+{"claim_a": "Firms should document decisions. [38]", "claim_b": "Organizations benefit from written decision records. [38]", "label": "cohere", "source": "synthetic", "id": "g0098"}
+{"claim_a": "Capital cities are political centers. [39]", "claim_b": "National capitals host government institutions. [39]", "label": "cohere", "source": "synthetic", "id": "g0099"}

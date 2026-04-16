@@ -1,0 +1,49 @@
+\contentsline {section}{\numberline {1}A Reader's Guide: Why This Matters}{4}{section.1}%
+\contentsline {section}{\numberline {2}Historical Context: How We Got Here}{6}{section.2}%
+\contentsline {subsection}{\numberline {2.1}Ancient and Medieval Foundations}{6}{subsection.2.1}%
+\contentsline {subsection}{\numberline {2.2}19th-Century Mathematics and Logic}{6}{subsection.2.2}%
+\contentsline {subsection}{\numberline {2.3}Gödel, Tarski, and Incompleteness (1930s)}{6}{subsection.2.3}%
+\contentsline {subsection}{\numberline {2.4}Quantum Mechanics and Superposition (1920s--1930s)}{6}{subsection.2.4}%
+\contentsline {subsection}{\numberline {2.5}Intuitionism and Constructivism (1920s--1930s)}{7}{subsection.2.5}%
+\contentsline {subsection}{\numberline {2.6}Fuzzy Logic and Many-Valued Logic (1960s--1970s)}{7}{subsection.2.6}%
+\contentsline {subsection}{\numberline {2.7}Category Theory and Universal Properties (1940s--1970s)}{7}{subsection.2.7}%
+\contentsline {subsection}{\numberline {2.8}Persistence and Topological Data Analysis (2000s)}{7}{subsection.2.8}%
+\contentsline {subsection}{\numberline {2.9}Higher Type Theory and HoTT (2000s--2010s)}{8}{subsection.2.9}%
+\contentsline {subsection}{\numberline {2.10}Synthesis}{8}{subsection.2.10}%
+\contentsline {section}{\numberline {3}Topological Approaches}{9}{section.3}%
+\contentsline {subsection}{\numberline {3.1}Persistent Homology: Unresolution as Multi-Scale Topology}{9}{subsection.3.1}%
+\contentsline {subsection}{\numberline {3.2}Topological Epistemic Logic: Boundary as Ignorance}{10}{subsection.3.2}%
+\contentsline {section}{\numberline {4}Algebraic and Lattice-Theoretic Approaches}{12}{section.4}%
+\contentsline {subsection}{\numberline {4.1}Sheaf Cohomology: Local Consistency, Global Failure}{12}{subsection.4.1}%
+\contentsline {subsection}{\numberline {4.2}Rough Set Theory: The Boundary Region}{13}{subsection.4.2}%
+\contentsline {subsection}{\numberline {4.3}Formal Concept Analysis: The Lattice of Partial Understanding}{14}{subsection.4.3}%
+\contentsline {section}{\numberline {5}Logic-Based Approaches}{16}{section.5}%
+\contentsline {subsection}{\numberline {5.1}Paraconsistent Logic: The Belnap--Dunn Bilattice}{16}{subsection.5.1}%
+\contentsline {subsection}{\numberline {5.2}Quantum Logic: Superposition as Structural Indeterminacy}{17}{subsection.5.2}%
+\contentsline {section}{\numberline {6}Probabilistic and Information-Geometric Approaches}{19}{section.6}%
+\contentsline {subsection}{\numberline {6.1}Dempster--Shafer Theory: The Plausibility--Belief Gap}{19}{subsection.6.1}%
+\contentsline {subsection}{\numberline {6.2}Information Geometry: The Fisher Metric on Credal States}{20}{subsection.6.2}%
+\contentsline {section}{\numberline {7}Categorical and Type-Theoretic Approaches}{22}{section.7}%
+\contentsline {subsection}{\numberline {7.1}Category Theory: Non-Existence of Limits}{22}{subsection.7.1}%
+\contentsline {subsection}{\numberline {7.2}Homotopy Type Theory: Identity as Path Space}{23}{subsection.7.2}%
+\contentsline {subsection}{\numberline {7.3}Fuzzy Topology: Graded Boundaries}{24}{subsection.7.3}%
+\contentsline {section}{\numberline {8}Cross-Cutting Structural Motifs}{26}{section.8}%
+\contentsline {section}{\numberline {9}Toward a Unified Hierarchy of Frameworks}{28}{section.9}%
+\contentsline {section}{\numberline {10}Computational Feasibility and Algorithmic Complexity}{31}{section.10}%
+\contentsline {subsection}{\numberline {10.1}Complexity Summary}{31}{subsection.10.1}%
+\contentsline {subsection}{\numberline {10.2}Recommendations for Noosphere}{31}{subsection.10.2}%
+\contentsline {subsection}{\numberline {10.3}Approximation Strategies}{31}{subsection.10.3}%
+\contentsline {section}{\numberline {11}A Taxonomy of Unresolution}{33}{section.11}%
+\contentsline {section}{\numberline {12}Limitations and Open Problems}{36}{section.12}%
+\contentsline {subsection}{\numberline {12.1}What These Frameworks Cannot Do}{36}{subsection.12.1}%
+\contentsline {subsection}{\numberline {12.2}Open Problems}{36}{subsection.12.2}%
+\contentsline {section}{\numberline {13}Implications for the Noosphere Engine}{38}{section.13}%
+\contentsline {subsection}{\numberline {13.1}Persistent Homology on Claim Embeddings}{38}{subsection.13.1}%
+\contentsline {subsection}{\numberline {13.2}Sheaf-Theoretic Consistency Checking}{38}{subsection.13.2}%
+\contentsline {subsection}{\numberline {13.3}Four-Valued Annotation}{39}{subsection.13.3}%
+\contentsline {subsection}{\numberline {13.4}Fisher Distance to Resolution}{39}{subsection.13.4}%
+\contentsline {subsection}{\numberline {13.5}Rough Set Boundary Tracking}{40}{subsection.13.5}%
+\contentsline {subsection}{\numberline {13.6}Dashboard Metrics}{40}{subsection.13.6}%
+\contentsline {section}{\numberline {14}Decision Flowchart: Which Framework to Use}{41}{section.14}%
+\contentsline {section}{\numberline {15}Conclusion}{42}{section.15}%
+\contentsline {section}{\numberline {A}Further Reading}{43}{appendix.A}%

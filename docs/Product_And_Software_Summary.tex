@@ -1,0 +1,486 @@
+\documentclass[11pt,letterpaper]{article}
+
+\usepackage[margin=1in]{geometry}
+\usepackage[T1]{fontenc}
+\usepackage{lmodern}
+\usepackage{microtype}
+\usepackage{parskip}
+\usepackage{enumitem}
+\usepackage{booktabs}
+\usepackage{longtable}
+\usepackage{array}
+\usepackage{titlesec}
+\usepackage[hidelinks,colorlinks=true,linkcolor=black,urlcolor=black,citecolor=black]{hyperref}
+\usepackage{xcolor}
+\usepackage{fancyvrb}
+\usepackage{fancyhdr}
+
+\titleformat{\section}{\Large\bfseries}{\thesection}{1em}{}
+\titleformat{\subsection}{\large\bfseries}{\thesubsection}{1em}{}
+\titleformat{\subsubsection}{\normalsize\bfseries}{\thesubsubsection}{1em}{}
+
+\pagestyle{fancy}
+\fancyhf{}
+\fancyhead[L]{\small Theseus --- Product and Software Summary}
+\fancyhead[R]{\small\thepage}
+\renewcommand{\headrulewidth}{0.4pt}
+
+\setlength{\parindent}{0pt}
+
+\newcommand{\mod}[1]{\texttt{#1}}
+\newcommand{\pkg}[1]{\textbf{\texttt{#1}}}
+\newcommand{\file}[1]{\texttt{#1}}
+
+\title{\textbf{Theseus}\\[4pt]\large Product and Software Summary}
+\date{April 2026}
+\author{}
+
+\begin{document}
+
+\maketitle
+\thispagestyle{empty}
+
+\tableofcontents
+\newpage
+
+% =======================================================================
+\section{Mission and methodological frame}
+% =======================================================================
+
+Theseus is an intellectual capital firm whose product is \emph{truth-finding methodology}, not truth claims. The distinction is load-bearing: the firm does not claim to know which specific positions on contested questions are correct, but it does claim to build and operate the instruments by which disciplined groups of people converge on better beliefs. That pivot, recorded in \file{docs/Methodological\_Reorientation.pdf}, governs every line of code in this repository.
+
+The conviction underneath that pivot is that the scarce resource in serious knowledge work is not information but \emph{discipline} --- the willingness to track one's positions over time, to submit them to adversarial review, to treat contradiction as a signal rather than an inconvenience, to quantify uncertainty honestly, and to publish one's epistemic process rather than just its outputs. Theseus is instrumentation for that discipline.
+
+The pivot has three structural consequences for the codebase:
+\begin{enumerate}[leftmargin=1.5em,itemsep=0.2em]
+  \item Every judgment the system makes is a \emph{method}, not a one-off function. Methods are versioned, testable against external data, packageable, and documentable in human-readable form. They are the product.
+  \item Every claim the firm publishes is \emph{traceable} through a cryptographically-signed ledger back to the input artifacts and methods that produced it. Claims without provenance do not leave the building.
+  \item Every public-facing output passes through a \emph{rigor gate} that enforces provenance, calibrated confidence, peer review, and freshness. Refusals are logged publicly, because the refusal rate itself is part of the methodology's credibility.
+\end{enumerate}
+
+% =======================================================================
+\section{Repository at a glance}
+% =======================================================================
+
+The repository is a monorepo at \file{\textasciitilde/Desktop/Theseus/} holding six pieces of software, a research and reference corpus, and the operational and distribution infrastructure to build, test, sign, deploy, and install them on macOS and Windows.
+
+\begin{longtable}{p{3.2cm} p{11.3cm}}
+\toprule
+\textbf{Directory} & \textbf{Purpose} \\
+\midrule
+\endhead
+\file{noosphere/}            & The core epistemic engine --- Python. Ingests transcripts and essays, extracts claims, runs six-layer coherence, builds the knowledge graph, synthesizes conclusions, runs adversarial review and calibration, exposes CLI. Packaged as a standalone binary via PyInstaller. ${\sim}$89 Python modules, 95{+} test files. \\
+\file{dialectic/}            & Live-conversation analyzer --- PyQt6 desktop app. Streams microphone audio through Whisper, segments into claims, flags contradictions on a dashboard in real time. Distributed as a macOS \texttt{.app}/DMG and Windows \texttt{.exe}/NSIS installer. 11 modules, 5 test files. \\
+\file{founder-portal/}       & Founders' web control plane and Electron desktop app --- Next.js 16 / React 19 / Prisma 7. Authentication, artifact upload, ingestion dispatch, conclusion review, adversarial page, decay dashboard, rigor-gate queue. Distributed as a macOS/Windows Electron app (via \texttt{electron-builder}) and as a Docker container. 50{+} TS/TSX files. \\
+\file{theseus-public/}       & Publication-only public website --- Next.js static export. Signed method docs, MIP registry, per-conclusion provenance, methodology refusal dashboard. Deployed via Docker/nginx, Vercel, or Netlify. 18 files. \\
+\file{theseus-codex/}        & Firm reference documents and project memory --- Next.js. A living internal wiki with Oracle chat, two-factor auth, and contribution workflows. \\
+\file{researcher\_api/}      & Rate-limited HTTP API for outside investigators. Claim extraction, coherence, embedding, calibration, replay --- on researcher-supplied text only; no access to firm data. \\
+\file{ideologicalOntology/}  & Research experiments in contradiction geometry (Embedding Geometry Conjecture, Reverse Marxism flipping framework, experiments log). Primarily data + analysis scripts. \\
+\file{docs/}                 & Published PDFs of research and architecture, plus living operational markdowns and per-area specs (API methods, researcher API, red-team, peer review, interop, eval). \\
+\file{.github/}              & GitHub Actions CI/CD: cross-platform desktop builds (macOS/Windows), Docker image builds, release orchestration, round-3 invariant checks, red-team workflows, Dependabot. \\
+\file{deploy/}               & Docker Compose stacks and Kubernetes Helm charts for the web services. \\
+\file{scripts/}              & Shared build infrastructure: macOS code signing (\texttt{codesign\_macos.sh}), Apple notarization (\texttt{notarize\_macos.sh}), Windows Authenticode signing (\texttt{codesign\_windows.ps1}), and 10{+} invariant-check lint scripts. \\
+\file{packages/}             & Shared TypeScript packages (\texttt{theseus-api-types}) cross-used by the web frontends. \\
+\file{Podcast talks/}        & Raw source transcripts of weekly 4-hour founder discussions. \\
+\bottomrule
+\end{longtable}
+
+% =======================================================================
+\section{Core softwares}
+% =======================================================================
+
+\subsection{Noosphere --- the epistemic engine}
+
+Noosphere is the Brain of the Firm. It takes the weekly four-hour podcast transcripts (plus founder essays, memos, and Dialectic session exports) as input, decomposes them into atomic claims, evaluates those claims across multiple coherence methods, tracks principles and their evolution over time, and synthesizes firm-tier conclusions with calibrated confidence. Every judgment it makes is a registered \emph{method} routed through a central registry; every method invocation is recorded in an append-only audit ledger; every evidence flow between claims and conclusions is represented as a typed cascade graph.
+
+The engine is executable from a Typer CLI (\file{typer\_cli.py}) and a legacy Click CLI (\file{cli.py}) with commands covering ingest, synthesis, graph inspection, adversarial, calibration, research-advisor output, backup, restore, method management, ledger verification, cascade diagnostics, evaluation, decay scheduling, peer review, interop packaging, rigor-gate submission, and inverse inference. It speaks to a SQLite (or Postgres) store for claims, invocations, ledger entries, and review reports, and to an on-disk data directory for embeddings, the ontology graph, and synthesized artifacts.
+
+\textbf{Distribution.} Noosphere is packaged as a standalone CLI binary via PyInstaller. The \file{noosphere.spec} bundles Alembic migration scripts and all Python dependencies into a single-directory distribution. ML model weights (sentence-transformers, spaCy) are downloaded on first run rather than bundled, keeping the distributable under reasonable size. A \file{frozen\_support.py} module resolves paths correctly in both development and frozen (PyInstaller) modes. Platform build scripts produce a macOS \texttt{.tar.gz} archive and a Windows NSIS installer that adds Noosphere to the system PATH. A background update checker (\file{updater.py}) polls a version manifest URL and prints a Rich-formatted notification when a newer release is available.
+
+\subsection{Dialectic --- the live conversation analyzer}
+
+Dialectic listens to a discussion while it is happening. It opens a microphone stream via \file{sounddevice}, runs voice-activity detection to cut the audio into speech segments, and pushes those segments to a \file{faster-whisper} transcription worker. Finalized utterances are claim-segmented with speaker attribution, embedded with sentence-transformers MiniLM, clustered for topic drift, and run pairwise through a DeBERTa-v3 NLI head to surface contradictions. A PyQt6 dashboard renders the transcript, the claim graph, and contradiction alerts with under two seconds of latency on Apple Silicon or a laptop GPU.
+
+A live interlocutor mode (SP09) lets Dialectic surface short, third-person prompts --- ``this contradicts your position in episode 47,'' ``an open question has gone untouched,'' ``what criterion would falsify this prediction?'' --- under strict consent and a per-session budget. Modes range from silent (default) through passive overlay, conversational with optional TTS, and tutor (higher rate, requires acknowledgment). Every candidate passes a quality gate; every intervention and drop is logged for post-session review.
+
+Saved sessions are JSON Lines, one line per finalized claim with timestamp, speaker, text, embedding, and contradictions, and are the native input format for Noosphere's ingester.
+
+\textbf{Distribution.} Dialectic is packaged as a standalone desktop application via PyInstaller. The \file{dialectic.spec} bundles PyQt6, sounddevice, faster-whisper, sentence-transformers, torch, and all supporting libraries into a single-directory distribution. A \file{resources.py} module provides frozen-mode-aware path resolution for assets, configuration, and user data directories (platform-specific: \file{\textasciitilde/Library/Application Support/Dialectic} on macOS, \file{\%APPDATA\%\textbackslash Dialectic} on Windows). Build scripts produce a macOS \texttt{.app} bundle in a DMG disk image with a drag-to-Applications layout, and a Windows NSIS installer with Start Menu and Desktop shortcuts. A threaded background update checker (\file{updater.py}) polls a version manifest and notifies the user within the Qt dashboard when a newer release is available.
+
+\subsection{Founder Portal --- the web control plane and desktop app}
+
+The Founder Portal is where the firm's founders operate Noosphere without touching the command line. It handles authentication against seeded founder accounts with bcrypt-hashed credentials, file upload and asynchronous ingestion, live streaming of ingestion logs, conclusion review, contradiction triage, the adversarial challenge flow, decay dashboard, peer review tab, rigor-gate submission queue, provenance exploration, and the cascade viewer.
+
+The stack is Next.js 16 (App Router) on React 19 with Prisma 7 over SQLite. Operationally, the portal points at the same SQLite file that Noosphere writes so the \file{adversarial\_challenge} and related tables are shared directly; there is no API marshalling layer for internal reads. Mutations that write to publicly-visible state go through a Python bridge (\file{src/lib/ingest.ts}) that shells out to the Noosphere CLI under the portal user's environment, streaming stdout back into the database for live progress.
+
+The portal's \file{src/app/} contains dedicated pages for: \file{dashboard}, \file{upload}, \file{conclusions}, \file{cascade}, \file{provenance}, \file{eval} (including \file{eval/runs}), \file{post-mortem}, \file{peer-review}, \file{decay}, \file{rigor-gate}, \file{methods}, \file{founders}, \file{sessions/[id]/reflection}, and \file{voices/[id]}.
+
+\textbf{Distribution.} The Founder Portal ships as both a web service and a desktop application.
+
+\emph{Desktop (Electron).} An Electron shell (\file{desktop/main.ts}) wraps the Next.js standalone build. On launch, it resolves a platform-appropriate SQLite database path via \file{db-path.ts}, runs Prisma migrations, starts the Next.js standalone server as a child process via \file{next-server.ts} (polling for readiness with exponential backoff), and opens a \texttt{BrowserWindow} pointed at the local server. The window uses \texttt{titleBarStyle: hiddenInset} on macOS for a native look, enforces \texttt{contextIsolation: true} and \texttt{nodeIntegration: false}, and opens external links in the system browser. Single-instance lock prevents duplicate launches. An auto-updater (\file{desktop/updater.ts}) integrates \texttt{electron-updater} to check GitHub Releases for new versions, download in the background, and prompt the user to restart. The \file{electron-builder.yml} configuration produces a macOS DMG (universal architecture, hardened runtime, entitlements for JIT and network access) and a Windows NSIS installer (customizable install directory, Start Menu and Desktop shortcuts). A development helper (\file{desktop/dev.ts}) starts the Next.js dev server and Electron concurrently for local iteration.
+
+\emph{Web (Docker).} A multi-stage Dockerfile builds the Next.js standalone output, generates the Prisma client, pre-runs migrations to produce a seed database, and serves from a minimal \texttt{node:20-alpine} image. The SQLite database is mounted as a Docker volume for persistence.
+
+\subsection{Theseus Public --- the publication-only public website}
+
+The public site is the firm's outward intellectual face. It reads only from the publication store; it has no write paths. Each conclusion published here carries a provenance block that links to the ledger entries that produced it, a sanitized adversarial history showing reviewer roles (but never agent identities), and the corpus hash at the time of publication. The site also hosts:
+
+\begin{itemize}[leftmargin=1.5em,itemsep=0.1em]
+  \item \file{/methods/} --- the public registry of packaged, signed method documentation bundles.
+  \item \file{/interop/} --- published Methodology Interoperability Packages (MIPs) for external adoption.
+  \item \file{/methodology/rigor/} --- monthly pass/fail rates of the publication rigor gate.
+  \item \file{/methodology/overrides/} --- every founder override of the rigor gate, with full justification.
+  \item \file{/methodology/decay/} --- aggregated stats on what was retired and why.
+  \item \file{/open-questions/} and \file{/responses/} --- active unresolved topics and the firm's structured replies to external critiques.
+\end{itemize}
+
+Writes to the public content store bypassing the rigor gate are architecturally impossible; a storage-layer assertion rejects un-gated writes, and a CI lint verifies that every publication handler wears the \texttt{@gated} decorator.
+
+\textbf{Distribution.} The public site uses Next.js static export (\texttt{output: "export"}). A multi-stage Dockerfile builds the static output and serves it via \texttt{nginx:1.27-alpine} with gzip compression and security headers. Deployment configurations are provided for Vercel (\file{vercel.json}) and Netlify (\file{netlify.toml}).
+
+\subsection{Theseus Codex --- the firm's living reference}
+
+The Codex is the firm's internal reference wiki. It holds the prior research artifacts the founders want to preserve and re-ingest over time: methodological writings, technical experiments, historical essays, and project memory. It is a Next.js application backed by SQLite via Prisma, featuring full-text search over codex entries, a contribution workflow for new entries, an Oracle chat interface (Claude integration), user profiles, attachment support, and two-factor authentication. Its role in the pipeline is as a structured corpus that Noosphere periodically re-ingests so that the engine's knowledge graph is constantly up to date with the firm's own canon.
+
+\subsection{Researcher API --- the outside-investigator surface}
+
+The Researcher API (SP07) is a rate-limited, authenticated HTTP service intended for academic or industrial researchers who want to apply Theseus methods to their own data without access to the firm's internal corpus. It exposes claim extraction, coherence scoring, embedding, calibration scoring, and a stub replay endpoint --- all restricted to researcher-supplied text. It is deployed as a separate FastAPI service with its own API-key registry, privacy policy, security documentation, acceptable-use policy, and citation guidance.
+
+\subsection{Ideological Ontology --- research experiments}
+
+This directory holds the empirical work that validates the firm's methodological claims. It contains the Embedding Geometry Conjecture's validation experiments, the Reverse Marxism ideology-flipping framework, and the catalog of contradiction-geometry experiments with their methods and results. These are not deployed software; they are the experimental substrate that justifies why the coherence engine is shaped the way it is.
+
+\newpage
+% =======================================================================
+\section{Noosphere's internal architecture}
+% =======================================================================
+
+Noosphere is not a monolith. It is a composition of approximately 15 subpackages, each responsible for a clean slice of the epistemic pipeline, plus ${\sim}$40 flat modules at the top level. This section walks the live package tree under \file{noosphere/noosphere/}.
+
+\subsection{The core pipeline (flat modules)}
+
+These are single-file modules at the top of \file{noosphere/noosphere/} that implement the foundational pipeline. Many have been ported into the method registry as registered methods; the flat-module originals remain as the canonical implementations.
+
+\begin{longtable}{p{3.5cm} p{11cm}}
+\toprule
+\textbf{Module} & \textbf{Responsibility} \\
+\midrule
+\endhead
+\mod{models.py}             & Pydantic types for every cross-boundary object: \texttt{Artifact}, \texttt{Chunk}, \texttt{Claim}, \texttt{Principle}, \texttt{Conclusion}, \texttt{DriftEvent}, \texttt{ResearchSuggestion}, and all round-3 types (Method, MethodInvocation, LedgerEntry, CascadeNode/Edge, DecayPolicy, ReviewReport, RigorVerdict, etc.). \\
+\mod{store.py}              & SQLModel-backed persistence; typed CRUD; chain-integrity enforcement for ledger entries and cascade edges. \\
+\mod{ids.py}                & Deterministic content-addressed identifiers for every domain object. \\
+\mod{config.py}             & Pydantic-settings configuration, reading environment variables and optional \file{theseus.toml}. \\
+\mod{observability.py}      & Structlog JSON logger with per-orchestrator-run correlation IDs. \\
+\mod{llm.py}                & LLM client protocol + Anthropic/OpenAI implementations + mock for tests. \\
+\mod{embeddings.py}         & Embedding client protocol + sentence-transformers implementation + on-disk cache. \\
+\mod{ingester.py}           & Markdown, plain-text, and WebVTT transcript ingest with YAML frontmatter, speaker-turn segmentation, and Dialectic session import. \\
+\mod{claim\_extractor.py}   & Chunk-to-claim extraction via LLM with structured JSON output; cached per chunk. \\
+\mod{classifier.py}         & Zero-shot MNLI verification of claim type; flags disagreements between LLM-assigned and classifier-assigned labels. \\
+\mod{embed\_pass.py}        & Orchestrated embedding pass over claims lacking embeddings; batched; supports rebuild. \\
+\mod{ontology.py}           & Growing topic ontology via HDBSCAN on UMAP-reduced embeddings; persistent cluster identities; spaCy-based entity linking. \\
+\mod{geometry.py}           & Contradiction-geometry detection via Householder reflection and difference-vector sparsity per the Embedding Geometry Conjecture. \\
+\mod{conclusions.py}        & Synthesizes firm-tier, founder-tier, and open-tier conclusions with tiered confidence discount. \\
+\mod{synthesis.py}          & End-to-end synthesis pipeline tying ingest, extraction, coherence, and conclusion into a single runner. \\
+\mod{adversarial.py}        & Generates structured objections to firm-level conclusions, runs them through the six-layer coherence stack, and persists verdicts. \\
+\mod{redteam.py}            & Red-team prompts and harness for adversarial robustness testing. \\
+\mod{meta\_analysis.py}     & Five-criterion meta-analysis gate over candidate conclusions (severity, coherence, freshness, provenance, calibration). \\
+\mod{predictive\_extractor.py} & Extracts falsifiable predictions with resolution criteria. \\
+\mod{resolution.py}         & Resolves predictions against observed outcomes. \\
+\mod{scoring.py}            & Calibration-scoreboard computation (Brier, log loss, ECE) over resolved predictions. \\
+\mod{retrieval.py}          & Embedding-based corpus retrieval for downstream methods and the research advisor. \\
+\mod{founders.py}           & Voice decomposition --- separates named founder positions from firm-tier claims. \\
+\mod{voices.py}             & Voice-specific retrieval and aggregation utilities. \\
+\mod{literature.py}         & External-literature search and claim-match scoring against the firm's corpus. \\
+\mod{research\_advisor.py}  & Generates ranked research suggestions based on open questions and blindspots. \\
+\mod{temporal.py}           & Tracks principle emergence, drift, and strengthening across episodes; produces evolution reports. \\
+\mod{temporal\_replay.py}   & Counterfactual temporal replay --- re-runs methods against historical corpus slices. \\
+\mod{tenancy.py}            & Multi-tenant partitioning for cloud deployments; scopes every read/write by tenant id. \\
+\mod{storage\_client.py}    & Object-store abstraction for input/output blobs referenced by the ledger. \\
+\mod{backup\_restore.py}    & Archive-and-restore of SQLite + data directory. \\
+\mod{orchestrator.py}       & Coordinates multi-step pipelines (ingest $\to$ extract $\to$ embed $\to$ cohere $\to$ synthesize). \\
+\mod{frozen\_support.py}    & Path resolution for PyInstaller frozen mode (bundle dir, data dir, alembic dir). \\
+\mod{updater.py}            & Background version checker against a release manifest URL; Rich-formatted CLI notification. \\
+\mod{typer\_cli.py}         & Primary Typer CLI entry point with subcommand auto-discovery. \\
+\mod{\_\_main\_\_.py}       & Module entry point for \file{python -m noosphere}. \\
+\bottomrule
+\end{longtable}
+
+\subsection{The coherence subpackage}
+
+\file{noosphere/noosphere/coherence/} holds the six-layer coherence stack that is Theseus's principal contribution to how one measures belief-set consistency. Each layer is independent and has a clear empirical semantics.
+
+\begin{table}[h]
+\small
+\begin{tabular}{p{3cm} p{11.5cm}}
+\toprule
+\textbf{Layer} & \textbf{What it measures} \\
+\midrule
+\mod{nli.py}               & Natural-language inference verdicts (entail / neutral / contradict probabilities) via a DeBERTa-v3 MNLI/ANLI head, batched. \\
+\mod{argumentation.py}     & Formal argumentation-framework analysis (Dung-style admissibility, preferred / grounded extensions). \\
+\mod{probabilistic.py}     & Probabilistic-consistency check: is the claim set jointly satisfiable under any coherent probability assignment? \\
+\mod{geometry.py}          & Embedding-geometry test using the validated Embedding Geometry Conjecture. \\
+\mod{information.py}       & Information-theoretic compressibility: claim-set entropy and redundancy. \\
+\mod{judge.py}             & LLM-as-judge over the full pair with structured output and disagreement-with-other-layers flagging. \\
+\mod{aggregator.py}        & Combines the six layers into a \texttt{SixLayerScore} with explicit \texttt{unresolved} output when layers disagree materially. \\
+\mod{engine.py}            & Orchestrates a coherence run end-to-end; populates the coherence cache. \\
+\mod{scheduler.py}         & Picks pairs to score, prioritizing load-bearing-for-conclusions pairs. \\
+\mod{calibration.py}       & Maintains calibration-bundles of reference pairs with gold labels, used to recalibrate layer weights on model upgrades. \\
+\mod{metrics.py}           & Macro-F1 and per-layer agreement metrics for regression testing. \\
+\mod{cache.py}             & On-disk cache of per-pair verdicts, invalidated on model-version change. \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+The aggregator is deliberately conservative: when layers disagree past a threshold, the output is \texttt{unresolved} rather than a point verdict. Unresolved is a first-class output in every downstream consumer, not an error state.
+
+\subsection{Subpackages}
+
+\begin{longtable}{p{2.6cm} p{12cm}}
+\toprule
+\textbf{Package} & \textbf{Role} \\
+\midrule
+\endhead
+\file{methods/}       & Central registry of registered methods with the \texttt{@register\_method} decorator, its pre/post-hook API, the \file{\_legacy/} pre-port copies for parity testing, and the ported implementations: \texttt{nli\_scorer}, \texttt{contradiction\_geometry}, \texttt{six\_layer\_coherence}, \texttt{suggest\_research}, \texttt{extract\_claims}, \texttt{classify\_claim\_type}, \texttt{synthesize\_conclusion}, \texttt{decompose\_voice}, \texttt{external\_claim\_match}, \texttt{extract\_from\_corpus}, \texttt{extract\_prediction}. \\
+\file{ledger/}        & Append-only, Ed25519-signed, Merkle-chained audit log. Every method invocation produces one entry. Externally verifiable via \texttt{theseus ledger verify} and exportable as a self-contained audit bundle. Modules: keys, ledger, export, verify, hooks. \\
+\file{cascade/}       & Typed evidence-flow graph linking artifacts $\to$ chunks $\to$ claims $\to$ principles $\to$ conclusions with eleven relation kinds. Supports proof-bundle export, cut-reports, single-point-of-failure diagnostics, cycle detection, and rendering. Modules: graph, traverse, render, export, diagnostics, hooks. \\
+\file{evaluation/}    & Counterfactual calibration rig. \texttt{CorpusSlicer} presents a read-only view of the store pinned to a past \texttt{as\_of}; methods invoked against it raise \texttt{EmbargoViolation} on out-of-slice reads. Computes Brier, log loss, ECE, reliability curves per method. Modules: slicer, outcomes, metrics, counterfactual, quality assessment. \\
+\file{inference/}     & Inverse inference engine. Given a resolved event, back-propagates to corpus claims that would have predicted it; produces a structured blindspot report (missing entities, missing mechanisms, adjacent-empty topics). \\
+\file{external\_battery/} & Benchmarks methods against external corpora (Good Judgment Project, Metaculus, ClaimReview-tagged fact-checking, replication projects). Ships with a five-way failure taxonomy and per-corpus calibration metrics. \\
+\file{peer\_review/}  & Adversarial peer-review swarm with seven declared reviewer roles (methodological, evidential, statistical, adversarial-literature, replication, rhetorical, humility). Enforces rebuttal for every major or blocker finding; tracks reviewer-level calibration discount factors. \\
+\file{decay/}         & Policy-driven re-validation of stored claims and conclusions. Policies include fixed-interval, evidence-changed, method-version-bump, embedding-drift, outcome-observed, and calibration-regression. Freshness is always derived, never cached. Retirement is irreversible. \\
+\file{rigor\_gate/}   & Publication choke point. Every submission to the public layer runs through nine declared checks; failures block; founder overrides are public and ledger-recorded. Refusal rates are published monthly. \\
+\file{transfer/}      & Packages a registered method as a Docker-reproducible, signed artifact with spec, rationale, implementation, adapter, eval card, and transfer-degradation studies. \\
+\file{docgen/}        & Compiles signed, versioned \texttt{MethodDoc} bundles from spec + rationale + implementation + evaluation data. AST-diff-based changelog enforcement on version bumps. \\
+\file{interop/}       & Builds Methodology Interoperability Packages (MIPs) --- distributable bundles of methods + docs + cascade schema + gate checks + workflow runner for external adoption. Ships with a minimal non-Turing-complete YAML workflow language. \\
+\file{mitigations/}   & Security and robustness modules: ingestion guard, citation anchor, tenant audit, calibration guard, temporal guard, embedding-text validation, coherence judge guard. Consumed by the red-team harness. \\
+\file{cli\_commands/} & Typer subcommand modules auto-discovered by the main CLI. One file per subsystem. \\
+\bottomrule
+\end{longtable}
+
+\newpage
+% =======================================================================
+\section{Written research catalog}
+% =======================================================================
+
+The PDFs in \file{docs/} are the firm's intellectual justification for why the software is shaped the way it is. They are not vestigial; every one of them either constrains an implementation decision or is cited by one.
+
+\begin{longtable}{p{5cm} p{9.5cm}}
+\toprule
+\textbf{Document} & \textbf{What it covers} \\
+\midrule
+\endhead
+\file{Methodological\_Reorientation.pdf} & The pivot. Defines why Theseus's product is methodology, not claims. Governs every downstream architectural choice. \\
+\file{The\_Meta\_Method.pdf}             & The firm's methodological commitments in detail. What disciplined belief-revision looks like and what it costs. \\
+\file{Product\_Description.pdf}          & How the three user-facing softwares (Noosphere, Dialectic, Founder Portal) fit together. The integration narrative. \\
+\file{Noosphere\_Project\_Status.pdf}    & Engineering status snapshot. What is implemented, what is pending, where the seams are. \\
+\file{Server\_Architecture.pdf}          & Deployment architecture, including the multi-tenant cloud layout and the split between public and private services. \\
+\file{Geometry\_of\_Unresolution.pdf}    & Mathematical treatment of epistemic unresolvability. The formal substrate behind why \texttt{unresolved} is a first-class output. \\
+\file{Podcast\_Infrastructure\_Research.pdf} & Research motivating the Dialectic audio pipeline and the Noosphere ingester. \\
+\file{Transcript\_Extraction\_Research.pdf}  & Research motivating the chunk-to-claim extraction pipeline and its tradeoffs. \\
+\file{Founders\_Reading\_and\_Research.pdf}  & Reading list and background material shared among founders. \\
+\file{Founders\_Questions.pdf}           & Active open questions the firm is tracking. \\
+\file{Performance\_Synthesis.pdf}        & Method performance and synthesis strategies. \\
+\file{Voices\_Method.pdf}               & Voice-decomposition methodology for separating individual founder positions. \\
+\bottomrule
+\end{longtable}
+
+Living operational markdowns in \file{docs/} include \file{Operations\_Manual.md} (daily workflow, failure modes, backup/restore, adversarial protocol, calibration scoreboard), \file{Robustness\_Ledger.md} (known-attack log and mitigations), and per-area subdirectories: \file{api-methods/} (extract-claims, embed, predict-score, coherence, replay), \file{researcher-api/} (privacy, security, acceptable use, citation), \file{redteam-methods/}, \file{peer\_review/} (reviewer specs), \file{interop/} (MIP specification), \file{eval/} (external corpora), and \file{methods/}.
+
+% =======================================================================
+\section{Data flow --- how a transcript becomes a public conclusion}
+% =======================================================================
+
+The canonical path through the system is the weekly transcript $\to$ public conclusion path. It composes every subsystem and is therefore the most informative flow to narrate.
+
+\begin{enumerate}[leftmargin=1.5em,itemsep=0.3em]
+  \item \textbf{Capture.} Either the founders record a conversation, in which case Dialectic runs live and exports a JSONL session file at completion, or an existing transcript is placed into \file{Podcast talks/}.
+  \item \textbf{Ingest.} A founder uploads the file via the Founder Portal or runs \texttt{python -m noosphere ingest}. The ingester parses the file, extracts frontmatter, segments into chunks on paragraph or speaker-turn boundaries, and writes \texttt{Artifact} and \texttt{Chunk} rows. Content-addressed IDs make the ingest idempotent.
+  \item \textbf{Claim extraction.} \mod{claim\_extractor.py} walks each chunk through the LLM client with a structured JSON output prompt, producing zero or more \texttt{Claim} rows with type (empirical / normative / methodological / predictive / definitional), confidence-hedge phrases, and evidence pointers. \mod{classifier.py} re-verifies the type label with zero-shot MNLI; disagreements are flagged.
+  \item \textbf{Embedding.} \mod{embed\_pass.py} batches new claims and writes sentence-transformers embeddings to the on-disk cache and \texttt{embeddings} table.
+  \item \textbf{Ontology update.} \mod{ontology.py} assigns each new claim to a topic cluster via cosine-nearest-centroid on UMAP-reduced embeddings, with HDBSCAN expansion when the cluster drift exceeds a threshold. Entity-linking collapses name variants to canonical \texttt{Entity} rows.
+  \item \textbf{Coherence scoring.} The \file{coherence/} scheduler picks pairs of claims to score, prioritizing pairs that are load-bearing for existing firm-tier conclusions. Each pair runs through all six layers; the aggregator combines them into a \texttt{SixLayerScore} with explicit \texttt{unresolved} output on disagreement.
+  \item \textbf{Cascade emission.} Each registered method invocation emits cascade edges via the post-hook registered by \file{cascade/hooks.py}: \texttt{extracted\_from}, \texttt{coheres\_with}, \texttt{contradicts}, \texttt{predicts}, \texttt{supports}, \texttt{refutes}, \texttt{depends\_on}, etc.
+  \item \textbf{Ledger write.} Concurrently, \file{ledger/hooks.py} writes a signed ledger entry capturing the method, its input hash, its output hash, and pointers to the stored input and output blobs.
+  \item \textbf{Synthesis.} \mod{synthesis.py} composes \texttt{run\_synthesis\_pipeline}: it promotes candidate principles from clusters, attaches supporting claims, runs the five-criterion meta-analysis, and persists firm-tier / founder-tier / open-tier \texttt{Conclusion} rows.
+  \item \textbf{Adversarial review.} \mod{adversarial.py} generates structured objections to firm-tier conclusions, scores them through the same coherence stack, and writes \texttt{adversarial\_challenge} rows. Fallen challenges force demotion unless shadow mode is set.
+  \item \textbf{Peer-review swarm.} On transition to firm tier, a conclusion auto-queues a swarm review across seven reviewer roles, each producing a \texttt{ReviewReport}. Major or blocker findings require structured rebuttals before the conclusion can advance.
+  \item \textbf{Decay binding.} Each new conclusion is bound to a default decay policy (typically \texttt{FixedInterval(days=30)} for firm-tier). The scheduler will re-validate on a cadence and demote to open tier if re-validation disagrees.
+  \item \textbf{Rigor gate.} When the founder elects to publish, the conclusion is submitted to \file{rigor\_gate/}. Nine declared checks run in parallel; any blocker fails the submission; pass-with-conditions attaches machine-readable publication conditions; pass allows publication. Every verdict is ledger-recorded; founder overrides are public.
+  \item \textbf{Publication.} On pass, the conclusion lands in the public content store. The public site reads from that store only; writes bypassing the gate are architecturally impossible.
+  \item \textbf{Re-ingestion.} The Codex and published conclusions are periodically re-ingested so that the firm's own output becomes part of its epistemic substrate for future rounds.
+\end{enumerate}
+
+% =======================================================================
+\section{Desktop application and deployment infrastructure}
+% =======================================================================
+
+Every piece of Theseus software is distributable as an installable application or deployable service. The build, signing, and distribution infrastructure was added in round 4.
+
+\subsection{Python app packaging (Dialectic and Noosphere)}
+
+Both Python applications use PyInstaller to produce standalone executables that run without requiring a Python installation. Each has:
+
+\begin{itemize}[leftmargin=1.5em,itemsep=0.1em]
+  \item A \file{.spec} file defining the PyInstaller analysis: hidden imports for all transitive dependencies (PyQt6, torch, sentence-transformers, faster-whisper, etc.), data bundles (assets, Alembic migrations), exclusions (tensorflow, jupyter, pytest), and platform-conditional targets (\texttt{.app} BUNDLE on macOS for Dialectic; console-mode directory on both platforms for Noosphere).
+  \item A \file{resources.py} or \file{frozen\_support.py} module that resolves paths correctly in both development and frozen modes, with platform-specific user data directories.
+  \item \file{scripts/generate\_icons.py} that produces macOS \texttt{.icns} and Windows \texttt{.ico} from a source PNG using Pillow and (on macOS) \texttt{iconutil}.
+  \item \file{scripts/build\_macos.sh} and \file{scripts/build\_windows.ps1} that orchestrate the full build: icon generation, PyInstaller execution, and platform-specific packaging (DMG via \texttt{create-dmg}/\texttt{hdiutil} on macOS; NSIS installer on Windows).
+  \item \file{installer/} containing the NSIS script (\texttt{.nsi}) for Windows installer creation (with Start Menu shortcuts, Desktop shortcut, uninstaller, registry entries) and \file{dmg-settings.json} for DMG layout.
+  \item An \file{updater.py} module providing a non-blocking background update checker that polls a JSON version manifest and notifies the user when a newer release is available.
+\end{itemize}
+
+Single-directory mode is used rather than single-file because the ML dependency stack (torch, CTranslate2, sentence-transformers) is too large for single-file extraction to be practical.
+
+\subsection{Electron desktop app (Founder Portal)}
+
+The Founder Portal's Electron wrapper comprises six TypeScript modules in \file{desktop/}:
+
+\begin{itemize}[leftmargin=1.5em,itemsep=0.1em]
+  \item \file{main.ts} --- app lifecycle, single-instance lock, BrowserWindow creation with context isolation, external-link handling.
+  \item \file{next-server.ts} --- starts the Next.js standalone server as a \texttt{fork}'d child process on a free port, with readiness polling (exponential backoff, 30s timeout) and graceful shutdown (SIGTERM then SIGKILL after 5s).
+  \item \file{db-path.ts} --- resolves SQLite to the platform-appropriate app-data directory (\file{userData/data/founder-portal.db}).
+  \item \file{preload.ts} --- minimal context bridge exposing platform info and deep-link IPC.
+  \item \file{updater.ts} --- \texttt{electron-updater} integration: silent check on launch, user-prompted restart on download completion, error logging via \texttt{electron-log}.
+  \item \file{dev.ts} --- development helper that starts \texttt{next dev} and Electron concurrently.
+\end{itemize}
+
+The \file{electron-builder.yml} configuration produces: macOS DMG (universal architecture, hardened runtime, \texttt{entitlements.mac.plist} granting JIT, network, and file access) and Windows NSIS installer (customizable directory, Start Menu category ``Theseus''). Auto-update publishes to GitHub Releases.
+
+\subsection{Docker and web deployment}
+
+\begin{itemize}[leftmargin=1.5em,itemsep=0.1em]
+  \item \file{founder-portal/Dockerfile} --- multi-stage build: dependency install, Next.js build with Prisma generation, standalone extraction, seed database from pre-run migrations, \texttt{node:20-alpine} runner with volume-mounted SQLite.
+  \item \file{theseus-public/Dockerfile} --- multi-stage: Node build to static export, \texttt{nginx:1.27-alpine} serving with gzip, \texttt{try\_files} for clean URLs, security headers.
+  \item \file{docker-compose.yml} (repo root) --- Founder Portal on port 3000, Public on port 8080, shared \texttt{portal-data} volume for SQLite persistence.
+  \item \file{deploy/compose/} --- extended compose configuration for production stacks.
+  \item \file{deploy/helm/theseus/} --- Kubernetes Helm chart with templates for portal and ingest-worker deployments.
+  \item \file{theseus-public/vercel.json} and \file{theseus-public/netlify.toml} --- managed hosting configurations with security headers.
+\end{itemize}
+
+\subsection{Code signing and notarization}
+
+Three shared scripts in \file{scripts/} handle signing across all desktop applications:
+
+\begin{itemize}[leftmargin=1.5em,itemsep=0.1em]
+  \item \file{codesign\_macos.sh} --- deep-signs all nested binaries (\texttt{.dylib}, \texttt{.so}, executables) with a Developer ID certificate, sets hardened runtime and timestamp. Gracefully skips when no signing identity is provided.
+  \item \file{notarize\_macos.sh} --- submits DMG or ZIP to Apple's notarization service via \texttt{xcrun notarytool}, waits up to 600s, and staples the ticket on success. Gracefully skips when credentials are absent.
+  \item \file{codesign\_windows.ps1} --- signs all \texttt{.exe} and \texttt{.dll} files with an Authenticode certificate via \texttt{signtool}, using SHA-256 and DigiCert timestamping. Gracefully skips when no certificate is provided.
+\end{itemize}
+
+All three scripts are designed for CI integration: they exit 0 with a warning when credentials are not configured, ensuring unsigned development builds succeed.
+
+\subsection{CI/CD pipelines}
+
+Six GitHub Actions workflows in \file{.github/workflows/} automate the full build-test-sign-release lifecycle:
+
+\begin{itemize}[leftmargin=1.5em,itemsep=0.1em]
+  \item \file{build-dialectic.yml} --- matrix build on macOS 14 (ARM) and Windows. Python 3.11 setup, pip install, PyInstaller build, DMG creation (macOS), code signing and notarization when secrets are configured. Uploads platform artifacts.
+  \item \file{build-noosphere.yml} --- same matrix structure for the Noosphere CLI. Produces tar.gz (macOS) and directory (Windows).
+  \item \file{build-founder-portal.yml} --- matrix build for Electron. Node 20 setup, Next.js build, TypeScript compilation, icon generation, \texttt{electron-builder} with platform flag. Code signing via certificate secrets (macOS: P12 base64 + password; Windows: PFX base64 + password).
+  \item \file{build-docker.yml} --- builds Docker images for Founder Portal and Theseus Public using Buildx with GitHub Actions cache. Validates \texttt{docker-compose.yml}.
+  \item \file{release.yml} --- triggered on \texttt{v*} tags. Calls the three build workflows, downloads all artifacts, and creates a draft GitHub Release via \texttt{softprops/action-gh-release} with auto-generated release notes.
+  \item \file{round3.yml} --- invariant checks and system tests for round-3 architectural constraints.
+  \item \file{noosphere-redteam.yml} --- adversarial/security testing workflow.
+\end{itemize}
+
+\file{.github/dependabot.yml} configures weekly dependency updates for npm (Founder Portal, Public), pip (Noosphere, Dialectic), and GitHub Actions.
+
+All build workflows accept \texttt{workflow\_call} for reuse by the release orchestrator, plus \texttt{push} (path-filtered to their directory), \texttt{pull\_request}, and \texttt{workflow\_dispatch} triggers.
+
+% =======================================================================
+\section{Operational surface and user roles}
+% =======================================================================
+
+Three roles interact with the system, each through a distinct surface.
+
+\textbf{Founder.} The primary user. Works through the Founder Portal (web UI or Electron desktop app, credentialed) and secondarily through the CLI when diagnosing. Uploads transcripts and essays, reviews synthesized conclusions, triages contradictions and adversarial challenges, authorizes rigor-gate overrides, retires invalidated objects. Every founder action is ledger-recorded under an \texttt{Actor(kind="human")}.
+
+\textbf{Researcher (external).} An outside academic or industrial user. Accesses the Researcher API via HTTP with an issued API key. Can submit their own text to claim extraction, coherence scoring, embedding, calibration scoring, and replay endpoints. Cannot touch firm-internal data. Can download packaged methods and MIPs from the public site and re-run them locally against their own corpus.
+
+\textbf{Public reader.} Anyone on the internet. Reads the public site: published conclusions with full provenance, adversarial histories, method documentation, MIP registry, methodology refusal dashboards, open questions, and the firm's structured responses to external critiques. Cannot write; the architecture forbids it.
+
+The operational surface for the firm itself is the CLI:
+
+\begin{itemize}[leftmargin=1.5em,itemsep=0.1em]
+  \item \texttt{noosphere ingest} / \texttt{synthesize} / \texttt{research} --- the core pipeline commands.
+  \item \texttt{noosphere methods} --- list, show, run, diff, package, document, extract-candidates.
+  \item \texttt{noosphere ledger} --- verify the chain, export an audit bundle.
+  \item \texttt{noosphere cascade} --- explain, cut, export a proof bundle, diagnostics.
+  \item \texttt{noosphere eval counterfactual / external} --- run calibration and external-battery benchmarks.
+  \item \texttt{noosphere inverse} --- post-mortem on a resolved event.
+  \item \texttt{noosphere review} --- swarm, rebuttals-pending, reviewer-calibration.
+  \item \texttt{noosphere decay} --- status, revalidate, schedule, retire.
+  \item \texttt{noosphere interop} --- build, run, scaffold, submit-transfer.
+  \item \texttt{noosphere gate} --- submit, status, override, refusal-report.
+  \item \texttt{noosphere backup} / \texttt{restore} --- archive and restore full state.
+  \item \texttt{noosphere adversarial} --- generate and evaluate adversarial challenges.
+\end{itemize}
+
+% =======================================================================
+\section{Evaluation and governance machinery}
+% =======================================================================
+
+Seven interlocking mechanisms collectively make Theseus's methodological claims falsifiable.
+
+\textbf{Six-layer coherence.} Every pair of claims load-bearing for a firm conclusion is scored on all six layers. Disagreement among layers yields \texttt{unresolved}, which blocks promotion to firm tier.
+
+\textbf{Adversarial coherence.} Every firm-tier conclusion is subjected to structured LLM-generated objections that are themselves scored by the same coherence stack. Fallen challenges demote the conclusion unless addressed by a human reviewer with documented pointer.
+
+\textbf{Peer-review swarm.} Seven declared reviewer roles with explicit bias profiles examine each firm-tier conclusion independently. Major and blocker findings require structured rebuttals. Reviewer-level calibration is tracked; poorly-calibrated reviewers see their findings discounted, never dropped.
+
+\textbf{Calibration scoreboard.} Every falsifiable prediction the firm makes is tracked with crisp resolution criteria. Brier, log loss, and ECE are published per-method per-month. Confidence claims in public outputs are discounted by the producing method's calibration history.
+
+\textbf{Counterfactual evaluation.} Each registered method is re-run against historical corpus slices to measure what it would have concluded at prior dates; the results are compared against observed outcomes. Temporal leakage is detected via a canary-claim test that fails the run if any post-cut material appears in method output.
+
+\textbf{External corpus battery.} Methods are benchmarked monthly against external corpora (Good Judgment, Metaculus, ClaimReview, replication projects). Per-corpus calibration metrics are published alongside a five-way failure taxonomy. Methods that regress past a threshold trigger a red-flag ticket.
+
+\textbf{Rigor gate.} Every public-facing output runs through nine declared checks before publication. Refusal rates, override counts, and override justifications are all public. A 100\% pass rate for multiple consecutive months would be a sign that the checks are too weak, not that the firm is flawless.
+
+All seven mechanisms write to the same append-only ledger, producing a single chronological record from which external auditors can reconstruct every epistemic judgment the firm has ever made.
+
+% =======================================================================
+\section{Technology stack}
+% =======================================================================
+
+\begin{longtable}{p{3cm} p{11.5cm}}
+\toprule
+\textbf{Layer} & \textbf{Technologies} \\
+\midrule
+\endhead
+Backend/Engine & Python 3.11: sentence-transformers, transformers, spaCy, scikit-learn, HDBSCAN, UMAP, NetworkX, PyNaCl (Ed25519), zstandard, z3-solver. SQLModel + Alembic over SQLite or PostgreSQL. LLM clients: Anthropic Claude, OpenAI. \\
+Frontends & Next.js 16 (App Router), React 19, TypeScript 5, TailwindCSS 4. Prisma 7 ORM with better-sqlite3. \\
+Desktop & Electron 35 with electron-builder 26 and electron-updater (Founder Portal). PyQt6 with pyqtgraph and qasync (Dialectic). PyInstaller for all Python apps. \\
+Audio/NLP & faster-whisper (CTranslate2), sounddevice (PortAudio), DeBERTa-v3 NLI, sentence-transformers MiniLM. \\
+Deployment & Docker multi-stage (node:20-alpine, nginx:1.27-alpine), Docker Compose, Kubernetes Helm charts. Vercel/Netlify for static hosting. \\
+CI/CD & GitHub Actions on macOS 14 (ARM) and Windows-latest. Code signing: macOS \texttt{codesign} + \texttt{notarytool}, Windows \texttt{signtool} Authenticode. Dependabot for dependency updates. \\
+Testing & pytest (Python), Vitest (TypeScript), structured invariant-check scripts, red-team harness, calibration regression suites. \\
+\bottomrule
+\end{longtable}
+
+% =======================================================================
+\section{Appendix: glossary}
+% =======================================================================
+
+\begin{description}[leftmargin=3.2cm,labelwidth=3cm,labelsep=0.2cm,font=\bfseries]
+\item[Artifact] A raw source document ingested into the system (transcript, essay, memo, Dialectic session).
+\item[Chunk] A sub-segment of an artifact on paragraph or speaker-turn boundaries.
+\item[Claim] An atomic proposition extracted from a chunk, with type (empirical / normative / methodological / predictive / definitional), confidence hedges, and evidence pointers.
+\item[Conclusion] A synthesized firm-level statement derived from supporting claims through the coherence and meta-analysis pipeline, carrying a tier (firm / founder / open) and calibration-discounted confidence.
+\item[Coherence] A six-layer measure of consistency across a set of claims, yielding either a point verdict or \texttt{unresolved}.
+\item[Cascade] The typed directed graph of evidence-flow relations between artifacts, chunks, claims, principles, and conclusions.
+\item[Ledger] The append-only, signed, Merkle-chained record of every method invocation and human epistemic action.
+\item[Method] A versioned, registered judgment function with declared input/output schemas, rationale, and dependencies.
+\item[MethodDoc] A signed, publishable documentation bundle compiled from a method's spec, rationale, implementation, and evaluation results.
+\item[MIP] Methodology Interoperability Package --- a distributable bundle of methods and their supporting artifacts for external adoption.
+\item[Rigor Gate] The publication choke point; every submission to the public layer passes through nine checks.
+\item[Decay] The policy-driven re-validation of stored objects; objects that fail re-validation are retired, never deleted.
+\item[Freshness] The derived state of a stored object ($\in$ \{fresh, aging, stale, retired\}), computed from last-validation and bound policies.
+\item[Unresolved] A first-class judgment output indicating honest epistemic uncertainty rather than an error.
+\item[Voice] A named founder's position on a claim, tracked separately from firm-tier positions.
+\item[Principle] A clustered abstraction over supporting claims, eligible for conclusion promotion if it meets the five-criterion meta-analysis.
+\item[Blindspot] A structured report of what a resolved event implied that the corpus did not cover.
+\item[Frozen Mode] PyInstaller's runtime state where the application runs from a bundled directory rather than source; path resolution adapts accordingly.
+\item[Standalone Build] Next.js output mode that produces a self-contained server directory, used by both the Electron wrapper and Docker container.
+\end{description}
+
+\end{document}

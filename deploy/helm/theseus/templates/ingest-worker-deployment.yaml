@@ -1,0 +1,28 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: theseus-ingest-worker
+spec:
+  replicas: {{ .Values.ingestWorker.replicas }}
+  selector:
+    matchLabels:
+      app: theseus-ingest-worker
+  template:
+    metadata:
+      labels:
+        app: theseus-ingest-worker
+    spec:
+      containers:
+        - name: worker
+          image: {{ .Values.ingestWorker.image }}
+          env:
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: theseus-secrets
+                  key: database_url
+                  optional: true
+            - name: REDIS_URL
+              value: {{ .Values.redis.url | quote }}
+            - name: USE_JOB_QUEUE
+              value: "1"

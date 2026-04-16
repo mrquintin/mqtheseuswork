@@ -1,0 +1,20 @@
+\contentsline {section}{\numberline {1}Mission and methodological frame}{2}{section.1}%
+\contentsline {section}{\numberline {2}Repository at a glance}{2}{section.2}%
+\contentsline {section}{\numberline {3}Core softwares}{3}{section.3}%
+\contentsline {subsection}{\numberline {3.1}Noosphere --- the epistemic engine}{3}{subsection.3.1}%
+\contentsline {subsection}{\numberline {3.2}Dialectic --- the live conversation analyzer}{4}{subsection.3.2}%
+\contentsline {subsection}{\numberline {3.3}Founder Portal --- the web control plane}{4}{subsection.3.3}%
+\contentsline {subsection}{\numberline {3.4}Theseus Public --- the publication-only public website}{4}{subsection.3.4}%
+\contentsline {subsection}{\numberline {3.5}Theseus Codex --- the firm's living reference}{5}{subsection.3.5}%
+\contentsline {subsection}{\numberline {3.6}Researcher API --- the outside-investigator surface}{5}{subsection.3.6}%
+\contentsline {subsection}{\numberline {3.7}Ideological Ontology --- research experiments}{5}{subsection.3.7}%
+\contentsline {section}{\numberline {4}Noosphere's internal architecture}{5}{section.4}%
+\contentsline {subsection}{\numberline {4.1}The core pipeline (flat modules)}{5}{subsection.4.1}%
+\contentsline {subsection}{\numberline {4.2}The coherence subpackage}{7}{subsection.4.2}%
+\contentsline {subsection}{\numberline {4.3}The round-3 additions (present in the tree; filling out via the 26 prompts)}{8}{subsection.4.3}%
+\contentsline {section}{\numberline {5}Written research catalog}{10}{section.5}%
+\contentsline {section}{\numberline {6}Data flow --- how a transcript becomes a public conclusion}{10}{section.6}%
+\contentsline {section}{\numberline {7}Round-3 additions --- the present work}{12}{section.7}%
+\contentsline {section}{\numberline {8}Operational surface and user roles}{13}{section.8}%
+\contentsline {section}{\numberline {9}Evaluation and governance machinery}{13}{section.9}%
+\contentsline {section}{\numberline {10}Appendix: glossary}{14}{section.10}%

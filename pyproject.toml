@@ -1,0 +1,86 @@
+[build-system]
+requires = ["setuptools>=64", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "theseus"
+version = "0.0.0"
+description = "Theseus monorepo (Python packages: noosphere, dialectic)"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = []
+
+[project.optional-dependencies]
+dev = [
+    "alembic>=1.13",
+    "black>=24.3",
+    "mypy>=1.11",
+    "openai>=1.40",
+    "pydantic-settings>=2.2",
+    "pytest>=8.3",
+    "ruff>=0.8",
+    "sqlmodel>=0.0.22",
+    "structlog>=24.1",
+]
+
+[tool.setuptools.packages.find]
+where = ["noosphere", "dialectic"]
+
+# ---- Ruff ----
+[tool.ruff]
+target-version = "py311"
+line-length = 88
+src = ["noosphere", "dialectic"]
+
+[tool.ruff.lint]
+select = [
+    "E",   # pycodestyle errors
+    "F",   # Pyflakes
+    "I",   # isort
+    "W",   # pycodestyle warnings
+    "UP",  # pyupgrade
+]
+ignore = []
+
+[tool.ruff.lint.isort]
+known-first-party = ["noosphere", "dialectic"]
+
+# ---- Black ----
+[tool.black]
+target-version = ["py311"]
+line-length = 88
+extend-exclude = '''
+/(
+  \.eggs
+  | \.git
+  | \.hg
+  | \.mypy_cache
+  | \.tox
+  | \.venv
+  | venv
+  | _build
+  | buck-out
+  | build
+  | dist
+  | node_modules
+  | \.next
+)/
+'''
+
+# ---- Mypy ----
+[tool.mypy]
+python_version = "3.11"
+explicit_package_bases = true
+warn_return_any = true
+warn_unused_configs = true
+warn_unused_ignores = true
+no_implicit_optional = true
+check_untyped_defs = true
+ignore_missing_imports = true
+
+# ---- Pytest ----
+[tool.pytest.ini_options]
+minversion = "8.0"
+testpaths = ["noosphere/tests", "dialectic/tests", "tests/e2e"]
+pythonpath = ["noosphere", "dialectic", "."]
+addopts = "-ra"

@@ -1,0 +1,63 @@
+WAVE 9 / PROMPT 2 — Public site: round-3 pages
+
+═══════════════════════════════════════════════════════════════════════════════
+YOUR TASK
+═══════════════════════════════════════════════════════════════════════════════
+You are an implementation agent. Your job is to add all round-3 public-site pages (methods registry, MIP registry, methodology/rigor dashboard, methodology/overrides, methodology/decay stats) to the static Next.js site, and to modify the conclusion page to include provenance summaries and sanitized adversarial history. The public site READS ONLY from the publication store — no writes are possible from this surface.
+
+Two sibling agents in wave 9 are on the founder portal and the shared API router. Stay inside your manifest.
+
+═══════════════════════════════════════════════════════════════════════════════
+PREREQUISITES
+═══════════════════════════════════════════════════════════════════════════════
+- Waves 5 and 7 are done; the publication store contains signed MethodDoc bundles and MIPs.
+- `theseus-public/src/` Next.js app exists with round-2 structure.
+
+═══════════════════════════════════════════════════════════════════════════════
+FILES TOUCHED
+═══════════════════════════════════════════════════════════════════════════════
+- `theseus-public/src/app/methods/page.tsx`                             CREATE
+- `theseus-public/src/app/methods/[name]/[version]/page.tsx`            CREATE
+- `theseus-public/src/app/interop/page.tsx`                             CREATE
+- `theseus-public/src/app/interop/[mipName]/[mipVersion]/page.tsx`      CREATE
+- `theseus-public/src/app/methodology/rigor/page.tsx`                   CREATE
+- `theseus-public/src/app/methodology/overrides/page.tsx`               CREATE
+- `theseus-public/src/app/methodology/decay/page.tsx`                   CREATE
+- `theseus-public/src/app/conclusions/[id]/page.tsx`                    MODIFY (add Provenance + Adversarial History sections)
+- `theseus-public/src/lib/api/round3.ts`                                CREATE
+- `theseus-public/src/__tests__/round3_public_pages.test.tsx`           CREATE
+
+═══════════════════════════════════════════════════════════════════════════════
+STEP-BY-STEP
+═══════════════════════════════════════════════════════════════════════════════
+1. In `lib/api/round3.ts`, implement read-only typed fetchers for the public Researcher API endpoints that the sibling agent is adding.
+2. For each new page, write a React server component that fetches and renders. Use the existing public-site UI conventions.
+3. Every public page renders a "corpus hash at publication" stamp (from the served artifact's manifest).
+4. Methods page lists every signed MethodDoc with version history, DOI, BibTeX, download link.
+5. MIP page lists every published MIP with version matrix and adoption instructions.
+6. `methodology/rigor` renders the monthly dashboard (pass/fail counts, top failure categories); `methodology/overrides` lists every `FounderOverride` with full justification; `methodology/decay` shows aggregated decay stats.
+7. Modify `conclusions/[id]/page.tsx` to add two sections at the bottom: Provenance summary (linked ledger slice) and Adversarial History (sanitized swarm report showing reviewer roles only — never agent identities or private rationales).
+8. Write vitest tests.
+9. `pnpm test theseus-public/src/__tests__/round3_public_pages` — green.
+
+═══════════════════════════════════════════════════════════════════════════════
+POLICY
+═══════════════════════════════════════════════════════════════════════════════
+- This surface has NO write capability. All mutating imports are forbidden. A CI check in wave 10 enforces this.
+- No analytics / tracking pixels. No phone-home.
+- All outbound links pass through the existing URL-safety wrapper.
+
+═══════════════════════════════════════════════════════════════════════════════
+HOW TO VERIFY YOU ARE DONE
+═══════════════════════════════════════════════════════════════════════════════
+1. Every new page builds statically via `pnpm build`.
+2. All pages render against a seeded publication store.
+3. Vitest suite green.
+
+═══════════════════════════════════════════════════════════════════════════════
+DO NOT
+═══════════════════════════════════════════════════════════════════════════════
+- Let any write path exist on this surface.
+- Leak agent identities in the Adversarial History — roles only.
+- Touch `founder-portal/src/` or `researcher_api/`.
+- Touch any file outside FILES TOUCHED.

@@ -1,0 +1,80 @@
+# Claude Code Prompt 4 of 26 — Port coherence and geometry methods into the registry
+
+**Sequence:** prompt 4 of 26. Complete prompts 1..3 before starting this one. When you finish, report back with: files you created/modified, any notable choices, any blockers. I'll then paste the next prompt.
+
+**Parallelism (optional):** prompts 4, 5, 6 touch disjoint files and could run in parallel Claude Code sessions if you want.
+
+**Before you start — read current state:**
+1. Run `git status` and `git branch` to see the current branch state.
+2. If you see stray branches matching `round3/*` or a `.orchestrator/` directory from a prior automated run, tell me and stop; we'll clean them up before continuing.
+3. For every file listed under SCOPE below, check whether it already exists and what it contains. If parts of the work described here are already done (from a previous attempt), INSPECT what is there and only add the missing pieces. Do NOT overwrite existing, correct work. Do NOT duplicate types or tests that already exist.
+4. If you find partial work that is clearly broken or half-finished, ask me whether to complete it or discard and restart that piece.
+## Your task
+You are an implementation agent. Your job is to port three existing judgment functions (NLI scorer, six-layer coherence, contradiction geometry) into the method registry created in wave 2. For each function you must: (a) copy the original code verbatim into a frozen `_legacy/` location for parity testing, (b) create a new registered method file under `methods/` that wraps the same behavior, (c) write a `RATIONALE.md` next to the new file.
+
+Two in wave 3 are porting other methods and writing the CI lint. 
+
+## Prerequisites
+- Wave 2 is done: `methods/` package, `@register_method` decorator, and `REGISTRY` exist.
+- The original implementations live at `noosphere/noosphere/coherence/nli.py`, `noosphere/noosphere/coherence/six_layer.py`, and `noosphere/noosphere/geometry.py`.
+
+SCOPE (files you may create or modify — stay within this list)
+- `noosphere/noosphere/methods/nli_scorer.py`                      CREATE
+- `noosphere/noosphere/methods/six_layer_coherence.py`             CREATE
+- `noosphere/noosphere/methods/contradiction_geometry.py`          CREATE
+- `noosphere/noosphere/methods/_legacy/nli_scorer.py`              CREATE (verbatim copy)
+- `noosphere/noosphere/methods/_legacy/six_layer_coherence.py`     CREATE (verbatim copy)
+- `noosphere/noosphere/methods/_legacy/contradiction_geometry.py`  CREATE (verbatim copy)
+- `noosphere/noosphere/methods/nli_scorer.RATIONALE.md`            CREATE
+- `noosphere/noosphere/methods/six_layer_coherence.RATIONALE.md`   CREATE
+- `noosphere/noosphere/methods/contradiction_geometry.RATIONALE.md` CREATE
+- `noosphere/tests/fixtures/port_parity/nli_scorer/case1.json`                CREATE
+- `noosphere/tests/fixtures/port_parity/six_layer_coherence/case1.json`       CREATE
+- `noosphere/tests/fixtures/port_parity/contradiction_geometry/case1.json`    CREATE
+
+## Step-by-step
+1. Open the original file. Copy its entire contents into the corresponding `_legacy/` file verbatim. Do NOT add `@register_method` to the legacy copy. Remove any import-side-effect registrations or singleton initializations.
+2. Create the new `methods/<name>.py` file. Import the legacy logic (or copy it, whichever is cleaner) and expose a single function that takes a pydantic input model and returns a pydantic output model.
+3. Apply `@register_method(...)` at the top of the new function with the spec fields listed below.
+4. Write `<name>.RATIONALE.md` (≥ 200 words, prose) answering: (a) what the method is trying to do; (b) what epistemic assumptions it makes; (c) what it knowingly fails at. If the existing module has docstring or comments, adapt them into the rationale.
+5. Create a fixture file `tests/fixtures/port_parity/<name>/case1.json` containing a valid input payload for the parity test that wave_3/03 will write.
+
+## Spec fields
+nli_scorer:
+  name="nli_scorer", version="1.0.0", method_type=MethodType.JUDGMENT,
+  input_schema=NLIInput.model_json_schema(), output_schema=NLIScore.model_json_schema(),
+  owner="founder", status="active", nondeterministic=False,
+  emits_edges=["coheres_with", "contradicts"],
+  dependencies=[]
+
+six_layer_coherence:
+  name="six_layer_coherence", version="1.0.0", method_type=MethodType.JUDGMENT,
+  owner="founder", status="active", nondeterministic=False,
+  emits_edges=["coheres_with", "contradicts"],
+  dependencies=[("nli_scorer", "1.0.0")]   # plus any other layer deps observable in the existing code
+
+contradiction_geometry:
+  name="contradiction_geometry", version="1.0.0", method_type=MethodType.JUDGMENT,
+  owner="founder", status="active", nondeterministic=False,
+  emits_edges=["contradicts"],
+  dependencies=[]
+
+If `NLIInput` / `NLIScore` / analogous input-output models are not already in `models.py`, define them at the top of your `methods/<name>.py` file (not in `models.py` — that file is frozen in wave 1). Use `pydantic.BaseModel`.
+
+## How to verify
+1. `python -c "from noosphere.noosphere.methods.nli_scorer import *; from noosphere.noosphere.methods.six_layer_coherence import *; from noosphere.noosphere.methods.contradiction_geometry import *"` — imports cleanly.
+2. After import, `REGISTRY.get("nli_scorer", "1.0.0")` returns the spec + callable.
+3. Calling the registered method on a valid input produces output and writes a `MethodInvocation` row to the store.
+4. Fixture files parse as valid JSON and match the method's input schema.
+5. The parity test harness (wave_3/03) will run against your RATIONALE and fixtures; it is OK if that test is not yet written when you finish.
+
+## Do not
+- Add `@register_method` to anything in `_legacy/`.
+- Modify the original files under `coherence/` or `geometry.py`. (A later round will remove them; not yours.)
+- "Improve" the algorithm during the port. Behavior must be identical to the legacy copy. If you want to change behavior, that is a version bump to 1.1.0 in a separate prompt.
+- Modify `models.py`. Input/output types live in your method file.
+- Touch files outside FILES TOUCHED.
+
+---
+
+**When you're finished:** report back with (a) files you created/modified, (b) any non-obvious choices you made, (c) any blockers. I'll paste the next prompt after I've reviewed your summary.

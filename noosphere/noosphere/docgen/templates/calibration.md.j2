@@ -1,0 +1,25 @@
+# Calibration: {{ name }} v{{ version }}
+
+## Counterfactual Evaluation Runs
+
+{% if eval_runs %}
+| Run ID | Cut ID | Brier | Log Loss | ECE | Resolution | Coverage | Date |
+|--------|--------|-------|----------|-----|------------|----------|------|
+{% for run in eval_runs -%}
+| {{ run.run_id[:12] }} | {{ run.cut_id[:12] }} | {{ "%.4f"|format(run.brier) }} | {{ "%.4f"|format(run.log_loss) }} | {{ "%.4f"|format(run.ece) }} | {{ "%.4f"|format(run.resolution) }} | {{ "%.4f"|format(run.coverage) }} | {{ run.created_at }} |
+{% endfor %}
+{% else %}
+No counterfactual evaluation runs recorded.
+{% endif %}
+
+## External Battery Results
+
+{% if battery_runs %}
+| Run ID | Corpus | Brier | Log Loss | ECE | Failures |
+|--------|--------|-------|----------|-----|----------|
+{% for run in battery_runs -%}
+| {{ run.run_id[:12] }} | {{ run.corpus_name }} | {{ "%.4f"|format(run.brier) }} | {{ "%.4f"|format(run.log_loss) }} | {{ "%.4f"|format(run.ece) }} | {{ run.failure_count }} |
+{% endfor %}
+{% else %}
+No external battery results recorded.
+{% endif %}

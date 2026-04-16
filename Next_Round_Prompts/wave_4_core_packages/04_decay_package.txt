@@ -1,0 +1,93 @@
+WAVE 4 / PROMPT 4 — Build the decay/ package (policy-driven re-validation and retirement)
+
+═══════════════════════════════════════════════════════════════════════════════
+YOUR TASK
+═══════════════════════════════════════════════════════════════════════════════
+You are an implementation agent. Your job is to create `noosphere/noosphere/decay/`: a package that treats stored claims/conclusions/topics as perishable, re-validating them on a schedule and retiring them on refutation. Some policies reference features that ship in later waves (`OutcomeObserved` needs `inference/` from wave 5; `CalibrationRegression` needs `evaluation/` from wave 4). Ship those policies INERT by default — their import is optional and they return `will_trigger=False` when the upstream feature is not importable.
+
+Three sibling agents in wave 4 are on `ledger/`, `cascade/`, `evaluation/`. Stay inside your manifest.
+
+═══════════════════════════════════════════════════════════════════════════════
+PREREQUISITES
+═══════════════════════════════════════════════════════════════════════════════
+- Wave 3 is done.
+- `DecayPolicy`, `Freshness`, `RevalidationResult`, `DecayPolicyKind` types exist.
+- `Store.insert_decay_policy`, `Store.bind_policy`, `Store.insert_revalidation` exist.
+
+═══════════════════════════════════════════════════════════════════════════════
+FILES TOUCHED
+═══════════════════════════════════════════════════════════════════════════════
+- `noosphere/noosphere/decay/__init__.py`            CREATE
+- `noosphere/noosphere/decay/policies.py`            CREATE
+- `noosphere/noosphere/decay/freshness.py`           CREATE
+- `noosphere/noosphere/decay/scheduler.py`           CREATE
+- `noosphere/noosphere/decay/retirement.py`          CREATE
+- `noosphere/noosphere/decay/hooks.py`               CREATE
+- `noosphere/tests/test_decay_policies.py`           CREATE
+- `noosphere/tests/test_decay_scheduler_budget.py`   CREATE
+- `noosphere/tests/test_stale_hidden_by_default.py`  CREATE
+- `noosphere/tests/test_retirement_cascade.py`       CREATE
+- `noosphere/tests/test_decay_idempotent.py`         CREATE
+
+═══════════════════════════════════════════════════════════════════════════════
+STEP-BY-STEP
+═══════════════════════════════════════════════════════════════════════════════
+1. Build `policies.py` with classes for each policy kind (FixedInterval, EvidenceChanged, MethodVersionBump, EmbeddingDrift, OutcomeObserved, CalibrationRegression) and `Any(*children)`, `All(*children)` combinators. Each exposes `should_trigger(object_id, as_of) -> bool`.
+2. For `OutcomeObserved` and `CalibrationRegression`, wrap the imports in try/except. If the upstream module is not importable, `should_trigger` returns False and the class logs once per run.
+3. Build `freshness.py` with `compute_freshness(object_id, as_of=now) -> Freshness`. ALWAYS derive from (last_validated_at, bound policies). Never cache.
+4. Build `scheduler.py` with a priority queue + per-run budget cap + thrashing detector (escalate to human if same object revalidates > N times/day). Include a `warmup_days` parameter that suppresses decay on a fresh deployment.
+5. Build `retirement.py` with `retire(object_id, reason, actor) -> RevalidationResult`. Registered as method `name="retire_object"` so its invocation is ledgered. Marks the object; does not delete. Cascades: every conclusion citing the retired object is flagged for re-examination (insert a `conclusion_reexamine` event in Store — add a helper if missing).
+6. Build `hooks.py`. Register pre-hook `decay.watch` (retrieval paths) and post-hook `decay.mark_stale_on_revalidation_disagreement`.
+7. Write all five test files.
+8. `pytest noosphere/tests/test_decay_*.py -v`.
+
+═══════════════════════════════════════════════════════════════════════════════
+Scheduler loop (exact)
+═══════════════════════════════════════════════════════════════════════════════
+class Scheduler:
+    def __init__(self, store, budget_per_run: int = 50, warmup_days: int = 14,
+                 thrashing_threshold: int = 5):
+        ...
+
+    def run_once(self) -> list[RevalidationResult]:
+        now = utc_now()
+        candidates = self._enumerate_candidates(now)     # objects whose compute_freshness says re-validate
+        candidates = self._filter_warmup(candidates, now)
+        candidates.sort(key=lambda c: self._priority(c), reverse=True)
+        results = []
+        for obj in candidates[: self.budget_per_run]:
+            if self._thrashing(obj, now):
+                self._escalate_to_human(obj)
+                continue
+            results.append(self._revalidate(obj))
+        return results
+
+    def _revalidate(self, obj):
+        method = self._canonical_revalidation_method_for(obj)
+        output = method(obj)        # routed through REGISTRY so ledgered
+        if self._materially_differs(output, obj.prior_output):
+            return RevalidationResult(object_id=obj.id, outcome="disagreement", ...)
+        return RevalidationResult(object_id=obj.id, outcome="confirmed", ...)
+
+═══════════════════════════════════════════════════════════════════════════════
+TESTS
+═══════════════════════════════════════════════════════════════════════════════
+test_decay_policies.py — each built-in policy triggers on its condition and not otherwise (use fixtures).
+test_decay_scheduler_budget.py — scheduler respects budget and priority order; warmup suppresses early decay.
+test_stale_hidden_by_default.py — a retrieval path with the decay pre-hook installed does not return stale objects; passing `include_non_fresh=True` does.
+test_retirement_cascade.py — retiring an object flags every conclusion that cited it for re-examination.
+test_decay_idempotent.py — re-validating a fresh object is a no-op and emits a REVALIDATION_NOOP ledger marker.
+
+═══════════════════════════════════════════════════════════════════════════════
+HOW TO VERIFY YOU ARE DONE
+═══════════════════════════════════════════════════════════════════════════════
+1. `pytest noosphere/tests/test_decay_*.py -v` — green.
+2. `python -c "import noosphere.noosphere.decay"` — imports; OutcomeObserved/CalibrationRegression log their soft-dep status once.
+
+═══════════════════════════════════════════════════════════════════════════════
+DO NOT
+═══════════════════════════════════════════════════════════════════════════════
+- Store freshness as an authoritative field bypassing its derivation.
+- Make retirement reversible; restoration requires a new object with a new id.
+- Modify the decorator or other subsystems.
+- Touch any file outside FILES TOUCHED.

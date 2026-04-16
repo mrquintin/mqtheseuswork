@@ -1,0 +1,69 @@
+# Claude Code Prompt 26 of 26 — CI umbrella runner + cross-cutting checks + GitHub workflow
+
+**Sequence:** prompt 26 of 26. Complete prompts 1..25 before starting this one. When you finish, report back with: files you created/modified, any notable choices, any blockers. I'll then paste the next prompt.
+
+**Before you start — read current state:**
+1. Run `git status` and `git branch` to see the current branch state.
+2. If you see stray branches matching `round3/*` or a `.orchestrator/` directory from a prior automated run, tell me and stop; we'll clean them up before continuing.
+3. For every file listed under SCOPE below, check whether it already exists and what it contains. If parts of the work described here are already done (from a previous attempt), INSPECT what is there and only add the missing pieces. Do NOT overwrite existing, correct work. Do NOT duplicate types or tests that already exist.
+4. If you find partial work that is clearly broken or half-finished, ask me whether to complete it or discard and restart that piece.
+## Your task
+You are an implementation agent. Your job is to consolidate every round-3 CI lint into a single umbrella runner, add three new cross-cutting checks (no-phone-home, signed-artifacts, ui-uses-gated-api), and wire everything into a `.github/workflows/round3.yml` pipeline.
+
+You are the sole agent in wave 10. Every prior wave has landed.
+
+## Prerequisites
+- Waves 1–9 are done.
+- Per-subsystem CI scripts already exist:
+    scripts/check_methods_gated.py           (wave_3)
+    scripts/check_no_hidden_globals.py       (wave_4)
+    scripts/check_gated_decorator_present.py (wave_5)
+    scripts/check_public_store_only_gated.py (wave_5)
+    scripts/check_packaging_selfcontainment.py (wave_5)
+    scripts/check_mip_versioning.py          (wave_5)
+    scripts/check_doc_drift.py               (wave_6)
+
+SCOPE (files you may create or modify — stay within this list)
+- `scripts/check_round3_invariants.py`                                  CREATE (umbrella runner)
+- `scripts/check_no_phone_home.py`                                      CREATE
+- `scripts/check_signed_artifacts.py`                                   CREATE
+- `scripts/check_ui_uses_gated_api.py`                                  CREATE
+- `.github/workflows/round3.yml`                                        CREATE
+- `noosphere/tests/test_ci_round3_invariants.py`                        CREATE
+
+## Step-by-step
+1. Build `scripts/check_round3_invariants.py`:
+   - Invokes every per-subsystem CI script listed in PREREQUISITES plus the three new ones in this prompt.
+   - Returns a single exit code (non-zero if any sub-check failed).
+   - Prints a structured summary (Rich or plain text with `--json` option).
+2. Build `scripts/check_no_phone_home.py`:
+   - Scans packaged methods (`out_dir/*`), MIP bundles (`out_dir/*`), public-site built HTML/JS, and founder-portal API route handlers.
+   - Looks for outbound HTTP/HTTPS calls to non-allowlisted domains (allowlist via env `THESEUS_ALLOWLIST`).
+   - Fails on any unallowlisted match.
+3. Build `scripts/check_signed_artifacts.py`:
+   - For every file under `docs/methods/` and every MIP under `docs/interop/`, verify the signature against the ledger KeyRing.
+   - Fails if any artifact is unsigned or signature invalid.
+4. Build `scripts/check_ui_uses_gated_api.py`:
+   - Static-analyze `founder-portal/src/app/api/round3/*`: assert every route handler uses the `withGated` wrapper.
+   - Static-analyze `theseus-public/src/app/`: assert no route handler writes (all are GET-only).
+5. Write `.github/workflows/round3.yml`:
+   - Triggers: `push` to any branch + `pull_request` to main.
+   - Jobs: python-tests, ts-tests, round3-invariants (runs `check_round3_invariants.py`).
+   - Python 3.11, pnpm 8, node 20. Caches pip and pnpm.
+6. Write `tests/test_ci_round3_invariants.py` exercising the umbrella runner with synthetic pass + fail fixtures.
+
+## How to verify
+1. `python scripts/check_round3_invariants.py` exits 0 on the real repo with all waves landed.
+2. Deliberately introducing a phone-home call in a packaged method causes `check_no_phone_home.py` to fail.
+3. Deliberately removing `@gated` from a founder-portal mutation handler causes `check_gated_decorator_present.py` to fail via the umbrella runner.
+4. `pytest noosphere/tests/test_ci_round3_invariants.py -v` — green.
+5. GitHub Actions shows a green round3 run on a fresh PR.
+
+## Do not
+- Duplicate sub-check logic in the umbrella runner; the umbrella runs the sub-checks.
+- Introduce brittle heuristics that false-positive in normal code.
+- Touch any file outside FILES TOUCHED.
+
+---
+
+**When you're finished:** report back with (a) files you created/modified, (b) any non-obvious choices you made, (c) any blockers. I'll paste the next prompt after I've reviewed your summary.

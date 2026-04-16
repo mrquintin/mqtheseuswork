@@ -1,0 +1,37 @@
+\contentsline {section}{\numberline {1}What Theseus Is Trying To Do}{3}{section.1}%
+\contentsline {section}{\numberline {2}The System At A Glance}{4}{section.2}%
+\contentsline {section}{\numberline {3}Noosphere: The Reasoning Engine}{5}{section.3}%
+\contentsline {subsection}{\numberline {3.1}Why it exists}{5}{subsection.3.1}%
+\contentsline {subsection}{\numberline {3.2}Architecture}{5}{subsection.3.2}%
+\contentsline {subsubsection}{\numberline {3.2.1}The data layer}{5}{subsubsection.3.2.1}%
+\contentsline {subsubsection}{\numberline {3.2.2}The meaning layer}{6}{subsubsection.3.2.2}%
+\contentsline {subsection}{\numberline {3.3}The Six-Layer Coherence Engine}{6}{subsection.3.3}%
+\contentsline {subsubsection}{\numberline {3.3.1}Why six, and why these six?}{7}{subsubsection.3.3.1}%
+\contentsline {subsubsection}{\numberline {3.3.2}What the engine outputs}{8}{subsubsection.3.3.2}%
+\contentsline {subsection}{\numberline {3.4}Temporal Dynamics}{8}{subsection.3.4}%
+\contentsline {subsection}{\numberline {3.5}Meta-Analysis: The Five Criteria}{8}{subsection.3.5}%
+\contentsline {subsection}{\numberline {3.6}Synthesis and the Research Advisor}{9}{subsection.3.6}%
+\contentsline {section}{\numberline {4}Dialectic: The Live Companion}{10}{section.4}%
+\contentsline {subsection}{\numberline {4.1}Why live?}{10}{subsection.4.1}%
+\contentsline {subsection}{\numberline {4.2}Architecture}{10}{subsection.4.2}%
+\contentsline {subsubsection}{\numberline {4.2.1}Audio capture}{10}{subsubsection.4.2.1}%
+\contentsline {subsubsection}{\numberline {4.2.2}Transcription}{10}{subsubsection.4.2.2}%
+\contentsline {subsubsection}{\numberline {4.2.3}Analysis}{10}{subsubsection.4.2.3}%
+\contentsline {subsubsection}{\numberline {4.2.4}The dashboard}{11}{subsubsection.4.2.4}%
+\contentsline {subsubsection}{\numberline {4.2.5}The session file}{11}{subsubsection.4.2.5}%
+\contentsline {section}{\numberline {5}Founder Portal: The Human Interface}{12}{section.5}%
+\contentsline {subsection}{\numberline {5.1}What the founders do in it}{12}{subsection.5.1}%
+\contentsline {subsection}{\numberline {5.2}Architecture}{12}{subsection.5.2}%
+\contentsline {subsection}{\numberline {5.3}Data model}{12}{subsection.5.3}%
+\contentsline {subsection}{\numberline {5.4}Security posture}{13}{subsection.5.4}%
+\contentsline {section}{\numberline {6}How The Three Softwares Work Together}{14}{section.6}%
+\contentsline {subsection}{\numberline {6.1}A typical cycle}{14}{subsection.6.1}%
+\contentsline {section}{\numberline {7}Building The Mind}{15}{section.7}%
+\contentsline {subsection}{\numberline {7.1}What we mean by ``mind''}{15}{subsection.7.1}%
+\contentsline {subsection}{\numberline {7.2}The build sequence}{15}{subsection.7.2}%
+\contentsline {subsection}{\numberline {7.3}What the mind is not}{15}{subsection.7.3}%
+\contentsline {section}{\numberline {8}Engineering Principles}{17}{section.8}%
+\contentsline {section}{\numberline {9}Deployment and Operation}{18}{section.9}%
+\contentsline {subsection}{\numberline {9.1}Testing}{18}{subsection.9.1}%
+\contentsline {subsection}{\numberline {9.2}What can go wrong}{18}{subsection.9.2}%
+\contentsline {section}{\numberline {10}What Comes Next}{19}{section.10}%

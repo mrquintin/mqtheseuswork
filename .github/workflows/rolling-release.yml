@@ -1,0 +1,88 @@
+name: Rolling Release
+
+# Builds installers for all three apps on every push to main and uploads
+# them to a single rolling "latest-main" GitHub Release. This keeps the
+# README's /releases/latest/download/... links pointing at installers built
+# from the tip of main. Versioned releases (v*) are handled by release.yml.
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-dialectic:
+    uses: ./.github/workflows/build-dialectic.yml
+  build-noosphere:
+    uses: ./.github/workflows/build-noosphere.yml
+  build-founder-portal:
+    uses: ./.github/workflows/build-founder-portal.yml
+    secrets: inherit
+
+  publish:
+    needs: [build-dialectic, build-noosphere, build-founder-portal]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: List downloaded artifacts
+        run: ls -R artifacts || true
+
+      - name: Normalize installer filenames
+        run: |
+          mkdir -p release
+          # Dialectic
+          if ls artifacts/dialectic-macos/*.dmg >/dev/null 2>&1; then
+            cp "$(ls artifacts/dialectic-macos/*.dmg | head -n1)" release/Dialectic.dmg
+          fi
+          if ls artifacts/dialectic-windows/*.exe >/dev/null 2>&1; then
+            cp "$(ls artifacts/dialectic-windows/*.exe | head -n1)" release/Dialectic-Setup.exe
+          fi
+          # Noosphere
+          if ls artifacts/noosphere-macos/*.tar.gz >/dev/null 2>&1; then
+            cp "$(ls artifacts/noosphere-macos/*.tar.gz | head -n1)" release/noosphere-macos.tar.gz
+          fi
+          if ls artifacts/noosphere-windows/*.exe >/dev/null 2>&1; then
+            cp "$(ls artifacts/noosphere-windows/*.exe | head -n1)" release/Noosphere-Setup.exe
+          fi
+          # Founder Portal
+          if ls artifacts/founder-portal-macos/*.dmg >/dev/null 2>&1; then
+            cp "$(ls artifacts/founder-portal-macos/*.dmg | head -n1)" release/Theseus-Founder-Portal.dmg
+          fi
+          if ls artifacts/founder-portal-windows/*.exe >/dev/null 2>&1; then
+            cp "$(ls artifacts/founder-portal-windows/*.exe | head -n1)" release/Theseus-Founder-Portal-Setup.exe
+          fi
+          echo "--- Release files ---"
+          ls -la release/ || true
+
+      - name: Delete previous rolling release (if any)
+        continue-on-error: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release delete latest-main --yes --cleanup-tag || true
+
+      - name: Create/update rolling release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: latest-main
+          name: "Latest build from main"
+          body: |
+            Automatically built from the tip of `main` (commit ${{ github.sha }}).
+
+            These installers are rebuilt on every push to `main`. For stable
+            versioned releases, see tags starting with `v`.
+          files: release/*
+          draft: false
+          prerelease: false
+          make_latest: "true"
+          fail_on_unmatched_files: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

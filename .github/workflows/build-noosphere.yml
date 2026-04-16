@@ -1,0 +1,105 @@
+name: Build Noosphere
+
+on:
+  push:
+    branches: [main]
+    paths: ['noosphere/**', '.github/workflows/build-noosphere.yml']
+  pull_request:
+    paths: ['noosphere/**', '.github/workflows/build-noosphere.yml']
+  workflow_call:
+  workflow_dispatch:
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-14
+            platform: macos
+          - os: windows-latest
+            platform: windows
+
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        working-directory: noosphere
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+          cache-dependency-path: noosphere/requirements.txt
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pyinstaller pillow
+
+      - name: Generate icons
+        run: python scripts/generate_icons.py
+
+      - name: Build macOS (PyInstaller + tarball)
+        if: matrix.platform == 'macos'
+        run: bash scripts/build_macos.sh
+
+      - name: Build Windows (PyInstaller)
+        if: matrix.platform == 'windows'
+        shell: pwsh
+        run: pwsh -File scripts/build_windows.ps1
+
+      - name: Code sign (macOS)
+        if: matrix.platform == 'macos' && env.APPLE_SIGNING_IDENTITY != ''
+        env:
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+        run: bash ../scripts/codesign_macos.sh dist/noosphere "$APPLE_SIGNING_IDENTITY"
+
+      - name: Notarize (macOS)
+        if: matrix.platform == 'macos' && env.APPLE_ID != ''
+        env:
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
+        shell: bash
+        run: |
+          ZIP=$(ls dist/noosphere-*-macos.zip 2>/dev/null | head -n1)
+          if [ -z "$ZIP" ]; then
+            # Fall back: produce a notarization-ready ZIP from the signed dist dir.
+            VERSION=$(python3 -c "import tomllib; print(tomllib.load(open('pyproject.toml','rb'))['project']['version'])")
+            ZIP="dist/noosphere-${VERSION}-macos.zip"
+            (cd dist && /usr/bin/ditto -c -k --keepParent noosphere "$(basename "$ZIP")")
+          fi
+          bash ../scripts/notarize_macos.sh "$ZIP" "$APPLE_ID" "$APPLE_TEAM_ID" "$APPLE_APP_PASSWORD"
+
+      - name: Code sign (Windows)
+        if: matrix.platform == 'windows' && env.WIN_CERT_PFX_BASE64 != ''
+        env:
+          WIN_CERT_PFX_BASE64: ${{ secrets.WIN_CERT_PFX_BASE64 }}
+          WIN_CERT_PASSWORD: ${{ secrets.WIN_CERT_PASSWORD }}
+        shell: pwsh
+        run: |
+          $certBytes = [Convert]::FromBase64String($env:WIN_CERT_PFX_BASE64)
+          [IO.File]::WriteAllBytes("$env:RUNNER_TEMP\cert.pfx", $certBytes)
+          ..\scripts\codesign_windows.ps1 -Target dist\noosphere -CertPath "$env:RUNNER_TEMP\cert.pfx" -CertPassword $env:WIN_CERT_PASSWORD
+
+      - name: Upload macOS artifact
+        if: matrix.platform == 'macos'
+        uses: actions/upload-artifact@v4
+        with:
+          name: noosphere-macos
+          path: noosphere/dist/noosphere-*-macos.tar.gz
+          retention-days: 30
+          if-no-files-found: warn
+
+      - name: Upload Windows artifact
+        if: matrix.platform == 'windows'
+        uses: actions/upload-artifact@v4
+        with:
+          name: noosphere-windows
+          path: noosphere/dist/noosphere/
+          retention-days: 30
+          if-no-files-found: warn

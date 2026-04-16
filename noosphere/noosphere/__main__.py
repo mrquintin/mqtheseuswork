@@ -5,7 +5,13 @@ Allows running the Noosphere system as a module:
     python -m noosphere <command> [options]
 """
 
-from noosphere.cli import cli
+import multiprocessing
+import sys
+
+if getattr(sys, "frozen", False):
+    multiprocessing.freeze_support()
+
+from noosphere.typer_cli import main
 
 if __name__ == "__main__":
-    cli()
+    main()

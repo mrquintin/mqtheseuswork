@@ -13,11 +13,11 @@ Key classes:
 from __future__ import annotations
 
 import json
-import logging
 import math
+from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta
 from pathlib import Path
-from typing import Optional, Dict, List, Tuple, Any
+from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
 from collections import defaultdict
 
 import numpy as np
@@ -29,12 +29,15 @@ from noosphere.models import (
     Principle,
     Episode,
     Claim,
+    DriftEvent,
     RelationType,
 )
 from noosphere.ontology import OntologyGraph
 
 
-logger = logging.getLogger(__name__)
+from noosphere.observability import get_logger
+
+logger = get_logger(__name__)
 
 
 # ── TemporalTracker ──────────────────────────────────────────────────────────
@@ -985,3 +988,232 @@ def load_temporal_snapshots(
         f"Loaded temporal snapshots from {path}: "
         f"{len(tracker.snapshots)} principles"
     )
+
+
+# ── Stance embedding series (author × topic) & drift surfacing ───────────────
+
+
+@dataclass
+class StanceSeriesPoint:
+    """One time window: centroid of stance embeddings for (author, topic)."""
+
+    window_start: date
+    window_end: date
+    centroid: list[float]
+    claim_ids: list[str] = field(default_factory=list)
+
+
+def author_key_from_claim(claim: Claim) -> str:
+    return (claim.speaker.name or "unknown").strip().lower()
+
+
+def _unit(v: NDArray[np.float64]) -> NDArray[np.float64]:
+    n = float(np.linalg.norm(v))
+    if n < 1e-12:
+        return v * 0.0
+    return v / n
+
+
+def _centroid(vectors: list[NDArray[np.float64]]) -> NDArray[np.float64]:
+    if not vectors:
+        return np.zeros(1, dtype=float)
+    m = np.mean(np.stack(vectors, axis=0), axis=0)
+    return _unit(m)
+
+
+def _cosine_distance(a: list[float], b: list[float]) -> float:
+    va = _unit(np.asarray(a, dtype=float))
+    vb = _unit(np.asarray(b, dtype=float))
+    if va.size != vb.size:
+        return 1.0
+    sim = float(np.clip(np.dot(va, vb), -1.0, 1.0))
+    return float(1.0 - sim)
+
+
+def build_stance_embedding_series(
+    claims: Sequence[Claim],
+    *,
+    author_key: str,
+    topic_id: str,
+    topic_for_claim: Callable[[Claim], Optional[str]],
+    window_days: int = 30,
+) -> list[StanceSeriesPoint]:
+    """
+    Time-ordered series of stance centroids for claims matching ``author_key`` and ``topic_id``.
+
+    Claims are bucketed into ``window_days`` rolling windows by ``episode_date``.
+    """
+    rows: list[Claim] = []
+    for c in claims:
+        if author_key_from_claim(c) != author_key:
+            continue
+        tid = topic_for_claim(c)
+        if tid != topic_id:
+            continue
+        if not c.embedding:
+            continue
+        rows.append(c)
+    if not rows:
+        return []
+    rows.sort(key=lambda c: c.episode_date)
+
+    series: list[StanceSeriesPoint] = []
+    i0 = 0
+    while i0 < len(rows):
+        start_d = rows[i0].episode_date
+        end_limit = start_d + timedelta(days=window_days)
+        bucket: list[Claim] = []
+        j = i0
+        while j < len(rows) and rows[j].episode_date < end_limit:
+            bucket.append(rows[j])
+            j += 1
+        vecs = [np.asarray(c.embedding, dtype=float) for c in bucket if c.embedding]
+        if vecs:
+            cvec = _centroid(vecs).tolist()
+            series.append(
+                StanceSeriesPoint(
+                    window_start=start_d,
+                    window_end=bucket[-1].episode_date,
+                    centroid=cvec,
+                    claim_ids=[c.id for c in bucket],
+                )
+            )
+        i0 = max(i0 + 1, j)
+    return series
+
+
+def compute_drift_velocity_acceleration(
+    series: list[StanceSeriesPoint],
+) -> tuple[list[float], list[float]]:
+    """
+    Velocity = cosine distance per day between consecutive centroids.
+    Acceleration = first difference of velocity (per step).
+    """
+    if len(series) < 2:
+        return [], []
+    vel: list[float] = []
+    for i in range(1, len(series)):
+        dt = max(
+            1.0,
+            float((series[i].window_end - series[i - 1].window_end).days) or 1.0,
+        )
+        d = _cosine_distance(series[i - 1].centroid, series[i].centroid)
+        vel.append(d / dt)
+    acc: list[float] = []
+    for i in range(1, len(vel)):
+        acc.append(vel[i] - vel[i - 1])
+    return vel, acc
+
+
+def detect_drift_events_zscore(
+    series: list[StanceSeriesPoint],
+    *,
+    z_threshold: float = 2.5,
+) -> list[tuple[int, float, float]]:
+    """
+    Return list of ``(series_index, velocity, z_score)`` where velocity exceeds threshold.
+    ``series_index`` refers to the *later* window endpoint of the velocity segment.
+    """
+    vel, _ = compute_drift_velocity_acceleration(series)
+    if len(vel) < 3:
+        return []
+    arr = np.asarray(vel, dtype=float)
+    mu = float(arr.mean())
+    sigma = float(arr.std() + 1e-9)
+    out: list[tuple[int, float, float]] = []
+    for i, v in enumerate(vel):
+        z = (v - mu) / sigma
+        if z >= z_threshold:
+            out.append((i + 1, float(v), float(z)))
+    return out
+
+
+def _earliest_inconsistent_claim(
+    sequence_claims: list[Claim], latest_centroid: list[float]
+) -> str:
+    if not sequence_claims or not latest_centroid:
+        return ""
+    best_id = sequence_claims[0].id
+    worst_sim = 1.0
+    lc = np.asarray(latest_centroid, dtype=float)
+    lc = _unit(lc)
+    for c in sequence_claims:
+        if not c.embedding:
+            continue
+        v = _unit(np.asarray(c.embedding, dtype=float))
+        if v.size != lc.size:
+            continue
+        sim = float(np.dot(v, lc))
+        if sim < worst_sim:
+            worst_sim = sim
+            best_id = c.id
+    return best_id
+
+
+def surface_drift_events(
+    *,
+    series: list[StanceSeriesPoint],
+    raw_claims: Sequence[Claim],
+    author_topic_key: str,
+    topic_id: str,
+    z_threshold: float = 2.5,
+    llm_complete: Optional[Callable[..., str]] = None,
+    episode_id: str = "",
+) -> list[DriftEvent]:
+    """
+    Build ``DriftEvent`` rows with claim sequence, LLM summary, earliest inconsistent claim pointer.
+    ``llm_complete`` should behave like ``LLMClient.complete`` (system=, user=, max_tokens=).
+    """
+    events_idx = detect_drift_events_zscore(series, z_threshold=z_threshold)
+    claim_by_id = {c.id: c for c in raw_claims}
+    out: list[DriftEvent] = []
+    for idx, vel, z in events_idx:
+        if idx <= 0 or idx >= len(series):
+            continue
+        seq_ids: list[str] = []
+        for k in range(max(0, idx - 2), idx + 1):
+            seq_ids.extend(series[k].claim_ids)
+        # de-dupe preserving order
+        seen: set[str] = set()
+        ordered: list[str] = []
+        for cid in seq_ids:
+            if cid not in seen:
+                seen.add(cid)
+                ordered.append(cid)
+        seq_claims = [claim_by_id[cid] for cid in ordered if cid in claim_by_id]
+        latest_c = series[idx].centroid
+        earliest = _earliest_inconsistent_claim(seq_claims, latest_c)
+        summary = ""
+        if llm_complete is not None and seq_claims:
+            texts = "\n".join(f"- {c.text}" for c in seq_claims[:12])
+            user = (
+                f"Author/topic key: {author_topic_key}\n"
+                f"Drift velocity={vel:.4f}, z={z:.2f}.\nClaims:\n{texts}\n"
+                "Summarize the stance shift in 2–3 sentences for founders."
+            )
+            try:
+                summary = llm_complete(
+                    system="You summarize ideological drift tersely.",
+                    user=user,
+                    max_tokens=220,
+                ).strip()
+            except Exception as e:  # pragma: no cover
+                logger.warning("drift_summary_llm_failed", error=str(e))
+                summary = f"Elevated drift (z={z:.2f}) across {len(ordered)} related claims."
+        elif seq_claims:
+            summary = f"Elevated drift (z={z:.2f}) across {len(ordered)} related claims."
+        de = DriftEvent(
+            target_id=author_topic_key,
+            target_kind="stance_series",
+            episode_id=episode_id,
+            observed_at=series[idx].window_end,
+            drift_score=float(min(1.0, z / 4.0)),
+            notes=f"velocity={vel:.5f}, z={z:.3f}",
+            claim_sequence_ids=ordered,
+            natural_language_summary=summary,
+            earliest_inconsistent_claim_id=earliest,
+            author_topic_key=author_topic_key,
+            topic_id=topic_id,
+        )
+        out.append(de)
+    return out

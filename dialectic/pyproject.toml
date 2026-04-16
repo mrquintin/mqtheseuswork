@@ -1,0 +1,17 @@
+[project]
+name = "dialectic"
+version = "0.1.0"
+description = "Live conversation analyzer — real-time transcription, claim extraction, and contradiction detection"
+requires-python = ">=3.11"
+license = {text = "Proprietary"}
+
+[project.scripts]
+dialectic = "dialectic.__main__:main"
+
+[build-system]
+requires = ["setuptools>=68.0"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["dialectic*"]
+exclude = ["tests*"]

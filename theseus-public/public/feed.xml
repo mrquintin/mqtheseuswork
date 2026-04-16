@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0">
+  <channel>
+    <title>Theseus — Published conclusions</title>
+    <link>https://theseus.invalid/</link>
+    <description>Chronological updates to published, versioned conclusions.</description>
+    <language>en-us</language>
+    
+    <item>
+      <title>Institutions encode information—not only incentives—and reform should be evaluated on epistemic grounds as well as efficiency.</title>
+      <link>https://theseus.invalid/c/institutions-encode-information-not-just-incentives/v/2</link>
+      <guid isPermaLink="true">https://theseus.invalid/c/institutions-encode-information-not-just-incentives/v/2</guid>
+      <pubDate>Fri, 10 Apr 2026 15:30:00 GMT</pubDate>
+      <description>Same core evidence; v2 adds explicit scope boundary and refines the adversarial response after new counterexamples were reviewed.</description>
+    </item>
+
+    <item>
+      <title>For this firm, methodological discipline is itself the product: public standing should track demonstrated process, not episodic visibility.</title>
+      <link>https://theseus.invalid/c/methodological-discipline-is-the-product/v/1</link>
+      <guid isPermaLink="true">https://theseus.invalid/c/methodological-discipline-is-the-product/v/1</guid>
+      <pubDate>Sun, 05 Apr 2026 09:00:00 GMT</pubDate>
+      <description>Internal scoreboard + publication policy commitments reduce overconfidence incentives; adversarial engagement is treated as a gate, not theater.</description>
+    </item>
+
+    <item>
+      <title>Institutions encode information—not only incentives—and reform should be evaluated on epistemic grounds as well as efficiency.</title>
+      <link>https://theseus.invalid/c/institutions-encode-information-not-just-incentives/v/1</link>
+      <guid isPermaLink="true">https://theseus.invalid/c/institutions-encode-information-not-just-incentives/v/1</guid>
+      <pubDate>Wed, 01 Apr 2026 12:00:00 GMT</pubDate>
+      <description>Cross-episode claim chains link incentive stories to error-correction structures; adversarial challenges on reductionism were engaged and answered with explicit mechanisms.</description>
+    </item>
+  </channel>
+</rss>

@@ -1,0 +1,95 @@
+WAVE 6 / PROMPT 2 — Implement seven concrete Reviewer roles
+
+═══════════════════════════════════════════════════════════════════════════════
+YOUR TASK
+═══════════════════════════════════════════════════════════════════════════════
+You are an implementation agent. Your job is to implement seven concrete `Reviewer` subclasses that populate the `reviewers/` registry. Each reviewer produces a `ReviewReport` with findings at appropriate severities.
+
+Three sibling agents in wave 6 are on adapters, gate checks, and docgen. Stay inside your manifest.
+
+═══════════════════════════════════════════════════════════════════════════════
+PREREQUISITES
+═══════════════════════════════════════════════════════════════════════════════
+- Wave 5 is done: `peer_review.Reviewer` base class, `SwarmOrchestrator`, and `reviewers/__init__.py` registry exist.
+- Registered methods for coherence, literature search, calibration access, and retrieval are available.
+
+═══════════════════════════════════════════════════════════════════════════════
+FILES TOUCHED
+═══════════════════════════════════════════════════════════════════════════════
+- `noosphere/noosphere/peer_review/reviewers/methodological.py`   CREATE
+- `noosphere/noosphere/peer_review/reviewers/evidential.py`        CREATE
+- `noosphere/noosphere/peer_review/reviewers/statistical.py`       CREATE
+- `noosphere/noosphere/peer_review/reviewers/adv_literature.py`    CREATE
+- `noosphere/noosphere/peer_review/reviewers/replication.py`       CREATE
+- `noosphere/noosphere/peer_review/reviewers/rhetorical.py`        CREATE
+- `noosphere/noosphere/peer_review/reviewers/humility.py`          CREATE
+- `noosphere/tests/test_reviewer_methodological.py`                CREATE
+- `noosphere/tests/test_reviewer_evidential.py`                    CREATE
+- `noosphere/tests/test_reviewer_statistical.py`                   CREATE
+- `noosphere/tests/test_reviewer_adv_literature.py`                CREATE
+- `noosphere/tests/test_reviewer_replication.py`                   CREATE
+- `noosphere/tests/test_reviewer_rhetorical.py`                    CREATE
+- `noosphere/tests/test_reviewer_humility.py`                      CREATE
+- `docs/peer_review/reviewers.md`                                  MODIFY (fill rows for all seven)
+
+═══════════════════════════════════════════════════════════════════════════════
+STEP-BY-STEP (per reviewer)
+═══════════════════════════════════════════════════════════════════════════════
+1. Create a class `XReviewer(Reviewer)` with a `BiasProfile` declared inline.
+2. Implement `review(conclusion, context) -> ReviewReport`. The review method is itself a registered method (`@register_method(name=f"review_{role}", version="1.0.0", method_type=JUDGMENT, owner="founder", status="active", nondeterministic=True)`).
+3. Call `reviewers.register(XReviewer)` at module-bottom so importing populates the registry.
+4. Append a row to `docs/peer_review/reviewers.md` with columns: | Role | Prior | Known blindspots | Tools |.
+5. Write at least 3 unit tests per role against fixture conclusions: one that should pass cleanly, one with a `minor` finding, one with a `blocker` finding.
+
+═══════════════════════════════════════════════════════════════════════════════
+ROLE SPECIFICATIONS (prior, tools, representative finding categories)
+═══════════════════════════════════════════════════════════════════════════════
+methodological.py
+  prior: "Was the right method, at a defensible version, applied to the right input?"
+  tools: `methods.REGISTRY`, method calibration reports.
+  categories: wrong_method, unversioned_method, version_regression, deprecated_method.
+
+evidential.py
+  prior: "Does each cited chunk actually support what the conclusion claims?"
+  tools: retrieval + nli_scorer.
+  categories: citation_mismatch, cherry_picking, load_bearing_on_weak_chunk.
+
+statistical.py
+  prior: "Is the uncertainty honestly quantified? Is sample size sufficient?"
+  tools: calibration data, evaluation metrics.
+  categories: underquantified_uncertainty, insufficient_n, miscalibrated_discount.
+
+adv_literature.py
+  prior: "Does the external literature contain counter-evidence not engaged with?"
+  tools: literature.external_claim_match, external_battery data.
+  categories: unaddressed_counter_evidence, outdated_reference.
+
+replication.py
+  prior: "Can I re-derive this conclusion from the stated inputs alone?"
+  tools: method registry invocation, cascade traversal.
+  categories: non_replicable, hidden_input, non_determinism_without_seed.
+
+rhetorical.py
+  prior: "Is the argument rhetorically clean or does it smuggle moves past the reader?"
+  tools: LLM.
+  categories: motte_and_bailey, equivocation, loaded_term, hidden_normative.
+
+humility.py
+  prior: "Are unresolved points and open questions faithfully surfaced?"
+  tools: LLM + corpus retrieval.
+  categories: overclaim, suppressed_unresolved, premature_consensus.
+
+═══════════════════════════════════════════════════════════════════════════════
+HOW TO VERIFY YOU ARE DONE
+═══════════════════════════════════════════════════════════════════════════════
+1. `pytest noosphere/tests/test_reviewer_*.py -v` — green.
+2. `python -c "import noosphere.noosphere.peer_review.reviewers; print(noosphere.noosphere.peer_review.reviewers.all_reviewers())"` returns ≥ 7 classes.
+3. Running `SwarmOrchestrator(store).run(conclusion_id=<fixture>)` produces seven ReviewReports.
+
+═══════════════════════════════════════════════════════════════════════════════
+DO NOT
+═══════════════════════════════════════════════════════════════════════════════
+- Let reviewers share state.
+- Drop findings based on calibration; aggregation is the discount point.
+- Hide bias profiles; they are a feature, not an embarrassment.
+- Touch any file outside FILES TOUCHED.

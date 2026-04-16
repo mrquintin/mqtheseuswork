@@ -1,0 +1,76 @@
+WAVE 5 / PROMPT 4 — Build transfer/ package (method packaging + Docker + signing + transfer studies)
+
+═══════════════════════════════════════════════════════════════════════════════
+YOUR TASK
+═══════════════════════════════════════════════════════════════════════════════
+You are an implementation agent. Your job is to create `noosphere/noosphere/transfer/`: code that packages a registered method into a self-contained Docker-reproducible artifact (spec + rationale + implementation + adapter + Dockerfile + signed CHECKSUMS + eval card) AND a harness that runs transfer-degradation studies on target-domain datasets.
+
+Four sibling agents in wave 5 are on other subsystems. Stay inside your manifest.
+
+═══════════════════════════════════════════════════════════════════════════════
+PREREQUISITES
+═══════════════════════════════════════════════════════════════════════════════
+- Wave 4 is done: `ledger.keys.KeyRing` is importable.
+- `TransferStudy`, `MethodRef`, `DatasetRef`, `DomainTag` types exist.
+- Docker is available on the build host (declared in the orchestrator's requirements).
+
+═══════════════════════════════════════════════════════════════════════════════
+FILES TOUCHED
+═══════════════════════════════════════════════════════════════════════════════
+- `noosphere/noosphere/transfer/__init__.py`                   CREATE
+- `noosphere/noosphere/transfer/package_method.py`             CREATE
+- `noosphere/noosphere/transfer/adapter_template.py`           CREATE
+- `noosphere/noosphere/transfer/harness.py`                    CREATE
+- `noosphere/noosphere/transfer/docker_build.py`               CREATE
+- `noosphere/noosphere/transfer/signing.py`                    CREATE
+- `scripts/check_packaging_selfcontainment.py`                 CREATE
+- `scripts/check_mip_versioning.py`                            CREATE
+- `noosphere/tests/test_transfer_package_structure.py`         CREATE
+- `noosphere/tests/test_transfer_selfcontainment.py`           CREATE
+- `noosphere/tests/test_transfer_study.py`                     CREATE
+- `noosphere/tests/test_transfer_versioning_policy.py`         CREATE
+
+═══════════════════════════════════════════════════════════════════════════════
+STEP-BY-STEP
+═══════════════════════════════════════════════════════════════════════════════
+1. Build `signing.py` reusing `ledger.keys.KeyRing` to sign CHECKSUMS files and packaged artifacts.
+2. Build `adapter_template.py` which emits a string template for a packaged method's `adapter.py`. The template must import ONLY from the packaged implementation and PyPI — never from `noosphere.*`.
+3. Build `docker_build.py` which emits a `Dockerfile` pinning the Python version, system deps, and the packaged code, and runs `docker build` and captures the image digest.
+4. Build `package_method.py` with `package(method_ref: MethodRef, out_dir: Path) -> PackagePath`. It must produce in `out_dir`:
+     method.json           (Method spec serialized)
+     rationale.md          (copied from methods/<name>.RATIONALE.md)
+     implementation/       (self-contained copy of implementation code and its pinned deps)
+     adapter.py            (generated from adapter_template)
+     Dockerfile
+     CHECKSUMS             (SHA256 of every file, signed)
+     README.md             (how to run, input/output schema, known limitations)
+     EVAL_CARD.md          (populated from CounterfactualEvalRun + BatteryRunResult rows if present; else a "none yet" stub)
+     LICENSE               (default Apache 2.0)
+5. Build `harness.py` with `run_transfer_study(method_ref, source_domain, target_domain, dataset) -> TransferStudy`, decorated as a registered method (name="transfer_study").
+6. Build `scripts/check_packaging_selfcontainment.py`: launch a subprocess that sets PYTHONPATH to exclude `noosphere.*`, imports `adapter.py`, asserts no ImportError. Fail CI on violation.
+7. Build `scripts/check_mip_versioning.py`: scan git log for commits that change implementation files of a method WITHOUT bumping `Method.version`. Fail on violation.
+8. Write all tests.
+9. `pytest noosphere/tests/test_transfer_*.py -v`.
+
+═══════════════════════════════════════════════════════════════════════════════
+TESTS
+═══════════════════════════════════════════════════════════════════════════════
+test_transfer_package_structure.py — `package` emits every required file; CHECKSUMS verifies; signature valid.
+test_transfer_selfcontainment.py — run the packaged adapter in a Docker container with no network; reference input produces expected reference output.
+test_transfer_study.py — harness produces TransferStudy with correctly computed deltas on synthetic fixtures.
+test_transfer_versioning_policy.py — modify a method's implementation in a git fixture without bumping version; `check_mip_versioning.py` fails.
+
+═══════════════════════════════════════════════════════════════════════════════
+HOW TO VERIFY YOU ARE DONE
+═══════════════════════════════════════════════════════════════════════════════
+1. `pytest noosphere/tests/test_transfer_*.py -v` — green.
+2. `python -c "import noosphere.noosphere.transfer"` — imports.
+3. Packaging `nli_scorer` produces a directory containing the nine required files.
+
+═══════════════════════════════════════════════════════════════════════════════
+DO NOT
+═══════════════════════════════════════════════════════════════════════════════
+- Let packaged code import from `noosphere.*`.
+- Let packaged methods phone home or send telemetry.
+- Skip signing; CHECKSUMS without a valid signature is an error.
+- Touch any file outside FILES TOUCHED.

@@ -1,0 +1,7 @@
+{
+  "description": "Baseline macro-F1 for oracle identity predictor on coherence_gold.jsonl; CI fails if drop > 0.03.",
+  "metrics": {
+    "oracle_macro_f1": 1.0
+  },
+  "max_regression": 0.03
+}

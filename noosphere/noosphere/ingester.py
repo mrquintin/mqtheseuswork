@@ -11,29 +11,23 @@ The pipeline consists of three main stages:
 3. TranscriptIngester: Full orchestration with embeddings and tagging
 """
 
-import logging
 import re
 import os
 from datetime import date
-from typing import Optional, List, Dict, Tuple
+from typing import Any, Optional, List, Dict, Tuple
 from dataclasses import dataclass
 from pathlib import Path
 
-from anthropic import Anthropic
 import spacy
 from sentence_transformers import SentenceTransformer
 
+from noosphere.llm import LLMClient, llm_client_from_settings
 from noosphere.models import (
     Speaker, TranscriptSegment, Claim, Episode, Discipline
 )
+from noosphere.observability import get_logger
 
-# ── Logging ──────────────────────────────────────────────────────────────────
-
-logger = logging.getLogger(__name__)
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-)
+logger = get_logger(__name__)
 
 
 # ── Data Structures ──────────────────────────────────────────────────────────
@@ -71,7 +65,7 @@ class TranscriptParser:
         re.MULTILINE
     )
 
-    def __init__(self, logger_instance: logging.Logger = None):
+    def __init__(self, logger_instance: Any = None):
         """
         Initialize the parser.
 
@@ -120,7 +114,7 @@ class TranscriptParser:
     def _has_timestamped_format(self, text: str) -> bool:
         """Check if transcript has timestamps."""
         lines = text.split('\n')[:20]  # Check first 20 lines
-        return sum(1 for line in lines if self.TIMESTAMP_PATTERN.match(line)) > 2
+        return sum(1 for line in lines if self.TIMESTAMP_PATTERN.match(line)) >= 1
 
     def _has_speaker_labels(self, text: str) -> bool:
         """Check if transcript has speaker labels."""
@@ -259,7 +253,8 @@ class ClaimExtractor:
     def __init__(
         self,
         config: ExtractionConfig = None,
-        logger_instance: logging.Logger = None
+        logger_instance: Any = None,
+        llm: LLMClient | None = None,
     ):
         """
         Initialize the claim extractor.
@@ -270,21 +265,19 @@ class ClaimExtractor:
         """
         self.config = config or ExtractionConfig()
         self.logger = logger_instance or logger
-        self.client = None
+        self._llm: LLMClient | None = llm
         self.nlp = None
 
-        # Try to initialize API client
+        from noosphere.config import get_settings
+
         try:
-            api_key = os.getenv('ANTHROPIC_API_KEY')
-            if api_key:
-                self.client = Anthropic(api_key=api_key)
-                self.logger.info("Initialized Anthropic client")
-            else:
-                self.logger.warning(
-                    "ANTHROPIC_API_KEY not set; will use fallback mode"
-                )
+            if self._llm is None and get_settings().effective_llm_api_key():
+                self._llm = llm_client_from_settings()
+                self.logger.info("Initialized LLM client for extraction")
+            elif self._llm is None:
+                self.logger.warning("No LLM API key; will use fallback extraction mode")
         except Exception as e:
-            self.logger.error(f"Failed to initialize Anthropic: {e}")
+            self.logger.error("Failed to initialize LLM client", error=str(e))
 
         # Load spaCy for fallback
         try:
@@ -314,7 +307,7 @@ class ClaimExtractor:
         self.logger.info(f"Extracting claims from {len(segments)} segments")
 
         claims = []
-        if self.client:
+        if self._llm is not None:
             claims = self._extract_via_api(segments)
         else:
             self.logger.info(
@@ -378,16 +371,11 @@ Transcript segments:
 {chr(10).join(segment_strs)}"""
 
         try:
-            message = self.client.messages.create(
-                model="claude-3-5-sonnet-20241022",
+            response_text = self._llm.complete(
+                system="Extract claims as instructed. Output JSON only.",
+                user=prompt,
                 max_tokens=2048,
-                messages=[
-                    {"role": "user", "content": prompt}
-                ],
-                timeout=self.config.api_timeout_seconds
             )
-
-            response_text = message.content[0].text
             return self._parse_claude_response(response_text, segments)
 
         except Exception as e:
@@ -607,7 +595,7 @@ class DisciplineClassifier:
     def __init__(
         self,
         embedding_model: Optional[SentenceTransformer] = None,
-        logger_instance: logging.Logger = None
+        logger_instance: Any = None
     ):
         """
         Initialize the discipline classifier.
@@ -699,7 +687,7 @@ class TranscriptIngester:
     def __init__(
         self,
         extraction_config: ExtractionConfig = None,
-        logger_instance: logging.Logger = None
+        logger_instance: Any = None
     ):
         """
         Initialize the ingester.
@@ -720,8 +708,15 @@ class TranscriptIngester:
 
         # Load embedding model
         try:
-            self.embedding_model = SentenceTransformer('all-mpnet-base-v2')
-            self.logger.info("Loaded SBERT embedding model: all-mpnet-base-v2")
+            from noosphere.config import get_settings
+
+            emb_name = get_settings().embedding_model_name
+            device = get_settings().embedding_device or None
+            kwargs: dict[str, Any] = {}
+            if device:
+                kwargs["device"] = device
+            self.embedding_model = SentenceTransformer(emb_name, **kwargs)
+            self.logger.info("Loaded SBERT embedding model", model=emb_name)
         except Exception as e:
             self.logger.error(f"Failed to load embedding model: {e}")
             self.embedding_model = None
@@ -839,15 +834,21 @@ class TranscriptIngester:
         """
         self.logger.info(f"Enriching {len(claims)} claims")
 
+        from noosphere.mitigations.embedding_text import normalize_for_embedding
+        from noosphere.mitigations.ingestion_guard import apply_ingestion_flags_to_claim
+
         for claim in claims:
             # Set episode date
             claim.episode_date = episode_date
+
+            apply_ingestion_flags_to_claim(claim)
+            embed_text = normalize_for_embedding(claim.text)
 
             # Generate embedding
             if self.embedding_model:
                 try:
                     embedding = self.embedding_model.encode(
-                        claim.text,
+                        embed_text,
                         convert_to_tensor=False
                     ).tolist()
                     claim.embedding = embedding
@@ -866,3 +867,12 @@ class TranscriptIngester:
                 )
 
         return claims
+
+
+# Markdown / plain-text / structured transcript artifacts (see ingest_artifacts).
+from noosphere.ingest_artifacts import (  # noqa: E402
+    ingest_dialectic_session_jsonl,
+    ingest_markdown,
+    ingest_text,
+    ingest_transcript,
+)

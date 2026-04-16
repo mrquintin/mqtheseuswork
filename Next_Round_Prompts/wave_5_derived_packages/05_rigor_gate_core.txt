@@ -1,0 +1,94 @@
+WAVE 5 / PROMPT 5 — Build rigor_gate/ scaffolding (gate, override, decorator, refusal dashboard; NO checks)
+
+═══════════════════════════════════════════════════════════════════════════════
+YOUR TASK
+═══════════════════════════════════════════════════════════════════════════════
+You are an implementation agent. Your job is to build the publication-gate infrastructure: a `Gate` class with a check registry, a `@gated` decorator for publication handlers, a `FounderOverride` flow, and data accessors for the public refusal dashboards. The nine concrete checks are NOT your job — they land in wave_6/03.
+
+Four sibling agents in wave 5 are on other subsystems. Stay inside your manifest.
+
+═══════════════════════════════════════════════════════════════════════════════
+PREREQUISITES
+═══════════════════════════════════════════════════════════════════════════════
+- Wave 4 is done: `ledger` and `decay.freshness` are importable.
+- `RigorSubmission`, `RigorVerdict`, `CheckResult`, `FounderOverride` types exist.
+
+═══════════════════════════════════════════════════════════════════════════════
+FILES TOUCHED
+═══════════════════════════════════════════════════════════════════════════════
+- `noosphere/noosphere/rigor_gate/__init__.py`           CREATE
+- `noosphere/noosphere/rigor_gate/gate.py`               CREATE
+- `noosphere/noosphere/rigor_gate/override.py`           CREATE
+- `noosphere/noosphere/rigor_gate/decorator.py`          CREATE
+- `noosphere/noosphere/rigor_gate/refusal_dashboard.py`  CREATE
+- `noosphere/noosphere/rigor_gate/checks/__init__.py`    CREATE (registry only; wave_6/03 populates)
+- `scripts/check_gated_decorator_present.py`             CREATE
+- `scripts/check_public_store_only_gated.py`             CREATE
+- `noosphere/tests/test_gate_check_registration.py`      CREATE
+- `noosphere/tests/test_gate_blocking.py`                CREATE
+- `noosphere/tests/test_override_ledger.py`              CREATE
+- `noosphere/tests/test_refusal_dashboard.py`            CREATE
+- `noosphere/tests/test_public_store_only_gated_writes.py` CREATE
+
+═══════════════════════════════════════════════════════════════════════════════
+STEP-BY-STEP
+═══════════════════════════════════════════════════════════════════════════════
+1. In `checks/__init__.py`, provide a registry:
+     _CHECKS: dict[str, Callable[[RigorSubmission], CheckResult]] = {}
+     def register(name: str, fn: Callable) -> None
+     def all_checks() -> dict[...]
+   Do NOT populate any checks here.
+2. Build `gate.py` with:
+     class Gate:
+         def __init__(self, store): self.store = store
+         def submit(self, submission: RigorSubmission) -> RigorVerdict:
+             results = run_in_parallel([fn(submission) for fn in all_checks().values()])
+             verdict = self._aggregate(results)
+             entry_id = ledger.append(actor=Actor.method(...), ..., context=...)
+             store.insert_rigor_submission(submission)
+             store.insert_rigor_verdict(RigorVerdict(..., ledger_entry_id=entry_id))
+             return verdict
+   Aggregation: any `pass_=False` with severity=blocker → `fail`; any check demanding conditions → `pass_with_conditions`; else `pass`.
+3. Build `override.py` with `create_override(submission_id, founder_id, overridden_checks, justification)` — writes RIGOR_OVERRIDE ledger entry, inserts FounderOverride row.
+4. Build `decorator.py` with:
+     def gated(*, kind: str):
+         def deco(handler):
+             @functools.wraps(handler)
+             def wrapped(*args, **kwargs):
+                 submission = _build_submission_from_args(kind, args, kwargs)
+                 verdict = Gate(store).submit(submission)
+                 if verdict.verdict == "fail": raise GateBlocked(verdict)
+                 return handler(*args, **kwargs)
+             return wrapped
+         return deco
+5. Build `refusal_dashboard.py` exposing:
+     def monthly_stats(year_month: str) -> DashboardData      # counts, pass/fail, top failure categories
+     def overrides_for_display() -> list[FounderOverride]
+   (The UI itself is wave_9.)
+6. Build `scripts/check_gated_decorator_present.py`: AST-walk the publication-handler modules (paths declared in `GATED_HANDLER_PATHS` env var; default to `founder-portal/src/app/api/` and `researcher_api/researcher_api/routes/`); fail if any writes-to-public-store handler lacks `@gated`.
+7. Build `scripts/check_public_store_only_gated.py`: integration test — attempt a direct write to the public-site content store bypassing the gate; assert a rejection is raised.
+8. Write the five tests.
+9. `pytest noosphere/tests/test_gate_*.py test_override_ledger.py test_refusal_dashboard.py test_public_store_only_gated_writes.py -v`.
+
+═══════════════════════════════════════════════════════════════════════════════
+TESTS
+═══════════════════════════════════════════════════════════════════════════════
+test_gate_check_registration.py — checks registry starts empty; registering a check makes it available; duplicate name replaces.
+test_gate_blocking.py — a mock check that returns pass_=False produces a `fail` verdict and the `@gated` decorator raises `GateBlocked`.
+test_override_ledger.py — `create_override` produces a RIGOR_OVERRIDE ledger entry with all required fields.
+test_refusal_dashboard.py — dashboard data matches underlying store records.
+test_public_store_only_gated_writes.py — direct write to the public-site store bypasses the gate and is rejected by the storage layer.
+
+═══════════════════════════════════════════════════════════════════════════════
+HOW TO VERIFY YOU ARE DONE
+═══════════════════════════════════════════════════════════════════════════════
+1. The five tests pass.
+2. `python -c "import noosphere.noosphere.rigor_gate"` — imports.
+
+═══════════════════════════════════════════════════════════════════════════════
+DO NOT
+═══════════════════════════════════════════════════════════════════════════════
+- Implement any concrete check; that is wave_6/03.
+- Let overrides be retroactively hidden.
+- Allow a bypass path. Storage-layer enforcement is load-bearing.
+- Touch any file outside FILES TOUCHED.

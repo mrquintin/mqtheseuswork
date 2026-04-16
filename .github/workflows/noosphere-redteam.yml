@@ -1,0 +1,42 @@
+name: Noosphere red-team suite
+
+on:
+  pull_request:
+    paths:
+      - "noosphere/noosphere/coherence/**"
+      - "noosphere/noosphere/ingest_artifacts.py"
+      - "noosphere/noosphere/ingester.py"
+      - "noosphere/noosphere/mitigations/**"
+      - "noosphere/noosphere/redteam.py"
+      - "noosphere/tests/redteam/**"
+      - "noosphere/tests/test_redteam_regression.py"
+  push:
+    branches: [main, master]
+    paths:
+      - "noosphere/noosphere/coherence/**"
+      - "noosphere/noosphere/ingest_artifacts.py"
+      - "noosphere/noosphere/ingester.py"
+      - "noosphere/noosphere/mitigations/**"
+      - "noosphere/noosphere/redteam.py"
+      - "noosphere/tests/redteam/**"
+      - "noosphere/tests/test_redteam_regression.py"
+
+jobs:
+  redteam:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install dependencies
+        run: |
+          python -m pip install -U pip
+          pip install -r noosphere/requirements.txt
+          pip install pytest
+      - name: Red-team regression suite
+        env:
+          PYTHONPATH: noosphere
+        run: |
+          python -m noosphere redteam run
+          python -m pytest noosphere/tests/test_redteam_regression.py noosphere/tests/redteam -q

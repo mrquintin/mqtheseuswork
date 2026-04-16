@@ -1,0 +1,39 @@
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-dialectic:
+    uses: ./.github/workflows/build-dialectic.yml
+  build-noosphere:
+    uses: ./.github/workflows/build-noosphere.yml
+  build-founder-portal:
+    uses: ./.github/workflows/build-founder-portal.yml
+    secrets: inherit
+
+  release:
+    needs: [build-dialectic, build-noosphere, build-founder-portal]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: List downloaded artifacts
+        run: ls -R artifacts
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: artifacts/**/*
+          generate_release_notes: true
+          draft: true
+          fail_on_unmatched_files: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -1,0 +1,64 @@
+# Claude Code Prompt 11 of 26 — Build the inference/ package (inverse inference + blindspot)
+
+**Sequence:** prompt 11 of 26. Complete prompts 1..10 before starting this one. When you finish, report back with: files you created/modified, any notable choices, any blockers. I'll then paste the next prompt.
+
+**Parallelism (optional):** prompts 11, 12, 13, 14, 15 touch disjoint files and could run in parallel Claude Code sessions if you want.
+
+**Before you start — read current state:**
+1. Run `git status` and `git branch` to see the current branch state.
+2. If you see stray branches matching `round3/*` or a `.orchestrator/` directory from a prior automated run, tell me and stop; we'll clean them up before continuing.
+3. For every file listed under SCOPE below, check whether it already exists and what it contains. If parts of the work described here are already done (from a previous attempt), INSPECT what is there and only add the missing pieces. Do NOT overwrite existing, correct work. Do NOT duplicate types or tests that already exist.
+4. If you find partial work that is clearly broken or half-finished, ask me whether to complete it or discard and restart that piece.
+## Your task
+You are an implementation agent. Your job is to create `noosphere/noosphere/inference/`: a package that, given a resolved real-world event, back-propagates through the corpus to identify supporting + refuting claims and produces a structured blindspot report. The inverse engine must use the `CorpusSlicer` from wave 4 for historical fidelity: a query with `as_of=T` sees only corpus items available as of T.
+
+ 
+
+## Prerequisites
+- Wave 4 is done: `evaluation.CorpusSlicer`, `methods.nli_scorer`, `cascade.CascadeGraph` are importable.
+- `InverseQuery`, `InverseResult`, `Implication`, `BlindspotReport` pydantic types exist.
+
+SCOPE (files you may create or modify — stay within this list)
+- `noosphere/noosphere/inference/__init__.py`        CREATE
+- `noosphere/noosphere/inference/inverse.py`         CREATE
+- `noosphere/noosphere/inference/blindspot.py`       CREATE
+- `noosphere/tests/test_inverse_toy_corpus.py`       CREATE
+- `noosphere/tests/test_inverse_temporal_fidelity.py` CREATE
+- `noosphere/tests/test_inverse_blindspot.py`        CREATE
+
+## Step-by-step
+1. Build `inverse.py` with `InverseInferenceEngine.run(query: InverseQuery) -> InverseResult`, decorated as a registered method (name="inverse_inference", version="1.0.0", method_type=AGGREGATION, nondeterministic=True).
+2. Construct a `CorpusSlicer(store, TemporalCut(as_of=query.as_of, ...))` and pass it to internal ranking so out-of-slice reads raise.
+3. For each candidate claim in the slice, compute:
+     entailment_score = nli_scorer(ClaimPair(claim, event_as_claim)).entail_prob
+     refutation_score = nli_scorer(ClaimPair(claim, event_as_claim)).contradict_prob
+     relevance_weight = softmax(cosine(embed(claim), embed(event)))
+     impact = relevance_weight * max(entailment_score, refutation_score)
+4. Return top-k by impact partitioned into `supporting` (entailment > refutation) and `refuted` (refutation > entailment), plus a blindspot report.
+5. Build `blindspot.py` with `compute_blindspot(event, sliced_store) -> BlindspotReport`:
+   - Missing entities: entities in event not present in any sliced claim.
+   - Missing mechanisms: LLM-extracted mechanism tags in event not present in any sliced claim.
+   - Adjacent-empty topics: topics embedding-adjacent to event with zero claims.
+6. Emit `ResearchSuggestion` objects via the registered `suggest_research` method (routed through REGISTRY) so blindspot findings automatically propose reading lists.
+7. Write the three test files.
+8. `pytest noosphere/tests/test_inverse_*.py -v`.
+
+## Tests
+test_inverse_toy_corpus.py — hand-built corpus with one known supporting claim and one known refuting claim; assert both surface in the top-k.
+test_inverse_temporal_fidelity.py — insert a post-cut claim; assert it does NOT appear in the result for a query with `as_of` before that claim's created_at.
+test_inverse_blindspot.py — corpus deliberately omits an entity named in the event; assert `BlindspotReport.missing_entities` contains that entity.
+
+## How to verify
+1. `pytest noosphere/tests/test_inverse_*.py -v` — green.
+2. `python -c "import noosphere.noosphere.inference"` — imports cleanly.
+3. An inverse run on a seeded corpus produces a ledger entry and a BlindspotReport with non-empty fields when appropriate.
+
+## Do not
+- Bypass the CorpusSlicer. Every read in the ranking path goes through it.
+- Censor top-k members with near-zero impact; report them as `irrelevant` so the blindspot picture is honest.
+- Silently collapse NLI/LLM disagreement — preserve both signals in the result.
+- Touch any file outside FILES TOUCHED.
+
+---
+
+**When you're finished:** report back with (a) files you created/modified, (b) any non-obvious choices you made, (c) any blockers. I'll paste the next prompt after I've reviewed your summary.

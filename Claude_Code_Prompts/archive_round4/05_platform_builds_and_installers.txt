@@ -1,0 +1,258 @@
+# Claude Code Prompt 5 of 8 — Platform builds and installers for Dialectic and Noosphere
+
+**Sequence:** prompt 5 of 8 (Wave 2 — depends on prompts 01 and 03). When you finish, report back with: files you created/modified, any notable choices, any blockers.
+
+**Before you start — read current state:**
+1. Run `git status` and `git branch`.
+2. Confirm prompt 01 deliverables exist: `dialectic/dialectic.spec`, `dialectic/dialectic/resources.py`, `dialectic/assets/icon.png`.
+3. Confirm prompt 03 deliverables exist: `noosphere/noosphere.spec`, `noosphere/noosphere/frozen_support.py`.
+4. Read `dialectic/dialectic.spec` and `noosphere/noosphere.spec` to understand the current spec configuration.
+5. For every file listed under SCOPE below, check whether it already exists. Do NOT overwrite existing correct work.
+
+## Your task
+
+You are an implementation agent. Your job is to create platform-specific build scripts and installer configurations for both Dialectic (PyQt6 desktop app) and Noosphere (CLI tool). This covers:
+- macOS: .app bundle, .icns icon, DMG disk image with drag-to-Applications layout
+- Windows: .exe, .ico icon, NSIS installer with Start Menu shortcuts
+- Build scripts that invoke PyInstaller and then package the result
+
+When you finish, verify all scripts are syntactically valid. Do not proceed to any other work.
+
+## Prerequisites
+- Prompts 01 and 03 have been applied (spec files and resource modules exist).
+- Python 3.11+, PyInstaller, Pillow are installable.
+- On macOS: `hdiutil` and `create-dmg` (or `hdiutil` alone) are available.
+- On Windows: NSIS is installable for .exe installer creation.
+
+SCOPE (files you may create or modify — stay within this list)
+- `dialectic/scripts/build_macos.sh`                   CREATE
+- `dialectic/scripts/build_windows.ps1`                CREATE
+- `dialectic/scripts/generate_icons.py`                CREATE
+- `dialectic/installer/dialectic.nsi`                  CREATE
+- `dialectic/installer/dmg-settings.json`              CREATE
+- `noosphere/scripts/build_macos.sh`                   CREATE
+- `noosphere/scripts/build_windows.ps1`                CREATE
+- `noosphere/scripts/generate_icons.py`                CREATE
+- `noosphere/installer/noosphere.nsi`                  CREATE
+- `noosphere/installer/dmg-settings.json`              CREATE
+
+## Step-by-step
+
+### Icon generation (shared pattern for both apps)
+
+1. **Create `dialectic/scripts/generate_icons.py`**:
+   - Read `dialectic/assets/icon.png` (512×512 PNG from prompt 01).
+   - Generate `dialectic/assets/Dialectic.icns` for macOS:
+     - Create an iconset directory with sizes: 16, 32, 64, 128, 256, 512 (plus @2x variants).
+     - Use `iconutil -c icns` on macOS, or bundle the PNG sizes into an .icns via `Pillow` + struct packing if `iconutil` isn't available.
+   - Generate `dialectic/assets/dialectic.ico` for Windows:
+     - Use Pillow: `img.save('dialectic.ico', format='ICO', sizes=[(16,16),(32,32),(48,48),(64,64),(128,128),(256,256)])`.
+   - The script must be runnable on both macOS and Windows (use Pillow, fall back to `iconutil` only on macOS for .icns).
+
+2. **Create `noosphere/scripts/generate_icons.py`** — same pattern but for Noosphere. Read from `noosphere/assets/icon.png` (create this placeholder if prompt 03 didn't — a simple colored square is fine). Output `Noosphere.icns` and `noosphere.ico`.
+
+### Dialectic macOS build
+
+3. **Create `dialectic/scripts/build_macos.sh`**:
+   ```bash
+   #!/usr/bin/env bash
+   set -euo pipefail
+   SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+   ROOT="$SCRIPT_DIR/.."
+   cd "$ROOT"
+
+   echo "=== Generating icons ==="
+   python3 scripts/generate_icons.py
+
+   echo "=== Installing build dependencies ==="
+   pip install pyinstaller
+
+   echo "=== Running PyInstaller ==="
+   pyinstaller dialectic.spec --noconfirm --clean
+
+   echo "=== Creating DMG ==="
+   APP_PATH="dist/Dialectic.app"
+   DMG_PATH="dist/Dialectic-$(python3 -c "import tomllib; print(tomllib.load(open('pyproject.toml','rb'))['project']['version'])").dmg"
+
+   # Use create-dmg if available, else fall back to hdiutil
+   if command -v create-dmg &>/dev/null; then
+     create-dmg \
+       --volname "Dialectic" \
+       --volicon "assets/Dialectic.icns" \
+       --window-pos 200 120 \
+       --window-size 600 400 \
+       --icon-size 100 \
+       --icon "Dialectic.app" 150 190 \
+       --app-drop-link 450 190 \
+       --hide-extension "Dialectic.app" \
+       "$DMG_PATH" "$APP_PATH"
+   else
+     hdiutil create -volname "Dialectic" -srcfolder "$APP_PATH" -ov -format UDZO "$DMG_PATH"
+   fi
+
+   echo "=== Build complete: $DMG_PATH ==="
+   ```
+
+4. **Create `dialectic/installer/dmg-settings.json`** — configuration for create-dmg or appdmg:
+   ```json
+   {
+     "title": "Dialectic",
+     "icon": "../assets/Dialectic.icns",
+     "background-color": "#1a1a2e",
+     "contents": [
+       { "x": 150, "y": 190, "type": "file", "path": "../dist/Dialectic.app" },
+       { "x": 450, "y": 190, "type": "link", "path": "/Applications" }
+     ],
+     "window": { "position": { "x": 200, "y": 120 }, "size": { "width": 600, "height": 400 } }
+   }
+   ```
+
+### Dialectic Windows build
+
+5. **Create `dialectic/scripts/build_windows.ps1`**:
+   ```powershell
+   $ErrorActionPreference = "Stop"
+   $Root = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
+   Set-Location $Root\dialectic
+
+   Write-Host "=== Generating icons ===" -ForegroundColor Cyan
+   python scripts\generate_icons.py
+
+   Write-Host "=== Installing build dependencies ===" -ForegroundColor Cyan
+   pip install pyinstaller
+
+   Write-Host "=== Running PyInstaller ===" -ForegroundColor Cyan
+   pyinstaller dialectic.spec --noconfirm --clean
+
+   Write-Host "=== Build complete: dist\Dialectic\ ===" -ForegroundColor Green
+   Write-Host "To create installer, install NSIS and run: makensis installer\dialectic.nsi"
+   ```
+
+6. **Create `dialectic/installer/dialectic.nsi`** — NSIS installer script:
+   ```nsis
+   !include "MUI2.nsh"
+
+   Name "Dialectic"
+   OutFile "..\dist\Dialectic-Setup.exe"
+   InstallDir "$PROGRAMFILES\Theseus\Dialectic"
+   RequestExecutionLevel admin
+
+   !define MUI_ICON "..\assets\dialectic.ico"
+   !define MUI_UNICON "..\assets\dialectic.ico"
+
+   !insertmacro MUI_PAGE_WELCOME
+   !insertmacro MUI_PAGE_DIRECTORY
+   !insertmacro MUI_PAGE_INSTFILES
+   !insertmacro MUI_PAGE_FINISH
+
+   !insertmacro MUI_UNPAGE_CONFIRM
+   !insertmacro MUI_UNPAGE_INSTFILES
+
+   !insertmacro MUI_LANGUAGE "English"
+
+   Section "Install"
+     SetOutPath "$INSTDIR"
+     File /r "..\dist\Dialectic\*.*"
+
+     CreateDirectory "$SMPROGRAMS\Theseus"
+     CreateShortcut "$SMPROGRAMS\Theseus\Dialectic.lnk" "$INSTDIR\Dialectic.exe"
+     CreateShortcut "$DESKTOP\Dialectic.lnk" "$INSTDIR\Dialectic.exe"
+
+     WriteUninstaller "$INSTDIR\uninstall.exe"
+
+     WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\Dialectic" \
+       "DisplayName" "Dialectic"
+     WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\Dialectic" \
+       "UninstallString" '"$INSTDIR\uninstall.exe"'
+     WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\Dialectic" \
+       "DisplayIcon" "$INSTDIR\Dialectic.exe"
+     WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\Dialectic" \
+       "Publisher" "Theseus"
+   SectionEnd
+
+   Section "Uninstall"
+     RMDir /r "$INSTDIR"
+     Delete "$SMPROGRAMS\Theseus\Dialectic.lnk"
+     Delete "$DESKTOP\Dialectic.lnk"
+     RMDir "$SMPROGRAMS\Theseus"
+     DeleteRegKey HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\Dialectic"
+   SectionEnd
+   ```
+
+### Noosphere macOS build
+
+7. **Create `noosphere/scripts/build_macos.sh`**:
+   ```bash
+   #!/usr/bin/env bash
+   set -euo pipefail
+   SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+   ROOT="$SCRIPT_DIR/.."
+   cd "$ROOT"
+
+   echo "=== Generating icons ==="
+   python3 scripts/generate_icons.py
+
+   echo "=== Installing build dependencies ==="
+   pip install pyinstaller
+
+   echo "=== Running PyInstaller ==="
+   pyinstaller noosphere.spec --noconfirm --clean
+
+   echo "=== Creating distributable archive ==="
+   VERSION=$(python3 -c "import tomllib; print(tomllib.load(open('pyproject.toml','rb'))['project']['version'])")
+   cd dist
+   tar -czf "noosphere-${VERSION}-macos.tar.gz" noosphere/
+   echo "=== Build complete: dist/noosphere-${VERSION}-macos.tar.gz ==="
+   ```
+   Note: Noosphere is a CLI tool, so it gets a tar.gz archive on macOS, not a DMG. Users add it to their PATH.
+
+8. **Create `noosphere/installer/dmg-settings.json`** — even though the primary distribution is tar.gz, provide a DMG option for users who prefer drag-and-drop:
+   ```json
+   {
+     "title": "Noosphere CLI",
+     "contents": [
+       { "x": 150, "y": 190, "type": "file", "path": "../dist/noosphere" },
+       { "x": 450, "y": 190, "type": "link", "path": "/usr/local/bin" }
+     ],
+     "window": { "size": { "width": 500, "height": 350 } }
+   }
+   ```
+
+### Noosphere Windows build
+
+9. **Create `noosphere/scripts/build_windows.ps1`**:
+   ```powershell
+   $ErrorActionPreference = "Stop"
+   Set-Location (Split-Path -Parent (Split-Path -Parent $PSScriptRoot))\noosphere
+
+   Write-Host "=== Installing build dependencies ===" -ForegroundColor Cyan
+   pip install pyinstaller
+
+   Write-Host "=== Running PyInstaller ===" -ForegroundColor Cyan
+   pyinstaller noosphere.spec --noconfirm --clean
+
+   Write-Host "=== Build complete: dist\noosphere\ ===" -ForegroundColor Green
+   Write-Host "To create installer, install NSIS and run: makensis installer\noosphere.nsi"
+   ```
+
+10. **Create `noosphere/installer/noosphere.nsi`** — NSIS installer:
+    - Install to `$PROGRAMFILES\Theseus\Noosphere`.
+    - Add `$INSTDIR` to the system PATH (use the EnVar plugin or registry edit).
+    - Create Start Menu shortcut that opens a cmd window in the install dir.
+    - Register uninstaller.
+    - The NSIS script should follow the same structure as `dialectic/installer/dialectic.nsi` but adapted for a CLI (PATH addition instead of desktop shortcut).
+
+## Verification
+- All `.sh` scripts have correct shebang and `set -euo pipefail`.
+- All `.ps1` scripts have `$ErrorActionPreference = "Stop"`.
+- `python3 dialectic/scripts/generate_icons.py` runs without error (Pillow must be installed).
+- `python3 noosphere/scripts/generate_icons.py` runs without error.
+- NSIS scripts are syntactically valid (if NSIS is installed: `makensis -VERSION` to confirm, then a dry parse).
+- All build scripts reference the correct spec file paths.
+
+## Prohibitions
+- Do NOT actually run PyInstaller or produce final builds (CI/CD in prompt 07 handles that).
+- Do NOT modify the PyInstaller spec files created by prompts 01 and 03.
+- Do NOT modify any application source code.
+- Do NOT use `--onefile` mode for PyInstaller — the bundles with torch are too large for single-file extraction.
+- Do NOT hardcode version numbers — always read from `pyproject.toml`.

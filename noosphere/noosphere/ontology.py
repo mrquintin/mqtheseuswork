@@ -16,13 +16,17 @@ knowledge graph, built on NetworkX. It supports:
 
 from __future__ import annotations
 
+import hashlib
 import json
-import logging
 import math
+import re
+import unicodedata
 from datetime import date, datetime
 from pathlib import Path
 from typing import Optional, Dict, List, Tuple, Any
 from collections import defaultdict
+
+import spacy
 
 import networkx as nx
 from numpy.typing import NDArray
@@ -40,10 +44,14 @@ from noosphere.models import (
     ConvictionLevel,
     Episode,
     TemporalSnapshot,
+    Topic,
+    Entity,
 )
 
 
-logger = logging.getLogger(__name__)
+from noosphere.observability import get_logger
+
+logger = get_logger(__name__)
 
 
 # ── OntologyGraph ────────────────────────────────────────────────────────────
@@ -761,13 +769,13 @@ class GraphPersistence:
         """
         data = {
             "principles": [
-                p.model_dump() for p in self.graph.principles.values()
+                p.model_dump(mode="json") for p in self.graph.principles.values()
             ],
             "claims": [
-                c.model_dump() for c in self.graph.claims.values()
+                c.model_dump(mode="json") for c in self.graph.claims.values()
             ],
             "relationships": [
-                r.model_dump() for r in self.graph.relationships.values()
+                r.model_dump(mode="json") for r in self.graph.relationships.values()
             ],
             "metadata": {
                 "saved_at": datetime.now().isoformat(),
@@ -809,19 +817,21 @@ class GraphPersistence:
         self.graph.claims.clear()
         self.graph.relationships.clear()
 
-        # Load principles
+        # Load principles (JSON round-trip keeps types compatible with strict models)
         for p_data in data.get("principles", []):
-            principle = Principle(**p_data)
+            principle = Principle.model_validate_json(json.dumps(p_data, default=str))
             self.graph.add_principle(principle)
 
         # Load claims
         for c_data in data.get("claims", []):
-            claim = Claim(**c_data)
+            claim = Claim.model_validate_json(json.dumps(c_data, default=str))
             self.graph.add_claim(claim)
 
         # Load relationships
         for r_data in data.get("relationships", []):
-            relationship = Relationship(**r_data)
+            relationship = Relationship.model_validate_json(
+                json.dumps(r_data, default=str)
+            )
             self.graph.add_relationship(relationship)
 
         logger.info(
@@ -973,3 +983,187 @@ class GraphPersistence:
         with open(path_obj, "w") as f:
             json.dump(context, f, indent=2)
         logger.info(f"Exported graph to JSON-LD: {path}")
+
+
+# ── Topic ontology (online clustering) ──────────────────────────────────────
+
+
+def _topic_params_hash() -> str:
+    return "umap10_hdbscan_mcs5_v1"
+
+
+class TopicOntologyBootstrap:
+    """
+    Online clustering of claim embeddings → stable Topic clusters in Store.
+    Uses UMAP + HDBSCAN when available; otherwise no-op.
+    """
+
+    def __init__(self, min_cluster_size: int = 5) -> None:
+        self.min_cluster_size = min_cluster_size
+
+    def _nearest_existing_cluster(
+        self, store: Any, centroid: np.ndarray, min_sim: float = 0.94
+    ) -> Optional[str]:
+        v = np.asarray(centroid, dtype=float)
+        v = v / (np.linalg.norm(v) + 1e-9)
+        best_id: Optional[str] = None
+        best_sim = -1.0
+        for cid in store.list_topic_cluster_ids():
+            row = store.get_topic_cluster(cid)
+            if row is None:
+                continue
+            _, cent = row
+            cvec = np.asarray(cent, dtype=float)
+            if cvec.shape != v.shape:
+                continue
+            cvec = cvec / (np.linalg.norm(cvec) + 1e-9)
+            sim = float(np.dot(v, cvec))
+            if sim > best_sim:
+                best_sim = sim
+                best_id = cid
+        if best_id is not None and best_sim >= min_sim:
+            return best_id
+        return None
+
+    def fit(
+        self,
+        store: Any,
+        claims: list[Claim],
+        embeddings: "NDArray[np.float64]",
+    ) -> None:
+        if len(claims) != len(embeddings):
+            raise ValueError("claims and embeddings length mismatch")
+        try:
+            import umap  # type: ignore[import-untyped]
+            import hdbscan  # type: ignore[import-untyped]
+        except ImportError:
+            logger.warning("umap/hdbscan not installed; skipping topic bootstrap")
+            return
+
+        X = np.asarray(embeddings, dtype=float)
+        if X.ndim != 2 or X.shape[0] < self.min_cluster_size * 2:
+            return
+        red = umap.UMAP(n_components=min(10, X.shape[1]), metric="cosine", random_state=42).fit_transform(
+            X
+        )
+        clusterer = hdbscan.HDBSCAN(min_cluster_size=self.min_cluster_size, metric="euclidean")
+        labels = clusterer.fit_predict(red)
+        params_hash = _topic_params_hash()
+        for lab in sorted(set(labels.tolist())):
+            if lab < 0:
+                continue
+            idxs = [i for i, t in enumerate(labels.tolist()) if t == lab]
+            members = [claims[i] for i in idxs]
+            centroid = X[idxs].mean(axis=0)
+            reuse = self._nearest_existing_cluster(store, centroid)
+            if reuse:
+                cluster_id = reuse
+                row = store.get_topic_cluster(cluster_id)
+                assert row is not None
+                _, old_cent = row
+                merged = (np.asarray(old_cent, dtype=float) + centroid) / 2.0
+                centroid_out = merged
+                short = cluster_id.replace("top_", "")[:12]
+            else:
+                member_key = "|".join(sorted(c.id for c in members))
+                h = hashlib.sha256(member_key.encode()).hexdigest()[:24]
+                cluster_id = f"top_{h}"
+                centroid_out = centroid
+                short = h[:12]
+            topic = Topic(
+                id=cluster_id,
+                label=f"cluster_{short}",
+                description=f"HDBSCAN label={lab}, n={len(members)}",
+                cluster_version=params_hash,
+                centroid_seed_claim_ids=[c.id for c in members[:8]],
+            )
+            store.put_topic_cluster(
+                topic, centroid=centroid_out.tolist(), params_hash=params_hash
+            )
+            for c in members:
+                store.put_claim_topic(c.id, cluster_id)
+
+    def assign_nearest(
+        self, store: Any, claim: Claim, embedding: list[float]
+    ) -> Optional[str]:
+        """Assign claim to nearest stored centroid (cosine)."""
+        best_id: Optional[str] = None
+        best_sim = -1.0
+        vec = np.asarray(embedding, dtype=float)
+        vec = vec / (np.linalg.norm(vec) + 1e-9)
+        for cid in store.list_topic_cluster_ids():
+            row = store.get_topic_cluster(cid)
+            if row is None:
+                continue
+            _, cent = row
+            cvec = np.asarray(cent, dtype=float)
+            if cvec.shape != vec.shape:
+                continue
+            cvec = cvec / (np.linalg.norm(cvec) + 1e-9)
+            sim = float(np.dot(vec, cvec))
+            if sim > best_sim:
+                best_sim = sim
+                best_id = cid
+        if best_id is None:
+            return None
+        store.put_claim_topic(claim.id, best_id)
+        return best_id
+
+
+# ── Entity linking ───────────────────────────────────────────────────────────
+
+
+def _canonical_entity_key(text: str, label: str) -> str:
+    t = unicodedata.normalize("NFKD", text.strip().lower())
+    t = "".join(ch for ch in t if not unicodedata.combining(ch))
+    t = re.sub(r"^the\s+", "", t)
+    t = re.sub(r"\s+", " ", t)
+    t = re.sub(r"[^\w\s]", "", t)
+    parts = t.split()
+    if len(parts) >= 2 and parts[-1] in {"jr", "sr", "iii", "ii"}:
+        parts = parts[:-1]
+    if parts and parts[0] in {"dr", "prof", "mr", "ms", "mrs"}:
+        parts = parts[1:]
+    if label == "PERSON" and parts:
+        return parts[-1]
+    if len(parts) >= 2:
+        return " ".join(parts[-2:])
+    return " ".join(parts) if parts else t
+
+
+class EntityLinker:
+    """spaCy NER → normalized Entity rows in Store (person/org collapse)."""
+
+    def __init__(self, store: Any) -> None:
+        self.store = store
+        self._nlp = None
+
+    def _nlp_model(self):
+        if self._nlp is None:
+            self._nlp = spacy.load("en_core_web_sm")
+        return self._nlp
+
+    def link_claim(self, claim: Claim) -> list[str]:
+        doc = self._nlp_model()(claim.text)
+        created: list[str] = []
+        for ent in doc.ents:
+            if ent.label_ not in {"PERSON", "ORG", "GPE", "NORP"}:
+                continue
+            key = _canonical_entity_key(ent.text, ent.label_)
+            if not key:
+                continue
+            existing = self.store.get_entity_by_canonical(key)
+            if existing:
+                created.append(existing.id)
+                continue
+            digest = hashlib.sha256(key.encode()).hexdigest()[:16]
+            eid = f"ent_{digest}"
+            entity = Entity(
+                id=eid,
+                label=ent.text.strip(),
+                entity_type=ent.label_,
+                canonical_key=key,
+            )
+            self.store.put_entity(entity)
+            created.append(eid)
+        return created

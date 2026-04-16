@@ -1,0 +1,28 @@
+# Examples: {{ name }} v{{ version }}
+
+{% if reviewed_by %}**Reviewed by:** {{ reviewed_by }}{% endif %}
+
+{% for ex in examples %}
+## Example {{ loop.index }}: {{ ex.title }}
+
+**Input:**
+```json
+{{ ex.input_json }}
+```
+
+**Output:**
+```json
+{{ ex.output_json }}
+```
+
+{{ ex.narrative }}
+
+{% endfor %}
+
+{% if invocation_summaries %}
+## De-identified Invocation Summaries
+
+{% for inv in invocation_summaries %}
+- {{ inv }}
+{% endfor %}
+{% endif %}

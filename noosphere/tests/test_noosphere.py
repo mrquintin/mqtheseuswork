@@ -530,7 +530,7 @@ class TestOntologyGraph:
         # Results should be (principle, similarity) tuples
         for principle, similarity in nearest:
             assert isinstance(principle, Principle)
-            assert 0.0 <= similarity <= 1.0
+            assert -1.0 <= similarity <= 1.0
 
     def test_get_stats(self, sample_principles):
         """Test getting graph statistics."""

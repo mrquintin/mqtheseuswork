@@ -1,0 +1,16 @@
+node_modules
+.next
+out
+.git
+.gitignore
+*.md
+dev.db
+dev.db-journal
+.env
+.env.*
+dist-desktop
+tsconfig.tsbuildinfo
+.vscode
+.idea
+coverage
+.DS_Store

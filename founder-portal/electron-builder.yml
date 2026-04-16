@@ -1,0 +1,70 @@
+appId: com.theseus.founder-portal
+productName: "Theseus Founder Portal"
+copyright: "Copyright © 2026 Theseus"
+
+directories:
+  output: dist-electron
+  buildResources: assets
+
+files:
+  - dist-desktop/**/*
+  - .next/standalone/**/*
+  - .next/static/**/*
+  - public/**/*
+  - prisma/**/*
+  - node_modules/.prisma/**/*
+  - node_modules/@prisma/**/*
+  - node_modules/better-sqlite3/**/*
+  - package.json
+
+extraResources:
+  - from: data/seed.db
+    to: seed.db
+    filter:
+      - "**/*"
+
+mac:
+  category: public.app-category.business
+  icon: assets/icon.icns
+  target:
+    - target: dmg
+      arch: [universal]
+  darkModeSupport: true
+  hardenedRuntime: true
+  gatekeeperAssess: false
+  entitlements: assets/entitlements.mac.plist
+  entitlementsInherit: assets/entitlements.mac.plist
+
+dmg:
+  contents:
+    - x: 150
+      y: 190
+      type: file
+    - x: 450
+      y: 190
+      type: link
+      path: /Applications
+  window:
+    width: 600
+    height: 400
+
+win:
+  icon: assets/icon.ico
+  target:
+    - target: nsis
+      arch: [x64]
+
+nsis:
+  oneClick: false
+  allowToChangeInstallationDirectory: true
+  installerIcon: assets/icon.ico
+  uninstallerIcon: assets/icon.ico
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+  shortcutName: "Theseus Founder Portal"
+  menuCategory: "Theseus"
+
+publish:
+  provider: github
+  owner: OWNER_PLACEHOLDER
+  repo: REPO_PLACEHOLDER

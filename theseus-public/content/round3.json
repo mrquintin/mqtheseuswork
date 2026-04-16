@@ -1,0 +1,129 @@
+{
+  "schema": "theseus.round3Export.v1",
+  "generatedAt": "2026-04-15T00:00:00Z",
+  "methods": [
+    {
+      "name": "six-layer-coherence",
+      "version": "1.0.0",
+      "doi": "10.5281/zenodo.0000001",
+      "description": "Six-layer coherence verification engine for cross-episode constraint checking.",
+      "bibtex": "@article{theseus_slc_v1,\n  title={Six-Layer Coherence Verification},\n  author={Theseus Research},\n  year={2026},\n  doi={10.5281/zenodo.0000001}\n}",
+      "downloadUrl": "/artifacts/methods/six-layer-coherence-1.0.0.tar.gz",
+      "publishedAt": "2026-03-01T12:00:00Z",
+      "corpusHash": "sha256:a1b2c3d4e5f6",
+      "signature": "sig:slc-1.0.0",
+      "parameters": { "layers": 6, "threshold": 0.7, "crossEpisode": true },
+      "versionHistory": [
+        { "version": "1.0.0", "publishedAt": "2026-03-01T12:00:00Z", "changeNote": "Initial release" }
+      ]
+    },
+    {
+      "name": "five-criterion-meta-analysis",
+      "version": "2.0.0",
+      "doi": "10.5281/zenodo.0000002",
+      "description": "Five-criterion meta-analysis gate for publication readiness.",
+      "bibtex": "@article{theseus_fcm_v2,\n  title={Five-Criterion Meta-Analysis},\n  author={Theseus Research},\n  year={2026},\n  doi={10.5281/zenodo.0000002}\n}",
+      "downloadUrl": "/artifacts/methods/five-criterion-meta-analysis-2.0.0.tar.gz",
+      "publishedAt": "2026-03-15T12:00:00Z",
+      "corpusHash": "sha256:f6e5d4c3b2a1",
+      "signature": "sig:fcm-2.0.0",
+      "parameters": { "criteria": 5, "strictMode": true },
+      "versionHistory": [
+        { "version": "1.0.0", "publishedAt": "2026-02-01T12:00:00Z", "changeNote": "Initial release" },
+        { "version": "2.0.0", "publishedAt": "2026-03-15T12:00:00Z", "changeNote": "Revised criterion weighting and added strict mode" }
+      ]
+    }
+  ],
+  "mips": [
+    {
+      "name": "mip-001-claim-format",
+      "version": "1.0.0",
+      "description": "Standard claim interchange format for cross-system interoperability.",
+      "adoptionInstructions": "Import the claim schema from the MIP-001 package and validate inbound claims against the JSON Schema before processing. See the version matrix for compatible pipeline versions.",
+      "versionMatrix": [
+        { "version": "1.0.0", "publishedAt": "2026-03-15T12:00:00Z", "status": "active" }
+      ],
+      "publishedAt": "2026-03-15T12:00:00Z",
+      "corpusHash": "sha256:mip001abc",
+      "signature": "sig:mip-001-1.0.0"
+    }
+  ],
+  "rigorDashboard": [
+    {
+      "month": "2026-03",
+      "passCount": 42,
+      "failCount": 7,
+      "topFailureCategories": [
+        { "category": "evidence-gap", "count": 3 },
+        { "category": "coherence-layer-mismatch", "count": 2 },
+        { "category": "calibration-drift", "count": 2 }
+      ]
+    },
+    {
+      "month": "2026-02",
+      "passCount": 38,
+      "failCount": 5,
+      "topFailureCategories": [
+        { "category": "calibration-drift", "count": 3 },
+        { "category": "evidence-gap", "count": 2 }
+      ]
+    }
+  ],
+  "founderOverrides": [
+    {
+      "id": "override-001",
+      "conclusionId": "pub-test-001",
+      "field": "discountedConfidence",
+      "originalValue": "0.82",
+      "overriddenValue": "0.75",
+      "justification": "Calibration model has known bias for novel empirical domains. Manual discount applied pending model retrain on expanded domain corpus.",
+      "issuedAt": "2026-03-20T10:00:00Z",
+      "issuedBy": "founder"
+    }
+  ],
+  "decayStats": [
+    {
+      "conclusionId": "pub-test-001",
+      "slug": "test-conclusion",
+      "currentConfidence": 0.71,
+      "originalConfidence": 0.82,
+      "decayRate": 0.015,
+      "lastDecayEvent": "2026-04-01T00:00:00Z",
+      "totalDecayEvents": 3
+    }
+  ],
+  "provenance": {
+    "pub-test-001": {
+      "conclusionId": "pub-test-001",
+      "ledgerEntries": [
+        { "hash": "sha256:ledger001", "timestamp": "2026-02-28T08:00:00Z", "action": "claim-ingested" },
+        { "hash": "sha256:ledger002", "timestamp": "2026-03-01T10:00:00Z", "action": "coherence-pass" },
+        { "hash": "sha256:ledger003", "timestamp": "2026-03-01T11:00:00Z", "action": "meta-analysis-pass" },
+        { "hash": "sha256:ledger004", "timestamp": "2026-03-01T12:00:00Z", "action": "published" }
+      ],
+      "corpusHashAtPublication": "sha256:corpus789abc"
+    }
+  },
+  "adversarialHistory": {
+    "pub-test-001": [
+      {
+        "round": 1,
+        "reviewerRole": "devil-advocate",
+        "outcome": "conditional",
+        "summary": "Raised concern about sample size in supporting evidence; condition met after evidence supplement was appended."
+      },
+      {
+        "round": 2,
+        "reviewerRole": "methodologist",
+        "outcome": "pass",
+        "summary": "Methodology verified against six-layer coherence v1.0.0. No structural issues detected."
+      },
+      {
+        "round": 3,
+        "reviewerRole": "calibration-auditor",
+        "outcome": "pass",
+        "summary": "Confidence calibration within acceptable bounds after founder override applied."
+      }
+    ]
+  }
+}

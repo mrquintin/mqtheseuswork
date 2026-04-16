@@ -1,0 +1,269 @@
+# Claude Code Prompt 8 of 8 — Code signing, notarization, and auto-update for Python apps
+
+**Sequence:** prompt 8 of 8 (Wave 2 — depends on prompts 01, 03, 05, 07). When you finish, report back with: files you created/modified, any notable choices, any blockers.
+
+**Before you start — read current state:**
+1. Run `git status` and `git branch`.
+2. Confirm these exist from earlier prompts:
+   - `dialectic/scripts/build_macos.sh`, `dialectic/scripts/build_windows.ps1`
+   - `noosphere/scripts/build_macos.sh`, `noosphere/scripts/build_windows.ps1`
+   - `.github/workflows/build-dialectic.yml`, `.github/workflows/build-noosphere.yml`
+3. For every file listed under SCOPE below, check whether it already exists. Do NOT overwrite existing correct work.
+
+## Your task
+
+You are an implementation agent. Your job is to add code signing, macOS notarization, and a self-update mechanism to the two Python-based applications (Dialectic and Noosphere). The Founder Portal's Electron app already handles signing via electron-builder (prompt 06), so this prompt covers only the PyInstaller-based apps.
+
+### What this involves:
+- **macOS code signing**: `codesign` the .app bundle (Dialectic) and the CLI binary directory (Noosphere) with a Developer ID certificate.
+- **macOS notarization**: Submit the signed artifact to Apple's notarization service via `notarytool`, staple the result.
+- **Windows Authenticode signing**: `signtool` the .exe files with a code signing certificate.
+- **Self-update check**: A lightweight update checker that hits a version manifest URL and notifies the user when a new version is available (no silent auto-install for PyInstaller apps — just notification + download link).
+
+When you finish, verify all scripts are syntactically valid. Do not proceed to any other work.
+
+## Prerequisites
+- Prompts 01, 03, 05 have been applied (build scripts and spec files exist).
+- Code signing certificates are NOT available in the dev environment — scripts must handle their absence gracefully.
+- `codesign`, `notarytool`, `stapler` are available on macOS CI runners.
+- `signtool` is available on Windows CI runners (installed with Windows SDK).
+
+SCOPE (files you may create or modify — stay within this list)
+- `scripts/codesign_macos.sh`                          CREATE (repo root — shared by both Python apps)
+- `scripts/notarize_macos.sh`                          CREATE
+- `scripts/codesign_windows.ps1`                       CREATE
+- `dialectic/dialectic/updater.py`                     CREATE
+- `noosphere/noosphere/updater.py`                     CREATE
+- `dialectic/scripts/build_macos.sh`                   MODIFY (add signing step)
+- `noosphere/scripts/build_macos.sh`                   MODIFY (add signing step)
+- `.github/workflows/build-dialectic.yml`              MODIFY (add signing + notarization steps)
+- `.github/workflows/build-noosphere.yml`              MODIFY (add signing + notarization steps)
+- `dialectic/tests/test_updater.py`                    CREATE
+- `noosphere/tests/test_updater.py`                    CREATE
+
+## Step-by-step
+
+### macOS code signing and notarization
+
+1. **Create `scripts/codesign_macos.sh`** — signs a PyInstaller output directory or .app bundle:
+   ```bash
+   #!/usr/bin/env bash
+   # Usage: ./scripts/codesign_macos.sh <path-to-app-or-dir> <signing-identity>
+   # If signing identity is empty or "skip", signing is skipped gracefully.
+   set -euo pipefail
+
+   TARGET="$1"
+   IDENTITY="${2:-skip}"
+
+   if [[ "$IDENTITY" == "skip" || -z "$IDENTITY" ]]; then
+     echo "⚠ No signing identity provided — skipping code signing."
+     exit 0
+   fi
+
+   echo "=== Signing $TARGET with identity: $IDENTITY ==="
+
+   # Deep-sign all nested binaries first (required for notarization)
+   find "$TARGET" -type f \( -name "*.dylib" -o -name "*.so" -o -perm +111 \) -exec \
+     codesign --force --options runtime --timestamp --sign "$IDENTITY" {} \;
+
+   # Sign the top-level bundle or directory
+   codesign --force --deep --options runtime --timestamp --sign "$IDENTITY" "$TARGET"
+
+   # Verify
+   codesign --verify --deep --strict "$TARGET"
+   echo "=== Signing complete ==="
+   ```
+
+2. **Create `scripts/notarize_macos.sh`** — submits a DMG or ZIP to Apple's notarization service:
+   ```bash
+   #!/usr/bin/env bash
+   # Usage: ./scripts/notarize_macos.sh <path-to-dmg-or-zip> <apple-id> <team-id> <app-specific-password>
+   set -euo pipefail
+
+   ARTIFACT="$1"
+   APPLE_ID="${2:-}"
+   TEAM_ID="${3:-}"
+   APP_PASSWORD="${4:-}"
+
+   if [[ -z "$APPLE_ID" || -z "$TEAM_ID" || -z "$APP_PASSWORD" ]]; then
+     echo "⚠ Notarization credentials not provided — skipping."
+     exit 0
+   fi
+
+   echo "=== Submitting $ARTIFACT for notarization ==="
+   xcrun notarytool submit "$ARTIFACT" \
+     --apple-id "$APPLE_ID" \
+     --team-id "$TEAM_ID" \
+     --password "$APP_PASSWORD" \
+     --wait --timeout 600
+
+   echo "=== Stapling notarization ticket ==="
+   xcrun stapler staple "$ARTIFACT"
+
+   echo "=== Notarization complete ==="
+   ```
+
+### Windows code signing
+
+3. **Create `scripts/codesign_windows.ps1`**:
+   ```powershell
+   # Usage: .\scripts\codesign_windows.ps1 -Target <exe-or-dir> -CertPath <pfx-path> -CertPassword <pw>
+   param(
+     [Parameter(Mandatory=$true)] [string]$Target,
+     [string]$CertPath = "",
+     [string]$CertPassword = ""
+   )
+
+   if (-not $CertPath -or -not (Test-Path $CertPath)) {
+     Write-Host "⚠ No certificate provided — skipping code signing." -ForegroundColor Yellow
+     exit 0
+   }
+
+   $signtool = Get-ChildItem "C:\Program Files (x86)\Windows Kits\*\bin\*\x64\signtool.exe" -Recurse | Select-Object -First 1
+
+   if (-not $signtool) {
+     Write-Host "⚠ signtool.exe not found — skipping." -ForegroundColor Yellow
+     exit 0
+   }
+
+   # Find all .exe and .dll files
+   $files = Get-ChildItem -Path $Target -Recurse -Include *.exe,*.dll
+
+   foreach ($file in $files) {
+     Write-Host "Signing $($file.FullName)..."
+     & $signtool.FullName sign /f $CertPath /p $CertPassword /tr http://timestamp.digicert.com /td sha256 /fd sha256 $file.FullName
+   }
+
+   Write-Host "=== Windows signing complete ===" -ForegroundColor Green
+   ```
+
+### Integrate signing into build scripts
+
+4. **Modify `dialectic/scripts/build_macos.sh`** — after the DMG creation step, add:
+   ```bash
+   echo "=== Code signing ==="
+   SIGNING_IDENTITY="${APPLE_SIGNING_IDENTITY:-skip}"
+   bash "$ROOT/../scripts/codesign_macos.sh" "$APP_PATH" "$SIGNING_IDENTITY"
+
+   echo "=== Notarization ==="
+   bash "$ROOT/../scripts/notarize_macos.sh" "$DMG_PATH" \
+     "${APPLE_ID:-}" "${APPLE_TEAM_ID:-}" "${APPLE_APP_PASSWORD:-}"
+   ```
+
+5. **Modify `noosphere/scripts/build_macos.sh`** — same pattern, but sign the directory `dist/noosphere/` and notarize the tar.gz (wrap it in a ZIP first for notarization, since Apple requires ZIP or DMG).
+
+### Integrate signing into CI workflows
+
+6. **Modify `.github/workflows/build-dialectic.yml`** — add steps after the build:
+   ```yaml
+   - name: Code sign (macOS)
+     if: matrix.platform == 'macos' && env.APPLE_SIGNING_IDENTITY != ''
+     env:
+       APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+     run: bash ../scripts/codesign_macos.sh dist/Dialectic.app "$APPLE_SIGNING_IDENTITY"
+
+   - name: Notarize (macOS)
+     if: matrix.platform == 'macos' && env.APPLE_ID != ''
+     env:
+       APPLE_ID: ${{ secrets.APPLE_ID }}
+       APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+       APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
+     run: bash ../scripts/notarize_macos.sh dist/Dialectic*.dmg "$APPLE_ID" "$APPLE_TEAM_ID" "$APPLE_APP_PASSWORD"
+
+   - name: Code sign (Windows)
+     if: matrix.platform == 'windows' && env.WIN_CERT_PFX_BASE64 != ''
+     env:
+       WIN_CERT_PFX_BASE64: ${{ secrets.WIN_CERT_PFX_BASE64 }}
+       WIN_CERT_PASSWORD: ${{ secrets.WIN_CERT_PASSWORD }}
+     shell: pwsh
+     run: |
+       $certBytes = [Convert]::FromBase64String($env:WIN_CERT_PFX_BASE64)
+       [IO.File]::WriteAllBytes("$env:RUNNER_TEMP\cert.pfx", $certBytes)
+       .\scripts\codesign_windows.ps1 -Target dist\Dialectic -CertPath "$env:RUNNER_TEMP\cert.pfx" -CertPassword $env:WIN_CERT_PASSWORD
+   ```
+
+7. **Modify `.github/workflows/build-noosphere.yml`** — same signing and notarization steps, adapted for Noosphere paths.
+
+### Self-update checker
+
+8. **Create `dialectic/dialectic/updater.py`**:
+   ```python
+   """Lightweight update checker for Dialectic.
+
+   On launch, checks a version manifest URL (JSON) for the latest version.
+   If newer than the running version, shows a non-blocking notification in the UI.
+   No silent auto-install — user must download manually.
+   """
+   import json
+   import logging
+   import threading
+   from importlib.metadata import version as pkg_version
+   from urllib.request import urlopen, Request
+   from urllib.error import URLError
+   from packaging.version import Version
+
+   logger = logging.getLogger(__name__)
+
+   UPDATE_MANIFEST_URL = "https://releases.theseus.co/dialectic/latest.json"
+   # Manifest format: {"version": "0.2.0", "download_url": "https://...", "release_notes": "..."}
+
+   def check_for_updates(callback=None, manifest_url: str = UPDATE_MANIFEST_URL):
+       """Check for updates in a background thread.
+       Calls callback(version_info_dict) if an update is available.
+       Silently does nothing on network errors."""
+       def _check():
+           try:
+               current = Version(pkg_version("dialectic"))
+               req = Request(manifest_url, headers={"User-Agent": "Dialectic-Updater"})
+               with urlopen(req, timeout=10) as resp:
+                   data = json.loads(resp.read())
+               latest = Version(data["version"])
+               if latest > current and callback:
+                   callback(data)
+           except (URLError, KeyError, Exception) as e:
+               logger.debug(f"Update check failed (non-fatal): {e}")
+
+       t = threading.Thread(target=_check, daemon=True)
+       t.start()
+       return t
+   ```
+
+9. **Create `noosphere/noosphere/updater.py`** — same pattern but for Noosphere:
+   - Uses `UPDATE_MANIFEST_URL = "https://releases.theseus.co/noosphere/latest.json"`.
+   - The callback prints a Rich-formatted message to the terminal instead of showing a GUI dialog.
+   - The check runs on CLI startup (in `typer_cli.py` or `__main__.py`) but only if `--no-update-check` is NOT passed.
+   - Do NOT add the flag to the CLI yet — just create the module. Integration into the CLI is a future task.
+
+10. **Create tests:**
+
+    **`dialectic/tests/test_updater.py`**:
+    - Mock `urlopen` to return `{"version": "99.0.0", "download_url": "https://example.com", "release_notes": "test"}`.
+    - Verify the callback is called when the manifest version is newer.
+    - Mock `urlopen` to raise `URLError` and verify no exception propagates.
+    - Mock `urlopen` to return the current version and verify the callback is NOT called.
+
+    **`noosphere/tests/test_updater.py`**:
+    - Same test pattern as Dialectic's updater tests.
+
+11. **Run tests:**
+    ```bash
+    cd dialectic && python -m pytest tests/test_updater.py -v
+    cd ../noosphere && python -m pytest tests/test_updater.py -v
+    ```
+
+## Verification
+- All shell scripts have `set -euo pipefail` and gracefully handle missing credentials.
+- `scripts/codesign_macos.sh skip` (no args) exits 0 with a warning.
+- `scripts/notarize_macos.sh` (no credentials) exits 0 with a warning.
+- Windows PowerShell script exits 0 when no certificate is provided.
+- CI workflow YAML is valid after modifications.
+- Updater tests pass for both Dialectic and Noosphere.
+- No secrets are hardcoded anywhere.
+
+## Prohibitions
+- Do NOT store any certificates, passwords, or Apple IDs in the repository.
+- Do NOT implement silent auto-update for PyInstaller apps — notification only (user downloads manually).
+- Do NOT modify application UI code (the update notification will be integrated into the dashboard by a future prompt).
+- Do NOT modify any PyInstaller spec files.
+- Do NOT add `packaging` to requirements.txt — use `importlib.metadata` and handle `PackageNotFoundError` for frozen builds.
+- Do NOT make the update check blocking — it must be async/threaded with a timeout.

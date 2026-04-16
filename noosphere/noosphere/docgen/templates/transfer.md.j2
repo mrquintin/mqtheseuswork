@@ -1,0 +1,34 @@
+# Transfer Studies: {{ name }} v{{ version }}
+
+{% if studies %}
+{% for study in studies %}
+## Study: {{ study.study_id[:12] }}
+
+- **Source domain:** {{ study.source_domain }}
+- **Target domain:** {{ study.target_domain }}
+- **Dataset:** {{ study.dataset_path }} ({{ study.dataset_hash[:12] }})
+
+### Baseline (Source)
+
+| Brier | Log Loss | ECE | Resolution | Coverage |
+|-------|----------|-----|------------|----------|
+| {{ "%.4f"|format(study.baseline_brier) }} | {{ "%.4f"|format(study.baseline_log_loss) }} | {{ "%.4f"|format(study.baseline_ece) }} | {{ "%.4f"|format(study.baseline_resolution) }} | {{ "%.4f"|format(study.baseline_coverage) }} |
+
+### Result (Target)
+
+| Brier | Log Loss | ECE | Resolution | Coverage |
+|-------|----------|-----|------------|----------|
+| {{ "%.4f"|format(study.result_brier) }} | {{ "%.4f"|format(study.result_log_loss) }} | {{ "%.4f"|format(study.result_ece) }} | {{ "%.4f"|format(study.result_resolution) }} | {{ "%.4f"|format(study.result_coverage) }} |
+
+### Delta
+
+| Brier | Log Loss | ECE | Resolution | Coverage |
+|-------|----------|-----|------------|----------|
+| {{ "%+.4f"|format(study.delta_brier) }} | {{ "%+.4f"|format(study.delta_log_loss) }} | {{ "%+.4f"|format(study.delta_ece) }} | {{ "%+.4f"|format(study.delta_resolution) }} | {{ "%+.4f"|format(study.delta_coverage) }} |
+
+**Notes:** {{ study.qualitative_notes }}
+
+{% endfor %}
+{% else %}
+No transfer studies recorded.
+{% endif %}

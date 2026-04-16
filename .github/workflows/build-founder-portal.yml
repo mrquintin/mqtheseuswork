@@ -1,0 +1,71 @@
+name: Build Founder Portal Desktop
+
+on:
+  push:
+    branches: [main]
+    paths: ['founder-portal/**', '.github/workflows/build-founder-portal.yml']
+  pull_request:
+    paths: ['founder-portal/**', '.github/workflows/build-founder-portal.yml']
+  workflow_call:
+  workflow_dispatch:
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-14
+            platform: macos
+            dist-flag: --mac
+          - os: windows-latest
+            platform: windows
+            dist-flag: --win
+
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        working-directory: founder-portal
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: founder-portal/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build Next.js
+        run: npm run build
+
+      - name: Compile Electron TypeScript
+        run: npx tsc -p desktop/tsconfig.json
+
+      - name: Generate icons
+        run: node scripts/generate_icons.js
+
+      - name: Build desktop app
+        run: npx electron-builder ${{ matrix.dist-flag }} --config electron-builder.yml
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          CSC_LINK: ${{ secrets.MAC_CERT_P12_BASE64 }}
+          CSC_KEY_PASSWORD: ${{ secrets.MAC_CERT_PASSWORD }}
+          WIN_CSC_LINK: ${{ secrets.WIN_CERT_PFX_BASE64 }}
+          WIN_CSC_KEY_PASSWORD: ${{ secrets.WIN_CERT_PASSWORD }}
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: founder-portal-${{ matrix.platform }}
+          path: |
+            founder-portal/dist-electron/*.dmg
+            founder-portal/dist-electron/*.exe
+            founder-portal/dist-electron/*.zip
+            founder-portal/dist-electron/*.blockmap
+            founder-portal/dist-electron/latest*.yml
+          retention-days: 30
+          if-no-files-found: warn
