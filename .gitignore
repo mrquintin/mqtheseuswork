@@ -43,6 +43,20 @@ out/
 *.pt
 *.onnx
 
+# Large media files (exceed GitHub's 100 MB limit; keep locally only)
+*.m4a
+*.mp3
+*.wav
+*.flac
+*.aac
+*.ogg
+*.mp4
+*.mov
+*.avi
+*.mkv
+*.webm
+Podcast talks/
+
 # Experiment results (regenerable)
 noosphere/noosphere_data/
 
