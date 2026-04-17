@@ -13,6 +13,14 @@ on:
 permissions:
   contents: write
 
+# If a new push arrives while an older run is still building, cancel the old
+# one — there's no point finishing a build whose artifacts are about to be
+# overwritten by the newer commit. Saves runner minutes and gets the user to
+# fresh installers faster.
+concurrency:
+  group: rolling-release-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   build-dialectic:
     uses: ./.github/workflows/build-dialectic.yml

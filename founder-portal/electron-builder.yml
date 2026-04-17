@@ -36,10 +36,13 @@ mac:
   entitlementsInherit: assets/entitlements.mac.plist
 
 dmg:
+  # Default-style layout: the first entry (no `type`) is the packaged .app icon,
+  # and the second is a symlink to /Applications. The previous config declared
+  # `type: file` with no `path`, which made electron-builder try to stat the
+  # project root as a file and fail with `⨯ founder-portal not a file`.
   contents:
     - x: 150
       y: 190
-      type: file
     - x: 450
       y: 190
       type: link

@@ -103,14 +103,16 @@ jobs:
           [IO.File]::WriteAllBytes("$env:RUNNER_TEMP\cert.pfx", $certBytes)
           ..\scripts\codesign_windows.ps1 -Target dist\Dialectic -CertPath "$env:RUNNER_TEMP\cert.pfx" -CertPassword $env:WIN_CERT_PASSWORD
 
+      # Upload only the final installers — not the raw PyInstaller bundle
+      # (dist/Dialectic/) which is already inside the DMG/EXE. Uploading the
+      # bundle would add minutes of artifact upload + download time for zero
+      # downstream benefit (the publish job only reads the .dmg / .exe).
       - name: Upload macOS artifact
         if: matrix.platform == 'macos'
         uses: actions/upload-artifact@v4
         with:
           name: dialectic-macos
-          path: |
-            dialectic/dist/*.dmg
-            dialectic/dist/Dialectic/
+          path: dialectic/dist/*.dmg
           retention-days: 30
           if-no-files-found: warn
 
@@ -119,8 +121,6 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: dialectic-windows
-          path: |
-            dialectic/dist/*.exe
-            dialectic/dist/Dialectic/
+          path: dialectic/dist/Dialectic-Setup.exe
           retention-days: 30
           if-no-files-found: warn
