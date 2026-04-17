@@ -59,13 +59,17 @@ jobs:
         run: node scripts/generate_icons.js
 
       - name: Build desktop app
-        run: npx electron-builder ${{ matrix.dist-flag }} --config electron-builder.yml
+        run: npx electron-builder ${{ matrix.dist-flag }} --config electron-builder.yml --publish never
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          CSC_LINK: ${{ secrets.MAC_CERT_P12_BASE64 }}
+          # Only pass signing credentials if the password secret is also
+          # configured — otherwise electron-builder tries to use a keychain
+          # entry that doesn't exist and fails with cryptic errors.
+          CSC_LINK: ${{ secrets.MAC_CERT_PASSWORD != '' && secrets.MAC_CERT_P12_BASE64 || '' }}
           CSC_KEY_PASSWORD: ${{ secrets.MAC_CERT_PASSWORD }}
-          WIN_CSC_LINK: ${{ secrets.WIN_CERT_PFX_BASE64 }}
+          WIN_CSC_LINK: ${{ secrets.WIN_CERT_PASSWORD != '' && secrets.WIN_CERT_PFX_BASE64 || '' }}
           WIN_CSC_KEY_PASSWORD: ${{ secrets.WIN_CERT_PASSWORD }}
+          CSC_IDENTITY_AUTO_DISCOVERY: false
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
