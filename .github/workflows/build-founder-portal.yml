@@ -75,12 +75,24 @@ jobs:
         run: node scripts/generate_icons.js
 
       - name: Build desktop app
-        run: npx electron-builder ${{ matrix.dist-flag }} --config electron-builder.yml --publish never
+        # GitHub Actions YAML can't conditionally *omit* an env var — only
+        # set it to "". But electron-builder 26.x treats CSC_LINK="" as a
+        # real file path relative to the project root and fails with
+        # `⨯ /…/founder-portal not a file`. Workaround: drop empty signing
+        # vars in the shell just before invoking electron-builder. `shell:
+        # bash` works on all GitHub-hosted runners (incl. Windows via Git
+        # Bash), so the same logic covers both matrix legs.
+        shell: bash
+        run: |
+          [ -z "${CSC_LINK:-}" ] && unset CSC_LINK || true
+          [ -z "${CSC_KEY_PASSWORD:-}" ] && unset CSC_KEY_PASSWORD || true
+          [ -z "${WIN_CSC_LINK:-}" ] && unset WIN_CSC_LINK || true
+          [ -z "${WIN_CSC_KEY_PASSWORD:-}" ] && unset WIN_CSC_KEY_PASSWORD || true
+          npx electron-builder ${{ matrix.dist-flag }} --config electron-builder.yml --publish never
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          # Only pass signing credentials if the password secret is also
-          # configured — otherwise electron-builder tries to use a keychain
-          # entry that doesn't exist and fails with cryptic errors.
+          # These start as "" when the corresponding secret is unset; the
+          # shell block above unsets them before electron-builder runs.
           CSC_LINK: ${{ secrets.MAC_CERT_PASSWORD != '' && secrets.MAC_CERT_P12_BASE64 || '' }}
           CSC_KEY_PASSWORD: ${{ secrets.MAC_CERT_PASSWORD }}
           WIN_CSC_LINK: ${{ secrets.WIN_CERT_PASSWORD != '' && secrets.WIN_CERT_PFX_BASE64 || '' }}
