@@ -289,10 +289,13 @@ echo "Release page: https://github.com/mrquintin/mqtheseuswork/releases/tag/late
 codex_url=""
 codex_status="unchecked"
 if [ -f README.md ] && command -v curl >/dev/null 2>&1; then
-  # First URL on a line that mentions "Theseus Codex" (the web-app section),
-  # or fall back to any *.vercel.app URL in the README. Using `head -n1` so
-  # we only hit one link — enough signal to detect drift without flooding.
-  codex_url=$(grep -oE 'https://[A-Za-z0-9.-]+\.vercel\.app[^ )"]*' README.md 2>/dev/null | head -n1 || true)
+  # Extract the first *.vercel.app origin from the README. We match only
+  # the scheme + host and stop there, so markdown-link syntax like
+  # `[https://foo.vercel.app](https://foo.vercel.app)` doesn't cause us to
+  # capture `https://foo.vercel.app](https://foo.vercel.app` as a single
+  # "URL" (as happened before this regex was tightened — exit code 000).
+  # A path after the host isn't needed for a health check.
+  codex_url=$(grep -oE 'https://[A-Za-z0-9.-]+\.vercel\.app' README.md 2>/dev/null | head -n1 || true)
   if [ -n "$codex_url" ]; then
     http_status=$(curl -sS -o /dev/null -w '%{http_code}' -L --max-time 15 "$codex_url" 2>/dev/null || echo "000")
     if [ "$http_status" = "200" ]; then
