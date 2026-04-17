@@ -42,27 +42,52 @@ if [ "$branch" = "gitbutler/workspace" ]; then
   [ "$need_stash_pop" = 1 ] && git stash pop
   branch=main
 fi
-# Check for changes
-has_changes=0
-if ! git diff --quiet HEAD 2>/dev/null; then has_changes=1; fi
-if [ "$(git ls-files --others --exclude-standard 2>/dev/null)" ]; then has_changes=1; fi
-if [ "$has_changes" = 0 ]; then
-  printf "No changes detected. Push anyway? (y/N) "
+# Check for changes:
+#   1. Uncommitted working-tree changes (staged, unstaged, or untracked)
+#   2. Local commits ahead of origin/<branch> (committed but not pushed)
+# If BOTH are absent, the repo is already fully synced — prompt before doing
+# anything so we don't burn CI minutes on an empty push.
+has_wt_changes=0
+if ! git diff --quiet HEAD 2>/dev/null; then has_wt_changes=1; fi
+if [ "$(git ls-files --others --exclude-standard 2>/dev/null)" ]; then has_wt_changes=1; fi
+
+# Refresh remote refs so "ahead of origin" is accurate. Quiet on offline/no-net.
+git fetch origin "$branch" 2>/dev/null || true
+
+ahead_count=0
+if git rev-parse --verify "origin/$branch" >/dev/null 2>&1; then
+  ahead_count=$(git rev-list --count "origin/$branch..HEAD" 2>/dev/null || echo 0)
+fi
+
+if [ "$has_wt_changes" = 0 ] && [ "$ahead_count" = 0 ]; then
+  echo ""
+  echo "Repo is already in sync with origin/$branch:"
+  echo "  - No uncommitted changes in working tree"
+  echo "  - No local commits ahead of origin/$branch"
+  echo ""
+  printf "Push anyway? (y/N) "
   read -r REPLY
   if [ "$REPLY" != "y" ] && [ "$REPLY" != "Y" ]; then
-    echo "Skipped."
+    echo "Skipped. (Nothing to sync.)"
     exit 0
   fi
 fi
+
 echo ""
 echo "Syncing to GitHub..."
 echo ""
-git add -A
-if git status --porcelain | grep -q '^[MADRCU?]'; then
-  git commit -m "Sync: latest changes"
+
+# Only create a new commit if the working tree actually has changes.
+# Otherwise just push whatever commits are ahead of origin.
+if [ "$has_wt_changes" = 1 ]; then
+  git add -A
+  if git status --porcelain | grep -q '^[MADRCU?]'; then
+    git commit -m "Sync: latest changes"
+  fi
 else
-  echo "Nothing to commit."
+  echo "No working-tree changes. Pushing $ahead_count existing commit(s) ahead of origin/$branch."
 fi
+
 git push origin "$branch"
 echo ""
 echo "Pushed to origin/$branch"
