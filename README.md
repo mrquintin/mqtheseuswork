@@ -10,7 +10,7 @@ Direct links (built fresh from `main` on every push):
 |---|---|---|
 | **Dialectic** — live conversation analyzer | [Dialectic.dmg](https://github.com/mrquintin/mqtheseuswork/releases/latest/download/Dialectic.dmg) | [Dialectic-Setup.exe](https://github.com/mrquintin/mqtheseuswork/releases/latest/download/Dialectic-Setup.exe) |
 | **Noosphere CLI** — epistemological engine | [noosphere-macos.tar.gz](https://github.com/mrquintin/mqtheseuswork/releases/latest/download/noosphere-macos.tar.gz) | [Noosphere-Setup.exe](https://github.com/mrquintin/mqtheseuswork/releases/latest/download/Noosphere-Setup.exe) |
-| **Founder Portal** — desktop control plane | [Theseus-Founder-Portal.dmg](https://github.com/mrquintin/mqtheseuswork/releases/latest/download/Theseus-Founder-Portal.dmg) | [Theseus-Founder-Portal-Setup.exe](https://github.com/mrquintin/mqtheseuswork/releases/latest/download/Theseus-Founder-Portal-Setup.exe) |
+| **Founder Portal** — desktop control plane | _macOS build pending_ &nbsp;·&nbsp; [arm64 DMG (when available)](https://github.com/mrquintin/mqtheseuswork/releases/latest/download/Theseus-Founder-Portal-arm64.dmg) | [Theseus-Founder-Portal-Setup.exe](https://github.com/mrquintin/mqtheseuswork/releases/latest/download/Theseus-Founder-Portal-Setup.exe) |
 
 If a direct link returns 404, the latest CI run may still be in progress or that specific installer failed to build — the [Releases page](https://github.com/mrquintin/mqtheseuswork/releases) always shows exactly which installers are currently available. Build status: [Actions](https://github.com/mrquintin/mqtheseuswork/actions/workflows/rolling-release.yml).
 
