@@ -40,9 +40,16 @@ jobs:
         run: npm ci
 
       - name: Generate Prisma client
+        env:
+          # Prisma 7 requires DATABASE_URL at generate time. The URL is only
+          # used for migrations/connections — for `prisma generate` it just
+          # needs to resolve to something valid.
+          DATABASE_URL: file:./prisma/dev.db
         run: npx prisma generate
 
       - name: Build Next.js
+        env:
+          DATABASE_URL: file:./prisma/dev.db
         run: npm run build
 
       - name: Compile Electron TypeScript
