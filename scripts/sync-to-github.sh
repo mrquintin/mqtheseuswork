@@ -2,6 +2,46 @@
 set -e
 cd "$(git rev-parse --show-toplevel)"
 
+# ──────────────────────────────────────────────────────────────────────────────
+# Completion banner helpers — every success/exit path prints a loud banner so
+# you can tell at a glance whether the sync is fully done (vs. still waiting).
+# Colors auto-disable when stdout isn't a TTY (e.g. piped/redirected).
+# ──────────────────────────────────────────────────────────────────────────────
+if [ -t 1 ]; then
+  C_RESET=$'\033[0m'
+  C_GREEN=$'\033[1;32m'
+  C_YELLOW=$'\033[1;33m'
+  C_RED=$'\033[1;31m'
+else
+  C_RESET=""; C_GREEN=""; C_YELLOW=""; C_RED=""
+fi
+
+# print_banner <color> <title> [line1] [line2] ...
+print_banner() {
+  local color="$1"; shift
+  local title="$1"; shift
+  local bar
+  bar=$(printf '═%.0s' $(seq 1 70))
+  echo ""
+  printf '%s%s%s\n' "$color" "$bar" "$C_RESET"
+  printf '%s  %s%s\n' "$color" "$title" "$C_RESET"
+  local line
+  for line in "$@"; do
+    printf '%s  %s%s\n' "$color" "$line" "$C_RESET"
+  done
+  printf '%s%s%s\n' "$color" "$bar" "$C_RESET"
+  echo ""
+}
+
+banner_success()  { print_banner "$C_GREEN"  "✓ SYNC COMPLETE"  "$@"; }
+banner_partial()  { print_banner "$C_YELLOW" "⚠ SYNC PARTIAL"   "$@"; }
+banner_skipped()  { print_banner "$C_YELLOW" "○ SYNC SKIPPED"   "$@"; }
+banner_failed()   { print_banner "$C_RED"    "✗ SYNC FAILED"    "$@"; }
+
+# If the script dies unexpectedly (set -e tripped by an unhandled error),
+# show a clear failure banner instead of an ambiguous silent exit.
+trap 'rc=$?; if [ $rc -ne 0 ]; then banner_failed "Script exited with code $rc" "Scroll up for the actual error."; fi' EXIT
+
 # Clean stale git lock files if no git process is actually running.
 # These lock files are left behind when a git process crashes (common with
 # GUI clients like GitButler, editors, or interrupted terminal commands) and
@@ -34,7 +74,10 @@ if [ "$branch" = "gitbutler/workspace" ]; then
         git checkout -B main
       fi
       git push origin main
-      echo "Pushed to origin/main"
+      banner_success \
+        "Pushed to origin/main" \
+        "Repo: https://github.com/mrquintin/mqtheseuswork" \
+        "(GitButler path — CI watch not performed.)"
       exit 0
     fi
   fi
@@ -79,13 +122,18 @@ if [ "$has_wt_changes" = 0 ] && [ "$ahead_count" = 0 ] && [ "$remote_exists" = 1
   # Guard against non-interactive stdin (piped/CI). A blocking `read` would
   # hang forever; default to "no" if there's no TTY to prompt into.
   if [ ! -t 0 ]; then
-    echo "Non-interactive shell; skipping. (Set SYNC_FORCE=1 to push anyway.)"
-    [ "${SYNC_FORCE:-0}" = "1" ] || exit 0
+    if [ "${SYNC_FORCE:-0}" != "1" ]; then
+      banner_skipped \
+        "Non-interactive shell and SYNC_FORCE is not set." \
+        "Nothing pushed. Set SYNC_FORCE=1 to push anyway."
+      exit 0
+    fi
   else
     printf "Push anyway? (y/N) "
     read -r REPLY
     if [ "$REPLY" != "y" ] && [ "$REPLY" != "Y" ]; then
-      echo "Skipped. (Nothing to sync.)"
+      banner_skipped \
+        "Already in sync with origin/$branch — nothing to do."
       exit 0
     fi
   fi
@@ -118,25 +166,26 @@ echo "Repo: https://github.com/mrquintin/mqtheseuswork"
 # the installer rebuild).
 # ──────────────────────────────────────────────────────────────────────────────
 if [ "${SYNC_SKIP_WATCH:-0}" = "1" ]; then
-  echo ""
-  echo "Skipping CI watch (SYNC_SKIP_WATCH=1). Build status:"
-  echo "  https://github.com/mrquintin/mqtheseuswork/actions/workflows/rolling-release.yml"
+  banner_success \
+    "Pushed to origin/$branch." \
+    "CI watch skipped (SYNC_SKIP_WATCH=1)." \
+    "Build status: https://github.com/mrquintin/mqtheseuswork/actions/workflows/rolling-release.yml"
   exit 0
 fi
 
 if ! command -v gh >/dev/null 2>&1; then
-  echo ""
-  echo "gh CLI not installed; skipping installer build watch."
-  echo "Track progress at:"
-  echo "  https://github.com/mrquintin/mqtheseuswork/actions/workflows/rolling-release.yml"
+  banner_success \
+    "Pushed to origin/$branch." \
+    "gh CLI not installed — can't watch installer build." \
+    "Track progress: https://github.com/mrquintin/mqtheseuswork/actions/workflows/rolling-release.yml"
   exit 0
 fi
 
 if ! gh auth status >/dev/null 2>&1; then
-  echo ""
-  echo "gh CLI not authenticated (run 'gh auth login'); skipping installer watch."
-  echo "Track progress at:"
-  echo "  https://github.com/mrquintin/mqtheseuswork/actions/workflows/rolling-release.yml"
+  banner_success \
+    "Pushed to origin/$branch." \
+    "gh CLI not authenticated (run 'gh auth login') — can't watch build." \
+    "Track progress: https://github.com/mrquintin/mqtheseuswork/actions/workflows/rolling-release.yml"
   exit 0
 fi
 
@@ -166,9 +215,9 @@ if [ -z "$run_id" ]; then
 fi
 
 if [ -z "$run_id" ]; then
-  echo "Could not find a Rolling Release run to watch."
-  echo "Track progress at:"
-  echo "  https://github.com/mrquintin/mqtheseuswork/actions/workflows/rolling-release.yml"
+  banner_partial \
+    "Pushed to origin/$branch, but couldn't find a Rolling Release run to watch." \
+    "Track progress: https://github.com/mrquintin/mqtheseuswork/actions/workflows/rolling-release.yml"
   exit 0
 fi
 
@@ -186,20 +235,32 @@ echo ""
 echo "=== Installer build results ==="
 
 # List what's currently in the latest-main release
-expected="Dialectic.dmg Dialectic-Setup.exe noosphere-macos.tar.gz Noosphere-Setup.exe Theseus-Founder-Portal.dmg Theseus-Founder-Portal-Setup.exe"
+# Founder Portal intentionally excluded — it's a Next.js web app, not an
+# installer. Users reach it via the hosted URL in README.md.
+expected="Dialectic.dmg Dialectic-Setup.exe noosphere-macos.tar.gz Noosphere-Setup.exe"
 assets=$(gh release view latest-main --json assets --jq '.assets[].name' 2>/dev/null || true)
+
+ok_count=0
+missing_count=0
+total_expected=0
+# Note: `for` word-splits, which is fine here because expected names are
+# space-free. Count with $(...) | wc -w to avoid a subshell for the total.
+for _ in $expected; do total_expected=$((total_expected + 1)); done
 
 if [ -z "$assets" ]; then
   echo "  No release found yet. Check:"
   echo "    https://github.com/mrquintin/mqtheseuswork/releases"
+  missing_count=$total_expected
 else
   for exp in $expected; do
     # -F: fixed-string match (so '.' in filenames isn't a regex metachar).
     # -x: match whole line.  -q: quiet.
     if echo "$assets" | grep -Fxq "$exp"; then
       echo "  [OK]      $exp"
+      ok_count=$((ok_count + 1))
     else
       echo "  [MISSING] $exp"
+      missing_count=$((missing_count + 1))
     fi
   done
   # Surface any extra assets (arm64/x64 DMGs, etc.). Iterate line-by-line so
@@ -217,3 +278,27 @@ fi
 
 echo ""
 echo "Release page: https://github.com/mrquintin/mqtheseuswork/releases/tag/latest-main"
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Final completion banner. Color and wording reflect what actually succeeded:
+#   - All installers present   → green SYNC COMPLETE
+#   - Some installers missing  → yellow SYNC PARTIAL
+#   - Zero installers present  → red SYNC FAILED (code pushed, builds broken)
+# ──────────────────────────────────────────────────────────────────────────────
+summary_line="Installers: ${ok_count}/${total_expected} OK"
+[ "$missing_count" -gt 0 ] && summary_line="${summary_line} · ${missing_count} missing"
+release_line="Release: https://github.com/mrquintin/mqtheseuswork/releases/tag/latest-main"
+push_line="Pushed commit ${pushed_sha:0:7} to origin/$branch"
+
+if [ "$ok_count" -eq "$total_expected" ]; then
+  banner_success "$push_line" "$summary_line" "$release_line"
+elif [ "$ok_count" -eq 0 ]; then
+  banner_failed  "$push_line" "$summary_line" "$release_line" \
+    "All installers are missing — check the CI logs."
+else
+  banner_partial "$push_line" "$summary_line" "$release_line"
+fi
+
+# Success path — override the default-failure EXIT trap so it doesn't fire.
+trap - EXIT
+exit 0

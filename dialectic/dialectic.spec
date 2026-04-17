@@ -119,10 +119,16 @@ coll = COLLECT(
 )
 
 if sys.platform == "darwin":
+    # macOS .app bundles must reference an .icns file; a .png here silently
+    # produces a malformed Info.plist / missing CFBundleIconFile entry, which
+    # Launch Services sometimes treats as a corrupt bundle and refuses to
+    # launch. Fall back to icon.png only if the .icns isn't present.
+    _icns = ROOT / "assets" / "Dialectic.icns"
+    _mac_icon = str(_icns) if _icns.is_file() else str(ROOT / "assets" / "icon.png")
     app = BUNDLE(
         coll,
         name="Dialectic.app",
-        icon=str(ROOT / "assets" / "icon.png"),
+        icon=_mac_icon,
         bundle_identifier="com.theseus.dialectic",
         info_plist={
             "CFBundleName": "Dialectic",

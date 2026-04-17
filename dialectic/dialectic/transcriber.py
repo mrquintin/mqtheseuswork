@@ -196,12 +196,18 @@ class WhisperTranscriber:
         return self._current_speaker
 
     def _flush_buffer(self) -> None:
+        # Snapshot the buffer under the lock, then release it before running
+        # Whisper. `_transcribe_chunk` can take seconds on CPU; holding the
+        # audio lock across it stalls the sounddevice callback thread and
+        # causes audio dropouts on stop().
         with self._lock:
-            if self._buffer:
-                chunk = np.concatenate(self._buffer)
-                self._transcribe_chunk(chunk, self._buffer_start)
-                self._buffer.clear()
-                self._buffer_duration = 0.0
+            if not self._buffer:
+                return
+            chunk = np.concatenate(self._buffer)
+            start = self._buffer_start
+            self._buffer.clear()
+            self._buffer_duration = 0.0
+        self._transcribe_chunk(chunk, start)
 
 
 # ----------------------------------------------------------------------

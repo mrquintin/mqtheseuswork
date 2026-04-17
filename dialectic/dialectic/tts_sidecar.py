@@ -30,7 +30,9 @@ def speak(text: str, *, max_seconds: float = 12.0) -> None:
     """Speak in a background thread; never blocks the Qt UI thread."""
     body = _truncate(text, max_chars=int(25 * max_seconds))
     if os.environ.get("DIALECTIC_TTS", "").lower() not in ("1", "true", "yes"):
-        log.info("tts_skipped_set_DIALECTIC_TTS=1", preview=body[:80])
+        # stdlib `logging` doesn't accept arbitrary kwargs — passing
+        # `preview=...` (a structlog-ism) raises TypeError at call time.
+        log.info("tts_skipped (set DIALECTIC_TTS=1 to enable): %s", body[:80])
         return
 
     def _run() -> None:
@@ -54,7 +56,7 @@ def speak(text: str, *, max_seconds: float = 12.0) -> None:
                 )
                 return
             except Exception as e:
-                log.warning("tts_say_failed", error=str(e))
-        log.warning("tts_unavailable", hint="Install pyttsx3 or use macOS `say`")
+                log.warning("tts_say_failed: %s", e)
+        log.warning("tts_unavailable — install pyttsx3 or use macOS `say`")
 
     threading.Thread(target=_run, daemon=True).start()

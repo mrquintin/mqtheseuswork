@@ -13,18 +13,18 @@ jobs:
   # `workflow_call` — without it, APPLE_*, WIN_*, and any other signing
   # secrets silently resolve to empty strings and code-signing/notarization
   # steps are skipped.
+  #
+  # Note: the Founder Portal is a web application (Next.js), not a
+  # downloadable installer — its build workflow has been removed.
   build-dialectic:
     uses: ./.github/workflows/build-dialectic.yml
     secrets: inherit
   build-noosphere:
     uses: ./.github/workflows/build-noosphere.yml
     secrets: inherit
-  build-founder-portal:
-    uses: ./.github/workflows/build-founder-portal.yml
-    secrets: inherit
 
   release:
-    needs: [build-dialectic, build-noosphere, build-founder-portal]
+    needs: [build-dialectic, build-noosphere]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/download-artifact@v4

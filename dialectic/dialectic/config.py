@@ -54,6 +54,11 @@ class InterlocutorConfig:
     use_llm_appropriateness_gate: bool = False
 
 
+# NOTE: the @dataclass decorator is required. Without it, `field(default_factory=...)`
+# below evaluates to a `dataclasses.Field` sentinel object at class-level (truthy!),
+# so `cfg.anthropic_key` would be a Field, not a string, and every
+# `if cfg.anthropic_key:` branch would silently do the wrong thing.
+@dataclass
 class AnalysisConfig:
     # Contradiction detection
     nli_model: str = "cross-encoder/nli-deberta-v3-small"

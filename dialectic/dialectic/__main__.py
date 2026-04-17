@@ -1,12 +1,8 @@
 """Allow running with ``python -m dialectic``."""
 
+import argparse
 import multiprocessing
 import sys
-
-if getattr(sys, "frozen", False):
-    multiprocessing.freeze_support()
-
-import argparse
 
 from .config import DialecticConfig
 from .dashboard import run_dashboard
@@ -41,4 +37,7 @@ def main() -> None:
 
 
 if __name__ == "__main__":
+    # Must be inside the __main__ guard — see note in run.py.
+    if getattr(sys, "frozen", False):
+        multiprocessing.freeze_support()
     main()

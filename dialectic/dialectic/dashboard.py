@@ -590,7 +590,34 @@ class DialecticDashboard(QMainWindow):
             self._timer.start()
             self._stand_down_btn.setEnabled(mode != InterlocutorMode.SILENT)
         except Exception as e:
-            self._status_label.setText(f"Error: {e}")
+            # Previously this silently stuffed the error into a small status
+            # label and left the UI in a half-started state (button looks idle
+            # but audio/transcriber/analyzer may be partially running). Now
+            # we show a dialog, log the traceback, and roll back the engines.
+            import traceback as _tb
+            _tb.print_exc()
+            try:
+                if self._audio and self._audio.is_recording:
+                    self._audio.stop()
+                if self._transcriber:
+                    self._transcriber.stop()
+                if self._analyzer:
+                    self._analyzer.stop()
+            except Exception:
+                pass
+            self._rec_btn.recording = False
+            self._timer.stop()
+            self._status_label.setText("Error — see dialog")
+            self._status_label.setStyleSheet(
+                f"color: {self.cfg.ui.red_accent};"
+            )
+            QMessageBox.critical(
+                self,
+                "Couldn't start recording",
+                f"{type(e).__name__}: {e}\n\n"
+                "Check microphone permissions (System Settings → Privacy & "
+                "Security → Microphone) and try again.",
+            )
 
     def _stop_recording(self):
         sid = self._session_started_id
@@ -1005,19 +1032,28 @@ def run_dashboard(
 ) -> None:
     """Launch Dialectic UI (three-pane + qasync by default)."""
     cfg = config or DialecticConfig()
+
+    # Auto-downgrade to legacy if the live-dashboard deps aren't available.
+    # Previously this raised RuntimeError, which in a packaged .app means the
+    # user sees the icon bounce once and then nothing — the window never
+    # opens. Falling back to the legacy single-pane dashboard is always
+    # better than no UI at all.
     if not legacy and (pg is None or qasync is None):
-        raise RuntimeError(
-            "Live dashboard requires pyqtgraph and qasync. "
-            "Install dialectic/requirements.txt or use --legacy."
+        print(
+            "[dialectic] pyqtgraph or qasync not available; "
+            "falling back to legacy dashboard.",
+            file=sys.stderr,
         )
+        legacy = True
+
     if legacy:
-        app = QApplication(sys.argv)
+        app = QApplication.instance() or QApplication(sys.argv)
         app.setFont(QFont("Helvetica Neue", 10))
         window = DialecticDashboard(cfg)
         window.show()
         sys.exit(app.exec())
 
-    app = QApplication(sys.argv)
+    app = QApplication.instance() or QApplication(sys.argv)
     app.setFont(QFont("Helvetica Neue", 10))
     loop = qasync.QEventLoop(app)
     asyncio.set_event_loop(loop)
@@ -1025,7 +1061,15 @@ def run_dashboard(
     wd = whisper_device or cfg.transcription.whisper_device
     win = ThreePaneDialecticWindow(cfg, loop, whisper_model=wm, whisper_device=wd)
     win.show()
-    sys.exit(loop.run_forever())
+
+    # Idiomatic qasync lifecycle: tie the asyncio loop to Qt's aboutToQuit so
+    # the loop actually stops when the user closes the window. The old
+    # `sys.exit(loop.run_forever())` pattern left orphaned tasks and, on some
+    # systems, kept the process alive after window close.
+    close_event = asyncio.Event()
+    app.aboutToQuit.connect(close_event.set)
+    with loop:
+        loop.run_until_complete(close_event.wait())
 
 
 def run_dashboard_legacy(config: DialecticConfig | None = None) -> None:
