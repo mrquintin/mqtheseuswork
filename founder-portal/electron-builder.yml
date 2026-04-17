@@ -17,11 +17,11 @@ files:
   - node_modules/better-sqlite3/**/*
   - package.json
 
-extraResources:
-  - from: data/seed.db
-    to: seed.db
-    filter:
-      - "**/*"
+# extraResources previously bundled a dev seed.db; disabled since that file
+# isn't committed to the repo. Re-enable and commit the file if needed.
+# extraResources:
+#   - from: data/seed.db
+#     to: seed.db
 
 mac:
   category: public.app-category.business
