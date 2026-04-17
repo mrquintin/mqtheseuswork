@@ -66,3 +66,8 @@ theseus-codex/prisma/*.db
 # Reference-only materials (starting-material snapshots, original prototypes).
 # Kept on disk for provenance but never tracked by git.
 reference/
+
+# macOS auto-saved screenshots (never commit)
+Screenshot *.png
+Screenshot *.jpg
+Screenshot *.jpeg
