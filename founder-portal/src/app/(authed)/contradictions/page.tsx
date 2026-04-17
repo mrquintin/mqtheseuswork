@@ -3,6 +3,16 @@ import TemporalReplayBar from "@/components/TemporalReplayBar";
 import { db } from "@/lib/db";
 import { AS_OF_ISO, asOfEndUtc } from "@/lib/replayDate";
 
+// Defensive parse: any corrupt `sixLayerJson` row would otherwise throw
+// during render and 500 the entire /contradictions route, not just that row.
+function prettyJsonOrRaw(s: string): string {
+  try {
+    return JSON.stringify(JSON.parse(s), null, 2);
+  } catch {
+    return s;
+  }
+}
+
 export default async function ContradictionsPage({
   searchParams,
 }: {
@@ -66,7 +76,7 @@ export default async function ContradictionsPage({
                       fontSize: "0.7rem",
                     }}
                   >
-                    {JSON.stringify(JSON.parse(c.sixLayerJson), null, 2)}
+                    {prettyJsonOrRaw(c.sixLayerJson)}
                   </pre>
                 ) : (
                   <p>No layer scores stored.</p>

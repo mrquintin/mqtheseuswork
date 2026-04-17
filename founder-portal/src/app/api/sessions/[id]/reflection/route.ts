@@ -83,13 +83,24 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
   } catch {
     return NextResponse.json({ error: "Reflection file not found" }, { status: 404 });
   }
-  const doc = JSON.parse(raw) as {
+  // The read succeeded but the contents may still be malformed. The GET
+  // handler guards this; the POST handler was unguarded and would 500 on
+  // a corrupt file instead of returning a clear 422.
+  let doc: {
     interventions?: Array<{
       id: string;
       value_rating?: string;
       engagement?: string;
     }>;
   };
+  try {
+    doc = JSON.parse(raw);
+  } catch {
+    return NextResponse.json(
+      { error: "Reflection file is not valid JSON" },
+      { status: 422 },
+    );
+  }
   const rows = doc.interventions ?? [];
   const row = rows.find((r) => r.id === body.interventionId);
   if (!row) {

@@ -33,23 +33,27 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: "20"
-      - uses: pnpm/action-setup@v4
-        with:
-          version: 8
+          cache: "npm"
+          cache-dependency-path: |
+            founder-portal/package-lock.json
+            theseus-public/package-lock.json
+      # Both founder-portal and theseus-public commit `package-lock.json`
+      # (npm), not `pnpm-lock.yaml`. Using pnpm here caused the job to fail
+      # with ERR_PNPM_NO_LOCKFILE on every run.
       - name: Install founder-portal deps
         working-directory: founder-portal
-        run: pnpm install --frozen-lockfile
+        run: npm ci
       - name: Typecheck founder-portal
         working-directory: founder-portal
-        run: pnpm tsc --noEmit
+        run: npx tsc --noEmit
       - name: Install theseus-public deps
         if: hashFiles('theseus-public/package.json') != ''
         working-directory: theseus-public
-        run: pnpm install --frozen-lockfile
+        run: npm ci
       - name: Typecheck theseus-public
         if: hashFiles('theseus-public/package.json') != ''
         working-directory: theseus-public
-        run: pnpm tsc --noEmit
+        run: npx tsc --noEmit
 
   round3-invariants:
     runs-on: ubuntu-latest

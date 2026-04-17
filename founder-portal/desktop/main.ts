@@ -2,7 +2,7 @@ import { app, BrowserWindow, shell } from "electron";
 import path from "path";
 import fs from "fs";
 import { spawnSync } from "child_process";
-import { getDatabaseUrl, getDbPath } from "./db-path";
+import { getDatabaseUrl } from "./db-path";
 import { startNextServer, stopNextServer } from "./next-server";
 import { initAutoUpdater } from "./updater";
 
@@ -86,11 +86,11 @@ async function createWindow(port: number): Promise<void> {
 app.whenReady().then(async () => {
   try {
     const dbUrl = getDatabaseUrl();
-    const dbPath = getDbPath();
-    const firstLaunch = !fs.existsSync(dbPath) || fs.statSync(dbPath).size === 0;
-    if (firstLaunch) {
-      runPrismaMigrations(dbUrl);
-    }
+    // `prisma migrate deploy` is idempotent — it applies any pending
+    // migrations and is a no-op if the DB is already up to date. Running
+    // it on every launch (not just first launch) ensures app upgrades
+    // that add migrations don't leave users on a stale schema.
+    runPrismaMigrations(dbUrl);
 
     const port = await startNextServer(dbUrl);
     await createWindow(port);

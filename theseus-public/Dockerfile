@@ -1,3 +1,6 @@
+# syntax=docker/dockerfile:1.4
+# The `COPY <<'EOF'` heredoc below requires Dockerfile syntax 1.4+ (BuildKit).
+# Without this directive, legacy/classic builders fail at parse time.
 # Theseus Public — static export served by nginx
 FROM node:20-alpine AS builder
 WORKDIR /app

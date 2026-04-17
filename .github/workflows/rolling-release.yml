@@ -22,10 +22,16 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # `secrets: inherit` is required for reusable workflows called via
+  # `workflow_call` — without it, APPLE_*, WIN_*, and any other signing
+  # secrets silently resolve to empty strings and code-signing/notarization
+  # steps are skipped.
   build-dialectic:
     uses: ./.github/workflows/build-dialectic.yml
+    secrets: inherit
   build-noosphere:
     uses: ./.github/workflows/build-noosphere.yml
+    secrets: inherit
   build-founder-portal:
     uses: ./.github/workflows/build-founder-portal.yml
     secrets: inherit

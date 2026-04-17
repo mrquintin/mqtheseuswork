@@ -12,7 +12,10 @@ if ! pgrep -x git >/dev/null 2>&1; then
   find .git/refs -name "*.lock" -delete 2>/dev/null || true
 fi
 
-branch=$(git branch --show-current 2>/dev/null) || branch=main
+# `git branch --show-current` prints an empty string AND exits 0 on detached
+# HEAD, so a plain `|| branch=main` fallback doesn't fire. Guard with -z too.
+branch=$(git branch --show-current 2>/dev/null || true)
+[ -z "$branch" ] && branch=main
 # If on GitButler's branch, switch to main
 if [ "$branch" = "gitbutler/workspace" ]; then
   [ -f ".git/hooks/pre-commit" ] && grep -q GITBUTLER_MANAGED_HOOK ".git/hooks/pre-commit" 2>/dev/null && rm ".git/hooks/pre-commit"
@@ -58,21 +61,33 @@ if [ "$(git ls-files --others --exclude-standard 2>/dev/null)" ]; then has_wt_ch
 git fetch origin "$branch" 2>/dev/null || true
 
 ahead_count=0
+remote_exists=1
 if git rev-parse --verify "origin/$branch" >/dev/null 2>&1; then
   ahead_count=$(git rev-list --count "origin/$branch..HEAD" 2>/dev/null || echo 0)
+else
+  # Branch doesn't exist on origin yet — everything local needs to be pushed.
+  # Treat as "ahead" so we don't falsely report "already in sync".
+  remote_exists=0
 fi
 
-if [ "$has_wt_changes" = 0 ] && [ "$ahead_count" = 0 ]; then
+if [ "$has_wt_changes" = 0 ] && [ "$ahead_count" = 0 ] && [ "$remote_exists" = 1 ]; then
   echo ""
   echo "Repo is already in sync with origin/$branch:"
   echo "  - No uncommitted changes in working tree"
   echo "  - No local commits ahead of origin/$branch"
   echo ""
-  printf "Push anyway? (y/N) "
-  read -r REPLY
-  if [ "$REPLY" != "y" ] && [ "$REPLY" != "Y" ]; then
-    echo "Skipped. (Nothing to sync.)"
-    exit 0
+  # Guard against non-interactive stdin (piped/CI). A blocking `read` would
+  # hang forever; default to "no" if there's no TTY to prompt into.
+  if [ ! -t 0 ]; then
+    echo "Non-interactive shell; skipping. (Set SYNC_FORCE=1 to push anyway.)"
+    [ "${SYNC_FORCE:-0}" = "1" ] || exit 0
+  else
+    printf "Push anyway? (y/N) "
+    read -r REPLY
+    if [ "$REPLY" != "y" ] && [ "$REPLY" != "Y" ]; then
+      echo "Skipped. (Nothing to sync.)"
+      exit 0
+    fi
   fi
 fi
 
@@ -179,19 +194,25 @@ if [ -z "$assets" ]; then
   echo "    https://github.com/mrquintin/mqtheseuswork/releases"
 else
   for exp in $expected; do
-    if echo "$assets" | grep -qx "$exp"; then
-      echo "  [OK]     $exp"
+    # -F: fixed-string match (so '.' in filenames isn't a regex metachar).
+    # -x: match whole line.  -q: quiet.
+    if echo "$assets" | grep -Fxq "$exp"; then
+      echo "  [OK]      $exp"
     else
       echo "  [MISSING] $exp"
     fi
   done
-  # Surface any extra assets (arm64/x64 DMGs, etc.)
-  for a in $assets; do
+  # Surface any extra assets (arm64/x64 DMGs, etc.). Iterate line-by-line so
+  # asset names containing spaces don't get word-split by the shell.
+  while IFS= read -r a; do
+    [ -z "$a" ] && continue
     case " $expected " in
       *" $a "*) : ;;
-      *) echo "  [EXTRA]  $a" ;;
+      *) echo "  [EXTRA]   $a" ;;
     esac
-  done
+  done <<EOF
+$assets
+EOF
 fi
 
 echo ""
