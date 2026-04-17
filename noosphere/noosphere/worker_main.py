@@ -1,7 +1,7 @@
 """
 Optional Python worker entrypoint (future: embeddings-only jobs, BYOK decrypt, etc.).
 
-Ingest + synthesis for uploads is handled by the Founder Portal Redis worker
+Ingest + synthesis for uploads is handled by the Theseus Codex Redis worker
 (``npm run worker:ingest``) so the web tier stays stateless and DB logs stay consistent.
 
 This module is a placeholder CLI so a ``noosphere-worker`` container has a stable binary.
@@ -18,7 +18,7 @@ def main() -> None:
     configure_logging(json_format=True)
     log.warning(
         "worker_main_placeholder",
-        message="Use founder-portal `npm run worker:ingest` for Redis-backed ingest. "
+        message="Use theseus-codex `npm run worker:ingest` for Redis-backed ingest. "
         "Extend this module for Python-only background tasks.",
     )
 

@@ -235,7 +235,7 @@ echo ""
 echo "=== Installer build results ==="
 
 # List what's currently in the latest-main release
-# Founder Portal intentionally excluded — it's a Next.js web app, not an
+# Theseus Codex intentionally excluded — it's a Next.js web app, not an
 # installer. Users reach it via the hosted URL in README.md.
 expected="Dialectic.dmg Dialectic-Setup.exe noosphere-macos.tar.gz Noosphere-Setup.exe"
 assets=$(gh release view latest-main --json assets --jq '.assets[].name' 2>/dev/null || true)

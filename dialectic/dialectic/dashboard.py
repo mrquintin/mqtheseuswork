@@ -82,6 +82,10 @@ from .analyzer import (
 )
 from .interlocutor import InterlocutorController, InterlocutorMode
 from .tts_sidecar import speak
+from .cloud_uploader import (
+    is_configured as cloud_is_configured,
+    upload_session_async,
+)
 
 
 # ======================================================================
@@ -637,7 +641,14 @@ class DialecticDashboard(QMainWindow):
         self._timer.stop()
         msg = f"Saved: {wav_path.name}" if wav_path else "Stopped"
         if sid:
-            msg += f"  |  Reflection: {sid}_reflection.json (copy to portal DIALECTIC_REFLECTIONS_DIR)"
+            msg += f"  |  Reflection: {sid}_reflection.json"
+
+        # Optional cloud sync — silent no-op unless DIALECTIC_CLOUD_URL and
+        # DIALECTIC_CLOUD_API_KEY are set in the environment.
+        if sid and cloud_is_configured():
+            upload_session_async(sid, self.cfg.recordings_dir)
+            msg += "  |  Cloud upload started."
+
         self._status_label.setText(msg)
         self._status_label.setStyleSheet(f"color: {self.cfg.ui.muted_color};")
 
@@ -887,10 +898,11 @@ class ThreePaneDialecticWindow(QMainWindow):
             self._recording = True
             self._rec_btn.setText("Stop session")
             ts = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+            self._session_id = f"session_{ts}"
             from .session_writer import SessionJSONLWriter
 
             self._analyzer.set_session_writer(
-                SessionJSONLWriter(self.cfg.recordings_dir / f"session_{ts}.jsonl")
+                SessionJSONLWriter(self.cfg.recordings_dir / f"{self._session_id}.jsonl")
             )
             self._cap.start()
             self._transcriber.start()
@@ -906,6 +918,9 @@ class ThreePaneDialecticWindow(QMainWindow):
             for t in self._tasks:
                 t.cancel()
             self._tasks.clear()
+            sid = getattr(self, "_session_id", "") or ""
+            if sid and cloud_is_configured():
+                upload_session_async(sid, self.cfg.recordings_dir)
 
     async def _pump_transcription(self) -> None:
         while True:

@@ -3,9 +3,9 @@ WAVE 9 / PROMPT 3 — Researcher API round-3 router + shared TS types package
 ═══════════════════════════════════════════════════════════════════════════════
 YOUR TASK
 ═══════════════════════════════════════════════════════════════════════════════
-You are an implementation agent. Your job is to add a `round3.py` router module to the Researcher API exposing every public-readable endpoint that the UIs consume, AND to create a shared TypeScript types package (`packages/theseus-api-types/`) so the founder portal and public site share identical type definitions for these endpoints.
+You are an implementation agent. Your job is to add a `round3.py` router module to the Researcher API exposing every public-readable endpoint that the UIs consume, AND to create a shared TypeScript types package (`packages/theseus-api-types/`) so the Theseus Codex and public site share identical type definitions for these endpoints.
 
-Two sibling agents in wave 9 are on the founder portal and the public site. Stay inside your manifest.
+Two sibling agents in wave 9 are on the Theseus Codex and the public site. Stay inside your manifest.
 
 ═══════════════════════════════════════════════════════════════════════════════
 PREREQUISITES
@@ -61,5 +61,5 @@ DO NOT
 ═══════════════════════════════════════════════════════════════════════════════
 - Add any mutating endpoint on the public Researcher API.
 - Let the shared TS types drift from the pydantic response models; enforce via a generation script in a follow-up round if needed.
-- Touch `founder-portal/src/` or `theseus-public/src/` — those are sibling agents' files.
+- Touch `theseus-codex/src/` or `theseus-public/src/` — those are sibling agents' files.
 - Touch any file outside FILES TOUCHED.

@@ -38,14 +38,14 @@ STEP-BY-STEP
    - Returns a single exit code (non-zero if any sub-check failed).
    - Prints a structured summary (Rich or plain text with `--json` option).
 2. Build `scripts/check_no_phone_home.py`:
-   - Scans packaged methods (`out_dir/*`), MIP bundles (`out_dir/*`), public-site built HTML/JS, and founder-portal API route handlers.
+   - Scans packaged methods (`out_dir/*`), MIP bundles (`out_dir/*`), public-site built HTML/JS, and theseus-codex API route handlers.
    - Looks for outbound HTTP/HTTPS calls to non-allowlisted domains (allowlist via env `THESEUS_ALLOWLIST`).
    - Fails on any unallowlisted match.
 3. Build `scripts/check_signed_artifacts.py`:
    - For every file under `docs/methods/` and every MIP under `docs/interop/`, verify the signature against the ledger KeyRing.
    - Fails if any artifact is unsigned or signature invalid.
 4. Build `scripts/check_ui_uses_gated_api.py`:
-   - Static-analyze `founder-portal/src/app/api/round3/*`: assert every route handler uses the `withGated` wrapper.
+   - Static-analyze `theseus-codex/src/app/api/round3/*`: assert every route handler uses the `withGated` wrapper.
    - Static-analyze `theseus-public/src/app/`: assert no route handler writes (all are GET-only).
 5. Write `.github/workflows/round3.yml`:
    - Triggers: `push` to any branch + `pull_request` to main.
@@ -58,7 +58,7 @@ HOW TO VERIFY YOU ARE DONE
 ═══════════════════════════════════════════════════════════════════════════════
 1. `python scripts/check_round3_invariants.py` exits 0 on the real repo with all waves landed.
 2. Deliberately introducing a phone-home call in a packaged method causes `check_no_phone_home.py` to fail.
-3. Deliberately removing `@gated` from a founder-portal mutation handler causes `check_gated_decorator_present.py` to fail via the umbrella runner.
+3. Deliberately removing `@gated` from a theseus-codex mutation handler causes `check_gated_decorator_present.py` to fail via the umbrella runner.
 4. `pytest noosphere/tests/test_ci_round3_invariants.py -v` — green.
 5. GitHub Actions shows a green round3 run on a fresh PR.
 

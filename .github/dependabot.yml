@@ -1,7 +1,7 @@
 version: 2
 updates:
   - package-ecosystem: npm
-    directory: /founder-portal
+    directory: /theseus-codex
     schedule:
       interval: weekly
     open-pull-requests-limit: 5

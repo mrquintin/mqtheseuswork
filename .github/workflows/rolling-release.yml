@@ -27,7 +27,7 @@ jobs:
   # secrets silently resolve to empty strings and code-signing/notarization
   # steps are skipped.
   #
-  # Note: the Founder Portal is a web application (Next.js), not a
+  # Note: the Theseus Codex is a web application (Next.js), not a
   # downloadable installer — its build workflow has been removed and the
   # README points users to the hosted URL instead.
   build-dialectic:
@@ -79,7 +79,7 @@ jobs:
           pick_first 'artifacts/noosphere-macos/noosphere-*-macos.tar.gz' noosphere-macos.tar.gz
           pick_first 'artifacts/noosphere-windows/Noosphere-Setup.exe' Noosphere-Setup.exe
 
-          # Founder Portal is a web app — no installers to package.
+          # Theseus Codex is a web app — no installers to package.
 
           echo ""
           echo "--- Release files ---"

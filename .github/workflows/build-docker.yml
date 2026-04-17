@@ -4,13 +4,13 @@ on:
   push:
     branches: [main]
     paths:
-      - 'founder-portal/**'
+      - 'theseus-codex/**'
       - 'theseus-public/**'
       - 'docker-compose.yml'
       - '.github/workflows/build-docker.yml'
   pull_request:
     paths:
-      - 'founder-portal/**'
+      - 'theseus-codex/**'
       - 'theseus-public/**'
       - 'docker-compose.yml'
       - '.github/workflows/build-docker.yml'
@@ -24,8 +24,8 @@ jobs:
       fail-fast: false
       matrix:
         service:
-          - name: founder-portal
-            context: ./founder-portal
+          - name: theseus-codex
+            context: ./theseus-codex
           - name: theseus-public
             context: ./theseus-public
 
@@ -45,5 +45,5 @@ jobs:
           cache-to: type=gha,mode=max,scope=${{ matrix.service.name }}
 
       - name: Validate docker-compose
-        if: matrix.service.name == 'founder-portal'
+        if: matrix.service.name == 'theseus-codex'
         run: docker compose config

@@ -546,7 +546,15 @@ def _seed_embedding_model_versions(engine: Engine) -> None:
 
 
 class Store:
-    """Typed CRUD facade over SQLite."""
+    """Typed CRUD facade over SQLAlchemy.
+
+    Supports both SQLite (local dev; ``sqlite:///./noosphere.db``) and
+    Postgres (``postgresql://…``, e.g. Supabase / Neon / local Docker).
+    The SQLite-specific ALTER TABLE migrations below short-circuit on
+    non-sqlite URLs — Postgres gets its schema from
+    ``SQLModel.metadata.create_all`` and the Alembic revisions under
+    ``noosphere/alembic/``. Prefer Alembic in production.
+    """
 
     def __init__(self, engine: Engine) -> None:
         self.engine = engine

@@ -9,7 +9,7 @@
 | 01 | `dialectic_pyinstaller_config` | PyInstaller spec, frozen-mode resource resolver, placeholder icons, pyproject.toml | — |
 | 02 | `founder_portal_electron_core` | Electron main process, Next.js server wrapper, preload, DB path resolver | — |
 | 03 | `noosphere_cli_packaging` | PyInstaller spec, frozen-mode support, Alembic bundling, pyproject.toml | — |
-| 04 | `deployment_configs` | Dockerfiles (Founder Portal + Public), docker-compose, Vercel/Netlify configs | — |
+| 04 | `deployment_configs` | Dockerfiles (Theseus Codex + Public), docker-compose, Vercel/Netlify configs | — |
 | 05 | `platform_builds_and_installers` | macOS DMG + Windows NSIS installer scripts for Dialectic and Noosphere | 01, 03 |
 | 06 | `founder_portal_desktop_packaging` | electron-builder config, auto-updater, macOS + Windows build scripts | 02 |
 | 07 | `ci_cd_build_pipelines` | GitHub Actions workflows for cross-platform builds + release publishing | 01–06 |

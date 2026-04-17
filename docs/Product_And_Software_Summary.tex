@@ -71,7 +71,7 @@ The repository is a monorepo at \file{\textasciitilde/Desktop/Theseus/} holding 
 \endhead
 \file{noosphere/}            & The core epistemic engine --- Python. Ingests transcripts and essays, extracts claims, runs six-layer coherence, builds the knowledge graph, synthesizes conclusions, runs adversarial review and calibration, exposes CLI. Packaged as a standalone binary via PyInstaller. ${\sim}$89 Python modules, 95{+} test files. \\
 \file{dialectic/}            & Live-conversation analyzer --- PyQt6 desktop app. Streams microphone audio through Whisper, segments into claims, flags contradictions on a dashboard in real time. Distributed as a macOS \texttt{.app}/DMG and Windows \texttt{.exe}/NSIS installer. 11 modules, 5 test files. \\
-\file{founder-portal/}       & Founders' web control plane and Electron desktop app --- Next.js 16 / React 19 / Prisma 7. Authentication, artifact upload, ingestion dispatch, conclusion review, adversarial page, decay dashboard, rigor-gate queue. Distributed as a macOS/Windows Electron app (via \texttt{electron-builder}) and as a Docker container. 50{+} TS/TSX files. \\
+\file{theseus-codex/}       & Founders' web control plane and Electron desktop app --- Next.js 16 / React 19 / Prisma 7. Authentication, artifact upload, ingestion dispatch, conclusion review, adversarial page, decay dashboard, rigor-gate queue. Distributed as a macOS/Windows Electron app (via \texttt{electron-builder}) and as a Docker container. 50{+} TS/TSX files. \\
 \file{theseus-public/}       & Publication-only public website --- Next.js static export. Signed method docs, MIP registry, per-conclusion provenance, methodology refusal dashboard. Deployed via Docker/nginx, Vercel, or Netlify. 18 files. \\
 \file{theseus-codex/}        & Firm reference documents and project memory --- Next.js. A living internal wiki with Oracle chat, two-factor auth, and contribution workflows. \\
 \file{researcher\_api/}      & Rate-limited HTTP API for outside investigators. Claim extraction, coherence, embedding, calibration, replay --- on researcher-supplied text only; no access to firm data. \\
@@ -107,15 +107,15 @@ Saved sessions are JSON Lines, one line per finalized claim with timestamp, spea
 
 \textbf{Distribution.} Dialectic is packaged as a standalone desktop application via PyInstaller. The \file{dialectic.spec} bundles PyQt6, sounddevice, faster-whisper, sentence-transformers, torch, and all supporting libraries into a single-directory distribution. A \file{resources.py} module provides frozen-mode-aware path resolution for assets, configuration, and user data directories (platform-specific: \file{\textasciitilde/Library/Application Support/Dialectic} on macOS, \file{\%APPDATA\%\textbackslash Dialectic} on Windows). Build scripts produce a macOS \texttt{.app} bundle in a DMG disk image with a drag-to-Applications layout, and a Windows NSIS installer with Start Menu and Desktop shortcuts. A threaded background update checker (\file{updater.py}) polls a version manifest and notifies the user within the Qt dashboard when a newer release is available.
 
-\subsection{Founder Portal --- the web control plane and desktop app}
+\subsection{Theseus Codex --- the web control plane and desktop app}
 
-The Founder Portal is where the firm's founders operate Noosphere without touching the command line. It handles authentication against seeded founder accounts with bcrypt-hashed credentials, file upload and asynchronous ingestion, live streaming of ingestion logs, conclusion review, contradiction triage, the adversarial challenge flow, decay dashboard, peer review tab, rigor-gate submission queue, provenance exploration, and the cascade viewer.
+The Theseus Codex is where the firm's founders operate Noosphere without touching the command line. It handles authentication against seeded founder accounts with bcrypt-hashed credentials, file upload and asynchronous ingestion, live streaming of ingestion logs, conclusion review, contradiction triage, the adversarial challenge flow, decay dashboard, peer review tab, rigor-gate submission queue, provenance exploration, and the cascade viewer.
 
 The stack is Next.js 16 (App Router) on React 19 with Prisma 7 over SQLite. Operationally, the portal points at the same SQLite file that Noosphere writes so the \file{adversarial\_challenge} and related tables are shared directly; there is no API marshalling layer for internal reads. Mutations that write to publicly-visible state go through a Python bridge (\file{src/lib/ingest.ts}) that shells out to the Noosphere CLI under the portal user's environment, streaming stdout back into the database for live progress.
 
 The portal's \file{src/app/} contains dedicated pages for: \file{dashboard}, \file{upload}, \file{conclusions}, \file{cascade}, \file{provenance}, \file{eval} (including \file{eval/runs}), \file{post-mortem}, \file{peer-review}, \file{decay}, \file{rigor-gate}, \file{methods}, \file{founders}, \file{sessions/[id]/reflection}, and \file{voices/[id]}.
 
-\textbf{Distribution.} The Founder Portal ships as both a web service and a desktop application.
+\textbf{Distribution.} The Theseus Codex ships as both a web service and a desktop application.
 
 \emph{Desktop (Electron).} An Electron shell (\file{desktop/main.ts}) wraps the Next.js standalone build. On launch, it resolves a platform-appropriate SQLite database path via \file{db-path.ts}, runs Prisma migrations, starts the Next.js standalone server as a child process via \file{next-server.ts} (polling for readiness with exponential backoff), and opens a \texttt{BrowserWindow} pointed at the local server. The window uses \texttt{titleBarStyle: hiddenInset} on macOS for a native look, enforces \texttt{contextIsolation: true} and \texttt{nodeIntegration: false}, and opens external links in the system browser. Single-instance lock prevents duplicate launches. An auto-updater (\file{desktop/updater.ts}) integrates \texttt{electron-updater} to check GitHub Releases for new versions, download in the background, and prompt the user to restart. The \file{electron-builder.yml} configuration produces a macOS DMG (universal architecture, hardened runtime, entitlements for JIT and network access) and a Windows NSIS installer (customizable install directory, Start Menu and Desktop shortcuts). A development helper (\file{desktop/dev.ts}) starts the Next.js dev server and Electron concurrently for local iteration.
 
@@ -271,7 +271,7 @@ The PDFs in \file{docs/} are the firm's intellectual justification for why the s
 \endhead
 \file{Methodological\_Reorientation.pdf} & The pivot. Defines why Theseus's product is methodology, not claims. Governs every downstream architectural choice. \\
 \file{The\_Meta\_Method.pdf}             & The firm's methodological commitments in detail. What disciplined belief-revision looks like and what it costs. \\
-\file{Product\_Description.pdf}          & How the three user-facing softwares (Noosphere, Dialectic, Founder Portal) fit together. The integration narrative. \\
+\file{Product\_Description.pdf}          & How the three user-facing softwares (Noosphere, Dialectic, Theseus Codex) fit together. The integration narrative. \\
 \file{Noosphere\_Project\_Status.pdf}    & Engineering status snapshot. What is implemented, what is pending, where the seams are. \\
 \file{Server\_Architecture.pdf}          & Deployment architecture, including the multi-tenant cloud layout and the split between public and private services. \\
 \file{Geometry\_of\_Unresolution.pdf}    & Mathematical treatment of epistemic unresolvability. The formal substrate behind why \texttt{unresolved} is a first-class output. \\
@@ -294,7 +294,7 @@ The canonical path through the system is the weekly transcript $\to$ public conc
 
 \begin{enumerate}[leftmargin=1.5em,itemsep=0.3em]
   \item \textbf{Capture.} Either the founders record a conversation, in which case Dialectic runs live and exports a JSONL session file at completion, or an existing transcript is placed into \file{Podcast talks/}.
-  \item \textbf{Ingest.} A founder uploads the file via the Founder Portal or runs \texttt{python -m noosphere ingest}. The ingester parses the file, extracts frontmatter, segments into chunks on paragraph or speaker-turn boundaries, and writes \texttt{Artifact} and \texttt{Chunk} rows. Content-addressed IDs make the ingest idempotent.
+  \item \textbf{Ingest.} A founder uploads the file via the Theseus Codex or runs \texttt{python -m noosphere ingest}. The ingester parses the file, extracts frontmatter, segments into chunks on paragraph or speaker-turn boundaries, and writes \texttt{Artifact} and \texttt{Chunk} rows. Content-addressed IDs make the ingest idempotent.
   \item \textbf{Claim extraction.} \mod{claim\_extractor.py} walks each chunk through the LLM client with a structured JSON output prompt, producing zero or more \texttt{Claim} rows with type (empirical / normative / methodological / predictive / definitional), confidence-hedge phrases, and evidence pointers. \mod{classifier.py} re-verifies the type label with zero-shot MNLI; disagreements are flagged.
   \item \textbf{Embedding.} \mod{embed\_pass.py} batches new claims and writes sentence-transformers embeddings to the on-disk cache and \texttt{embeddings} table.
   \item \textbf{Ontology update.} \mod{ontology.py} assigns each new claim to a topic cluster via cosine-nearest-centroid on UMAP-reduced embeddings, with HDBSCAN expansion when the cluster drift exceeds a threshold. Entity-linking collapses name variants to canonical \texttt{Entity} rows.
@@ -331,14 +331,14 @@ Both Python applications use PyInstaller to produce standalone executables that 
 
 Single-directory mode is used rather than single-file because the ML dependency stack (torch, CTranslate2, sentence-transformers) is too large for single-file extraction to be practical.
 
-\subsection{Electron desktop app (Founder Portal)}
+\subsection{Electron desktop app (Theseus Codex)}
 
-The Founder Portal's Electron wrapper comprises six TypeScript modules in \file{desktop/}:
+The Theseus Codex's Electron wrapper comprises six TypeScript modules in \file{desktop/}:
 
 \begin{itemize}[leftmargin=1.5em,itemsep=0.1em]
   \item \file{main.ts} --- app lifecycle, single-instance lock, BrowserWindow creation with context isolation, external-link handling.
   \item \file{next-server.ts} --- starts the Next.js standalone server as a \texttt{fork}'d child process on a free port, with readiness polling (exponential backoff, 30s timeout) and graceful shutdown (SIGTERM then SIGKILL after 5s).
-  \item \file{db-path.ts} --- resolves SQLite to the platform-appropriate app-data directory (\file{userData/data/founder-portal.db}).
+  \item \file{db-path.ts} --- resolves SQLite to the platform-appropriate app-data directory (\file{userData/data/theseus-codex.db}).
   \item \file{preload.ts} --- minimal context bridge exposing platform info and deep-link IPC.
   \item \file{updater.ts} --- \texttt{electron-updater} integration: silent check on launch, user-prompted restart on download completion, error logging via \texttt{electron-log}.
   \item \file{dev.ts} --- development helper that starts \texttt{next dev} and Electron concurrently.
@@ -349,9 +349,9 @@ The \file{electron-builder.yml} configuration produces: macOS DMG (universal arc
 \subsection{Docker and web deployment}
 
 \begin{itemize}[leftmargin=1.5em,itemsep=0.1em]
-  \item \file{founder-portal/Dockerfile} --- multi-stage build: dependency install, Next.js build with Prisma generation, standalone extraction, seed database from pre-run migrations, \texttt{node:20-alpine} runner with volume-mounted SQLite.
+  \item \file{theseus-codex/Dockerfile} --- multi-stage build: dependency install, Next.js build with Prisma generation, standalone extraction, seed database from pre-run migrations, \texttt{node:20-alpine} runner with volume-mounted SQLite.
   \item \file{theseus-public/Dockerfile} --- multi-stage: Node build to static export, \texttt{nginx:1.27-alpine} serving with gzip, \texttt{try\_files} for clean URLs, security headers.
-  \item \file{docker-compose.yml} (repo root) --- Founder Portal on port 3000, Public on port 8080, shared \texttt{portal-data} volume for SQLite persistence.
+  \item \file{docker-compose.yml} (repo root) --- Theseus Codex on port 3000, Public on port 8080, shared \texttt{portal-data} volume for SQLite persistence.
   \item \file{deploy/compose/} --- extended compose configuration for production stacks.
   \item \file{deploy/helm/theseus/} --- Kubernetes Helm chart with templates for portal and ingest-worker deployments.
   \item \file{theseus-public/vercel.json} and \file{theseus-public/netlify.toml} --- managed hosting configurations with security headers.
@@ -376,14 +376,14 @@ Six GitHub Actions workflows in \file{.github/workflows/} automate the full buil
 \begin{itemize}[leftmargin=1.5em,itemsep=0.1em]
   \item \file{build-dialectic.yml} --- matrix build on macOS 14 (ARM) and Windows. Python 3.11 setup, pip install, PyInstaller build, DMG creation (macOS), code signing and notarization when secrets are configured. Uploads platform artifacts.
   \item \file{build-noosphere.yml} --- same matrix structure for the Noosphere CLI. Produces tar.gz (macOS) and directory (Windows).
-  \item \file{build-founder-portal.yml} --- matrix build for Electron. Node 20 setup, Next.js build, TypeScript compilation, icon generation, \texttt{electron-builder} with platform flag. Code signing via certificate secrets (macOS: P12 base64 + password; Windows: PFX base64 + password).
-  \item \file{build-docker.yml} --- builds Docker images for Founder Portal and Theseus Public using Buildx with GitHub Actions cache. Validates \texttt{docker-compose.yml}.
+  \item \file{build-theseus-codex.yml} --- matrix build for Electron. Node 20 setup, Next.js build, TypeScript compilation, icon generation, \texttt{electron-builder} with platform flag. Code signing via certificate secrets (macOS: P12 base64 + password; Windows: PFX base64 + password).
+  \item \file{build-docker.yml} --- builds Docker images for Theseus Codex and Theseus Public using Buildx with GitHub Actions cache. Validates \texttt{docker-compose.yml}.
   \item \file{release.yml} --- triggered on \texttt{v*} tags. Calls the three build workflows, downloads all artifacts, and creates a draft GitHub Release via \texttt{softprops/action-gh-release} with auto-generated release notes.
   \item \file{round3.yml} --- invariant checks and system tests for round-3 architectural constraints.
   \item \file{noosphere-redteam.yml} --- adversarial/security testing workflow.
 \end{itemize}
 
-\file{.github/dependabot.yml} configures weekly dependency updates for npm (Founder Portal, Public), pip (Noosphere, Dialectic), and GitHub Actions.
+\file{.github/dependabot.yml} configures weekly dependency updates for npm (Theseus Codex, Public), pip (Noosphere, Dialectic), and GitHub Actions.
 
 All build workflows accept \texttt{workflow\_call} for reuse by the release orchestrator, plus \texttt{push} (path-filtered to their directory), \texttt{pull\_request}, and \texttt{workflow\_dispatch} triggers.
 
@@ -393,7 +393,7 @@ All build workflows accept \texttt{workflow\_call} for reuse by the release orch
 
 Three roles interact with the system, each through a distinct surface.
 
-\textbf{Founder.} The primary user. Works through the Founder Portal (web UI or Electron desktop app, credentialed) and secondarily through the CLI when diagnosing. Uploads transcripts and essays, reviews synthesized conclusions, triages contradictions and adversarial challenges, authorizes rigor-gate overrides, retires invalidated objects. Every founder action is ledger-recorded under an \texttt{Actor(kind="human")}.
+\textbf{Founder.} The primary user. Works through the Theseus Codex (web UI or Electron desktop app, credentialed) and secondarily through the CLI when diagnosing. Uploads transcripts and essays, reviews synthesized conclusions, triages contradictions and adversarial challenges, authorizes rigor-gate overrides, retires invalidated objects. Every founder action is ledger-recorded under an \texttt{Actor(kind="human")}.
 
 \textbf{Researcher (external).} An outside academic or industrial user. Accesses the Researcher API via HTTP with an issued API key. Can submit their own text to claim extraction, coherence scoring, embedding, calibration scoring, and replay endpoints. Cannot touch firm-internal data. Can download packaged methods and MIPs from the public site and re-run them locally against their own corpus.
 
@@ -449,7 +449,7 @@ All seven mechanisms write to the same append-only ledger, producing a single ch
 \endhead
 Backend/Engine & Python 3.11: sentence-transformers, transformers, spaCy, scikit-learn, HDBSCAN, UMAP, NetworkX, PyNaCl (Ed25519), zstandard, z3-solver. SQLModel + Alembic over SQLite or PostgreSQL. LLM clients: Anthropic Claude, OpenAI. \\
 Frontends & Next.js 16 (App Router), React 19, TypeScript 5, TailwindCSS 4. Prisma 7 ORM with better-sqlite3. \\
-Desktop & Electron 35 with electron-builder 26 and electron-updater (Founder Portal). PyQt6 with pyqtgraph and qasync (Dialectic). PyInstaller for all Python apps. \\
+Desktop & Electron 35 with electron-builder 26 and electron-updater (Theseus Codex). PyQt6 with pyqtgraph and qasync (Dialectic). PyInstaller for all Python apps. \\
 Audio/NLP & faster-whisper (CTranslate2), sounddevice (PortAudio), DeBERTa-v3 NLI, sentence-transformers MiniLM. \\
 Deployment & Docker multi-stage (node:20-alpine, nginx:1.27-alpine), Docker Compose, Kubernetes Helm charts. Vercel/Netlify for static hosting. \\
 CI/CD & GitHub Actions on macOS 14 (ARM) and Windows-latest. Code signing: macOS \texttt{codesign} + \texttt{notarytool}, Windows \texttt{signtool} Authenticode. Dependabot for dependency updates. \\

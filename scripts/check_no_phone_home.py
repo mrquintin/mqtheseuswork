@@ -79,7 +79,7 @@ def main() -> int:
     allowlist = _load_allowlist()
 
     scan_targets = [
-        REPO_ROOT / "founder-portal" / "src" / "app" / "api",
+        REPO_ROOT / "theseus-codex" / "src" / "app" / "api",
         REPO_ROOT / "theseus-public" / "src",
         REPO_ROOT / "docs" / "methods",
         REPO_ROOT / "docs" / "interop",

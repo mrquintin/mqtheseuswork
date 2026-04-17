@@ -13,13 +13,13 @@ Direct links (built fresh from `main` on every push):
 
 If a direct link returns 404, the latest CI run may still be in progress or that specific installer failed to build — the [Releases page](https://github.com/mrquintin/mqtheseuswork/releases) always shows exactly which installers are currently available. Build status: [Actions](https://github.com/mrquintin/mqtheseuswork/actions/workflows/rolling-release.yml).
 
-## Founder Portal (web)
+## Theseus Codex (web)
 
-The **Founder Portal** is a web application, not a downloadable installer. Access it in your browser:
+The **Theseus Codex** is a web application, not a downloadable installer. Access it in your browser:
 
 > **Hosted URL:** _coming soon_ — contact the admin for access and credentials.
 
-To run it locally for development, see `founder-portal/README.md`.
+To run it locally for development, see `theseus-codex/README.md`.
 
 ---
 
@@ -27,15 +27,15 @@ Theseus is an intellectual capital firm pursuing *methodological* truth-finding:
 
 ## Repository map
 
-The repo is organized so each software artifact lives in its own directory, with a shared `docs/` folder for PDF deliverables and a `theseus-codex/` for long-running reference material.
+The repo is organized so each software artifact lives in its own directory, with a shared `docs/` folder for PDF deliverables.
 
 ```
 Theseus/
 ├── noosphere/          Brain of the Firm — epistemological engine (Python)
 ├── dialectic/          Live conversation analyzer (PyQt6 + Whisper + NLI)
-├── founder-portal/     Founders' web portal (Next.js 16 / React 19 / Prisma 7)
+├── theseus-codex/      Founders' web codex / control plane (Next.js 16 / React 19 / Prisma 7)
 ├── ideologicalOntology/ Research experiments in contradiction geometry
-├── theseus-codex/      Reference documents and project memory (Next.js)
+├── reference/          Starting-material snapshots (git-ignored; includes the original theseus-codex prototype)
 ├── docs/               Published PDFs (research, architecture, product)
 └── Podcast talks/      Source transcripts and audio artifacts
 ```
@@ -46,7 +46,7 @@ Theseus/
 
 **Dialectic** is the live companion. It listens to a discussion in real time via the microphone, transcribes it with `faster-whisper`, segments the transcript into claims, and displays contradictions, topic drift, and argumentative structure on a PyQt6 dashboard while the conversation is still happening. Its output feeds Noosphere. See `dialectic/README.md`.
 
-**Founder Portal** is the web-facing control plane. It is where founders authenticate, upload transcripts and writings, trigger Noosphere processing, and inspect the resulting conclusions, contradictions, and research-advisor suggestions. Built on Next.js 16, React 19, and Prisma 7 with bcryptjs-gated access. See `founder-portal/README.md`.
+**Theseus Codex** is the web-facing control plane. It is where founders authenticate, upload transcripts and writings, trigger Noosphere processing, and inspect the resulting conclusions, contradictions, and research-advisor suggestions. Built on Next.js 16, React 19, and Prisma 7 with bcryptjs-gated access. See `theseus-codex/README.md`.
 
 ## Written research
 
@@ -76,8 +76,8 @@ python -m noosphere --help
 cd dialectic && pip install -r requirements.txt
 python run.py
 
-# Founder Portal
-cd founder-portal && npm install && npm run dev
+# Theseus Codex
+cd theseus-codex && npm install && npm run dev
 ```
 
 ## Guiding principle

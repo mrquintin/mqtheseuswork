@@ -62,10 +62,7 @@ noosphere/noosphere_data/
 
 # Prisma
 theseus-codex/prisma/*.db
-theseus-codex/prisma/migrations/
 
-# theseus-codex is a standalone nested project with its own git history.
-# It was previously recorded as an orphan gitlink (no .gitmodules URL), which
-# caused `fatal: No url found for submodule path 'theseus-codex'` on every
-# CI checkout. Keep it local-only.
-theseus-codex/
+# Reference-only materials (starting-material snapshots, original prototypes).
+# Kept on disk for provenance but never tracked by git.
+reference/

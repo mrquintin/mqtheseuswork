@@ -23,7 +23,7 @@ Send `X-API-Key: sk-demo-researcher-key-0001` on every request.
 
 ## Deploy
 
-See `deploy/docker/researcher-api/Dockerfile`. The service is **separate** from the Founder Portal.
+See `deploy/docker/researcher-api/Dockerfile`. The service is **separate** from the Theseus Codex.
 
 ## Policies & citation
 

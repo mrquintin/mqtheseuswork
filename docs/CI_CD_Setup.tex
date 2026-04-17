@@ -70,21 +70,21 @@ Theseus uses GitHub Actions for continuous integration and continuous delivery. 
 \endhead
 \file{build-dialectic.yml}        & Build Dialectic desktop app on macOS and Windows via PyInstaller. Sign and notarize when certificates are available. \\
 \file{build-noosphere.yml}        & Build Noosphere CLI on macOS and Windows via PyInstaller. Sign and notarize when certificates are available. \\
-\file{build-founder-portal.yml}   & Build Founder Portal Electron desktop app on macOS and Windows via electron-builder. Sign when certificates are available. \\
-\file{build-docker.yml}           & Build Docker images for Founder Portal and Theseus Public. Validate \file{docker-compose.yml}. \\
+\file{build-theseus-codex.yml}   & Build Theseus Codex Electron desktop app on macOS and Windows via electron-builder. Sign when certificates are available. \\
+\file{build-docker.yml}           & Build Docker images for Theseus Codex and Theseus Public. Validate \file{docker-compose.yml}. \\
 \file{release.yml}                & Orchestrate a full release: call all three build workflows, collect artifacts, create a draft GitHub Release. \\
 \file{round3.yml}                 & Run round-3 invariant checks and system tests. \\
 \file{noosphere-redteam.yml}      & Run adversarial and security tests against the Noosphere engine. \\
 \bottomrule
 \end{longtable}
 
-\file{.github/dependabot.yml} is also present, configuring weekly automated dependency updates for npm (Founder Portal, Public Site), pip (Noosphere, Dialectic), and GitHub Actions.
+\file{.github/dependabot.yml} is also present, configuring weekly automated dependency updates for npm (Theseus Codex, Public Site), pip (Noosphere, Dialectic), and GitHub Actions.
 
 % =======================================================================
 \section{Trigger model}
 % =======================================================================
 
-Each workflow responds to a specific set of events. The design is path-filtered so that changes to Dialectic do not trigger the Founder Portal build, and vice versa.
+Each workflow responds to a specific set of events. The design is path-filtered so that changes to Dialectic do not trigger the Theseus Codex build, and vice versa.
 
 \begin{longtable}{p{4.2cm} p{10.3cm}}
 \toprule
@@ -93,8 +93,8 @@ Each workflow responds to a specific set of events. The design is path-filtered 
 \endhead
 \file{build-dialectic.yml}      & Push to \cmd{main} (paths: \file{dialectic/**}), pull request (same paths), \cmd{workflow\_call} (for reuse by release.yml), \cmd{workflow\_dispatch} (manual). \\
 \file{build-noosphere.yml}      & Push to \cmd{main} (paths: \file{noosphere/**}), pull request, \cmd{workflow\_call}, \cmd{workflow\_dispatch}. \\
-\file{build-founder-portal.yml} & Push to \cmd{main} (paths: \file{founder-portal/**}), pull request, \cmd{workflow\_call}, \cmd{workflow\_dispatch}. \\
-\file{build-docker.yml}         & Push to \cmd{main} (paths: \file{founder-portal/**}, \file{theseus-public/**}, \file{docker-compose.yml}), pull request, \cmd{workflow\_dispatch}. \\
+\file{build-theseus-codex.yml} & Push to \cmd{main} (paths: \file{theseus-codex/**}), pull request, \cmd{workflow\_call}, \cmd{workflow\_dispatch}. \\
+\file{build-docker.yml}         & Push to \cmd{main} (paths: \file{theseus-codex/**}, \file{theseus-public/**}, \file{docker-compose.yml}), pull request, \cmd{workflow\_dispatch}. \\
 \file{release.yml}              & Push of a tag matching \cmd{v*} (e.g., \cmd{v0.2.0}). \\
 \file{round3.yml}               & Push to \cmd{main}, pull request. \\
 \file{noosphere-redteam.yml}    & Push to \cmd{main} (paths: \file{noosphere/**}), \cmd{workflow\_dispatch}. \\
@@ -131,9 +131,9 @@ The \cmd{fail-fast: false} setting ensures that a failure on one platform does n
 
 \file{build-noosphere.yml} follows the same structure. Differences: the macOS build produces a tar.gz archive instead of a DMG (Noosphere is a CLI, not a GUI), and the Windows build produces an NSIS installer that adds the CLI to the system PATH.
 
-\subsection{Founder Portal (Electron)}
+\subsection{Theseus Codex (Electron)}
 
-\file{build-founder-portal.yml} uses a matrix with two entries:
+\file{build-theseus-codex.yml} uses a matrix with two entries:
 
 \begin{table}[h]
 \small
@@ -147,13 +147,13 @@ The \cmd{fail-fast: false} setting ensures that a failure on one platform does n
 \end{tabular}
 \end{table}
 
-Working directory: \file{founder-portal/}. electron-builder handles code signing internally when the appropriate environment variables are set (see \S\ref{sec:secrets}). Artifacts: DMG and ZIP on macOS, EXE on Windows.
+Working directory: \file{theseus-codex/}. electron-builder handles code signing internally when the appropriate environment variables are set (see \S\ref{sec:secrets}). Artifacts: DMG and ZIP on macOS, EXE on Windows.
 
 The \cmd{GH\_TOKEN} environment variable is set to \cmd{\$\{\{ secrets.GITHUB\_TOKEN \}\}} so that electron-builder can publish update manifests to GitHub Releases (used by the auto-updater).
 
 \subsection{Docker}
 
-\file{build-docker.yml} runs on \cmd{ubuntu-latest} with a matrix over the two services (Founder Portal and Theseus Public). Each service is built using \cmd{docker/build-push-action@v6} with Docker Buildx and GitHub Actions cache (\cmd{cache-from: type=gha}). Images are built but not pushed (for push, configure a container registry). The Founder Portal entry also validates \cmd{docker-compose.yml} via \cmd{docker compose config}.
+\file{build-docker.yml} runs on \cmd{ubuntu-latest} with a matrix over the two services (Theseus Codex and Theseus Public). Each service is built using \cmd{docker/build-push-action@v6} with Docker Buildx and GitHub Actions cache (\cmd{cache-from: type=gha}). Images are built but not pushed (for push, configure a container registry). The Theseus Codex entry also validates \cmd{docker-compose.yml} via \cmd{docker compose config}.
 
 % =======================================================================
 \section{Release workflow}
@@ -175,15 +175,15 @@ jobs:
     uses: ./.github/workflows/build-dialectic.yml
   build-noosphere:
     uses: ./.github/workflows/build-noosphere.yml
-  build-founder-portal:
-    uses: ./.github/workflows/build-founder-portal.yml
+  build-theseus-codex:
+    uses: ./.github/workflows/build-theseus-codex.yml
 \end{lstlisting}
 
 Each sub-workflow runs its full matrix (macOS + Windows), producing platform-specific artifacts.
 
 \textbf{Phase 2: Publish.} After all three builds complete, a final job downloads all artifacts via \cmd{actions/download-artifact@v4} and creates a draft GitHub Release via \cmd{softprops/action-gh-release@v2}. The release includes all platform artifacts (DMGs, tarballs, NSIS installers, Electron bundles) and auto-generated release notes from commit history.
 
-The release is created as a \textbf{draft} so the maintainer can review the artifacts and edit the release notes before making it public. Publishing the release triggers electron-updater notifications for existing Founder Portal installations.
+The release is created as a \textbf{draft} so the maintainer can review the artifacts and edit the release notes before making it public. Publishing the release triggers electron-updater notifications for existing Theseus Codex installations.
 
 The workflow requires \cmd{contents: write} permission to create releases.
 
@@ -245,7 +245,7 @@ For the PyInstaller apps (Dialectic, Noosphere), the CI workflow passes secrets 
        "$APPLE_SIGNING_IDENTITY"
 \end{lstlisting}
 
-For the Founder Portal (Electron), electron-builder reads the secrets from its own environment variable names:
+For the Theseus Codex (Electron), electron-builder reads the secrets from its own environment variable names:
 
 \begin{lstlisting}
 - name: Build desktop app
@@ -303,7 +303,7 @@ This workflow runs the adversarial testing harness defined in \file{noosphere/no
 version: 2
 updates:
   - package-ecosystem: npm
-    directory: /founder-portal
+    directory: /theseus-codex
     schedule: { interval: weekly }
   - package-ecosystem: npm
     directory: /theseus-public
@@ -332,7 +332,7 @@ If you are configuring CI/CD for the first time on a new GitHub repository:
   \item \textbf{Enable Actions} in the repository settings (Settings $\to$ Actions $\to$ General $\to$ allow all actions).
   \item \textbf{Configure secrets} (Settings $\to$ Secrets and variables $\to$ Actions). Add each secret from \S\ref{sec:secrets} that you have available. You can start with none --- builds will work, just unsigned.
   \item \textbf{Set branch protection} on \cmd{main} (Settings $\to$ Branches $\to$ Add rule): require status checks to pass before merging, and select the workflow jobs you want to gate on (at minimum: the round-3 invariant checks).
-  \item \textbf{Update \file{electron-builder.yml}} in \file{founder-portal/}: replace \cmd{OWNER\_PLACEHOLDER} and \cmd{REPO\_PLACEHOLDER} in the \cmd{publish} block with your actual GitHub owner and repository name. Without this, the auto-updater will not find releases.
+  \item \textbf{Update \file{electron-builder.yml}} in \file{theseus-codex/}: replace \cmd{OWNER\_PLACEHOLDER} and \cmd{REPO\_PLACEHOLDER} in the \cmd{publish} block with your actual GitHub owner and repository name. Without this, the auto-updater will not find releases.
   \item \textbf{Test with a manual dispatch}: go to Actions $\to$ select any build workflow $\to$ Run workflow $\to$ Run. Verify it completes.
   \item \textbf{Tag a release}: \cmd{git tag v0.1.0 \&\& git push origin v0.1.0}. The release workflow should trigger, build all three apps, and create a draft release.
 \end{enumerate}

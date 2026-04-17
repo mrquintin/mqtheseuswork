@@ -1,5 +1,5 @@
 portal:
-  image: theseus/founder-portal:latest
+  image: theseus/theseus-codex:latest
   replicas: 1
   port: 3000
 

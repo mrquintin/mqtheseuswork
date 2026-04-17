@@ -1,8 +1,8 @@
 services:
-  founder-portal:
+  theseus-codex:
     build:
-      context: ./founder-portal
-    image: theseus-founder-portal:latest
+      context: ./theseus-codex
+    image: theseus-codex:latest
     ports:
       - "3000:3000"
     volumes:

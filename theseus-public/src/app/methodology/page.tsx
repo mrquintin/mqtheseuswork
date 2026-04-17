@@ -25,7 +25,7 @@ export default function MethodologyPage() {
       <p style={{ maxWidth: "75ch" }}>
         Firm-tier publication is blocked unless the conclusion has passed the portal’s meta-analysis gate (and related
         operational gates such as adversarial engagement when enforcement is enabled). The publication checklist in the
-        Founder Portal is the operationalization of “this is safe to represent as the firm’s public position.”
+        Theseus Codex is the operationalization of “this is safe to represent as the firm’s public position.”
       </p>
 
       <h2 style={{ fontSize: "1.05rem" }}>Discounted confidence vs stated confidence</h2>

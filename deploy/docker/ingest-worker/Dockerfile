@@ -9,9 +9,9 @@ WORKDIR /opt/noosphere
 RUN pip install --no-cache-dir --break-system-packages -r requirements.txt || pip install --no-cache-dir -r requirements.txt
 
 WORKDIR /app
-COPY founder-portal/package.json founder-portal/package-lock.json* ./
+COPY theseus-codex/package.json theseus-codex/package-lock.json* ./
 RUN npm ci --legacy-peer-deps
-COPY founder-portal/ ./
+COPY theseus-codex/ ./
 RUN npx prisma generate
 
 ENV NOOSPHERE_SRC_ROOT=/opt/noosphere

@@ -59,7 +59,7 @@
 \section{Overview}
 % =======================================================================
 
-Theseus's two web-facing applications --- the Founder Portal and the Theseus Public site --- are containerized for server deployment. This guide covers building the Docker images, running them via Docker Compose, deploying to managed hosting (Vercel, Netlify), and scaling with Kubernetes via the provided Helm charts.
+Theseus's two web-facing applications --- the Theseus Codex and the Theseus Public site --- are containerized for server deployment. This guide covers building the Docker images, running them via Docker Compose, deploying to managed hosting (Vercel, Netlify), and scaling with Kubernetes via the provided Helm charts.
 
 \subsection{Container inventory}
 
@@ -69,7 +69,7 @@ Theseus's two web-facing applications --- the Founder Portal and the Theseus Pub
 \toprule
 \textbf{Service} & \textbf{Base image} & \textbf{Port} & \textbf{Description} \\
 \midrule
-Founder Portal   & node:20-alpine & 3000 & Next.js 16 standalone server with Prisma 7 and SQLite. \\
+Theseus Codex   & node:20-alpine & 3000 & Next.js 16 standalone server with Prisma 7 and SQLite. \\
 Theseus Public   & nginx:1.27-alpine & 80 & Static HTML export served by nginx with gzip and security headers. \\
 \bottomrule
 \end{tabular}
@@ -79,9 +79,9 @@ Theseus Public   & nginx:1.27-alpine & 80 & Static HTML export served by nginx w
 \section{Dockerfile anatomy}
 % =======================================================================
 
-\subsection{Founder Portal}
+\subsection{Theseus Codex}
 
-\file{founder-portal/Dockerfile} uses a three-stage build:
+\file{theseus-codex/Dockerfile} uses a three-stage build:
 
 \textbf{Stage 1: Dependencies.} Installs all npm packages (including devDependencies needed for the build) from \file{package.json} and \file{package-lock.json} on \cmd{node:20-alpine}.
 
@@ -89,11 +89,11 @@ Theseus Public   & nginx:1.27-alpine & 80 & Static HTML export served by nginx w
 
 \textbf{Stage 3: Runner.} A minimal \cmd{node:20-alpine} image. Copies only the production artifacts from the builder: the standalone server, static assets, public directory, Prisma client, and the seed database. Creates a non-root user (\cmd{nextjs:nodejs}, UID/GID 1001). Exposes a \file{/app/data} volume for the persistent SQLite database.
 
-The entrypoint script (\file{scripts/docker-entrypoint.sh}) checks whether \file{/app/data/founder-portal.db} exists. If not (first launch), it copies the seed database from the builder stage. Then it executes the Next.js standalone server.
+The entrypoint script (\file{scripts/docker-entrypoint.sh}) checks whether \file{/app/data/theseus-codex.db} exists. If not (first launch), it copies the seed database from the builder stage. Then it executes the Next.js standalone server.
 
 Key environment variables:
 \begin{itemize}[leftmargin=1.5em,itemsep=0.1em]
-  \item \cmd{DATABASE\_URL} --- defaults to \cmd{file:/app/data/founder-portal.db}. Override to point at a Postgres URL for scaled deployments.
+  \item \cmd{DATABASE\_URL} --- defaults to \cmd{file:/app/data/theseus-codex.db}. Override to point at a Postgres URL for scaled deployments.
   \item \cmd{PORT} --- defaults to 3000.
   \item \cmd{HOSTNAME} --- defaults to \cmd{0.0.0.0}.
   \item \cmd{NODE\_ENV} --- set to \cmd{production}.
@@ -123,8 +123,8 @@ Both services have \file{.dockerignore} files excluding \file{node\_modules}, \f
 
 \begin{lstlisting}
 services:
-  founder-portal:
-    build: ./founder-portal
+  theseus-codex:
+    build: ./theseus-codex
     ports:
       - "3000:3000"
     volumes:
@@ -153,7 +153,7 @@ docker compose up --build
 docker compose up --build -d
 
 # View logs
-docker compose logs -f founder-portal
+docker compose logs -f theseus-codex
 
 # Stop
 docker compose down
@@ -162,7 +162,7 @@ docker compose down
 docker compose down -v
 \end{lstlisting}
 
-After startup, the Founder Portal is at \cmd{http://localhost:3000} and the Public site at \cmd{http://localhost:8080}.
+After startup, the Theseus Codex is at \cmd{http://localhost:3000} and the Public site at \cmd{http://localhost:8080}.
 
 \subsection{Extended compose (deploy/compose/)}
 
@@ -175,16 +175,16 @@ The \file{deploy/compose/docker-compose.yml} provides an extended configuration 
 \subsection{Local builds}
 
 \begin{lstlisting}
-# Founder Portal
-cd founder-portal
-docker build -t theseus/founder-portal:latest .
+# Theseus Codex
+cd theseus-codex
+docker build -t theseus/theseus-codex:latest .
 
 # Theseus Public
 cd theseus-public
 docker build -t theseus/theseus-public:latest .
 \end{lstlisting}
 
-Build times are approximately 2--4 minutes for the Founder Portal (npm install + Next.js build + Prisma generate) and 1--2 minutes for Theseus Public (npm install + static export).
+Build times are approximately 2--4 minutes for the Theseus Codex (npm install + Next.js build + Prisma generate) and 1--2 minutes for Theseus Public (npm install + static export).
 
 \subsection{Multi-platform builds}
 
@@ -193,9 +193,9 @@ To build for both amd64 and arm64 (e.g., for deployment on both Intel servers an
 \begin{lstlisting}
 docker buildx create --use
 docker buildx build --platform linux/amd64,linux/arm64 \
-  -t theseus/founder-portal:latest \
+  -t theseus/theseus-codex:latest \
   --push \
-  ./founder-portal
+  ./theseus-codex
 \end{lstlisting}
 
 Note: \cmd{better-sqlite3} (a native Node module) must compile for the target architecture. The alpine-based build handles this automatically via \cmd{npm ci} in the builder stage, but cross-compilation requires Docker Buildx with QEMU emulation or native ARM builders.
@@ -208,7 +208,7 @@ Note: \cmd{better-sqlite3} (a native Node module) must compile for the target ar
 \toprule
 \textbf{Image} & \textbf{Approx. size} & \textbf{Notes} \\
 \midrule
-Founder Portal & 200--250\,MB & node:20-alpine base + Next.js standalone + Prisma client + better-sqlite3. \\
+Theseus Codex & 200--250\,MB & node:20-alpine base + Next.js standalone + Prisma client + better-sqlite3. \\
 Theseus Public & 30--40\,MB & nginx:1.27-alpine + static HTML/CSS/JS. \\
 \bottomrule
 \end{tabular}
@@ -275,7 +275,7 @@ Both providers serve the site with HTTPS automatically and provide CDN distribut
 The \file{deploy/helm/theseus/} directory contains a Helm chart for Kubernetes deployment. The chart includes templates for:
 
 \begin{itemize}[leftmargin=1.5em,itemsep=0.1em]
-  \item \textbf{Portal Deployment} --- the Founder Portal container with configurable replicas, resource limits, and a PersistentVolumeClaim for the SQLite database (or an environment variable pointing to an external PostgreSQL).
+  \item \textbf{Portal Deployment} --- the Theseus Codex container with configurable replicas, resource limits, and a PersistentVolumeClaim for the SQLite database (or an environment variable pointing to an external PostgreSQL).
   \item \textbf{Ingest Worker Deployment} --- a separate pod running the background ingestion worker (\cmd{tsx src/worker/dequeue-ingest.ts}), consuming from a Redis job queue.
   \item \textbf{Services and Ingress} --- ClusterIP services for both the portal and public site, with an optional Ingress resource for external access.
 \end{itemize}
@@ -300,7 +300,7 @@ helm upgrade theseus deploy/helm/theseus/ \
 
 \subsection{SQLite (default)}
 
-The Founder Portal uses SQLite via Prisma's \cmd{better-sqlite3} adapter. In Docker, the database file lives on a named volume (\file{/app/data/founder-portal.db}). This is appropriate for single-server deployments and local development.
+The Theseus Codex uses SQLite via Prisma's \cmd{better-sqlite3} adapter. In Docker, the database file lives on a named volume (\file{/app/data/theseus-codex.db}). This is appropriate for single-server deployments and local development.
 
 Limitations: SQLite does not support concurrent writes from multiple processes. If you run multiple portal replicas behind a load balancer, they cannot share a SQLite file. For multi-replica deployments, migrate to PostgreSQL.
 
@@ -316,7 +316,7 @@ The Prisma schema supports both SQLite and PostgreSQL via the \cmd{@prisma/adapt
 
 \subsection{Backups}
 
-For SQLite: back up the volume-mounted \file{founder-portal.db} file. Since SQLite uses write-ahead logging, use \cmd{sqlite3 /app/data/founder-portal.db ".backup /backup/founder-portal.db"} for a consistent copy while the server is running.
+For SQLite: back up the volume-mounted \file{theseus-codex.db} file. Since SQLite uses write-ahead logging, use \cmd{sqlite3 /app/data/theseus-codex.db ".backup /backup/theseus-codex.db"} for a consistent copy while the server is running.
 
 For PostgreSQL: use \cmd{pg\_dump} on a schedule.
 
@@ -336,7 +336,7 @@ For PostgreSQL: use \cmd{pg\_dump} on a schedule.
 \section{Troubleshooting}
 % =======================================================================
 
-\textbf{``EACCES: permission denied'' on startup.} The non-root user (\cmd{nextjs}, UID 1001) must own the data directory. If the volume was previously written by root, fix permissions: \cmd{docker compose exec founder-portal chown -R nextjs:nodejs /app/data}.
+\textbf{``EACCES: permission denied'' on startup.} The non-root user (\cmd{nextjs}, UID 1001) must own the data directory. If the volume was previously written by root, fix permissions: \cmd{docker compose exec theseus-codex chown -R nextjs:nodejs /app/data}.
 
 \textbf{Prisma migration errors on first start.} The entrypoint copies a pre-migrated seed database. If the seed was built against a different schema version, the migration may fail. Rebuild the image (\cmd{docker compose build --no-cache}) to regenerate the seed.
 

@@ -14,7 +14,7 @@ jobs:
   # secrets silently resolve to empty strings and code-signing/notarization
   # steps are skipped.
   #
-  # Note: the Founder Portal is a web application (Next.js), not a
+  # Note: the Theseus Codex is a web application (Next.js), not a
   # downloadable installer — its build workflow has been removed.
   build-dialectic:
     uses: ./.github/workflows/build-dialectic.yml

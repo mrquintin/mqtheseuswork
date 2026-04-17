@@ -65,7 +65,7 @@ STEP-BY-STEP
      def monthly_stats(year_month: str) -> DashboardData      # counts, pass/fail, top failure categories
      def overrides_for_display() -> list[FounderOverride]
    (The UI itself is wave_9.)
-6. Build `scripts/check_gated_decorator_present.py`: AST-walk the publication-handler modules (paths declared in `GATED_HANDLER_PATHS` env var; default to `founder-portal/src/app/api/` and `researcher_api/researcher_api/routes/`); fail if any writes-to-public-store handler lacks `@gated`.
+6. Build `scripts/check_gated_decorator_present.py`: AST-walk the publication-handler modules (paths declared in `GATED_HANDLER_PATHS` env var; default to `theseus-codex/src/app/api/` and `researcher_api/researcher_api/routes/`); fail if any writes-to-public-store handler lacks `@gated`.
 7. Build `scripts/check_public_store_only_gated.py`: integration test — attempt a direct write to the public-site content store bypassing the gate; assert a rejection is raised.
 8. Write the five tests.
 9. `pytest noosphere/tests/test_gate_*.py test_override_ledger.py test_refusal_dashboard.py test_public_store_only_gated_writes.py -v`.

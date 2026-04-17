@@ -9,7 +9,7 @@ import sys
 from pathlib import Path
 
 DEFAULT_HANDLER_PATHS = [
-    "founder-portal/src/app/api/",
+    "theseus-codex/src/app/api/",
     "researcher_api/researcher_api/routes/",
 ]
 

@@ -1,0 +1,31 @@
+# Local Postgres for offline Theseus Codex / Noosphere dev.
+# Usage:
+#   docker compose -f docker-compose.dev.yml up -d     # start
+#   docker compose -f docker-compose.dev.yml down      # stop (keeps data)
+#   docker compose -f docker-compose.dev.yml down -v   # stop and wipe data
+#
+# Then in theseus-codex/.env:
+#   DATABASE_URL="postgresql://theseus:theseus@localhost:5432/theseus"
+# And for Noosphere:
+#   THESEUS_DATABASE_URL="postgresql://theseus:theseus@localhost:5432/theseus"
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: theseus-dev-pg
+    environment:
+      POSTGRES_USER: theseus
+      POSTGRES_PASSWORD: theseus
+      POSTGRES_DB: theseus
+    ports:
+      - "5432:5432"
+    volumes:
+      - theseus_dev_pg:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U theseus -d theseus"]
+      interval: 3s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  theseus_dev_pg:

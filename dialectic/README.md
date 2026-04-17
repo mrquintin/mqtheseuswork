@@ -25,7 +25,7 @@ dialectic/
 
 The design goal is low latency (< 2s from speech to claim appearance) on a laptop GPU or Apple Silicon.
 
-**Live interlocutor (SP09):** the main dashboard can surface short, third-person **Theseus** prompts when participants opt in per session. Modes range from silent (default) through passive overlay, conversational (+ optional TTS after a pause), and tutor (higher rate, requires an explicit acknowledgment). Every candidate passes a conservative quality gate and a per-session budget; interventions and drops are logged to JSONL with a `*_reflection.json` bundle for post-session review in the Founder Portal.
+**Live interlocutor (SP09):** the main dashboard can surface short, third-person **Theseus** prompts when participants opt in per session. Modes range from silent (default) through passive overlay, conversational (+ optional TTS after a pause), and tutor (higher rate, requires an explicit acknowledgment). Every candidate passes a conservative quality gate and a per-session budget; interventions and drops are logged to JSONL with a `*_reflection.json` bundle for post-session review in the Theseus Codex.
 
 ## Usage
 
@@ -35,6 +35,17 @@ python run.py --model small.en --device mps --save-session ./sessions/
 ```
 
 Saved sessions are JSON Lines: one line per finalized claim with timestamp, speaker, text, embedding, and any contradictions found. These files are the native input format for Noosphere's ingester.
+
+## Cloud auto-sync (optional)
+
+When both of these env vars are set, Dialectic automatically POSTs the finalized transcript (and the reflection bundle, if SP09 is enabled) to the Theseus Codex's `/api/upload` endpoint after each session stops:
+
+```
+export DIALECTIC_CLOUD_URL="https://theseus-codex.vercel.app"
+export DIALECTIC_CLOUD_API_KEY="tcx_<prefix>_<secret>"    # mint at /settings/api-keys
+```
+
+Unset either to disable. Audio `.wav` files are **not** auto-uploaded — the transcript is the analytical payload, audio stays local as provenance. Upload failures are logged but never block the UI.
 
 ## Pairing with Noosphere
 

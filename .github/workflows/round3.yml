@@ -35,16 +35,16 @@ jobs:
           node-version: "20"
           cache: "npm"
           cache-dependency-path: |
-            founder-portal/package-lock.json
+            theseus-codex/package-lock.json
             theseus-public/package-lock.json
-      # Both founder-portal and theseus-public commit `package-lock.json`
+      # Both theseus-codex and theseus-public commit `package-lock.json`
       # (npm), not `pnpm-lock.yaml`. Using pnpm here caused the job to fail
       # with ERR_PNPM_NO_LOCKFILE on every run.
-      - name: Install founder-portal deps
-        working-directory: founder-portal
+      - name: Install theseus-codex deps
+        working-directory: theseus-codex
         run: npm ci
-      - name: Typecheck founder-portal
-        working-directory: founder-portal
+      - name: Typecheck theseus-codex
+        working-directory: theseus-codex
         run: npx tsc --noEmit
       - name: Install theseus-public deps
         if: hashFiles('theseus-public/package.json') != ''

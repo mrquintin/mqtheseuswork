@@ -1,5 +1,5 @@
 """
-Round-3 read-only endpoints consumed by the founder portal and public site.
+Round-3 read-only endpoints consumed by the Theseus Codex and public site.
 """
 
 from __future__ import annotations

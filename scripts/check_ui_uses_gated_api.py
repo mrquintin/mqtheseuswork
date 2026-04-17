@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""CI lint: verify founder-portal round3 routes use withGated and theseus-public has no write routes."""
+"""CI lint: verify theseus-codex round3 routes use withGated and theseus-public has no write routes."""
 from __future__ import annotations
 
 import argparse
@@ -74,7 +74,7 @@ def main() -> int:
     parser.add_argument("--json", action="store_true")
     args = parser.parse_args()
 
-    round3_dir = REPO_ROOT / "founder-portal" / "src" / "app" / "api" / "round3"
+    round3_dir = REPO_ROOT / "theseus-codex" / "src" / "app" / "api" / "round3"
     public_app_dir = REPO_ROOT / "theseus-public" / "src" / "app"
 
     violations: list[str] = []

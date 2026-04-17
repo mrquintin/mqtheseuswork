@@ -60,7 +60,7 @@
 \section{Overview}
 % =======================================================================
 
-Theseus ships three desktop applications: Dialectic (PyQt6 conversation analyzer), the Noosphere CLI (epistemic engine), and the Founder Portal (Electron-wrapped Next.js). Each is distributed as a standalone installer for macOS and Windows so end users do not need Python, Node.js, or any development toolchain installed.
+Theseus ships three desktop applications: Dialectic (PyQt6 conversation analyzer), the Noosphere CLI (epistemic engine), and the Theseus Codex (Electron-wrapped Next.js). Each is distributed as a standalone installer for macOS and Windows so end users do not need Python, Node.js, or any development toolchain installed.
 
 This guide covers how to build, sign, notarize, and package each application. It assumes you are working from a clean checkout of the Theseus monorepo on the target platform.
 
@@ -74,7 +74,7 @@ This guide covers how to build, sign, notarize, and package each application. It
 \midrule
 Dialectic           & PyInstaller    & \file{.app} in DMG          & \file{.exe} via NSIS installer \\
 Noosphere CLI       & PyInstaller    & \file{tar.gz} archive       & \file{.exe} via NSIS installer \\
-Founder Portal      & electron-builder & \file{.app} in DMG        & \file{.exe} via NSIS installer \\
+Theseus Codex      & electron-builder & \file{.app} in DMG        & \file{.exe} via NSIS installer \\
 \bottomrule
 \end{tabular}
 \end{table}
@@ -88,7 +88,7 @@ Founder Portal      & electron-builder & \file{.app} in DMG        & \file{.exe}
 \begin{itemize}[leftmargin=1.5em,itemsep=0.2em]
   \item Git checkout of the Theseus monorepo.
   \item Python 3.11+ with pip (for Dialectic and Noosphere).
-  \item Node.js 20+ with npm (for Founder Portal).
+  \item Node.js 20+ with npm (for Theseus Codex).
   \item Pillow (Python) for icon generation: \cmd{pip install pillow}.
 \end{itemize}
 
@@ -286,7 +286,7 @@ The \cmd{THESEUS\_DATA\_DIR} environment variable overrides this default. The di
 ML model weights (sentence-transformers, spaCy) are \textbf{not} bundled --- they are too large (${\sim}$2\,GB). On first run of any command that requires embeddings, the models download to the standard Hugging Face cache directory. Users behind firewalls must pre-download models or configure \cmd{HF\_HOME} to point to a local mirror.
 
 % =======================================================================
-\section{Founder Portal (Electron)}
+\section{Theseus Codex (Electron)}
 % =======================================================================
 
 \subsection{Key files}
@@ -297,17 +297,17 @@ ML model weights (sentence-transformers, spaCy) are \textbf{not} bundled --- the
 \toprule
 \textbf{File} & \textbf{Purpose} \\
 \midrule
-\file{founder-portal/desktop/main.ts}          & Electron main process: lifecycle, window, migrations. \\
-\file{founder-portal/desktop/next-server.ts}    & Starts the Next.js standalone server as a child process. \\
-\file{founder-portal/desktop/db-path.ts}        & Resolves SQLite database to platform app-data directory. \\
-\file{founder-portal/desktop/preload.ts}        & Context bridge (platform info, deep-link IPC). \\
-\file{founder-portal/desktop/updater.ts}        & \cmd{electron-updater} integration for auto-update. \\
-\file{founder-portal/desktop/dev.ts}            & Dev mode: starts Next.js dev server + Electron. \\
-\file{founder-portal/electron-builder.yml}      & Build config: DMG, NSIS, signing, notarization, publish. \\
-\file{founder-portal/assets/entitlements.mac.plist} & macOS entitlements for hardened runtime. \\
-\file{founder-portal/scripts/generate\_icons.js}    & Generates \file{.icns} and \file{.ico} from source PNG. \\
-\file{founder-portal/scripts/build\_desktop\_macos.sh} & Full macOS desktop build. \\
-\file{founder-portal/scripts/build\_desktop\_windows.ps1} & Full Windows desktop build. \\
+\file{theseus-codex/desktop/main.ts}          & Electron main process: lifecycle, window, migrations. \\
+\file{theseus-codex/desktop/next-server.ts}    & Starts the Next.js standalone server as a child process. \\
+\file{theseus-codex/desktop/db-path.ts}        & Resolves SQLite database to platform app-data directory. \\
+\file{theseus-codex/desktop/preload.ts}        & Context bridge (platform info, deep-link IPC). \\
+\file{theseus-codex/desktop/updater.ts}        & \cmd{electron-updater} integration for auto-update. \\
+\file{theseus-codex/desktop/dev.ts}            & Dev mode: starts Next.js dev server + Electron. \\
+\file{theseus-codex/electron-builder.yml}      & Build config: DMG, NSIS, signing, notarization, publish. \\
+\file{theseus-codex/assets/entitlements.mac.plist} & macOS entitlements for hardened runtime. \\
+\file{theseus-codex/scripts/generate\_icons.js}    & Generates \file{.icns} and \file{.ico} from source PNG. \\
+\file{theseus-codex/scripts/build\_desktop\_macos.sh} & Full macOS desktop build. \\
+\file{theseus-codex/scripts/build\_desktop\_windows.ps1} & Full Windows desktop build. \\
 \bottomrule
 \end{tabular}
 \end{table}
@@ -318,7 +318,7 @@ The Electron main process performs this startup sequence:
 
 \begin{enumerate}[leftmargin=1.5em,itemsep=0.1em]
   \item Acquires a single-instance lock (prevents duplicate launches).
-  \item Resolves the SQLite database path via \file{db-path.ts}: \file{userData/data/founder-portal.db} (platform-specific --- \file{\textasciitilde/Library/Application Support/Theseus Founder Portal/} on macOS, \file{\%APPDATA\%/Theseus Founder Portal/} on Windows).
+  \item Resolves the SQLite database path via \file{db-path.ts}: \file{userData/data/theseus-codex.db} (platform-specific --- \file{\textasciitilde/Library/Application Support/Theseus Codex/} on macOS, \file{\%APPDATA\%/Theseus Codex/} on Windows).
   \item If the database file does not exist (first launch), runs Prisma migrations or copies a pre-migrated seed database.
   \item Calls \file{next-server.ts} which \cmd{fork}s the Next.js standalone \file{server.js} on a free port (starting from 3000). The function polls the port with exponential backoff (max 30s timeout) to confirm the server is ready.
   \item Creates a \cmd{BrowserWindow} (1400$\times$900, min 1024$\times$700, context isolation enabled, node integration disabled, \cmd{titleBarStyle: hiddenInset} on macOS).
@@ -332,14 +332,14 @@ On quit, the main process sends SIGTERM to the Next.js child process, waits 5s, 
 \subsection{Building on macOS}
 
 \begin{lstlisting}
-cd founder-portal
+cd theseus-codex
 npm ci
 bash scripts/build_desktop_macos.sh
 \end{lstlisting}
 
 The script runs: icon generation, \cmd{npm run build} (Next.js), TypeScript compilation of the \file{desktop/} modules, and \cmd{electron-builder --mac --config electron-builder.yml}.
 
-Output: \file{founder-portal/dist-electron/Theseus Founder Portal-\{version\}.dmg}.
+Output: \file{theseus-codex/dist-electron/Theseus Codex-\{version\}.dmg}.
 
 \textbf{Code signing.} electron-builder handles signing automatically when these environment variables are set:
 \begin{lstlisting}
@@ -359,12 +359,12 @@ export APPLE_TEAM_ID="TEAMID"
 \subsection{Building on Windows}
 
 \begin{lstlisting}
-cd founder-portal
+cd theseus-codex
 npm ci
 powershell -File scripts\build_desktop_windows.ps1
 \end{lstlisting}
 
-Output: \file{founder-portal\textbackslash dist-electron\textbackslash Theseus Founder Portal Setup \{version\}.exe}.
+Output: \file{theseus-codex\textbackslash dist-electron\textbackslash Theseus Codex Setup \{version\}.exe}.
 
 \textbf{Code signing.} Set environment variables before building:
 \begin{lstlisting}
@@ -376,7 +376,7 @@ electron-builder signs the executable and the NSIS installer wrapper automatical
 
 \subsection{Auto-update}
 
-The Founder Portal uses \cmd{electron-updater} for automatic updates via GitHub Releases. The \file{electron-builder.yml} contains a \cmd{publish} block:
+The Theseus Codex uses \cmd{electron-updater} for automatic updates via GitHub Releases. The \file{electron-builder.yml} contains a \cmd{publish} block:
 \begin{lstlisting}
 publish:
   provider: github
@@ -392,7 +392,7 @@ The updater is initialized in \file{desktop/main.ts} after the window loads, wra
 
 For local iteration without building a full package:
 \begin{lstlisting}
-cd founder-portal
+cd theseus-codex
 npm ci
 npm run desktop:dev
 \end{lstlisting}

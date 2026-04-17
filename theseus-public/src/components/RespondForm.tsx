@@ -28,7 +28,7 @@ export default function RespondForm({ conclusions }: { conclusions: PublicConclu
   async function submit() {
     setMsg(null);
     if (!portal) {
-      setMsg("Set NEXT_PUBLIC_PORTAL_API to your Founder Portal origin (example: http://localhost:3000).");
+      setMsg("Set NEXT_PUBLIC_PORTAL_API to your Theseus Codex origin (example: http://localhost:3000).");
       return;
     }
     setBusy(true);
@@ -63,7 +63,7 @@ export default function RespondForm({ conclusions }: { conclusions: PublicConclu
       {!portal ? (
         <p className="muted" style={{ marginTop: 0 }}>
           This static site does not host write APIs. Configure <code>NEXT_PUBLIC_PORTAL_API</code> at build time so the
-          form can POST to the Founder Portal moderation queue.
+          form can POST to the Theseus Codex moderation queue.
         </p>
       ) : (
         <p className="muted" style={{ marginTop: 0 }}>

@@ -10,7 +10,7 @@ This document covers day-to-day operation of the Noosphere engine in this monore
    - `THESEUS_DATABASE_URL` — default `sqlite:///./noosphere_data/noosphere.db` (relative to the process working directory unless absolute).
    - `THESEUS_DATA_DIR` — filesystem root for `graph.json`, registries, synthesis output, and related artifacts.
    - Optional `theseus.toml` at the repo root can supply defaults (see `noosphere/noosphere/config.py`).
-   - **Founder Portal** — `DATABASE_URL` is read from `founder-portal/prisma.config.ts` (Prisma 7). Runtime SQLite uses `@prisma/adapter-better-sqlite3` (`src/lib/prismaAdapter.ts`).
+   - **Theseus Codex** — `DATABASE_URL` is read from `theseus-codex/prisma.config.ts` (Prisma 7). Runtime SQLite uses `@prisma/adapter-better-sqlite3` (`src/lib/prismaAdapter.ts`).
 4. **API keys** — Only required for LLM-backed flows: `ANTHROPIC_API_KEY` or `OPENAI_API_KEY` depending on `THESEUS_LLM_PROVIDER` / `THESEUS_LLM_MODEL`.
 
 ## Daily workflow (record → upload → read advisor)
@@ -49,7 +49,7 @@ Structured logs default to JSON on stdout. With `THESEUS_LOG_FILE` unset or `1`,
 
 ## Adversarial coherence (strongest critic)
 
-The adversarial subsystem generates structured objections to firm-level conclusions, formalizes them as **non–founder-authored** claims (`claim_origin=adversarial`), runs the **same six-layer coherence stack** against the conclusion anchor, and persists verdicts in the `adversarial_challenge` table (mirrored in the Founder Portal Prisma schema when both use the same SQLite file).
+The adversarial subsystem generates structured objections to firm-level conclusions, formalizes them as **non–founder-authored** claims (`claim_origin=adversarial`), runs the **same six-layer coherence stack** against the conclusion anchor, and persists verdicts in the `adversarial_challenge` table (mirrored in the Theseus Codex Prisma schema when both use the same SQLite file).
 
 ### Configuration
 
@@ -71,7 +71,7 @@ The adversarial subsystem generates structured objections to firm-level conclusi
 
 ### Operational note
 
-Point the Founder Portal `DATABASE_URL` at the **same** SQLite file as `THESEUS_DATABASE_URL` so the `/adversarial` page and APIs can read the `adversarial_challenge` table created by Noosphere’s SQLModel metadata (no separate Prisma migration required for that table).
+Point the Theseus Codex `DATABASE_URL` at the **same** SQLite file as `THESEUS_DATABASE_URL` so the `/adversarial` page and APIs can read the `adversarial_challenge` table created by Noosphere’s SQLModel metadata (no separate Prisma migration required for that table).
 
 ## Calibration scoreboard (predictive claims)
 
@@ -91,7 +91,7 @@ Predictions whose probability midpoint lies in **[0.45, 0.55]** are treated as *
 ### Scoring and exports
 
 - **JSON** — `python -m noosphere.typer_cli scoreboard` prints per-author/domain Brier and log-loss, decile calibration bins, and a weak-domain list for the research advisor.
-- **Portal** — `/scoreboard` reads the same SQLite tables; use `?author=` for drill-down. Append `?engage=1` to show full prediction text during deliberate review.
+- **Codex** — `/scoreboard` reads the same SQLite tables; use `?author=` for drill-down. Append `?engage=1` to show full prediction text during deliberate review.
 
 ### Synthesis discount (feature-flagged)
 
@@ -116,7 +116,7 @@ The goal is not “what would we believe with today’s model?” but **what row
 
 - **Embeddings and cluster IDs** reflect the current encoder and graph distillation, not the historical encoder weights. The `embedding_model_version` table records which model name was pinned from which date; until you add one row per real upgrade, the CLI and APIs emit warnings about encoder drift.
 - **Ontology graph** (`graph.json`) is filtered in memory for replay commands, but the graph file itself is not rewritten; replay is a *read projection*.
-- **Portal** — `/conclusions?asOf=…` uses Noosphere replay rules when `NOOSPHERE_DATABASE_URL` is set. `/contradictions` and `/founders` filter Prisma rows by `createdAt` ≤ end of the chosen UTC day: a practical UI approximation, not the full coherence-pair replay.
+- **Codex** — `/conclusions?asOf=…` uses Noosphere replay rules when `NOOSPHERE_DATABASE_URL` is set. `/contradictions` and `/founders` filter Prisma rows by `createdAt` ≤ end of the chosen UTC day: a practical UI approximation, not the full coherence-pair replay.
 
 ### Commands
 
@@ -136,7 +136,7 @@ Replay is deterministic from store + graph; week-bucket caching of previews is n
 - **Index** — `python -m noosphere literature index` rebuilds the SQLite FTS5 table used for hybrid retrieval (BM25 + optional dense rerank when claim embeddings exist).
 - **PhilPapers** — set `PHILPAPERS_API_KEY`; connector is stubbed until a stable API surface is wired.
 - **Copyright** — `Artifact.license_status` records posture. Do not store full text for `restricted_metadata_only`; the advisor only retrieves claims that exist in the store.
-- **Research advisor** — `session_research(..., generate=True)` now **retrieves first** (hybrid index over founder + voice + literature claims). If the index returns no hits, generation is skipped with `no_retrieval_hits`. Each reading suggestion must include `grounding_claim_id` from the retrieval block; ungrounded LLM output is rejected at validation. Successful readings append rows to the **reading queue** (`reading_queue` SQLite table), visible under `/reading-queue` in the portal when `NOOSPHERE_DATABASE_URL` is set.
+- **Research advisor** — `session_research(..., generate=True)` now **retrieves first** (hybrid index over founder + voice + literature claims). If the index returns no hits, generation is skipped with `no_retrieval_hits`. Each reading suggestion must include `grounding_claim_id` from the retrieval block; ungrounded LLM output is rejected at validation. Successful readings append rows to the **reading queue** (`reading_queue` SQLite table), visible under `/reading-queue` in the Codex when `NOOSPHERE_DATABASE_URL` is set.
 
 ## Cloud multi-tenant (productionization)
 
@@ -145,8 +145,8 @@ This section tracks **Strategic Prompt 06**: durable cloud deployment, tenant is
 ### What is implemented in-repo today
 
 - **Prisma**: `Organization` model plus `organizationId` on all tenant-scoped portal tables; composite uniqueness on `(organizationId, email)` and `(organizationId, username)`. Login resolves `(organizationSlug, email)`; seed creates org `theseus-local`.
-- **Prisma 7**: connection URL lives in `founder-portal/prisma.config.ts`; runtime uses `@prisma/adapter-better-sqlite3` for `file:` URLs (`src/lib/prismaAdapter.ts`). PostgreSQL requires wiring `@prisma/adapter-pg` in the same module before switching `DATABASE_URL` to `postgresql://…`.
-- **Portal scoping**: dashboard, conclusions, founders, upload fetch, and adversarial conclusion updates filter by the authenticated founder’s `organizationId`.
+- **Prisma 7**: connection URL lives in `theseus-codex/prisma.config.ts`; runtime uses `@prisma/adapter-better-sqlite3` for `file:` URLs (`src/lib/prismaAdapter.ts`). PostgreSQL requires wiring `@prisma/adapter-pg` in the same module before switching `DATABASE_URL` to `postgresql://…`.
+- **Codex scoping**: dashboard, conclusions, founders, upload fetch, and adversarial conclusion updates filter by the authenticated founder’s `organizationId`.
 - **Worker split**: when `REDIS_URL` and `USE_JOB_QUEUE=1` are set, uploads enqueue to Redis; run **`npm run worker:ingest`** (separate process) to execute the same `processUpload` path. Otherwise ingest runs in-process (laptop mode).
 - **Object storage**: `noosphere/noosphere/storage_client.py` — `LocalDiskStorage` and S3-compatible backend (`STORAGE_BACKEND=s3`, `boto3` required).
 - **Tenancy (Noosphere)**: `noosphere/noosphere/tenancy.py` introduces `TenantContext`; SQLModel store tables do **not** yet enforce `organization_id` on every row (next migration tranche).
@@ -242,9 +242,9 @@ The PyQt dashboard (`dialectic/dialectic/dashboard.py`) can run **Theseus** as a
 - Per-session JSONL: `session_<timestamp>_interventions.jsonl` under `DialecticConfig.recordings_dir`.
 - Reflection bundle for founder review: `session_<timestamp>_reflection.json` (written on stop).
 
-### Founder Portal
+### Theseus Codex
 
-Set `DIALECTIC_REFLECTIONS_DIR` to the directory containing those `*_reflection.json` files, then open `https://<portal>/sessions/<session_id>/reflection` (same stem as the filename without `_reflection.json`).
+Set `DIALECTIC_REFLECTIONS_DIR` to the directory containing those `*_reflection.json` files, then open `https://<codex>/sessions/<session_id>/reflection` (same stem as the filename without `_reflection.json`).
 
 ### TTS
 
@@ -256,7 +256,7 @@ Review the reflection page within **24 hours** of any non-silent session; track 
 
 ## Public knowledge output (SP10)
 
-The firm’s public “published mind” is intentionally **not** a blog or social feed. It is a **structured, versioned, citable** surface built from **PublishedConclusion** snapshots, with an internal **PublicationReview** gate in the Founder Portal.
+The firm’s public “published mind” is intentionally **not** a blog or social feed. It is a **structured, versioned, citable** surface built from **PublishedConclusion** snapshots, with an internal **PublicationReview** gate in the Theseus Codex.
 
 ### Publication policy (internal)
 
@@ -270,14 +270,14 @@ The firm’s public “published mind” is intentionally **not** a blog or soci
 
 ### Export → static site
 
-1. In the Founder Portal, use **`GET /api/publication/export`** (authenticated) to download the `theseus.publishedExport.v1` JSON bundle.
+1. In the Theseus Codex, use **`GET /api/publication/export`** (authenticated) to download the `theseus.publishedExport.v1` JSON bundle.
 2. Copy/replace `theseus-public/content/published.json` with that bundle (or automate the copy as part of your deploy pipeline).
 3. Build the static site: `npm run build` in `theseus-public/` (this runs `scripts/write-feeds.mjs` to emit `public/feed.xml` and `public/atom.xml`).
 4. Serve `theseus-public/out/` from a CDN. Reads should be static; writes remain on the portal APIs.
 
 ### Zenodo / DOI minting
 
-Set `THESEUS_ZENODO_TOKEN` on the Founder Portal server environment used for publishing. Without a token, the publisher stores a **preview DOI** string for pipeline testing (not a registered DOI). Set `THESEUS_PUBLIC_SITE_URL` so generated citation blocks point at the real public origin.
+Set `THESEUS_ZENODO_TOKEN` on the Theseus Codex server environment used for publishing. Without a token, the publisher stores a **preview DOI** string for pipeline testing (not a registered DOI). Set `THESEUS_PUBLIC_SITE_URL` so generated citation blocks point at the real public origin.
 
 ### Structured responses (moderation)
 
