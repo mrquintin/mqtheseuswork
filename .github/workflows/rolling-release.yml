@@ -24,11 +24,15 @@ jobs:
 
   publish:
     needs: [build-dialectic, build-noosphere, build-founder-portal]
+    # Run publish even if some builds failed, so we release whatever succeeded.
+    # This way a failing app build doesn't block releases for the other apps.
+    if: ${{ always() && !cancelled() }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
       - uses: actions/download-artifact@v4
+        continue-on-error: true
         with:
           path: artifacts
 
