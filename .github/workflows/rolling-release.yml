@@ -64,8 +64,17 @@ jobs:
           pick_first 'artifacts/noosphere-macos/noosphere-*-macos.tar.gz' noosphere-macos.tar.gz
           pick_first 'artifacts/noosphere-windows/Noosphere-Setup.exe' Noosphere-Setup.exe
 
-          # Founder Portal
-          pick_first 'artifacts/founder-portal-macos/*.dmg' Theseus-Founder-Portal.dmg
+          # Founder Portal (electron-builder produces arm64 and x64 DMGs
+          # separately; expose both but alias the arm64 build as the primary
+          # Theseus-Founder-Portal.dmg for the default download link).
+          pick_first 'artifacts/founder-portal-macos/*arm64*.dmg' Theseus-Founder-Portal-arm64.dmg
+          pick_first 'artifacts/founder-portal-macos/*x64*.dmg' Theseus-Founder-Portal-x64.dmg
+          if [ -f release/Theseus-Founder-Portal-arm64.dmg ]; then
+            cp release/Theseus-Founder-Portal-arm64.dmg release/Theseus-Founder-Portal.dmg
+            echo "Aliased: Theseus-Founder-Portal.dmg → arm64 build"
+          elif ls artifacts/founder-portal-macos/*.dmg >/dev/null 2>&1; then
+            pick_first 'artifacts/founder-portal-macos/*.dmg' Theseus-Founder-Portal.dmg
+          fi
           pick_first 'artifacts/founder-portal-windows/*.exe' Theseus-Founder-Portal-Setup.exe
 
           echo ""
