@@ -280,23 +280,55 @@ echo ""
 echo "Release page: https://github.com/mrquintin/mqtheseuswork/releases/tag/latest-main"
 
 # ──────────────────────────────────────────────────────────────────────────────
+# Verify the Theseus Codex website link in README.md still resolves. The URL
+# in the README is Vercel's stable production alias and auto-repoints to the
+# latest deploy — but if someone ever renames the Vercel project or adds a
+# custom domain, the hardcoded README string will drift from reality. A quick
+# HEAD request here catches that.
+# ──────────────────────────────────────────────────────────────────────────────
+codex_url=""
+codex_status="unchecked"
+if [ -f README.md ] && command -v curl >/dev/null 2>&1; then
+  # First URL on a line that mentions "Theseus Codex" (the web-app section),
+  # or fall back to any *.vercel.app URL in the README. Using `head -n1` so
+  # we only hit one link — enough signal to detect drift without flooding.
+  codex_url=$(grep -oE 'https://[A-Za-z0-9.-]+\.vercel\.app[^ )"]*' README.md 2>/dev/null | head -n1 || true)
+  if [ -n "$codex_url" ]; then
+    http_status=$(curl -sS -o /dev/null -w '%{http_code}' -L --max-time 15 "$codex_url" 2>/dev/null || echo "000")
+    if [ "$http_status" = "200" ]; then
+      codex_status="200 ($codex_url)"
+    else
+      codex_status="BROKEN ($http_status for $codex_url)"
+    fi
+  fi
+fi
+
+# ──────────────────────────────────────────────────────────────────────────────
 # Final completion banner. Color and wording reflect what actually succeeded:
 #   - All installers present   → green SYNC COMPLETE
 #   - Some installers missing  → yellow SYNC PARTIAL
 #   - Zero installers present  → red SYNC FAILED (code pushed, builds broken)
+# README link verification adds an extra line so stale URLs are caught early.
 # ──────────────────────────────────────────────────────────────────────────────
 summary_line="Installers: ${ok_count}/${total_expected} OK"
 [ "$missing_count" -gt 0 ] && summary_line="${summary_line} · ${missing_count} missing"
 release_line="Release: https://github.com/mrquintin/mqtheseuswork/releases/tag/latest-main"
 push_line="Pushed commit ${pushed_sha:0:7} to origin/$branch"
+codex_line="Codex URL: $codex_status"
 
-if [ "$ok_count" -eq "$total_expected" ]; then
-  banner_success "$push_line" "$summary_line" "$release_line"
+codex_broken=0
+case "$codex_status" in BROKEN*) codex_broken=1 ;; esac
+
+if [ "$ok_count" -eq "$total_expected" ] && [ "$codex_broken" = 0 ]; then
+  banner_success "$push_line" "$summary_line" "$release_line" "$codex_line"
 elif [ "$ok_count" -eq 0 ]; then
-  banner_failed  "$push_line" "$summary_line" "$release_line" \
+  banner_failed  "$push_line" "$summary_line" "$release_line" "$codex_line" \
     "All installers are missing — check the CI logs."
+elif [ "$codex_broken" = 1 ]; then
+  banner_partial "$push_line" "$summary_line" "$release_line" "$codex_line" \
+    "README's Codex URL didn't return 200. Verify in Vercel dashboard and update README.md if needed."
 else
-  banner_partial "$push_line" "$summary_line" "$release_line"
+  banner_partial "$push_line" "$summary_line" "$release_line" "$codex_line"
 fi
 
 # Success path — override the default-failure EXIT trap so it doesn't fire.

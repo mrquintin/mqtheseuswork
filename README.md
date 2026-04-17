@@ -19,6 +19,8 @@ The **Theseus Codex** is a web application, not a downloadable installer. Access
 
 > **→ [https://mqtheseuswork-qiw6.vercel.app](https://mqtheseuswork-qiw6.vercel.app)**
 
+**New here?** Read the [**Theseus Codex User Guide (PDF)**](docs/Theseus_Codex_User_Guide.pdf) — 10 pages, covers every page, the underlying data pipeline, and four concrete workflows. The same PDF is linked from the **Help** button in the app's top nav.
+
 Contact the admin for founder credentials. Every push to `main` auto-redeploys via Vercel; the Postgres backend lives on Supabase. To run the Codex locally for development, see `theseus-codex/README.md`. For the full deployment runbook (Supabase + Vercel setup, environment variables, troubleshooting), see `docs/Vercel_Supabase_Deploy.md`.
 
 ---

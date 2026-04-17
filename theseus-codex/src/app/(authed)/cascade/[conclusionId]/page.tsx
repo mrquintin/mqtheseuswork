@@ -1,5 +1,6 @@
 import { redirect } from "next/navigation";
 import { getFounder } from "@/lib/auth";
+import CascadeTree3D from "@/components/CascadeTree3DClient";
 import {
   fetchCascade,
   toCSV,
@@ -76,34 +77,70 @@ export default async function CascadeExplorerPage({
 
       {flat.length === 0 ? (
         <div className="portal-card" style={{ padding: "1rem 1.25rem", color: "var(--parchment-dim)" }}>
-          No cascade nodes found for this conclusion.
+          <em>Cascade vacua.</em> No cascade nodes found for this conclusion.
         </div>
       ) : (
-        <ul style={{ listStyle: "none", padding: 0, margin: 0, display: "flex", flexDirection: "column", gap: "0.25rem" }}>
-          {flat.map((node) => (
-            <li
-              key={node.id}
-              className="portal-card"
+        <>
+          <CascadeTree3D
+            nodes={flat.map((n) => ({
+              id: n.id,
+              label: n.label.length > 40 ? n.label.slice(0, 38) + "…" : n.label,
+              depth: n.depth,
+              parentId: n.parentId ?? null,
+              weight: n.confidence,
+            }))}
+          />
+          <details style={{ marginTop: "1.25rem" }}>
+            <summary
+              className="mono"
               style={{
-                padding: "0.6rem 1rem",
-                marginLeft: `${node.depth * 1.5}rem`,
-                borderLeft: node.depth > 0 ? "2px solid var(--gold-dim)" : "none",
+                cursor: "pointer",
+                fontSize: "0.7rem",
+                letterSpacing: "0.12em",
+                textTransform: "uppercase",
+                color: "var(--amber-dim)",
+                padding: "0.5rem 0",
               }}
             >
-              <div style={{ display: "flex", justifyContent: "space-between", gap: "0.5rem" }}>
-                <span style={{ fontSize: "0.7rem", color: "var(--gold-dim)", textTransform: "uppercase" }}>
-                  {node.kind}
-                </span>
-                <span style={{ fontSize: "0.65rem", color: "var(--parchment-dim)" }}>
-                  confidence {(node.confidence * 100).toFixed(0)}%
-                </span>
-              </div>
-              <p style={{ marginTop: "0.25rem", color: "var(--parchment)", fontSize: "0.85rem" }}>
-                {node.label}
-              </p>
-            </li>
-          ))}
-        </ul>
+              ╚══ listed form ═══
+            </summary>
+            <ul
+              style={{
+                listStyle: "none",
+                padding: 0,
+                marginTop: "0.5rem",
+                display: "flex",
+                flexDirection: "column",
+                gap: "0.25rem",
+              }}
+            >
+              {flat.map((node) => (
+                <li
+                  key={node.id}
+                  className="portal-card"
+                  style={{
+                    padding: "0.6rem 1rem",
+                    marginLeft: `${node.depth * 1.5}rem`,
+                    borderLeft:
+                      node.depth > 0 ? "2px solid var(--gold-dim)" : "none",
+                  }}
+                >
+                  <div style={{ display: "flex", justifyContent: "space-between", gap: "0.5rem" }}>
+                    <span style={{ fontSize: "0.7rem", color: "var(--gold-dim)", textTransform: "uppercase" }}>
+                      {node.kind}
+                    </span>
+                    <span style={{ fontSize: "0.65rem", color: "var(--parchment-dim)" }}>
+                      confidence {(node.confidence * 100).toFixed(0)}%
+                    </span>
+                  </div>
+                  <p style={{ marginTop: "0.25rem", color: "var(--parchment)", fontSize: "0.85rem" }}>
+                    {node.label}
+                  </p>
+                </li>
+              ))}
+            </ul>
+          </details>
+        </>
       )}
     </main>
   );

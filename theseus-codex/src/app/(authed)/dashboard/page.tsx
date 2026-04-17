@@ -1,4 +1,5 @@
 import Link from "next/link";
+import DashboardPulse from "@/components/DashboardPulseClient";
 import { db } from "@/lib/db";
 import { requireTenantContext } from "@/lib/tenant";
 
@@ -38,135 +39,220 @@ export default async function DashboardPage() {
   };
 
   return (
-    <main style={{ maxWidth: "1000px", margin: "0 auto", padding: "3rem 2rem" }}>
+    <main style={{ padding: "2rem 0" }}>
       <div
         style={{
-          display: "flex",
-          justifyContent: "space-between",
-          alignItems: "center",
-          marginBottom: "2rem",
+          borderTop: "1px solid var(--border)",
+          borderBottom: "1px solid var(--border)",
+          background:
+            "radial-gradient(ellipse at center, rgba(233,163,56,0.04) 0%, transparent 70%)",
+          margin: "0 0 1.5rem",
+          padding: "0.5rem 0",
         }}
       >
-        <div>
-          <h1
-            style={{
-              fontFamily: "'Cinzel', serif",
-              fontSize: "1.5rem",
-              letterSpacing: "0.1em",
-              color: "var(--gold)",
-            }}
-          >
-            At a glance
-          </h1>
-          <p
-            style={{
-              fontFamily: "'Inter', sans-serif",
-              fontSize: "0.7rem",
-              letterSpacing: "0.08em",
-              textTransform: "uppercase",
-              color: "var(--parchment-dim)",
-            }}
-          >
-            Recent activity across the portal store
-          </p>
-        </div>
-        <Link href="/upload" className="btn-solid btn">
-          Upload
-        </Link>
+        <DashboardPulse cols={100} rows={14} />
       </div>
-
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "2rem" }}>
-        <section>
-          <h2
-            style={{
-              fontFamily: "'Cinzel', serif",
-              fontSize: "0.85rem",
-              letterSpacing: "0.12em",
-              textTransform: "uppercase",
-              color: "var(--parchment-dim)",
-              marginBottom: "1rem",
-            }}
-          >
-            Recent uploads
-          </h2>
-          <div style={{ display: "flex", flexDirection: "column", gap: "0.5rem" }}>
-            {uploads.length === 0 ? (
-              <p style={{ color: "var(--parchment-dim)" }}>No uploads yet.</p>
-            ) : (
-              uploads.map((u) => (
-                <div key={u.id} className="portal-card" style={{ padding: "1rem" }}>
-                  <div style={{ display: "flex", justifyContent: "space-between", gap: "1rem" }}>
-                    <div>
-                      <div style={{ fontFamily: "'EB Garamond', serif", color: "var(--parchment)" }}>
-                        {u.title}
-                      </div>
-                      <div style={{ fontSize: "0.7rem", color: "var(--parchment-dim)", marginTop: "0.25rem" }}>
-                        {u.founder.name} · {new Date(u.createdAt).toLocaleString()}
-                      </div>
-                    </div>
-                    <span className={statusBadge(u.status)}>{u.status}</span>
-                  </div>
-                </div>
-              ))
-            )}
-          </div>
-        </section>
-
-        <section>
-          <h2
-            style={{
-              fontFamily: "'Cinzel', serif",
-              fontSize: "0.85rem",
-              letterSpacing: "0.12em",
-              textTransform: "uppercase",
-              color: "var(--parchment-dim)",
-              marginBottom: "1rem",
-            }}
-          >
-            New conclusions
-          </h2>
-          <div style={{ display: "flex", flexDirection: "column", gap: "0.5rem" }}>
-            {conclusions.map((c) => (
-              <div key={c.id} className="portal-card" style={{ padding: "1rem" }}>
-                <div style={{ fontSize: "0.65rem", color: "var(--gold-dim)", textTransform: "uppercase" }}>
-                  {c.confidenceTier} · {c.topicHint || "general"}
-                </div>
-                <p style={{ marginTop: "0.35rem", fontSize: "0.9rem", color: "var(--parchment)" }}>{c.text}</p>
-              </div>
-            ))}
-          </div>
-        </section>
-      </div>
-
-      <section style={{ marginTop: "2.5rem" }}>
-        <h2
+      <div style={{ maxWidth: "1100px", margin: "0 auto", padding: "0 2rem" }}>
+        <div
           style={{
-            fontFamily: "'Cinzel', serif",
-            fontSize: "0.85rem",
-            letterSpacing: "0.12em",
-            textTransform: "uppercase",
-            color: "var(--parchment-dim)",
-            marginBottom: "1rem",
+            display: "flex",
+            justifyContent: "flex-end",
+            alignItems: "center",
+            marginBottom: "1.5rem",
           }}
         >
-          Recent drift events
-        </h2>
-        <div style={{ display: "flex", flexDirection: "column", gap: "0.5rem" }}>
-          {drifts.map((d) => (
-            <div key={d.id} className="portal-card" style={{ padding: "1rem" }}>
-              <div style={{ fontSize: "0.75rem", color: "var(--ember)" }}>
-                score {(d.driftScore * 100).toFixed(0)}% · {d.targetKind} {d.targetId.slice(0, 8)}…
-              </div>
-              <p style={{ marginTop: "0.35rem", fontSize: "0.85rem", color: "var(--parchment-dim)" }}>
-                {d.naturalLanguageSummary || d.notes || "—"}
-              </p>
-              <div style={{ fontSize: "0.65rem", color: "var(--parchment-dim)", marginTop: "0.25rem" }}>
-                {new Date(d.observedAt).toLocaleDateString()}
-              </div>
-            </div>
-          ))}
+          <Link href="/upload" className="btn-solid btn">
+            Upload
+          </Link>
         </div>
-      </section>
+
+        <div
+          style={{
+            display: "grid",
+            gridTemplateColumns: "1fr 1fr",
+            gap: "1.5rem",
+          }}
+        >
+          <section className="ascii-frame" data-label={`UPLOADS · ${toRoman(uploads.length) || "0"}`}>
+            <div style={{ display: "flex", flexDirection: "column", gap: "0.5rem" }}>
+              {uploads.length === 0 ? (
+                <LatinEmpty
+                  latin="Scriba exspectat."
+                  english="The scribe awaits — nothing uploaded yet."
+                />
+              ) : (
+                uploads.map((u) => (
+                  <div key={u.id} className="portal-card" style={{ padding: "0.9rem 1rem" }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", gap: "1rem", alignItems: "flex-start" }}>
+                      <div style={{ minWidth: 0 }}>
+                        <div
+                          style={{
+                            fontFamily: "'EB Garamond', serif",
+                            color: "var(--parchment)",
+                            overflow: "hidden",
+                            textOverflow: "ellipsis",
+                            whiteSpace: "nowrap",
+                          }}
+                        >
+                          {u.title}
+                        </div>
+                        <div
+                          className="mono"
+                          style={{
+                            fontSize: "0.65rem",
+                            color: "var(--parchment-dim)",
+                            marginTop: "0.25rem",
+                          }}
+                        >
+                          {u.founder.name} · {new Date(u.createdAt).toLocaleDateString()}
+                        </div>
+                      </div>
+                      <span className={statusBadge(u.status)}>{u.status}</span>
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+          </section>
+
+          <section className="ascii-frame" data-label={`CONCLUSIONS · ${toRoman(conclusions.length) || "0"}`}>
+            <div style={{ display: "flex", flexDirection: "column", gap: "0.5rem" }}>
+              {conclusions.length === 0 ? (
+                <LatinEmpty
+                  latin="Adhuc nihil firmandum."
+                  english="Nothing yet for the firm to affirm."
+                />
+              ) : (
+                conclusions.map((c) => (
+                  <div key={c.id} className="portal-card" style={{ padding: "0.9rem 1rem" }}>
+                    <div
+                      className="mono"
+                      style={{
+                        fontSize: "0.6rem",
+                        color: "var(--amber-dim)",
+                        textTransform: "uppercase",
+                        letterSpacing: "0.12em",
+                      }}
+                    >
+                      {c.confidenceTier} · {c.topicHint || "general"}
+                    </div>
+                    <p
+                      style={{
+                        marginTop: "0.4rem",
+                        fontSize: "0.95rem",
+                        color: "var(--parchment)",
+                        lineHeight: 1.5,
+                      }}
+                    >
+                      {c.text}
+                    </p>
+                  </div>
+                ))
+              )}
+            </div>
+          </section>
+        </div>
+
+        <div className="meander" aria-hidden="true" />
+
+        <section
+          className="ascii-frame"
+          data-label={`DRIFT EVENTS · ${toRoman(drifts.length) || "0"}`}
+          style={{ marginTop: "0.5rem" }}
+        >
+          {drifts.length === 0 ? (
+            <LatinEmpty
+              latin="Fundamenta firma."
+              english="No drift observed — the foundations are firm."
+            />
+          ) : (
+            <div style={{ display: "flex", flexDirection: "column", gap: "0.5rem" }}>
+              {drifts.map((d) => (
+                <div key={d.id} className="portal-card" style={{ padding: "0.9rem 1rem" }}>
+                  <div className="mono" style={{ fontSize: "0.72rem", color: "var(--ember)" }}>
+                    score {(d.driftScore * 100).toFixed(0)}% · {d.targetKind}{" "}
+                    {d.targetId.slice(0, 8)}…
+                  </div>
+                  <p
+                    style={{
+                      marginTop: "0.35rem",
+                      fontSize: "0.9rem",
+                      color: "var(--parchment-dim)",
+                      lineHeight: 1.5,
+                    }}
+                  >
+                    {d.naturalLanguageSummary || d.notes || "—"}
+                  </p>
+                  <div
+                    className="mono"
+                    style={{
+                      fontSize: "0.6rem",
+                      color: "var(--parchment-dim)",
+                      marginTop: "0.3rem",
+                    }}
+                  >
+                    {new Date(d.observedAt).toLocaleDateString()}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </section>
+      </div>
     </main>
   );
+}
+
+/** Inline Latin empty state. Used inside ascii-frame sections so the frame
+ *  stays populated (rather than collapsing to a lonely label). Shown as
+ *  italic Latin phrase with an English gloss underneath in a dimmer color. */
+function LatinEmpty({ latin, english }: { latin: string; english: string }) {
+  return (
+    <div style={{ padding: "1rem 0.25rem", textAlign: "center" }}>
+      <p
+        style={{
+          fontFamily: "'EB Garamond', serif",
+          fontStyle: "italic",
+          fontSize: "1rem",
+          color: "var(--parchment)",
+          margin: 0,
+        }}
+      >
+        {latin}
+      </p>
+      <p
+        className="mono"
+        style={{
+          fontSize: "0.7rem",
+          color: "var(--parchment-dim)",
+          marginTop: "0.25rem",
+        }}
+      >
+        {english}
+      </p>
+    </div>
+  );
+}
+
+/** Convert a small positive integer to Roman numerals (for display accents).
+ *  Only called with counts from DB queries capped at ~12, so this doesn't
+ *  need to handle huge numbers correctly. Returns empty string for 0. */
+function toRoman(n: number): string {
+  if (!n || n < 1) return "";
+  const table: [number, string][] = [
+    [10, "X"],
+    [9, "IX"],
+    [5, "V"],
+    [4, "IV"],
+    [1, "I"],
+  ];
+  let out = "";
+  let rem = n;
+  for (const [v, s] of table) {
+    while (rem >= v) {
+      out += s;
+      rem -= v;
+    }
+  }
+  return out;
 }

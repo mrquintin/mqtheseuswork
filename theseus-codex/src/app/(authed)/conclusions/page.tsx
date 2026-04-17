@@ -71,13 +71,11 @@ export default async function ConclusionsPage({
   });
 
   return (
-    <main style={{ maxWidth: "960px", margin: "0 auto", padding: "3rem 2rem" }}>
+    <main style={{ padding: "2rem 0" }}>
+      <div style={{ maxWidth: "960px", margin: "0 auto", padding: "0 2rem" }}>
       <Suspense fallback={null}>
         <TemporalReplayBar />
       </Suspense>
-      <h1 style={{ fontFamily: "'Cinzel', serif", color: "var(--gold)", letterSpacing: "0.08em" }}>
-        Conclusions
-      </h1>
       <p style={{ color: "var(--parchment-dim)", marginBottom: "0.75rem", fontSize: "0.9rem" }}>
         Quick filters:
       </p>
@@ -106,18 +104,24 @@ export default async function ConclusionsPage({
       <ul style={{ listStyle: "none", padding: 0, margin: 0, display: "flex", flexDirection: "column", gap: "0.75rem" }}>
         {rows.map((c) => (
           <li key={c.id} className="portal-card" style={{ padding: "1rem 1.25rem" }}>
-            <div style={{ fontSize: "0.65rem", color: "var(--gold-dim)", textTransform: "uppercase" }}>
-              {c.confidenceTier}
-              {c.topicHint ? ` · ${c.topicHint}` : ""}
-              {c.attributedFounder ? ` · ${c.attributedFounder.name}` : ""}
-            </div>
-            <p style={{ marginTop: "0.5rem", color: "var(--parchment)" }}>{c.text}</p>
-            {c.rationale && (
-              <p style={{ marginTop: "0.35rem", fontSize: "0.8rem", color: "var(--parchment-dim)" }}>{c.rationale}</p>
-            )}
+            <Link
+              href={`/conclusions/${c.id}`}
+              style={{ textDecoration: "none", color: "inherit", display: "block" }}
+            >
+              <div style={{ fontSize: "0.65rem", color: "var(--gold-dim)", textTransform: "uppercase" }}>
+                {c.confidenceTier}
+                {c.topicHint ? ` · ${c.topicHint}` : ""}
+                {c.attributedFounder ? ` · ${c.attributedFounder.name}` : ""}
+              </div>
+              <p style={{ marginTop: "0.5rem", color: "var(--parchment)" }}>{c.text}</p>
+              {c.rationale && (
+                <p style={{ marginTop: "0.35rem", fontSize: "0.8rem", color: "var(--parchment-dim)" }}>{c.rationale}</p>
+              )}
+            </Link>
           </li>
         ))}
       </ul>
+      </div>
     </main>
   );
 }

@@ -29,9 +29,13 @@ export function middleware(request: NextRequest) {
 
   const raw = request.cookies.get(SESSION_COOKIE)?.value;
   if (!raw || !raw.includes(".")) {
-    const login = new URL("/login", request.url);
-    login.searchParams.set("next", pathname);
-    return NextResponse.redirect(login);
+    // Redirect unauthenticated requests to the Gate at `/` (which is the
+    // single sign-in surface). The original path is preserved as `?next=`
+    // so we can send the user to where they were heading after they sign
+    // in. `/login` is still a valid URL (forwards to `/`) for bookmarks.
+    const gate = new URL("/", request.url);
+    gate.searchParams.set("next", pathname);
+    return NextResponse.redirect(gate);
   }
 
   return NextResponse.next();

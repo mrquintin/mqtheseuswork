@@ -1,5 +1,6 @@
 import { Suspense } from "react";
 import TemporalReplayBar from "@/components/TemporalReplayBar";
+import CoherenceRadar from "@/components/CoherenceRadarClient";
 import { db } from "@/lib/db";
 import { AS_OF_ISO, asOfEndUtc } from "@/lib/replayDate";
 
@@ -10,6 +11,32 @@ function prettyJsonOrRaw(s: string): string {
     return JSON.stringify(JSON.parse(s), null, 2);
   } catch {
     return s;
+  }
+}
+
+// The six layers that the radar visualises, in the order the radar expects.
+// Each entry names: [Prisma-side field prefix on sixLayerJson, display]. The
+// Prisma column stores JSON like `{ s1_consistency: 0.2, ..., s6_llm_judge: 0.68 }`
+// matching the seed shape in `prisma/seed.ts`.
+const LAYER_KEYS = [
+  "s1_consistency",
+  "s2_argumentation",
+  "s3_probabilistic",
+  "s4_geometric",
+  "s5_compression",
+  "s6_llm_judge",
+] as const;
+
+function extractLayerValues(json: string | null): number[] {
+  if (!json) return new Array(6).fill(0);
+  try {
+    const parsed = JSON.parse(json) as Record<string, unknown>;
+    return LAYER_KEYS.map((k) => {
+      const v = parsed[k];
+      return typeof v === "number" && Number.isFinite(v) ? v : 0;
+    });
+  } catch {
+    return new Array(6).fill(0);
   }
 }
 
@@ -67,17 +94,33 @@ export default async function ContradictionsPage({
               <div style={{ padding: "0 1.25rem 1rem", fontSize: "0.8rem", color: "var(--parchment-dim)" }}>
                 {c.narrative && <p style={{ marginBottom: "0.5rem" }}>{c.narrative}</p>}
                 {c.sixLayerJson ? (
-                  <pre
+                  <div
                     style={{
-                      background: "#0d0d12",
-                      padding: "0.75rem",
-                      borderRadius: "6px",
-                      overflow: "auto",
-                      fontSize: "0.7rem",
+                      display: "grid",
+                      gridTemplateColumns: "240px 1fr",
+                      gap: "1.25rem",
+                      alignItems: "start",
                     }}
                   >
-                    {prettyJsonOrRaw(c.sixLayerJson)}
-                  </pre>
+                    <CoherenceRadar
+                      values={extractLayerValues(c.sixLayerJson)}
+                      size={220}
+                    />
+                    <pre
+                      style={{
+                        background: "var(--stone-mid)",
+                        padding: "0.75rem",
+                        borderRadius: 2,
+                        overflow: "auto",
+                        fontSize: "0.7rem",
+                        border: "1px solid var(--border)",
+                        color: "var(--parchment)",
+                        margin: 0,
+                      }}
+                    >
+                      {prettyJsonOrRaw(c.sixLayerJson)}
+                    </pre>
+                  </div>
                 ) : (
                   <p>No layer scores stored.</p>
                 )}

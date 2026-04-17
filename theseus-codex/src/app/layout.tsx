@@ -1,20 +1,12 @@
 import type { Metadata } from "next";
-import Link from "next/link";
 import "./globals.css";
+import CRTOverlay from "@/components/CRTOverlay";
 
 export const metadata: Metadata = {
   title: "Theseus Codex",
-  description: "Upload ideas, track methodology, build the communal brain.",
+  description:
+    "Upload ideas, track methodology, build the communal brain. A disciplined instrument for firms that want to converge on better beliefs.",
 };
-
-const ROUND3_NAV_LINKS = [
-  { href: "/provenance", label: "Provenance" },
-  { href: "/eval", label: "Eval" },
-  { href: "/post-mortem", label: "Post-Mortem" },
-  { href: "/decay", label: "Decay" },
-  { href: "/rigor-gate", label: "Rigor Gate" },
-  { href: "/methods", label: "Methods" },
-];
 
 export default function RootLayout({
   children,
@@ -35,46 +27,12 @@ export default function RootLayout({
           }}
         />
       </head>
-      <body>
-        <nav
-          aria-label="Round 3 features"
-          style={{
-            borderBottom: "1px solid var(--border)",
-            background: "var(--stone)",
-            padding: "0 1rem",
-          }}
-        >
-          <div
-            style={{
-              maxWidth: "1200px",
-              margin: "0 auto",
-              display: "flex",
-              alignItems: "center",
-              gap: "1rem 1.5rem",
-              flexWrap: "wrap",
-              minHeight: "32px",
-            }}
-          >
-            {ROUND3_NAV_LINKS.map((link) => (
-              <Link
-                key={link.href}
-                href={link.href}
-                style={{
-                  fontFamily: "'Cinzel', serif",
-                  fontSize: "0.6rem",
-                  letterSpacing: "0.12em",
-                  textTransform: "uppercase",
-                  color: "var(--parchment-dim)",
-                  textDecoration: "none",
-                  transition: "color 0.2s",
-                }}
-              >
-                {link.label}
-              </Link>
-            ))}
-          </div>
-        </nav>
+      <body className="crt-fade-in">
         {children}
+        {/* Sitewide scan-line + vignette overlay. Mounted last so it sits
+            above all content in the stacking order. Respects
+            prefers-reduced-motion internally. */}
+        <CRTOverlay />
       </body>
     </html>
   );
