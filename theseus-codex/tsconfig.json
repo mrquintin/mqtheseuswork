@@ -36,6 +36,9 @@
     ".next/dev/types/**/*.ts"
   ],
   "exclude": [
-    "node_modules"
+    "node_modules",
+    "src/__tests__/**",
+    "prisma/seed.ts",
+    "vitest.config.ts"
   ]
 }

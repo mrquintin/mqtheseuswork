@@ -1,6 +1,11 @@
 generator client {
   provider = "prisma-client-js"
-  output   = "../node_modules/.prisma/client"
+  // No custom `output` — Prisma 7 puts types alongside the runtime at
+  // `node_modules/.prisma/client` automatically when you leave this blank,
+  // and `@prisma/client` re-exports them. Explicitly setting
+  // `output = "../node_modules/.prisma/client"` used to work on Prisma 6
+  // but in Prisma 7 it only emits the WASM runtime (no .d.ts files),
+  // which breaks every `import { PrismaClient } from "@prisma/client"`.
 }
 
 // Postgres everywhere (Supabase / Neon / local Docker Postgres). Prisma bakes
