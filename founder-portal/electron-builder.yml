@@ -28,7 +28,7 @@ mac:
   icon: assets/icon.icns
   target:
     - target: dmg
-      arch: [universal]
+      arch: [arm64, x64]
   darkModeSupport: true
   hardenedRuntime: true
   gatekeeperAssess: false
@@ -66,5 +66,5 @@ nsis:
 
 publish:
   provider: github
-  owner: OWNER_PLACEHOLDER
-  repo: REPO_PLACEHOLDER
+  owner: mrquintin
+  repo: mqtheseuswork
