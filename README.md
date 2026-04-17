@@ -17,9 +17,9 @@ If a direct link returns 404, the latest CI run may still be in progress or that
 
 The **Theseus Codex** is a web application, not a downloadable installer. Access it in your browser:
 
-> **Hosted URL:** _coming soon_ — contact the admin for access and credentials.
+> **→ [https://mqtheseuswork-qiw6.vercel.app](https://mqtheseuswork-qiw6.vercel.app)**
 
-To run it locally for development, see `theseus-codex/README.md`.
+Contact the admin for founder credentials. Every push to `main` auto-redeploys via Vercel; the Postgres backend lives on Supabase. To run the Codex locally for development, see `theseus-codex/README.md`. For the full deployment runbook (Supabase + Vercel setup, environment variables, troubleshooting), see `docs/Vercel_Supabase_Deploy.md`.
 
 ---
 
