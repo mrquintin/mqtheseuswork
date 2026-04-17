@@ -1,0 +1,459 @@
+\documentclass[11pt,letterpaper]{article}
+
+\usepackage[margin=1in]{geometry}
+\usepackage[T1]{fontenc}
+\usepackage{lmodern}
+\usepackage{microtype}
+\usepackage{parskip}
+\usepackage{enumitem}
+\usepackage{booktabs}
+\usepackage{longtable}
+\usepackage{array}
+\usepackage{titlesec}
+\usepackage[hidelinks,colorlinks=true,linkcolor=black,urlcolor=black,citecolor=black]{hyperref}
+\usepackage{xcolor}
+\usepackage{fancyvrb}
+\usepackage{fancyhdr}
+\usepackage{listings}
+
+\titleformat{\section}{\Large\bfseries}{\thesection}{1em}{}
+\titleformat{\subsection}{\large\bfseries}{\thesubsection}{1em}{}
+\titleformat{\subsubsection}{\normalsize\bfseries}{\thesubsubsection}{1em}{}
+
+\pagestyle{fancy}
+\fancyhf{}
+\fancyhead[L]{\small Theseus --- Desktop Packaging Guide}
+\fancyhead[R]{\small\thepage}
+\renewcommand{\headrulewidth}{0.4pt}
+
+\setlength{\parindent}{0pt}
+
+\lstset{
+  basicstyle=\small\ttfamily,
+  breaklines=true,
+  frame=single,
+  backgroundcolor=\color{gray!8},
+  xleftmargin=1em,
+  framexleftmargin=0.5em,
+  columns=fullflexible,
+  keepspaces=true,
+  showstringspaces=false,
+  literate={~}{{\textasciitilde}}1,
+}
+
+\newcommand{\file}[1]{\texttt{#1}}
+\newcommand{\cmd}[1]{\texttt{#1}}
+
+\title{\textbf{Theseus}\\[4pt]\large Desktop Packaging Guide}
+\date{April 2026}
+\author{}
+
+\begin{document}
+
+\maketitle
+\thispagestyle{empty}
+
+\tableofcontents
+\newpage
+
+% =======================================================================
+\section{Overview}
+% =======================================================================
+
+Theseus ships three desktop applications: Dialectic (PyQt6 conversation analyzer), the Noosphere CLI (epistemic engine), and the Founder Portal (Electron-wrapped Next.js). Each is distributed as a standalone installer for macOS and Windows so end users do not need Python, Node.js, or any development toolchain installed.
+
+This guide covers how to build, sign, notarize, and package each application. It assumes you are working from a clean checkout of the Theseus monorepo on the target platform.
+
+\subsection{Architecture at a glance}
+
+\begin{table}[h]
+\small
+\begin{tabular}{p{3.2cm} p{3cm} p{4cm} p{4cm}}
+\toprule
+\textbf{Application} & \textbf{Packager} & \textbf{macOS output} & \textbf{Windows output} \\
+\midrule
+Dialectic           & PyInstaller    & \file{.app} in DMG          & \file{.exe} via NSIS installer \\
+Noosphere CLI       & PyInstaller    & \file{tar.gz} archive       & \file{.exe} via NSIS installer \\
+Founder Portal      & electron-builder & \file{.app} in DMG        & \file{.exe} via NSIS installer \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+% =======================================================================
+\section{Prerequisites}
+% =======================================================================
+
+\subsection{All platforms}
+
+\begin{itemize}[leftmargin=1.5em,itemsep=0.2em]
+  \item Git checkout of the Theseus monorepo.
+  \item Python 3.11+ with pip (for Dialectic and Noosphere).
+  \item Node.js 20+ with npm (for Founder Portal).
+  \item Pillow (Python) for icon generation: \cmd{pip install pillow}.
+\end{itemize}
+
+\subsection{macOS-specific}
+
+\begin{itemize}[leftmargin=1.5em,itemsep=0.2em]
+  \item Xcode Command Line Tools (\cmd{xcode-select --install}).
+  \item \cmd{create-dmg} (optional, installed via \cmd{brew install create-dmg}; the build script falls back to \cmd{hdiutil} if absent).
+  \item For code signing: an Apple Developer ID Application certificate in your Keychain, identified by its Common Name (e.g., \cmd{Developer ID Application: Theseus Inc (TEAMID)}).
+  \item For notarization: an Apple ID enrolled in the Apple Developer Program, with an app-specific password generated at \cmd{appleid.apple.com}.
+\end{itemize}
+
+\subsection{Windows-specific}
+
+\begin{itemize}[leftmargin=1.5em,itemsep=0.2em]
+  \item Windows SDK (provides \cmd{signtool.exe} for Authenticode signing).
+  \item NSIS 3.x (Nullsoft Scriptable Install System) --- download from \cmd{nsis.sourceforge.io} and ensure \cmd{makensis} is on PATH.
+  \item For code signing: a \file{.pfx} code signing certificate and its password.
+\end{itemize}
+
+% =======================================================================
+\section{Dialectic (PyQt6 desktop app)}
+% =======================================================================
+
+\subsection{Key files}
+
+\begin{table}[h]
+\small
+\begin{tabular}{p{5.5cm} p{9cm}}
+\toprule
+\textbf{File} & \textbf{Purpose} \\
+\midrule
+\file{dialectic/dialectic.spec}             & PyInstaller spec --- defines entry point, hidden imports, data bundles, exclusions, platform targets. \\
+\file{dialectic/dialectic/resources.py}     & Frozen-mode path resolver. Returns correct asset/data paths whether running from source or PyInstaller bundle. \\
+\file{dialectic/dialectic/updater.py}       & Background update checker. Polls a JSON manifest URL; notifies user in the Qt dashboard. \\
+\file{dialectic/scripts/generate\_icons.py} & Converts \file{assets/icon.png} to \file{.icns} (macOS) and \file{.ico} (Windows). \\
+\file{dialectic/scripts/build\_macos.sh}    & Full macOS build: icons, PyInstaller, DMG creation, optional signing and notarization. \\
+\file{dialectic/scripts/build\_windows.ps1} & Full Windows build: icons, PyInstaller. NSIS installer is a separate step. \\
+\file{dialectic/installer/dialectic.nsi}    & NSIS installer script: install directory, Start Menu shortcuts, Desktop shortcut, uninstaller, registry. \\
+\file{dialectic/installer/dmg-settings.json}& DMG layout: drag-to-Applications, icon positions, background color. \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Building on macOS}
+
+\begin{lstlisting}
+cd dialectic
+
+# 1. Install Python dependencies
+pip install -r requirements.txt
+pip install pyinstaller pillow
+
+# 2. Run the full build (icons + PyInstaller + DMG)
+bash scripts/build_macos.sh
+\end{lstlisting}
+
+The script performs these steps internally:
+\begin{enumerate}[leftmargin=1.5em,itemsep=0.1em]
+  \item Runs \file{generate\_icons.py} to produce \file{assets/Dialectic.icns}.
+  \item Invokes \cmd{pyinstaller dialectic.spec --noconfirm --clean}.
+  \item Reads the version from \file{pyproject.toml}.
+  \item Creates \file{dist/Dialectic-\{version\}.dmg} using \cmd{create-dmg} (with drag-to-Applications layout) or \cmd{hdiutil} as fallback.
+\end{enumerate}
+
+Output: \file{dialectic/dist/Dialectic.app} and \file{dialectic/dist/Dialectic-0.1.0.dmg}.
+
+\textbf{Signing and notarization.} The build script reads environment variables:
+\begin{lstlisting}
+export APPLE_SIGNING_IDENTITY="Developer ID Application: ..."
+export APPLE_ID="your@apple.id"
+export APPLE_TEAM_ID="TEAMID"
+export APPLE_APP_PASSWORD="xxxx-xxxx-xxxx-xxxx"
+
+bash scripts/build_macos.sh
+\end{lstlisting}
+
+If these are set, the script calls \file{scripts/codesign\_macos.sh} (deep-signs all binaries with hardened runtime) and \file{scripts/notarize\_macos.sh} (submits the DMG to Apple, waits up to 600s, staples the ticket). If the variables are absent, both steps are skipped with a warning and the build still succeeds unsigned.
+
+\subsection{Building on Windows}
+
+\begin{lstlisting}
+cd dialectic
+
+# 1. Install dependencies
+pip install -r requirements.txt
+pip install pyinstaller pillow
+
+# 2. Build with PyInstaller
+powershell -File scripts\build_windows.ps1
+
+# 3. Create the NSIS installer
+makensis installer\dialectic.nsi
+\end{lstlisting}
+
+Output: \file{dialectic\textbackslash dist\textbackslash Dialectic\textbackslash} (directory with \file{Dialectic.exe}) and \file{dialectic\textbackslash dist\textbackslash Dialectic-Setup.exe} (installer).
+
+The NSIS installer installs to \file{C:\textbackslash Program Files\textbackslash Theseus\textbackslash Dialectic}, creates Start Menu and Desktop shortcuts, registers an uninstaller in Windows Add/Remove Programs, and writes registry entries for display name, publisher, and icon.
+
+\textbf{Signing.} After building but before distribution:
+\begin{lstlisting}
+powershell -File ..\scripts\codesign_windows.ps1 `
+  -Target dist\Dialectic `
+  -CertPath C:\path\to\cert.pfx `
+  -CertPassword "your-password"
+\end{lstlisting}
+
+This signs every \file{.exe} and \file{.dll} in the output directory with SHA-256 and a DigiCert timestamp.
+
+\subsection{Bundle size and ML models}
+
+The Dialectic bundle is large (${\sim}$2--3\,GB) because it includes PyTorch, faster-whisper (CTranslate2), sentence-transformers, and their transitive native libraries. The PyInstaller spec uses single-directory mode (not single-file) because extracting a multi-gigabyte archive on every launch would be impractical.
+
+The spec excludes packages not needed at runtime: \cmd{tensorflow}, \cmd{tensorboard}, \cmd{jupyter}, \cmd{IPython}, \cmd{pytest}, and \cmd{matplotlib}. If bundle size becomes critical, the two largest contributors are PyTorch (${\sim}$800\,MB) and the CTranslate2 Whisper model (${\sim}$500\,MB). A future optimization could download models on first launch rather than bundling them.
+
+\subsection{Update mechanism}
+
+\file{dialectic/dialectic/updater.py} runs a background thread on application launch that fetches a JSON manifest from a configurable URL (default: \cmd{https://releases.theseus.co/dialectic/latest.json}). The manifest format is:
+\begin{lstlisting}
+{
+  "version": "0.2.0",
+  "download_url": "https://...",
+  "release_notes": "Bug fixes and ..."
+}
+\end{lstlisting}
+
+If the manifest version is newer than the running version, the callback notifies the user in the Qt dashboard. The check is non-blocking (10s timeout), daemon-threaded, and silently no-ops on network errors. There is no silent auto-install; the user must download and install manually. To host the manifest, place the JSON file at the configured URL and update it on each release.
+
+% =======================================================================
+\section{Noosphere CLI}
+% =======================================================================
+
+\subsection{Key files}
+
+\begin{table}[h]
+\small
+\begin{tabular}{p{5.8cm} p{8.7cm}}
+\toprule
+\textbf{File} & \textbf{Purpose} \\
+\midrule
+\file{noosphere/noosphere.spec}                 & PyInstaller spec for the CLI binary. \\
+\file{noosphere/noosphere/frozen\_support.py}   & Frozen-mode path resolver for bundle dir, data dir, Alembic dir. \\
+\file{noosphere/noosphere/updater.py}           & Background update checker with Rich terminal output. \\
+\file{noosphere/scripts/build\_macos.sh}        & macOS build: PyInstaller + tar.gz archive. \\
+\file{noosphere/scripts/build\_windows.ps1}     & Windows build: PyInstaller. \\
+\file{noosphere/installer/noosphere.nsi}        & NSIS installer: installs to Program Files and adds to PATH. \\
+\file{noosphere/scripts/build\_hooks/hook-noosphere.py} & PyInstaller runtime hook setting \cmd{NOOSPHERE\_FROZEN=1}. \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Building on macOS}
+
+\begin{lstlisting}
+cd noosphere
+pip install -r requirements.txt
+pip install pyinstaller
+bash scripts/build_macos.sh
+\end{lstlisting}
+
+Output: \file{noosphere/dist/noosphere-0.1.0-macos.tar.gz}. Users extract this archive and add the \file{noosphere/} directory to their PATH.
+
+Unlike Dialectic, the Noosphere CLI does not produce a \file{.app} bundle because it is a terminal tool, not a GUI application. A DMG option exists (\file{installer/dmg-settings.json} with a drag-to-\file{/usr/local/bin} layout) but the tar.gz is the primary distribution.
+
+Signing follows the same pattern as Dialectic: set \cmd{APPLE\_SIGNING\_IDENTITY} and the notarization variables, and the build script calls the shared signing scripts.
+
+\subsection{Building on Windows}
+
+\begin{lstlisting}
+cd noosphere
+pip install -r requirements.txt
+pip install pyinstaller
+powershell -File scripts\build_windows.ps1
+makensis installer\noosphere.nsi
+\end{lstlisting}
+
+The NSIS installer adds the install directory to the system PATH so that \cmd{noosphere} is available from any terminal.
+
+\subsection{Alembic migrations in frozen mode}
+
+The spec bundles \file{alembic/} and \file{alembic.ini} as data files. The \file{frozen\_support.py} module provides \cmd{alembic\_dir()} and \cmd{alembic\_ini()} which resolve to the bundled copies when frozen. Any code that runs migrations must use these paths rather than assuming the working directory contains Alembic files.
+
+\subsection{Data directory}
+
+The frozen CLI writes user data (SQLite database, graph, embeddings, synthesis output) to a platform-specific directory:
+
+\begin{itemize}[leftmargin=1.5em,itemsep=0.1em]
+  \item macOS: \file{\textasciitilde/Library/Application Support/Noosphere}
+  \item Windows: \file{\%APPDATA\%\textbackslash Noosphere}
+  \item Linux: \file{\textasciitilde/.noosphere}
+\end{itemize}
+
+The \cmd{THESEUS\_DATA\_DIR} environment variable overrides this default. The directory is created automatically on first run.
+
+ML model weights (sentence-transformers, spaCy) are \textbf{not} bundled --- they are too large (${\sim}$2\,GB). On first run of any command that requires embeddings, the models download to the standard Hugging Face cache directory. Users behind firewalls must pre-download models or configure \cmd{HF\_HOME} to point to a local mirror.
+
+% =======================================================================
+\section{Founder Portal (Electron)}
+% =======================================================================
+
+\subsection{Key files}
+
+\begin{table}[h]
+\small
+\begin{tabular}{p{6cm} p{8.5cm}}
+\toprule
+\textbf{File} & \textbf{Purpose} \\
+\midrule
+\file{founder-portal/desktop/main.ts}          & Electron main process: lifecycle, window, migrations. \\
+\file{founder-portal/desktop/next-server.ts}    & Starts the Next.js standalone server as a child process. \\
+\file{founder-portal/desktop/db-path.ts}        & Resolves SQLite database to platform app-data directory. \\
+\file{founder-portal/desktop/preload.ts}        & Context bridge (platform info, deep-link IPC). \\
+\file{founder-portal/desktop/updater.ts}        & \cmd{electron-updater} integration for auto-update. \\
+\file{founder-portal/desktop/dev.ts}            & Dev mode: starts Next.js dev server + Electron. \\
+\file{founder-portal/electron-builder.yml}      & Build config: DMG, NSIS, signing, notarization, publish. \\
+\file{founder-portal/assets/entitlements.mac.plist} & macOS entitlements for hardened runtime. \\
+\file{founder-portal/scripts/generate\_icons.js}    & Generates \file{.icns} and \file{.ico} from source PNG. \\
+\file{founder-portal/scripts/build\_desktop\_macos.sh} & Full macOS desktop build. \\
+\file{founder-portal/scripts/build\_desktop\_windows.ps1} & Full Windows desktop build. \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{How the Electron wrapper works}
+
+The Electron main process performs this startup sequence:
+
+\begin{enumerate}[leftmargin=1.5em,itemsep=0.1em]
+  \item Acquires a single-instance lock (prevents duplicate launches).
+  \item Resolves the SQLite database path via \file{db-path.ts}: \file{userData/data/founder-portal.db} (platform-specific --- \file{\textasciitilde/Library/Application Support/Theseus Founder Portal/} on macOS, \file{\%APPDATA\%/Theseus Founder Portal/} on Windows).
+  \item If the database file does not exist (first launch), runs Prisma migrations or copies a pre-migrated seed database.
+  \item Calls \file{next-server.ts} which \cmd{fork}s the Next.js standalone \file{server.js} on a free port (starting from 3000). The function polls the port with exponential backoff (max 30s timeout) to confirm the server is ready.
+  \item Creates a \cmd{BrowserWindow} (1400$\times$900, min 1024$\times$700, context isolation enabled, node integration disabled, \cmd{titleBarStyle: hiddenInset} on macOS).
+  \item Loads \cmd{http://127.0.0.1:\{port\}}.
+  \item Intercepts external link navigation and opens in the system browser.
+  \item Initializes the auto-updater (wrapped in try/catch so missing GitHub Release config does not crash the app).
+\end{enumerate}
+
+On quit, the main process sends SIGTERM to the Next.js child process, waits 5s, then SIGKILL if it has not exited.
+
+\subsection{Building on macOS}
+
+\begin{lstlisting}
+cd founder-portal
+npm ci
+bash scripts/build_desktop_macos.sh
+\end{lstlisting}
+
+The script runs: icon generation, \cmd{npm run build} (Next.js), TypeScript compilation of the \file{desktop/} modules, and \cmd{electron-builder --mac --config electron-builder.yml}.
+
+Output: \file{founder-portal/dist-electron/Theseus Founder Portal-\{version\}.dmg}.
+
+\textbf{Code signing.} electron-builder handles signing automatically when these environment variables are set:
+\begin{lstlisting}
+export CSC_LINK="/path/to/cert.p12"     # or base64-encoded
+export CSC_KEY_PASSWORD="cert-password"
+\end{lstlisting}
+
+The \file{electron-builder.yml} specifies \cmd{hardenedRuntime: true} and references \file{assets/entitlements.mac.plist} which grants JIT execution, unsigned executable memory (required by V8), dynamic linker environment variables, network client access, and user-selected file read/write.
+
+\textbf{Notarization.} electron-builder submits to Apple automatically when the following are also set:
+\begin{lstlisting}
+export APPLE_ID="your@apple.id"
+export APPLE_ID_PASSWORD="app-specific-password"
+export APPLE_TEAM_ID="TEAMID"
+\end{lstlisting}
+
+\subsection{Building on Windows}
+
+\begin{lstlisting}
+cd founder-portal
+npm ci
+powershell -File scripts\build_desktop_windows.ps1
+\end{lstlisting}
+
+Output: \file{founder-portal\textbackslash dist-electron\textbackslash Theseus Founder Portal Setup \{version\}.exe}.
+
+\textbf{Code signing.} Set environment variables before building:
+\begin{lstlisting}
+$env:WIN_CSC_LINK = "C:\path\to\cert.pfx"
+$env:WIN_CSC_KEY_PASSWORD = "cert-password"
+\end{lstlisting}
+
+electron-builder signs the executable and the NSIS installer wrapper automatically.
+
+\subsection{Auto-update}
+
+The Founder Portal uses \cmd{electron-updater} for automatic updates via GitHub Releases. The \file{electron-builder.yml} contains a \cmd{publish} block:
+\begin{lstlisting}
+publish:
+  provider: github
+  owner: OWNER_PLACEHOLDER
+  repo: REPO_PLACEHOLDER
+\end{lstlisting}
+
+Replace the placeholders with the actual GitHub repository coordinates. When a new release is published (by the CI/CD release workflow or manually), electron-updater detects it on the next launch, downloads the update in the background, and prompts the user to restart. The update flow is: check $\to$ download $\to$ dialog (``Restart'' / ``Later'') $\to$ quit-and-install on confirm.
+
+The updater is initialized in \file{desktop/main.ts} after the window loads, wrapped in try/catch. If the publish config is not set or the GitHub token is missing, the updater silently fails without affecting app functionality.
+
+\subsection{Development workflow}
+
+For local iteration without building a full package:
+\begin{lstlisting}
+cd founder-portal
+npm ci
+npm run desktop:dev
+\end{lstlisting}
+
+This runs \file{desktop/dev.ts}, which starts the Next.js dev server on port 3000 (with hot reload), waits for it to be ready, then launches Electron pointing at \cmd{localhost:3000}. Changes to Next.js pages and components are reflected immediately; changes to \file{desktop/*.ts} require restarting the command.
+
+% =======================================================================
+\section{Shared signing infrastructure}
+% =======================================================================
+
+Three scripts in the repository root \file{scripts/} directory provide signing capabilities shared by all applications. Each is designed for both local use and CI integration: they accept credentials via arguments or environment variables, and exit 0 with a warning when credentials are not provided.
+
+\subsection{macOS code signing}
+
+\file{scripts/codesign\_macos.sh} deep-signs a \file{.app} bundle or PyInstaller output directory:
+
+\begin{enumerate}[leftmargin=1.5em,itemsep=0.1em]
+  \item Finds all nested binaries (\file{.dylib}, \file{.so}, executables) via \cmd{find}.
+  \item Signs each with \cmd{codesign --force --options runtime --timestamp --sign \$IDENTITY}.
+  \item Signs the top-level target with \cmd{--deep}.
+  \item Verifies with \cmd{codesign --verify --deep --strict}.
+\end{enumerate}
+
+Usage: \cmd{bash scripts/codesign\_macos.sh <path> <identity>}. Pass \cmd{skip} as the identity to skip signing.
+
+\subsection{macOS notarization}
+
+\file{scripts/notarize\_macos.sh} submits a DMG, ZIP, or app bundle to Apple:
+
+\begin{enumerate}[leftmargin=1.5em,itemsep=0.1em]
+  \item Calls \cmd{xcrun notarytool submit} with Apple ID, Team ID, and app-specific password.
+  \item Waits up to 600 seconds for Apple to process.
+  \item Staples the ticket to the artifact via \cmd{xcrun stapler staple}.
+\end{enumerate}
+
+Usage: \cmd{bash scripts/notarize\_macos.sh <artifact> <apple-id> <team-id> <password>}. Skips gracefully when any credential is empty.
+
+\subsection{Windows Authenticode signing}
+
+\file{scripts/codesign\_windows.ps1} signs all executables and DLLs in a target directory:
+
+\begin{enumerate}[leftmargin=1.5em,itemsep=0.1em]
+  \item Locates \cmd{signtool.exe} from the Windows SDK installation.
+  \item Iterates over all \file{.exe} and \file{.dll} files recursively.
+  \item Signs each with SHA-256 digest and DigiCert timestamp server.
+\end{enumerate}
+
+Usage: \cmd{.\textbackslash scripts\textbackslash codesign\_windows.ps1 -Target <dir> -CertPath <pfx> -CertPassword <pw>}. Skips gracefully when the certificate path is empty or the file does not exist.
+
+% =======================================================================
+\section{Troubleshooting}
+% =======================================================================
+
+\textbf{PyInstaller ``hidden import'' errors.} If the built app crashes with \cmd{ModuleNotFoundError}, add the missing module to the \cmd{hiddenimports} list in the \file{.spec} file. Common culprits: \cmd{sklearn.utils.\_cython\_blas}, \cmd{scipy.special.\_cdflib}, \cmd{torch.\_C}. Run \cmd{pyinstaller --debug=imports} for a full import trace.
+
+\textbf{macOS notarization rejected.} Apple rejects binaries that are not signed with hardened runtime or that contain unsigned nested binaries. Ensure the \file{codesign\_macos.sh} script runs \emph{before} creating the DMG, and that every \file{.dylib} inside the bundle is individually signed. Check rejection details with \cmd{xcrun notarytool log <submission-id>}.
+
+\textbf{Electron builder fails on native modules.} \cmd{better-sqlite3} is a native Node module that must be rebuilt for Electron's Node version. electron-builder handles this via \cmd{electronRebuild}, but if it fails, run \cmd{npx electron-rebuild -f -w better-sqlite3} manually before building.
+
+\textbf{Windows NSIS ``file not found.''} The \file{.nsi} script references \file{..\textbackslash dist\textbackslash Dialectic\textbackslash *.*} --- ensure PyInstaller has been run first and the output is in \file{dist\textbackslash Dialectic\textbackslash}.
+
+\textbf{Bundle size too large.} The two largest contributors in Python bundles are PyTorch and CTranslate2. To reduce size: (a) use \cmd{torch} CPU-only builds (\cmd{pip install torch --index-url https://download.pytorch.org/whl/cpu}), (b) strip debug symbols (\cmd{strip -x} on macOS, \cmd{strip --strip-unneeded} on Linux), (c) exclude unused torch backends via spec \cmd{excludes}.
+
+\end{document}

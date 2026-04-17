@@ -1,14 +1,18 @@
 # Theseus
 
-> **[Latest Release](https://github.com/mrquintin/mqtheseuswork/releases/latest)**
+## Download installers
+
+**[→ Browse all downloads on the Releases page](https://github.com/mrquintin/mqtheseuswork/releases/latest)**
+
+Direct links (built fresh from `main` on every push):
 
 | Application | macOS | Windows |
 |---|---|---|
-| **Dialectic** — live conversation analyzer | [Dialectic `.dmg`](https://github.com/mrquintin/mqtheseuswork/releases/latest/download/Dialectic.dmg) | [Dialectic `.exe`](https://github.com/mrquintin/mqtheseuswork/releases/latest/download/Dialectic-Setup.exe) |
-| **Noosphere CLI** — epistemological engine | [Noosphere `.tar.gz`](https://github.com/mrquintin/mqtheseuswork/releases/latest/download/noosphere-macos.tar.gz) | [Noosphere `.exe`](https://github.com/mrquintin/mqtheseuswork/releases/latest/download/Noosphere-Setup.exe) |
-| **Founder Portal** — desktop control plane | [Founder Portal `.dmg`](https://github.com/mrquintin/mqtheseuswork/releases/latest/download/Theseus-Founder-Portal.dmg) | [Founder Portal `.exe`](https://github.com/mrquintin/mqtheseuswork/releases/latest/download/Theseus-Founder-Portal-Setup.exe) |
+| **Dialectic** — live conversation analyzer | [Dialectic.dmg](https://github.com/mrquintin/mqtheseuswork/releases/latest/download/Dialectic.dmg) | [Dialectic-Setup.exe](https://github.com/mrquintin/mqtheseuswork/releases/latest/download/Dialectic-Setup.exe) |
+| **Noosphere CLI** — epistemological engine | [noosphere-macos.tar.gz](https://github.com/mrquintin/mqtheseuswork/releases/latest/download/noosphere-macos.tar.gz) | [Noosphere-Setup.exe](https://github.com/mrquintin/mqtheseuswork/releases/latest/download/Noosphere-Setup.exe) |
+| **Founder Portal** — desktop control plane | [Theseus-Founder-Portal.dmg](https://github.com/mrquintin/mqtheseuswork/releases/latest/download/Theseus-Founder-Portal.dmg) | [Theseus-Founder-Portal-Setup.exe](https://github.com/mrquintin/mqtheseuswork/releases/latest/download/Theseus-Founder-Portal-Setup.exe) |
 
-> **Note:** Installers are attached to [GitHub Releases](https://github.com/mrquintin/mqtheseuswork/releases) and built automatically when a version tag (`v*`) is pushed. If the direct links above return 404, visit the [Releases page](https://github.com/mrquintin/mqtheseuswork/releases) and download from the latest draft release.
+If a direct link returns 404, the latest CI run may still be in progress or that specific installer failed to build — the [Releases page](https://github.com/mrquintin/mqtheseuswork/releases) always shows exactly which installers are currently available. Build status: [Actions](https://github.com/mrquintin/mqtheseuswork/actions/workflows/rolling-release.yml).
 
 ---
 

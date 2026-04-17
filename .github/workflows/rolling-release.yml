@@ -42,27 +42,33 @@ jobs:
       - name: Normalize installer filenames
         run: |
           mkdir -p release
+          pick_first() {
+            # $1 = glob, $2 = dest in release/
+            local match
+            match=$(ls -1 $1 2>/dev/null | head -n1 || true)
+            if [ -n "$match" ] && [ -f "$match" ]; then
+              cp "$match" "release/$2"
+              echo "Added: $2 (from $match)"
+            else
+              echo "Missing: $2 (no match for $1)"
+            fi
+          }
+
           # Dialectic
-          if ls artifacts/dialectic-macos/*.dmg >/dev/null 2>&1; then
-            cp "$(ls artifacts/dialectic-macos/*.dmg | head -n1)" release/Dialectic.dmg
-          fi
-          if ls artifacts/dialectic-windows/*.exe >/dev/null 2>&1; then
-            cp "$(ls artifacts/dialectic-windows/*.exe | head -n1)" release/Dialectic-Setup.exe
-          fi
+          pick_first 'artifacts/dialectic-macos/*.dmg' Dialectic.dmg
+          # NSIS installer is specifically Dialectic-Setup.exe; ignore the
+          # PyInstaller runtime exe inside dialectic-windows/Dialectic/.
+          pick_first 'artifacts/dialectic-windows/Dialectic-Setup.exe' Dialectic-Setup.exe
+
           # Noosphere
-          if ls artifacts/noosphere-macos/*.tar.gz >/dev/null 2>&1; then
-            cp "$(ls artifacts/noosphere-macos/*.tar.gz | head -n1)" release/noosphere-macos.tar.gz
-          fi
-          if ls artifacts/noosphere-windows/*.exe >/dev/null 2>&1; then
-            cp "$(ls artifacts/noosphere-windows/*.exe | head -n1)" release/Noosphere-Setup.exe
-          fi
+          pick_first 'artifacts/noosphere-macos/noosphere-*-macos.tar.gz' noosphere-macos.tar.gz
+          pick_first 'artifacts/noosphere-windows/Noosphere-Setup.exe' Noosphere-Setup.exe
+
           # Founder Portal
-          if ls artifacts/founder-portal-macos/*.dmg >/dev/null 2>&1; then
-            cp "$(ls artifacts/founder-portal-macos/*.dmg | head -n1)" release/Theseus-Founder-Portal.dmg
-          fi
-          if ls artifacts/founder-portal-windows/*.exe >/dev/null 2>&1; then
-            cp "$(ls artifacts/founder-portal-windows/*.exe | head -n1)" release/Theseus-Founder-Portal-Setup.exe
-          fi
+          pick_first 'artifacts/founder-portal-macos/*.dmg' Theseus-Founder-Portal.dmg
+          pick_first 'artifacts/founder-portal-windows/*.exe' Theseus-Founder-Portal-Setup.exe
+
+          echo ""
           echo "--- Release files ---"
           ls -la release/ || true
 
