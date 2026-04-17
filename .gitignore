@@ -71,3 +71,6 @@ reference/
 Screenshot *.png
 Screenshot *.jpg
 Screenshot *.jpeg
+
+# macOS Finder duplicate of theseus-codex (e.g. "theseus-codex 2", " 3")
+theseus-codex [0-9]*/
