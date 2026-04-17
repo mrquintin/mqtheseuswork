@@ -47,8 +47,11 @@ fi
 #   2. Local commits ahead of origin/<branch> (committed but not pushed)
 # If BOTH are absent, the repo is already fully synced — prompt before doing
 # anything so we don't burn CI minutes on an empty push.
+# Ignore submodule drift when deciding if the working tree is "changed":
+# the theseus-codex submodule is chronically marked modified (no .gitmodules
+# + its own .git dir), which would otherwise make this script always push.
 has_wt_changes=0
-if ! git diff --quiet HEAD 2>/dev/null; then has_wt_changes=1; fi
+if ! git diff --quiet --ignore-submodules=all HEAD 2>/dev/null; then has_wt_changes=1; fi
 if [ "$(git ls-files --others --exclude-standard 2>/dev/null)" ]; then has_wt_changes=1; fi
 
 # Refresh remote refs so "ahead of origin" is accurate. Quiet on offline/no-net.
