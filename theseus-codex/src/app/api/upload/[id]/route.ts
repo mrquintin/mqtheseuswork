@@ -14,7 +14,10 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
   const { id } = await params;
 
   const upload = await db.upload.findFirst({
-    where: { id, organizationId: founder.organizationId },
+    // `deletedAt: null` hides soft-deleted rows from the polling UI —
+    // the row still exists in the DB (for audit) but is no longer
+    // surfaced to any founder or the public blog.
+    where: { id, organizationId: founder.organizationId, deletedAt: null },
     select: {
       id: true,
       founderId: true,

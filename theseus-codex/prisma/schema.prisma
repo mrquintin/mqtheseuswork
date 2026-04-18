@@ -69,6 +69,7 @@ model Founder {
   sessions              Session[]
   uploads               Upload[]
   auditEvents           AuditEvent[]
+  deletionRequests      DeletionRequest[]
   attributedConclusions Conclusion[] @relation("ConclusionFounder")
   researchSuggestions   ResearchSuggestion[]
   reviewResolutions     ReviewItem[] @relation("ReviewResolver")
@@ -137,13 +138,61 @@ model Upload {
   blogExcerpt      String?
   authorBio        String?
 
-  founder      Founder      @relation(fields: [founderId], references: [id])
-  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
-  auditEvents  AuditEvent[]
+  // ── Soft delete ────────────────────────────────────────────────────
+  // `deletedAt` is the single source of truth for "this upload has
+  // been removed". Every query that surfaces uploads to the UI must
+  // filter by `deletedAt IS NULL`; we keep the row around so the audit
+  // trail (AuditEvent pointing at this upload) stays intact, and so a
+  // DB-level restore is possible if a deletion turns out to be a
+  // mistake. Only the uploader can set this directly; peers must go
+  // through a DeletionRequest, which the owner accepts (setting
+  // `deletedAt=now`) or declines.
+  deletedAt        DateTime?
+
+  founder          Founder           @relation(fields: [founderId], references: [id])
+  organization     Organization      @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  auditEvents      AuditEvent[]
+  deletionRequests DeletionRequest[]
 
   @@index([organizationId])
   @@index([founderId])
   @@index([publishedAt])
+  @@index([deletedAt])
+}
+
+// ── DeletionRequest ───────────────────────────────────────────────────
+// Peer-to-peer "please delete this" workflow. A founder who doesn't own
+// an upload but wants it removed opens a request against that upload;
+// the owner reviews it (accept → soft-delete the upload, decline → log
+// reason and keep). The requester can cancel their own request at any
+// time before the owner responds.
+//
+// Enforcement:
+//   * Requester.organizationId must equal Upload.organizationId (done
+//     at route-handler level, not schema — cross-org requests are
+//     structurally unreachable via UI anyway).
+//   * Requester.id MUST NOT equal Upload.founderId (an owner deletes
+//     their own upload directly via DELETE /api/uploads/:id; opening
+//     a request against yourself is noise).
+//   * At most one ACTIVE (status=pending) request per (upload, requester)
+//     pair — the unique partial-index is added in the migration SQL.
+
+model DeletionRequest {
+  id          String   @id @default(cuid())
+  uploadId    String
+  requesterId String
+  status      String   @default("pending") // pending | accepted | declined | cancelled
+  reason      String?
+  decision    String?  // optional note from the owner when accepting/declining
+  createdAt   DateTime @default(now())
+  respondedAt DateTime?
+
+  upload    Upload  @relation(fields: [uploadId], references: [id], onDelete: Cascade)
+  requester Founder @relation(fields: [requesterId], references: [id])
+
+  @@index([uploadId])
+  @@index([requesterId])
+  @@index([status])
 }
 
 // ── Conclusion — mirrors noosphere.models.Conclusion ───────────────────────

@@ -56,6 +56,7 @@ export async function POST(req: Request) {
         status: true,
         title: true,
         textContent: true,
+        deletedAt: true,
       },
     });
     if (!upload) {
@@ -63,6 +64,15 @@ export async function POST(req: Request) {
     }
     if (upload.organizationId !== founder.organizationId) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    }
+    if (upload.deletedAt) {
+      return NextResponse.json(
+        {
+          error:
+            "This upload has been deleted. Processing cannot be re-triggered.",
+        },
+        { status: 410 },
+      );
     }
 
     // A bare upload with no extracted text has nothing Noosphere can do

@@ -41,6 +41,9 @@ export default async function PublicBlogIndex() {
     where: {
       publishedAt: { not: null },
       slug: { not: null },
+      // Soft-deleted posts disappear from the public surface the same
+      // moment the owner (or an accepted DeletionRequest) flips the flag.
+      deletedAt: null,
     },
     orderBy: { publishedAt: "desc" },
     take: 50,

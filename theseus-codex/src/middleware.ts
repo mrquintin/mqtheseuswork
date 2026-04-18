@@ -13,6 +13,7 @@ const PROTECTED_PREFIXES = [
   "/research",
   "/open-questions",
   "/publication",
+  "/library",
   "/q/",
 ];
 
@@ -52,6 +53,7 @@ export const config = {
     "/research/:path*",
     "/open-questions/:path*",
     "/publication/:path*",
+    "/library/:path*",
     "/q/:path*",
   ],
 };

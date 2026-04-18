@@ -63,6 +63,7 @@ export async function POST(req: Request) {
         title: true,
         slug: true,
         publishedAt: true,
+        deletedAt: true,
       },
     });
     if (!existing) {
@@ -70,6 +71,15 @@ export async function POST(req: Request) {
     }
     if (existing.organizationId !== founder.organizationId) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    }
+    if (existing.deletedAt) {
+      return NextResponse.json(
+        {
+          error:
+            "This upload has been deleted; it cannot be published. Ask the owner to restore it via the database first.",
+        },
+        { status: 410 },
+      );
     }
 
     if (body.publish) {

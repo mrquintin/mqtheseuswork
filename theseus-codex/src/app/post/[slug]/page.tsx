@@ -36,7 +36,7 @@ export async function generateMetadata({
 }: PageProps): Promise<Metadata> {
   const { slug } = await params;
   const post = await db.upload.findFirst({
-    where: { slug, publishedAt: { not: null } },
+    where: { slug, publishedAt: { not: null }, deletedAt: null },
     select: { title: true, blogExcerpt: true, description: true, textContent: true },
   });
   if (!post) return { title: "Post not found · Theseus Codex" };
@@ -57,7 +57,9 @@ export default async function PostPage({ params }: PageProps) {
   const founder = await getFounder();
 
   const post = await db.upload.findFirst({
-    where: { slug, publishedAt: { not: null } },
+    // Soft-deleted posts 404 rather than render, so a shared link for
+    // a retracted post behaves the same as an unknown slug.
+    where: { slug, publishedAt: { not: null }, deletedAt: null },
     select: {
       id: true,
       title: true,

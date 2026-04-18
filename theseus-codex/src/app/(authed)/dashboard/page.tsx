@@ -23,10 +23,25 @@ export default async function DashboardPage() {
   }
 
   const uploads = await db.upload.findMany({
-    where: { organizationId: tenant.organizationId },
+    where: { organizationId: tenant.organizationId, deletedAt: null },
     orderBy: { createdAt: "desc" },
     take: 12,
     include: { founder: { select: { name: true } } },
+  });
+
+  // Inbox count for the current founder: how many pending deletion
+  // requests are waiting on them to accept/decline. Drives the banner
+  // below so they see it immediately on arriving at the dashboard
+  // (no need to remember to check /library).
+  const pendingRequestCount = await db.deletionRequest.count({
+    where: {
+      status: "pending",
+      upload: {
+        organizationId: tenant.organizationId,
+        founderId: tenant.founderId,
+        deletedAt: null,
+      },
+    },
   });
 
   const conclusions = await db.conclusion.findMany({
@@ -115,14 +130,65 @@ export default async function DashboardPage() {
 
         <AutoProcessStatusBanner />
 
+        {pendingRequestCount > 0 ? (
+          <Link
+            href="/library#requests"
+            style={{ textDecoration: "none", display: "block" }}
+          >
+            <div
+              className="portal-card"
+              style={{
+                border: "1px solid var(--amber)",
+                background:
+                  "linear-gradient(180deg, rgba(212,160,23,0.10), rgba(212,160,23,0.03))",
+                padding: "0.9rem 1.1rem",
+                marginBottom: "1.5rem",
+                display: "flex",
+                justifyContent: "space-between",
+                alignItems: "center",
+                gap: "1rem",
+                transition: "border-color 0.2s ease",
+              }}
+            >
+              <span
+                className="mono"
+                style={{
+                  color: "var(--amber)",
+                  fontSize: "0.62rem",
+                  letterSpacing: "0.28em",
+                  textTransform: "uppercase",
+                }}
+              >
+                ⚠ {pendingRequestCount} deletion request
+                {pendingRequestCount === 1 ? "" : "s"} awaiting your decision
+              </span>
+              <span
+                className="mono"
+                style={{
+                  color: "var(--amber-dim)",
+                  fontSize: "0.6rem",
+                  letterSpacing: "0.22em",
+                  textTransform: "uppercase",
+                }}
+              >
+                Review →
+              </span>
+            </div>
+          </Link>
+        ) : null}
+
         <div
           style={{
             display: "flex",
             justifyContent: "flex-end",
             alignItems: "center",
             marginBottom: "1.25rem",
+            gap: "0.75rem",
           }}
         >
+          <Link href="/library" className="btn">
+            Library
+          </Link>
           <Link href="/upload" className="btn-solid btn">
             Upload
           </Link>

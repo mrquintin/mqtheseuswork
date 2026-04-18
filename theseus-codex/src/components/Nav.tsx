@@ -23,10 +23,14 @@ import { SUB_NAV_GROUPS, findGroupForPath } from "./SubNav";
 const TOP_NAV_LINKS: ReadonlyArray<{ href: string; label: string }> = [
   { href: "/dashboard", label: "Dashboard" },
   { href: "/upload", label: "Upload" },
+  // "Library" is the org-wide transparency surface: everyone sees every
+  // upload + who put it there, with owner-only delete + peer-request
+  // delete flows. It sits next to Upload because the two are a pair
+  // ("what goes in" + "what is already in").
+  { href: "/library", label: "Library" },
   // `/ask` is the LLM-grounded query surface — the central value
   // proposition of the Codex (ask the oracle a question, get an answer
-  // grounded in the firm's recorded conclusions). Placed third so it
-  // sits between "what you put in" and "what the firm has distilled".
+  // grounded in the firm's recorded conclusions).
   { href: "/ask", label: "Ask" },
   { href: "/conclusions", label: "Conclusions" },
   // The three group entries below follow the SUB_NAV_GROUPS order;
