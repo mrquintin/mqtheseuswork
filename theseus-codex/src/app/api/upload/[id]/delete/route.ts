@@ -1,5 +1,5 @@
 /**
- * POST /api/uploads/:id/delete — OWNER-ONLY direct deletion.
+ * POST /api/upload/:id/delete — OWNER-ONLY direct deletion.
  *
  * The only path to soft-delete an upload without going through a
  * DeletionRequest. Rules:

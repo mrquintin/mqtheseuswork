@@ -131,7 +131,7 @@ export async function POST(req: Request) {
     return NextResponse.json(
       {
         error:
-          "You own this upload — delete it directly via POST /api/uploads/:id/delete instead of opening a request against yourself.",
+          "You own this upload — delete it directly via POST /api/upload/:id/delete instead of opening a request against yourself.",
       },
       { status: 400 },
     );

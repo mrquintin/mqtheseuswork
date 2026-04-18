@@ -144,7 +144,7 @@ export default function LibraryBrowser() {
       "",
     );
     if (reason === null) return; // cancelled
-    const res = await fetch(`/api/uploads/${uploadId}/delete`, {
+    const res = await fetch(`/api/upload/${uploadId}/delete`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ reason }),
