@@ -307,6 +307,39 @@ if [ -f README.md ] && command -v curl >/dev/null 2>&1; then
 fi
 
 # ──────────────────────────────────────────────────────────────────────────────
+# Also check whether Vercel's *most recent* deployment for our pushed commit
+# actually succeeded. The HTTP 200 check above only proves that SOME deploy
+# is live on the production alias — which is usually the last successful
+# one. If Vercel just tried to build the commit we pushed and failed (e.g.
+# type error, duplicate route), the alias keeps pointing at the old deploy,
+# the URL still returns 200, and the user has no idea their new code isn't
+# live. This extra check surfaces that silently-failing case explicitly.
+# ──────────────────────────────────────────────────────────────────────────────
+vercel_deploy_status="unchecked"
+if command -v gh >/dev/null 2>&1 && [ -n "${pushed_sha:-}" ]; then
+  vercel_deploy_id=$(gh api "repos/mrquintin/mqtheseuswork/deployments?sha=${pushed_sha}&environment=Production&per_page=1" --jq '.[0].id' 2>/dev/null || true)
+  if [ -n "$vercel_deploy_id" ] && [ "$vercel_deploy_id" != "null" ]; then
+    vercel_state=$(gh api "repos/mrquintin/mqtheseuswork/deployments/${vercel_deploy_id}/statuses" --jq '.[0].state' 2>/dev/null || true)
+    case "$vercel_state" in
+      success)
+        vercel_deploy_status="success"
+        ;;
+      failure|error)
+        vercel_deploy_status="FAILED — run 'gh api repos/mrquintin/mqtheseuswork/deployments/${vercel_deploy_id}/statuses' for details"
+        ;;
+      in_progress|queued|pending|"")
+        vercel_deploy_status="in-progress (check dashboard in a minute)"
+        ;;
+      *)
+        vercel_deploy_status="$vercel_state"
+        ;;
+    esac
+  else
+    vercel_deploy_status="no deployment found yet"
+  fi
+fi
+
+# ──────────────────────────────────────────────────────────────────────────────
 # Final completion banner. Color and wording reflect what actually succeeded:
 #   - All installers present   → green SYNC COMPLETE
 #   - Some installers missing  → yellow SYNC PARTIAL
@@ -318,20 +351,27 @@ summary_line="Installers: ${ok_count}/${total_expected} OK"
 release_line="Release: https://github.com/mrquintin/mqtheseuswork/releases/tag/latest-main"
 push_line="Pushed commit ${pushed_sha:0:7} to origin/$branch"
 codex_line="Codex URL: $codex_status"
+vercel_line="Vercel deploy: $vercel_deploy_status"
 
 codex_broken=0
 case "$codex_status" in BROKEN*) codex_broken=1 ;; esac
 
-if [ "$ok_count" -eq "$total_expected" ] && [ "$codex_broken" = 0 ]; then
-  banner_success "$push_line" "$summary_line" "$release_line" "$codex_line"
+vercel_broken=0
+case "$vercel_deploy_status" in FAILED*) vercel_broken=1 ;; esac
+
+if [ "$ok_count" -eq "$total_expected" ] && [ "$codex_broken" = 0 ] && [ "$vercel_broken" = 0 ]; then
+  banner_success "$push_line" "$summary_line" "$release_line" "$codex_line" "$vercel_line"
 elif [ "$ok_count" -eq 0 ]; then
-  banner_failed  "$push_line" "$summary_line" "$release_line" "$codex_line" \
+  banner_failed  "$push_line" "$summary_line" "$release_line" "$codex_line" "$vercel_line" \
     "All installers are missing — check the CI logs."
+elif [ "$vercel_broken" = 1 ]; then
+  banner_partial "$push_line" "$summary_line" "$release_line" "$codex_line" "$vercel_line" \
+    "Vercel couldn't build this commit. The live site is STALE — still showing the previous successful deploy. Check the Vercel dashboard and fix the build error."
 elif [ "$codex_broken" = 1 ]; then
-  banner_partial "$push_line" "$summary_line" "$release_line" "$codex_line" \
+  banner_partial "$push_line" "$summary_line" "$release_line" "$codex_line" "$vercel_line" \
     "README's Codex URL didn't return 200. Verify in Vercel dashboard and update README.md if needed."
 else
-  banner_partial "$push_line" "$summary_line" "$release_line" "$codex_line"
+  banner_partial "$push_line" "$summary_line" "$release_line" "$codex_line" "$vercel_line"
 fi
 
 # Success path — override the default-failure EXIT trap so it doesn't fire.
