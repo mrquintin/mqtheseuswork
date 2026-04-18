@@ -89,6 +89,121 @@ def synthesize_cmd() -> None:
 # ─────────────────────────────────────────────────────────────────────────────
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+# Codex authentication (login / logout / whoami)
+#
+# These are thin shells around `noosphere.auth` that make the CLI
+# self-contained: a fresh clone can run `noosphere login` and
+# immediately use `ingest-from-codex` without having to set any env
+# vars. The stored key lives at ~/.noosphere/credentials.json with
+# 0600 permissions.
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+@app.command("login")
+def login_cmd(
+    codex_url: Optional[str] = typer.Option(
+        None,
+        "--codex-url",
+        help="Override the Codex base URL (defaults to the bundled production URL).",
+    ),
+    organization_slug: Optional[str] = typer.Option(
+        None,
+        "--org",
+        help="Organization slug (defaults to 'theseus-local').",
+    ),
+    email: Optional[str] = typer.Option(
+        None,
+        "--email",
+        help="Email to sign in with. Prompted if omitted.",
+    ),
+) -> None:
+    """Sign in to the Codex and save a device API key.
+
+    Prompts for a passphrase on the terminal (via getpass). On success
+    writes ~/.noosphere/credentials.json — destructive Codex commands
+    (``ingest-from-codex``, ``codex-queued``) require this file.
+    """
+    configure_logging(json_format=False)
+    from noosphere.auth import AuthError, login_interactive
+
+    try:
+        creds = login_interactive(
+            codex_url=codex_url,
+            organization_slug=organization_slug,
+            email=email,
+        )
+    except AuthError as e:
+        typer.echo(f"Sign-in failed: {e}", err=True)
+        raise typer.Exit(code=2)
+    except KeyboardInterrupt:
+        typer.echo("\nSign-in cancelled.", err=True)
+        raise typer.Exit(code=130)
+
+    typer.echo(
+        f"Signed in as {creds.founder_name} ({creds.founder_email}) · "
+        f"{creds.codex_url} · key ›{creds.api_key[:14]}…‹"
+    )
+
+
+@app.command("logout")
+def logout_cmd() -> None:
+    """Clear the locally-stored Codex credentials."""
+    configure_logging(json_format=False)
+    from noosphere.auth import active, clear
+
+    existing = active()
+    clear()
+    if existing:
+        typer.echo(
+            f"Signed out · credentials for {existing.founder_email or existing.founder_name} removed."
+        )
+    else:
+        typer.echo("No credentials were stored.")
+
+
+@app.command("whoami")
+def whoami_cmd() -> None:
+    """Validate the current API key against /api/auth/whoami."""
+    configure_logging(json_format=True)
+    from noosphere.auth import AuthError, active, whoami
+
+    c = active()
+    if c is None:
+        typer.echo(
+            json.dumps(
+                {"ok": False, "error": "Not signed in. Run `noosphere login`."},
+                default=str,
+            ),
+            err=True,
+        )
+        raise typer.Exit(code=2)
+
+    try:
+        body = whoami(c)
+    except AuthError as e:
+        typer.echo(
+            json.dumps({"ok": False, "error": str(e)}, default=str),
+            err=True,
+        )
+        raise typer.Exit(code=2)
+
+    typer.echo(
+        json.dumps(
+            {
+                "ok": True,
+                "codex_url": c.codex_url,
+                "auth_method": body.get("authMethod", "api_key"),
+                "founder": body.get("founder", {}),
+                "organization_id": body.get("organizationId"),
+                "key_label": c.key_label,
+                "key_prefix": c.api_key[:14] + "…",
+            },
+            default=str,
+        )
+    )
+
+
 @app.command("ingest-from-codex")
 def ingest_from_codex_cmd(
     upload_id: str = typer.Option(
@@ -133,10 +248,19 @@ def ingest_from_codex_cmd(
     the extracted claims immediately.
 
     Example:
+        noosphere login  # one-time — prompts for your Codex credentials
         export DIRECT_URL='postgresql://postgres.<ref>:<pw>@aws-1-<region>.pooler.supabase.com:5432/postgres'
         python -m noosphere ingest-from-codex --upload-id cxxx123...
     """
     configure_logging(json_format=True)
+    # Gate on Codex auth: this command writes Conclusion / Contradiction
+    # rows into the shared database. We require a valid signed-in
+    # session so every mutation can be attributed to a real founder.
+    # Offline / transient whoami failures are tolerated so a flaky
+    # network can't stall an ingest mid-flight.
+    from noosphere.auth import require_auth
+    require_auth(action="ingest-from-codex")
+
     from noosphere.codex_bridge import ingest_from_codex
 
     try:
@@ -192,6 +316,13 @@ def codex_queued_cmd(
     ``ingest-from-codex --upload-id <id>``.
     """
     configure_logging(json_format=True)
+    # Same auth gate as ingest-from-codex — even a read surfaces the
+    # founder names / upload titles of the whole firm, so we want a
+    # real identity behind the query (and an AuditEvent trail via
+    # the Codex).
+    from noosphere.auth import require_auth
+    require_auth(action="codex-queued")
+
     from noosphere.codex_bridge import list_queued_uploads
 
     try:

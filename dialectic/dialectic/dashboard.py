@@ -1248,18 +1248,34 @@ class ThreePaneDialecticWindow(QMainWindow):
                 level="warn",
             )
 
-        # Cloud upload status
+        # Cloud upload status — surfaces both the configured/not state
+        # and, when configured, who we're signed in as. The credentials
+        # come from the login dialog at startup (stored in the OS
+        # application-support dir), so the founder always knows which
+        # account the session will be uploaded under.
         if cloud_is_configured():
-            self._log_alert(
-                "cloud    · DIALECTIC_CLOUD_URL + _API_KEY set — "
-                "sessions will auto-upload to the Codex on stop",
-                level="ok",
-            )
+            try:
+                from . import credentials as _c
+                active = _c.active()
+            except Exception:
+                active = None
+            if active and active.founder_email:
+                self._log_alert(
+                    f"cloud    · signed in as {active.founder_name or active.founder_email} "
+                    f"· {active.codex_url} — sessions auto-upload on stop",
+                    level="ok",
+                )
+            else:
+                self._log_alert(
+                    "cloud    · DIALECTIC_CLOUD_URL + _API_KEY set — "
+                    "sessions will auto-upload to the Codex on stop",
+                    level="ok",
+                )
         else:
             self._log_alert(
-                "cloud    · DIALECTIC_CLOUD_URL / _API_KEY not set — "
-                "sessions stay local. Set both env vars to auto-upload.",
-                level="info",
+                "cloud    · not signed in. Re-launch Dialectic to log "
+                "in and enable cloud upload.",
+                level="warn",
             )
 
         self._preflight_ok = critical_ok
@@ -1692,6 +1708,24 @@ def _schedule_update_check(window: QMainWindow) -> None:
         print(f"[dialectic] update check skipped: {e}", file=sys.stderr)
 
 
+def _apply_credentials_to_env(creds) -> None:
+    """Push stored credentials into the env vars the cloud uploader
+    already knows how to use.
+
+    `cloud_uploader._is_configured()` gates cloud upload on
+    DIALECTIC_CLOUD_URL + DIALECTIC_CLOUD_API_KEY. Rather than
+    refactor that to read credentials directly, we bridge here —
+    set the env vars for the process lifetime so every downstream
+    uploader call just works.
+    """
+    import os as _os
+
+    _os.environ["DIALECTIC_CLOUD_URL"] = creds.codex_url
+    _os.environ["DIALECTIC_CLOUD_API_KEY"] = creds.api_key
+    if creds.organization_slug:
+        _os.environ["DIALECTIC_ORGANIZATION_SLUG"] = creds.organization_slug
+
+
 def run_dashboard(
     config: DialecticConfig | None = None,
     *,
@@ -1699,8 +1733,38 @@ def run_dashboard(
     whisper_model: str | None = None,
     whisper_device: str | None = None,
 ) -> None:
-    """Launch Dialectic UI (three-pane + qasync by default)."""
+    """Launch Dialectic UI (three-pane + qasync by default).
+
+    Authentication is the first gate. We run the Codex login flow
+    BEFORE bringing up the heavy application window — if the user
+    cancels or has no session, we exit cleanly (no captured audio,
+    no orphaned processes). The login dialog is skipped when
+    `DIALECTIC_CLOUD_URL` + `DIALECTIC_CLOUD_API_KEY` env vars are
+    set (CI / script usage) or when a valid stored key exists.
+    """
     cfg = config or DialecticConfig()
+
+    # ── Pre-flight: ensure a single QApplication exists BEFORE we
+    #    try to open any dialog. PyQt explodes if a QDialog is
+    #    constructed with no QApplication in scope.
+    app = QApplication.instance() or QApplication(sys.argv)
+    app.setFont(QFont("Helvetica Neue", 10))
+
+    # ── Authentication gate ───────────────────────────────────────
+    # `ensure_authenticated` tries env → stored creds → login dialog.
+    # Returns None only when the user explicitly cancelled; in that
+    # case we exit the process rather than falling through to an
+    # unauthenticated main window.
+    from .login_dialog import ensure_authenticated
+
+    creds = ensure_authenticated()
+    if creds is None:
+        print(
+            "[dialectic] Sign-in cancelled. Exiting.",
+            file=sys.stderr,
+        )
+        sys.exit(0)
+    _apply_credentials_to_env(creds)
 
     # Auto-downgrade to legacy if the live-dashboard deps aren't available.
     # Previously this raised RuntimeError, which in a packaged .app means the
@@ -1716,15 +1780,11 @@ def run_dashboard(
         legacy = True
 
     if legacy:
-        app = QApplication.instance() or QApplication(sys.argv)
-        app.setFont(QFont("Helvetica Neue", 10))
         window = DialecticDashboard(cfg)
         window.show()
         _schedule_update_check(window)
         sys.exit(app.exec())
 
-    app = QApplication.instance() or QApplication(sys.argv)
-    app.setFont(QFont("Helvetica Neue", 10))
     loop = qasync.QEventLoop(app)
     asyncio.set_event_loop(loop)
     wm = whisper_model or cfg.transcription.whisper_model
