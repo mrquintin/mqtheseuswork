@@ -1,4 +1,4 @@
-import SculptureAscii from "@/components/SculptureAsciiClient";
+import SculptureBackdrop from "@/components/SculptureBackdropClient";
 import { db } from "@/lib/db";
 
 /**
@@ -18,27 +18,23 @@ export default async function OpenQuestionsPage() {
   });
 
   return (
-    <main style={{ maxWidth: "1080px", margin: "0 auto", padding: "2.75rem 2rem" }}>
-      <section
-        aria-hidden="true"
+    <div style={{ position: "relative", overflow: "hidden", minHeight: "80vh" }}>
+      <SculptureBackdrop
+        src="/sculptures/discobolus.mesh.bin"
+        side="left"
+        yawSpeed={0.022}
+      />
+
+      <main
         style={{
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
-          gap: "2rem",
-          flexWrap: "wrap",
-          marginBottom: "2.5rem",
+          position: "relative",
+          zIndex: 1,
+          maxWidth: "1080px",
+          margin: "0 auto",
+          padding: "2.75rem 2rem",
         }}
       >
-        <SculptureAscii
-          src="/sculptures/discobolus.mesh.bin"
-          cols={44}
-          rows={22}
-          yawSpeed={0.04}
-          pitch={-0.08}
-          ariaLabel="Discobolus — the discus thrower frozen mid-throw"
-        />
-        <div style={{ maxWidth: "360px" }}>
+        <header style={{ marginBottom: "2.5rem" }}>
           <h1
             style={{
               fontFamily: "'Cinzel Decorative', 'Cinzel', serif",
@@ -72,14 +68,14 @@ export default async function OpenQuestionsPage() {
               marginTop: "0.75rem",
               marginBottom: 0,
               lineHeight: 1.55,
+              maxWidth: "44em",
             }}
           >
             Doorways the firm has not yet walked through. Each row below is
             a pair of claims whose coherence layers disagreed — the disk
             still hangs in the air.
           </p>
-        </div>
-      </section>
+        </header>
 
       {rows.length === 0 ? (
         <div
@@ -194,6 +190,7 @@ export default async function OpenQuestionsPage() {
           })}
         </ul>
       )}
-    </main>
+      </main>
+    </div>
   );
 }

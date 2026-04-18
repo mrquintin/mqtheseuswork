@@ -1,23 +1,16 @@
 import Link from "next/link";
 import ConfidenceTierSigil from "@/components/ConfidenceTierSigil";
-import SculptureAscii from "@/components/SculptureAsciiClient";
+import SculptureBackdrop from "@/components/SculptureBackdropClient";
 import { db } from "@/lib/db";
 import { requireTenantContext } from "@/lib/tenant";
 
 /**
  * Dashboard — landing page after login.
  *
- * Visual hierarchy:
- *   1. A live amber ASCII Hercules rotating at the top of the page — the
- *      firm's signature figure, replacing the previous procedural brazier.
- *      At ~50 cols wide the figure is legible as Hercules specifically,
- *      not just "a statue".
- *   2. Labelled ascii-frame cards for uploads and conclusions. Each
- *      conclusion carries a confidence-tier sigil inline.
- *   3. Meander divider before the lower-priority drift-events ledger.
- *
- * Empty states use the `LatinEmpty` helper so a quiet Codex still feels
- * considered rather than broken.
+ * Patron sculpture: **Hercules (Louvre)**, rendered huge and dim on the
+ * right side of the page. A viewer sees Hercules and the UI content
+ * simultaneously — the strength and discipline of the firm, and its
+ * current intellectual metabolism.
  */
 
 export default async function DashboardPage() {
@@ -61,71 +54,68 @@ export default async function DashboardPage() {
   };
 
   return (
-    <main style={{ padding: "1.25rem 0 3rem" }}>
-      {/* ── Hercules band ─────────────────────────────────────────────────
-          Full-bleed dark band with the rotating sculpture centred. Latin
-          dedication + an activity-sensitive tagline underneath. Replaces
-          the earlier procedural brazier — a real scanned museum piece
-          reads as significantly more substantial as a landing visual. */}
-      <div
+    <div style={{ position: "relative", overflow: "hidden", minHeight: "80vh" }}>
+      <SculptureBackdrop src="/sculptures/hercules.mesh.bin" side="right" />
+
+      <main
         style={{
-          borderTop: "1px solid var(--border)",
-          borderBottom: "1px solid var(--border)",
-          background:
-            "radial-gradient(ellipse at center, rgba(233,163,56,0.08) 0%, rgba(233,163,56,0.02) 45%, transparent 85%)",
-          margin: "0 0 2rem",
-          padding: "1.5rem 0 1rem",
           position: "relative",
+          zIndex: 1,
+          maxWidth: "1100px",
+          margin: "0 auto",
+          padding: "2rem 2rem 3rem",
         }}
       >
-        <div style={{ display: "flex", justifyContent: "center" }}>
-          <SculptureAscii
-            src="/sculptures/hercules.mesh.bin"
-            cols={54}
-            rows={26}
-            yawSpeed={0.028}
-            pitch={-0.1}
-            ariaLabel="Hercules — the firm's signature figure, rotating in amber ASCII"
-          />
+        <div style={{ marginBottom: "1.5rem" }}>
+          <h1
+            style={{
+              fontFamily: "'Cinzel Decorative', 'Cinzel', serif",
+              fontSize: "2rem",
+              letterSpacing: "0.18em",
+              color: "var(--amber)",
+              textShadow: "var(--glow-md)",
+              margin: 0,
+            }}
+          >
+            Forum
+          </h1>
+          <p
+            className="mono"
+            style={{
+              fontSize: "0.62rem",
+              letterSpacing: "0.28em",
+              textTransform: "uppercase",
+              color: "var(--amber-dim)",
+              marginTop: "0.25rem",
+              marginBottom: 0,
+            }}
+          >
+            Hercules, Louvre · Fortitudine et disciplina
+          </p>
+          <p
+            style={{
+              fontFamily: "'EB Garamond', serif",
+              fontStyle: "italic",
+              fontSize: "1rem",
+              color: "var(--parchment-dim)",
+              marginTop: "0.45rem",
+              marginBottom: 0,
+              maxWidth: "44em",
+              lineHeight: 1.55,
+            }}
+          >
+            {activeUploads > 0
+              ? `${Math.ceil(activeUploads)} contribution${activeUploads > 1.5 ? "s" : ""} in motion.`
+              : "The labours rest; the firm listens."}
+          </p>
         </div>
-        <p
-          className="mono"
-          style={{
-            textAlign: "center",
-            fontSize: "0.6rem",
-            letterSpacing: "0.3em",
-            textTransform: "uppercase",
-            color: "var(--amber-dim)",
-            marginTop: "0.75rem",
-            marginBottom: 0,
-          }}
-        >
-          Hercules · Louvre · Fortitudine et disciplina
-        </p>
-        <p
-          style={{
-            textAlign: "center",
-            fontFamily: "'EB Garamond', serif",
-            fontStyle: "italic",
-            fontSize: "0.92rem",
-            color: "var(--parchment-dim)",
-            marginTop: "0.35rem",
-            marginBottom: 0,
-          }}
-        >
-          {activeUploads > 0
-            ? `${Math.ceil(activeUploads)} contribution${activeUploads > 1.5 ? "s" : ""} in motion.`
-            : "The labours rest; the firm listens."}
-        </p>
-      </div>
 
-      <div style={{ maxWidth: "1100px", margin: "0 auto", padding: "0 2rem" }}>
         <div
           style={{
             display: "flex",
             justifyContent: "flex-end",
             alignItems: "center",
-            marginBottom: "1.5rem",
+            marginBottom: "1.25rem",
           }}
         >
           <Link href="/upload" className="btn-solid btn">
@@ -290,8 +280,8 @@ export default async function DashboardPage() {
             </div>
           )}
         </section>
-      </div>
-    </main>
+      </main>
+    </div>
   );
 }
 

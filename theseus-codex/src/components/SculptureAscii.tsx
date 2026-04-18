@@ -45,6 +45,13 @@ export type SculptureAsciiProps = {
   scale?: number;
   /** Canvas color override — resolved via AsciiCanvas helpers. */
   color?: string;
+  /**
+   * Glyph-cell scale (passed through to AsciiCanvas). Values < 1 shrink
+   * the glyphs, giving finer detail at the same physical size — useful
+   * for large backdrop sculptures where facial features should be
+   * legible. Default 1.0.
+   */
+  cellScale?: number;
   ariaLabel?: string;
 };
 
@@ -138,6 +145,7 @@ export default function SculptureAscii({
   phase = 0,
   scale = 0.85,
   color = "var(--amber)",
+  cellScale = 1.0,
   ariaLabel = "Classical sculpture, rotating",
 }: SculptureAsciiProps) {
   const [meshState, setMeshState] = useState<{
@@ -404,6 +412,7 @@ export default function SculptureAscii({
       render={render}
       contrast={2.0}
       color={color}
+      cellScale={cellScale}
       paused={!meshState}
       ariaLabel={ariaLabel}
       style={{ display: "flex", justifyContent: "center" }}

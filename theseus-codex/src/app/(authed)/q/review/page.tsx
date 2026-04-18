@@ -1,4 +1,4 @@
-import SculptureAscii from "@/components/SculptureAsciiClient";
+import SculptureBackdrop from "@/components/SculptureBackdropClient";
 import { db } from "@/lib/db";
 import ReviewQueue from "./ReviewQueue";
 
@@ -9,31 +9,23 @@ export default async function ReviewQueuePage() {
   });
 
   return (
-    <main style={{ maxWidth: "1000px", margin: "0 auto", padding: "3rem 2rem" }}>
-      {/* Dying Gladiator — the Versailles scan. A wounded figure suspended
-          between fall and rest is a true picture of an unresolved review
-          item: the aggregator's verdict has already drawn blood and the
-          firm's judgement has not yet pronounced. */}
-      <section
-        aria-hidden="true"
+    <div style={{ position: "relative", overflow: "hidden", minHeight: "80vh" }}>
+      <SculptureBackdrop
+        src="/sculptures/dying-gladiator.mesh.bin"
+        side="right"
+        yawSpeed={0.015}
+      />
+
+      <main
         style={{
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
-          gap: "2rem",
-          flexWrap: "wrap",
-          marginBottom: "2rem",
+          position: "relative",
+          zIndex: 1,
+          maxWidth: "1000px",
+          margin: "0 auto",
+          padding: "3rem 2rem",
         }}
       >
-        <SculptureAscii
-          src="/sculptures/dying-gladiator.mesh.bin"
-          cols={44}
-          rows={22}
-          yawSpeed={0.022}
-          pitch={-0.05}
-          ariaLabel="The Dying Gladiator — Versailles scan, rendered as rotating ASCII"
-        />
-        <div style={{ maxWidth: "360px" }}>
+        <header style={{ marginBottom: "2rem" }}>
           <h1
             style={{
               fontFamily: "'Cinzel Decorative', 'Cinzel', serif",
@@ -67,6 +59,7 @@ export default async function ReviewQueuePage() {
               marginTop: "0.75rem",
               marginBottom: 0,
               lineHeight: 1.55,
+              maxWidth: "44em",
             }}
           >
             Disputed-layer items await your verdict. Confirming aligns with
@@ -74,9 +67,9 @@ export default async function ReviewQueuePage() {
             pair as human-labelled for calibration, and syncs to Noosphere
             when <code>NOOSPHERE_DATABASE_URL</code> is configured.
           </p>
-        </div>
-      </section>
-      <ReviewQueue items={items} />
-    </main>
+        </header>
+        <ReviewQueue items={items} />
+      </main>
+    </div>
   );
 }

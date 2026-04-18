@@ -2,7 +2,6 @@
 
 import { useState, useRef, useCallback } from "react";
 import { useRouter } from "next/navigation";
-import SculptureAscii from "./SculptureAsciiClient";
 
 const ACCEPTED_EXTENSIONS =
   ".txt,.md,.markdown,.pdf,.docx,.vtt,.jsonl,.mp3,.m4a,.wav,.webm,.ogg";
@@ -12,14 +11,9 @@ const ACCEPTED_EXTENSIONS =
  *
  * Visual
  * ------
- * Previously this page had a procedural ASCII "scroll" banner which was
- * clever but didn't read convincingly as a scroll. Replaced with the
- * second Discobolus scan (MSR variant) rotating in amber — a figure mid-
- * release, a direct visual echo of what the user is about to do (commit
- * a contribution). Latin tagline "Disce, iace" — learn, then throw.
- *
- * The dropzone below is a clean ascii-frame box, no ASCII art behind the
- * text; Liber Apertus / Sigillatum typography does the ceremony.
+ * The Discobolus now lives as a half-page backdrop (see UploadPage in
+ * app/(authed)/upload/page.tsx + SculptureBackdrop). This component is
+ * just the form itself; the patron sculpture is the room it sits in.
  *
  * Vercel-compat copy
  * ------------------
@@ -126,76 +120,59 @@ export default function UploadForm() {
   return (
     <main
       style={{
-        maxWidth: "820px",
-        margin: "0 auto",
-        padding: "2rem 2rem 3rem",
+        maxWidth: "680px",
+        // Offset the form to the right so it doesn't overlap the Discobolus
+        // backdrop sitting on the left. `marginLeft: auto` keeps it
+        // right-aligned within the page's centred column; on smaller
+        // viewports the `max-width: 900px` media query in
+        // SculptureBackdrop hides the sculpture, so auto-centring resumes.
+        margin: "2rem 2rem 3rem auto",
+        padding: "0 2rem",
       }}
     >
-      {/* ── Discobolus banner ────────────────────────────────────────────
-          The second (MSR) Discobolus scan, rotating. A figure poised
-          between preparation and release is the exact shape of the
-          action the user is about to take on this page. */}
-      <section
-        aria-hidden="true"
-        style={{
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
-          gap: "2rem",
-          flexWrap: "wrap",
-          marginBottom: "2rem",
-        }}
-      >
-        <SculptureAscii
-          src="/sculptures/discobolus-alt.mesh.bin"
-          cols={44}
-          rows={24}
-          yawSpeed={0.04}
-          pitch={-0.08}
-          ariaLabel="Discobolus — the discus thrower, rotating as amber ASCII"
-        />
-        <div style={{ maxWidth: "320px" }}>
-          <h1
-            style={{
-              fontFamily: "'Cinzel Decorative', 'Cinzel', serif",
-              fontSize: "1.8rem",
-              letterSpacing: "0.18em",
-              color: "var(--amber)",
-              textShadow: "var(--glow-md)",
-              margin: 0,
-            }}
-          >
-            Dedicatio
-          </h1>
-          <p
-            className="mono"
-            style={{
-              fontSize: "0.62rem",
-              letterSpacing: "0.28em",
-              textTransform: "uppercase",
-              color: "var(--amber-dim)",
-              marginTop: "0.25rem",
-            }}
-          >
-            Upload Contribution · Discobolus, MSR
-          </p>
-          <p
-            style={{
-              fontFamily: "'EB Garamond', serif",
-              fontStyle: "italic",
-              fontSize: "1rem",
-              color: "var(--parchment-dim)",
-              marginTop: "0.5rem",
-              marginBottom: 0,
-              lineHeight: 1.55,
-            }}
-          >
-            Commit a transcript, essay, or session. Markdown, plain text,
-            WebVTT, Dialectic JSONL, PDF, DOCX, and common audio formats
-            are accepted.
-          </p>
-        </div>
-      </section>
+      <header style={{ marginBottom: "2rem" }}>
+        <h1
+          style={{
+            fontFamily: "'Cinzel Decorative', 'Cinzel', serif",
+            fontSize: "1.8rem",
+            letterSpacing: "0.18em",
+            color: "var(--amber)",
+            textShadow: "var(--glow-md)",
+            margin: 0,
+          }}
+        >
+          Dedicatio
+        </h1>
+        <p
+          className="mono"
+          style={{
+            fontSize: "0.62rem",
+            letterSpacing: "0.28em",
+            textTransform: "uppercase",
+            color: "var(--amber-dim)",
+            marginTop: "0.25rem",
+            marginBottom: 0,
+          }}
+        >
+          Upload Contribution · Discobolus, MSR
+        </p>
+        <p
+          style={{
+            fontFamily: "'EB Garamond', serif",
+            fontStyle: "italic",
+            fontSize: "1rem",
+            color: "var(--parchment-dim)",
+            marginTop: "0.5rem",
+            marginBottom: 0,
+            lineHeight: 1.55,
+            maxWidth: "44em",
+          }}
+        >
+          Commit a transcript, essay, or session. Markdown, plain text,
+          WebVTT, Dialectic JSONL, PDF, DOCX, and common audio formats
+          are accepted.
+        </p>
+      </header>
 
       <form
         onSubmit={handleSubmit}

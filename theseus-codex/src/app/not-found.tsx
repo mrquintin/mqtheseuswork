@@ -2,11 +2,11 @@ import Link from "next/link";
 import SculptureAscii from "@/components/SculptureAsciiClient";
 
 /**
- * 404 page. Previously rendered a procedural broken-column "ruin"; the
- * Dying Gladiator reads far more affectingly as "you have walked off
- * the map". Framed differently from the same sculpture on the Review
- * Queue — slower rotation, deeper pitch, a reverent Latin pair. Same
- * mesh, different mood.
+ * 404 page. The Dying Gladiator is the central image — rendered at
+ * large size with a fine `cellScale` for detailed musculature. Unlike
+ * the other pages where the sculpture is a half-page *backdrop* behind
+ * content, the 404 is built AROUND the figure: he is the whole point
+ * of the page.
  */
 export default function NotFound() {
   return (
@@ -17,16 +17,18 @@ export default function NotFound() {
         flexDirection: "column",
         alignItems: "center",
         justifyContent: "center",
-        padding: "4rem 1.5rem",
+        padding: "2.5rem 1.5rem",
         textAlign: "center",
       }}
     >
       <SculptureAscii
         src="/sculptures/dying-gladiator.mesh.bin"
-        cols={62}
-        rows={26}
-        yawSpeed={0.018}
+        cols={104}
+        rows={40}
+        cellScale={0.58}
+        yawSpeed={0.014}
         pitch={-0.18}
+        scale={0.86}
         ariaLabel="The Dying Gladiator — Versailles, rendered as amber ASCII"
       />
 
@@ -37,7 +39,7 @@ export default function NotFound() {
           letterSpacing: "0.3em",
           textTransform: "uppercase",
           color: "var(--amber-dim)",
-          marginTop: "0.85rem",
+          marginTop: "1.25rem",
           marginBottom: 0,
         }}
       >

@@ -1,6 +1,6 @@
 import { Suspense } from "react";
 import TemporalReplayBar from "@/components/TemporalReplayBar";
-import SculptureAscii from "@/components/SculptureAsciiClient";
+import SculptureBackdrop from "@/components/SculptureBackdropClient";
 import { db } from "@/lib/db";
 import { AS_OF_ISO, asOfEndUtc } from "@/lib/replayDate";
 import { requireTenantContext } from "@/lib/tenant";
@@ -38,39 +38,31 @@ export default async function FoundersPage({
   });
 
   return (
-    <main style={{ maxWidth: "1000px", margin: "0 auto", padding: "3rem 2rem" }}>
-      <Suspense fallback={null}>
-        <TemporalReplayBar />
-      </Suspense>
-      {end ? (
-        <p style={{ color: "var(--ember)", fontSize: "0.85rem", marginBottom: "1rem" }}>
-          Replay: uploads listed per founder are those with <code>createdAt</code> ≤ end of {asOf} (UTC).
-        </p>
-      ) : null}
-      {/* Augustus Prima Porta — scanned from the SMK copy. The emperor's
-          arm extended in address, armour sculpted with the firm's own
-          story. Apt patron for a page about the people whose convictions
-          the Codex carries. */}
-      <section
-        aria-hidden="true"
+    <div style={{ position: "relative", overflow: "hidden", minHeight: "80vh" }}>
+      <SculptureBackdrop
+        src="/sculptures/augustus.mesh.bin"
+        side="left"
+        yawSpeed={0.01}
+      />
+
+      <main
         style={{
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
-          gap: "2rem",
-          flexWrap: "wrap",
-          marginBottom: "2.5rem",
+          position: "relative",
+          zIndex: 1,
+          maxWidth: "1000px",
+          margin: "0 auto",
+          padding: "3rem 2rem",
         }}
       >
-        <SculptureAscii
-          src="/sculptures/augustus.mesh.bin"
-          cols={40}
-          rows={24}
-          yawSpeed={0.02}
-          pitch={-0.08}
-          ariaLabel="Augustus Prima Porta — rendered from SMK scan as rotating ASCII"
-        />
-        <div style={{ maxWidth: "360px" }}>
+        <Suspense fallback={null}>
+          <TemporalReplayBar />
+        </Suspense>
+        {end ? (
+          <p style={{ color: "var(--ember)", fontSize: "0.85rem", marginBottom: "1rem" }}>
+            Replay: uploads listed per founder are those with <code>createdAt</code> ≤ end of {asOf} (UTC).
+          </p>
+        ) : null}
+        <header style={{ marginBottom: "2.5rem" }}>
           <h1
             style={{
               fontFamily: "'Cinzel Decorative', 'Cinzel', serif",
@@ -104,14 +96,14 @@ export default async function FoundersPage({
               marginTop: "0.75rem",
               marginBottom: 0,
               lineHeight: 1.55,
+              maxWidth: "44em",
             }}
           >
             Per-founder profiles and the upload-derived signals their
             contributions generate. The emperor stands here as a reminder:
             a firm&apos;s beliefs are traceable to the people who speak them.
           </p>
-        </div>
-      </section>
+        </header>
 
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))", gap: "1rem" }}>
         {allFounders.map((f) => {
@@ -245,6 +237,7 @@ export default async function FoundersPage({
           );
         })}
       </div>
-    </main>
+      </main>
+    </div>
   );
 }

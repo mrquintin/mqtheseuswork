@@ -59,6 +59,23 @@ export type AsciiCanvasProps = {
   contrast?: number;
   /** Pause the animation loop (saves battery). */
   paused?: boolean;
+  /**
+   * Scale applied to the rendered cell size. Default 1.0.
+   *
+   * - Values < 1 make glyphs physically smaller, which means MORE glyphs
+   *   fit into a given screen area — i.e. the sculpture has *finer
+   *   detail* at the same on-screen footprint. Good for large backdrop
+   *   renders where you want every facial feature legible.
+   * - Values > 1 make glyphs chunkier (fewer, bigger characters). Good
+   *   for decorative headers where readability at distance matters more
+   *   than fine detail.
+   *
+   * The shape-vector lookup table is built once at CELL_W×CELL_H and does
+   * not depend on this scale — the vectors are density ratios, which are
+   * scale-invariant. We only scale the output sampling positions + font
+   * size so the rendered glyphs line up with the scaled cells.
+   */
+  cellScale?: number;
   /** Accessibility label for screen readers. */
   ariaLabel?: string;
   className?: string;
@@ -141,6 +158,7 @@ export default function AsciiCanvas({
   background = "transparent",
   contrast = 1.6,
   paused = false,
+  cellScale = 1.0,
   ariaLabel,
   className,
   style,
@@ -159,8 +177,13 @@ export default function AsciiCanvas({
   const fillRef = useRef<string>("rgb(233, 163, 56)");
   const bgRef = useRef<string>("transparent");
 
-  const width = cols * CELL_W;
-  const height = rows * CELL_H;
+  // Output cell size — scaled copies of the canonical CELL_W / CELL_H.
+  // See the `cellScale` prop docstring for why we scale at render time
+  // rather than rebuilding the shape-vector table.
+  const cw = CELL_W * cellScale;
+  const ch = CELL_H * cellScale;
+  const width = cols * cw;
+  const height = rows * ch;
 
   // Build the shape-vector table once on mount, after fonts load.
   useEffect(() => {
@@ -247,7 +270,10 @@ export default function AsciiCanvas({
         outCtx.clearRect(0, 0, width, height);
       }
       outCtx.fillStyle = fillRef.current;
-      outCtx.font = `${Math.floor(CELL_H * 0.85)}px "IBM Plex Mono", monospace`;
+      // Font sized to the SCALED cell height so glyphs fit their scaled
+      // slots. This is what actually makes `cellScale < 1` produce fine
+      // detail — the output is a grid of many smaller characters.
+      outCtx.font = `${Math.max(4, Math.floor(ch * 0.85))}px "IBM Plex Mono", monospace`;
       outCtx.textBaseline = "middle";
       outCtx.textAlign = "center";
 
@@ -256,21 +282,25 @@ export default function AsciiCanvas({
         0, 0, 0, 0, 0, 0,
       ];
       for (let row = 0; row < rows; row++) {
-        const y0 = row * CELL_H;
+        const y0 = row * ch;
         for (let col = 0; col < cols; col++) {
-          const x0 = col * CELL_W;
+          const x0 = col * cw;
 
           for (let c = 0; c < 6; c++) {
-            const [cx, cy] = CIRCLE_CENTRES_PX[c];
+            // `CIRCLE_CENTRES_PX` is expressed against the canonical
+            // CELL_W / CELL_H; scale to the scaled cell so the sample
+            // positions land in the right fraction of the current cell.
+            const cx = CIRCLE_CENTRES_PX[c][0] * cellScale;
+            const cy = CIRCLE_CENTRES_PX[c][1] * cellScale;
             let acc = 0;
             for (const [ox, oy] of JITTER) {
               const sx = Math.min(
                 width - 1,
-                Math.max(0, Math.floor(x0 + cx + ox)),
+                Math.max(0, Math.floor(x0 + cx + ox * cellScale)),
               );
               const sy = Math.min(
                 height - 1,
-                Math.max(0, Math.floor(y0 + cy + oy)),
+                Math.max(0, Math.floor(y0 + cy + oy * cellScale)),
               );
               const idx = (sy * width + sx) * 4;
               acc += imageData[idx] / 255;
@@ -282,10 +312,10 @@ export default function AsciiCanvas({
             vec as ShapeVec,
             contrast,
           );
-          const ch = pickChar(enhanced, table);
+          const picked = pickChar(enhanced, table);
 
-          if (ch !== " ") {
-            outCtx.fillText(ch, x0 + CELL_W / 2, y0 + CELL_H / 2);
+          if (picked !== " ") {
+            outCtx.fillText(picked, x0 + cw / 2, y0 + ch / 2);
           }
         }
       }
@@ -296,7 +326,7 @@ export default function AsciiCanvas({
     // values are read from `fillRef` / `bgRef` at draw time. Including
     // them here would rebuild the callback every theme change (and
     // interrupt the animation frame loop needlessly).
-    [contrast, cols, rows, width, height],
+    [contrast, cols, rows, width, height, cw, ch, cellScale],
   );
 
   useEffect(() => {
