@@ -86,6 +86,7 @@ from .cloud_uploader import (
     is_configured as cloud_is_configured,
     upload_session_async,
 )
+from .updater import check_for_updates
 
 
 # ======================================================================
@@ -332,6 +333,7 @@ class DialecticDashboard(QMainWindow):
 
         self._interlocutor: InterlocutorController | None = None
         self._session_started_id: str = ""
+        self._session_writer = None  # SessionJSONLWriter | None (lazy import)
         self._audible_tts = False
         self._pending_intervention_id: str | None = None
 
@@ -570,6 +572,22 @@ class DialecticDashboard(QMainWindow):
             self._analyzer.start()
 
             self._session_started_id = f"session_{ts}"
+
+            # Open a session JSONL so every finalized transcript segment can
+            # be streamed to disk. Without this the legacy dashboard had no
+            # persistent transcript at all, so cloud upload found nothing to
+            # send and a crash mid-session meant the whole conversation
+            # evaporated.
+            from .session_writer import SessionJSONLWriter
+            jsonl_path = (
+                self.cfg.recordings_dir / f"{self._session_started_id}.jsonl"
+            )
+            # Touch the file immediately so cloud upload always has at least
+            # an empty payload + header to send (good for audit trail).
+            jsonl_path.parent.mkdir(parents=True, exist_ok=True)
+            jsonl_path.touch(exist_ok=True)
+            self._session_writer = SessionJSONLWriter(jsonl_path)
+
             self._interlocutor = InterlocutorController(
                 self.cfg.interlocutor,
                 session_id=self._session_started_id,
@@ -636,11 +654,15 @@ class DialecticDashboard(QMainWindow):
         wav_path = self._audio.stop()
         self._transcriber.stop()
         self._analyzer.stop()
+        # Release the session writer reference; file is fully flushed via
+        # per-line context managers on append so no explicit close needed.
+        self._session_writer = None
 
         self._rec_btn.recording = False
         self._timer.stop()
         msg = f"Saved: {wav_path.name}" if wav_path else "Stopped"
         if sid:
+            msg += f"  |  Transcript: {sid}.jsonl"
             msg += f"  |  Reflection: {sid}_reflection.json"
 
         # Optional cloud sync — silent no-op unless DIALECTIC_CLOUD_URL and
@@ -679,11 +701,18 @@ class DialecticDashboard(QMainWindow):
             self._intervention_overlay.show()
             self._position_intervention_overlay()
             if self._audible_tts:
+                # Bind `tts_text` and `max_seconds` into default args at
+                # schedule time. A bare closure over `cand` would capture
+                # the current attribute value lazily, so if a second
+                # suggestion landed before the delay fired the TTS would
+                # speak the *new* candidate's text, not the one that just
+                # came in.
+                tts_text = cand.tts_text
+                tts_ms = int(self.cfg.interlocutor.min_pause_seconds_tts * 1000)
+                tts_seconds = float(self.cfg.interlocutor.tts_max_seconds)
                 QTimer.singleShot(
-                    int(self.cfg.interlocutor.min_pause_seconds_tts * 1000),
-                    lambda: speak(
-                        cand.tts_text, max_seconds=self.cfg.interlocutor.tts_max_seconds
-                    ),
+                    tts_ms,
+                    lambda t=tts_text, s=tts_seconds: speak(t, max_seconds=s),
                 )
 
     def _update_timer(self):
@@ -712,9 +741,30 @@ class DialecticDashboard(QMainWindow):
         )
         self._transcript_panel.add_item(card)
 
+        # Persist the raw finalized segment to the session JSONL so there is
+        # always *something* to cloud-upload even if the analyzer never
+        # extracts formal claims (short sessions, noisy audio, etc.).
+        # Using the zero embedding sentinel keeps the schema identical to
+        # claim-bearing lines; Noosphere treats it as a transcript entry.
+        writer = getattr(self, "_session_writer", None)
+        if writer is not None and getattr(segment, "is_final", True) and segment.text.strip():
+            try:
+                import numpy as _np
+                writer.append_claim(
+                    speaker=segment.speaker,
+                    text=segment.text.strip(),
+                    embedding=_np.zeros(384, dtype=_np.float32),
+                    contradiction_pair_ids=[],
+                    topic_cluster_id="",
+                )
+            except Exception as e:
+                import logging as _logging
+                _logging.getLogger(__name__).warning(
+                    "DialecticDashboard: failed to write session JSONL line: %s", e
+                )
+
         if self._interlocutor:
             self._interlocutor.feed_segment(segment)
-        # Also feed to analyzer
         self._analyzer.feed_segment(segment)
 
     def _on_contradiction(self, c: Contradiction):
@@ -821,7 +871,11 @@ class ThreePaneDialecticWindow(QMainWindow):
         self.setWindowTitle(ui.window_title + " — Live")
         self.setMinimumSize(1200, 720)
 
-        self._segment_q: queue.Queue = queue.Queue(maxsize=64)
+        # Queue capacity: previously 64, which on 16 kHz speech bursts can
+        # fill in a few seconds if the transcriber stalls (cold-start model
+        # load, GPU stall). Bumping to 256 gives us roughly a minute of
+        # headroom while still being bounded.
+        self._segment_q: queue.Queue = queue.Queue(maxsize=256)
         self._trans_q: asyncio.Queue = asyncio.Queue()
         self._session_q: asyncio.Queue = asyncio.Queue()
         self._cap = VADRingCapture(config.audio, self._segment_q)
@@ -835,6 +889,8 @@ class ThreePaneDialecticWindow(QMainWindow):
         self._analyzer = DialecticSessionAnalyzer(
             config.analysis, self._session_q, session_writer=None
         )
+        self._interlocutor: InterlocutorController | None = None
+        self._session_id: str = ""
         self._nodes: dict[str, _GraphNode] = {}
         self._edges: list[tuple[str, str]] = []
         self._pending_partial: str = ""
@@ -902,32 +958,91 @@ class ThreePaneDialecticWindow(QMainWindow):
 
     def _toggle(self) -> None:
         if not self._recording:
-            self._recording = True
-            self._rec_btn.setText("Stop session")
-            ts = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-            self._session_id = f"session_{ts}"
-            from .session_writer import SessionJSONLWriter
-
-            self._analyzer.set_session_writer(
-                SessionJSONLWriter(self.cfg.recordings_dir / f"{self._session_id}.jsonl")
-            )
-            self._cap.start()
-            self._transcriber.start()
-            self._tasks.append(asyncio.ensure_future(self._pump_transcription()))
-            self._tasks.append(asyncio.ensure_future(self._pump_session()))
-            self._timer.start()
+            self._start_session()
         else:
-            self._recording = False
-            self._rec_btn.setText("Start session")
-            self._timer.stop()
+            self._stop_session()
+
+    def _start_session(self) -> None:
+        self._recording = True
+        self._rec_btn.setText("Stop session")
+        ts = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+        self._session_id = f"session_{ts}"
+        from .session_writer import SessionJSONLWriter
+
+        # Touch the JSONL so cloud upload always has a payload to send,
+        # even for sessions that never extract a formal claim. Without
+        # this, short or silent sessions just vanished on stop().
+        jsonl_path = self.cfg.recordings_dir / f"{self._session_id}.jsonl"
+        jsonl_path.parent.mkdir(parents=True, exist_ok=True)
+        jsonl_path.touch(exist_ok=True)
+        self._analyzer.set_session_writer(SessionJSONLWriter(jsonl_path))
+
+        # Wire the interlocutor. In the three-pane default path this was
+        # previously NULL, so nothing ever wrote a reflection bundle and
+        # the interlocutor's prediction / contradiction follow-ups never
+        # fired. We keep it in SILENT mode by default — consent still
+        # happens through the env / UI — but at least the plumbing exists
+        # so future mode changes just work.
+        try:
+            self._interlocutor = InterlocutorController(
+                self.cfg.interlocutor,
+                session_id=self._session_id,
+                log_dir=self.cfg.recordings_dir,
+            )
+            self._interlocutor.set_mode(InterlocutorMode.SILENT)
+        except Exception as e:
+            # If the interlocutor construction fails, keep going — the
+            # session still records and transcribes.
+            import logging as _logging
+            _logging.getLogger(__name__).warning(
+                "ThreePane: failed to construct interlocutor: %s", e
+            )
+            self._interlocutor = None
+
+        self._cap.start()
+        self._transcriber.start()
+        self._alerts.appendPlainText(
+            f"Session {self._session_id} started.\n"
+            "Loading faster-whisper + NLI models (first run can take ~30s)…\n"
+        )
+        self._tasks.append(asyncio.ensure_future(self._pump_transcription()))
+        self._tasks.append(asyncio.ensure_future(self._pump_session()))
+        self._timer.start()
+
+    def _stop_session(self) -> None:
+        self._recording = False
+        self._rec_btn.setText("Start session")
+        self._timer.stop()
+        try:
             self._cap.stop()
+        except Exception as e:
+            import logging as _logging
+            _logging.getLogger(__name__).warning("ThreePane: capture stop raised: %s", e)
+        try:
             self._transcriber.stop()
-            for t in self._tasks:
-                t.cancel()
-            self._tasks.clear()
-            sid = getattr(self, "_session_id", "") or ""
-            if sid and cloud_is_configured():
-                upload_session_async(sid, self.cfg.recordings_dir)
+        except Exception as e:
+            import logging as _logging
+            _logging.getLogger(__name__).warning("ThreePane: transcriber stop raised: %s", e)
+        for t in self._tasks:
+            t.cancel()
+        self._tasks.clear()
+
+        sid = self._session_id or ""
+        if self._interlocutor is not None:
+            try:
+                self._interlocutor.save_reflection_bundle()
+            except Exception as e:
+                import logging as _logging
+                _logging.getLogger(__name__).warning(
+                    "ThreePane: reflection save raised: %s", e
+                )
+            self._interlocutor = None
+
+        status = f"Session {sid} stopped."
+        if sid and cloud_is_configured():
+            upload_session_async(sid, self.cfg.recordings_dir)
+            status += " Cloud upload started."
+        self._alerts.appendPlainText(status + "\n")
 
     async def _pump_transcription(self) -> None:
         while True:
@@ -972,6 +1087,26 @@ class ThreePaneDialecticWindow(QMainWindow):
             self._alerts.appendPlainText(
                 f"Contradiction ({a.score:.0%}): {a.text_a[:60]}… vs {a.text_b[:60]}…\n"
             )
+            # Feed into the interlocutor so it can (in active modes) surface
+            # a contradiction prompt to the hosts. In SILENT mode this is a
+            # no-op except for logging, which is what we want by default.
+            if self._interlocutor is not None:
+                try:
+                    from types import SimpleNamespace as _NS
+                    c_obj = _NS(
+                        statement_a=a.text_a,
+                        statement_b=a.text_b,
+                        score=float(a.score),
+                        timestamp=0.0,
+                        speaker_a="",
+                        speaker_b="",
+                    )
+                    self._interlocutor.feed_contradiction(c_obj)
+                except Exception as e:
+                    import logging as _logging
+                    _logging.getLogger(__name__).warning(
+                        "ThreePane: interlocutor feed_contradiction raised: %s", e
+                    )
             return
         if se.kind == SessionEventKind.TOPIC_SHIFT:
             self._alerts.appendPlainText(
@@ -1045,6 +1180,39 @@ class ThreePaneDialecticWindow(QMainWindow):
             self._transcript.setPlainText("\n".join(self._transcript_lines))
 
 
+def _schedule_update_check(window: QMainWindow) -> None:
+    """Trigger a background update check that shows a non-blocking banner.
+
+    ``updater.check_for_updates`` runs in its own daemon thread; when it
+    finds a new version it calls our callback with the manifest dict. We
+    bounce the UI work onto the Qt main thread via ``QTimer.singleShot``
+    so we don't try to pop a dialog from a worker thread (which would
+    silently fail on macOS).
+    """
+
+    def _on_new_version(info: dict) -> None:
+        def _show() -> None:
+            try:
+                version = info.get("version", "?")
+                url = info.get("download_url", "")
+                notes = info.get("release_notes", "")
+                body = (
+                    f"A new Dialectic release is available: {version}\n\n"
+                    f"{notes}\n\n"
+                    f"Download: {url}"
+                )
+                QMessageBox.information(window, "Dialectic update", body)
+            except Exception:
+                pass
+
+        QTimer.singleShot(0, _show)
+
+    try:
+        check_for_updates(callback=_on_new_version)
+    except Exception as e:
+        print(f"[dialectic] update check skipped: {e}", file=sys.stderr)
+
+
 def run_dashboard(
     config: DialecticConfig | None = None,
     *,
@@ -1073,6 +1241,7 @@ def run_dashboard(
         app.setFont(QFont("Helvetica Neue", 10))
         window = DialecticDashboard(cfg)
         window.show()
+        _schedule_update_check(window)
         sys.exit(app.exec())
 
     app = QApplication.instance() or QApplication(sys.argv)
@@ -1083,6 +1252,7 @@ def run_dashboard(
     wd = whisper_device or cfg.transcription.whisper_device
     win = ThreePaneDialecticWindow(cfg, loop, whisper_model=wm, whisper_device=wd)
     win.show()
+    _schedule_update_check(win)
 
     # Idiomatic qasync lifecycle: tie the asyncio loop to Qt's aboutToQuit so
     # the loop actually stops when the user closes the window. The old

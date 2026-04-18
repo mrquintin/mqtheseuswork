@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import queue
 import threading
 import time
@@ -18,6 +19,8 @@ except ImportError:
     sd = None
 
 from .config import AudioConfig
+
+log = logging.getLogger(__name__)
 
 
 @dataclass
@@ -203,7 +206,11 @@ class VADRingCapture:
                     )
                 )
             except queue.Full:
-                pass
+                log.warning(
+                    "VADRingCapture: out_queue full (transcriber likely "
+                    "stalled); dropped %.2fs speech segment",
+                    (b - a) / sr,
+                )
             consumed = max(consumed, b)
         if consumed > 0:
             with self._lock:
@@ -267,7 +274,11 @@ class VADRingCapture:
                     )
                 )
             except queue.Full:
-                pass
+                log.warning(
+                    "VADRingCapture.stop: out_queue full; dropped final "
+                    "%.2fs tail segment",
+                    (b - a) / self.cfg.sample_rate,
+                )
         with self._lock:
             self._buf = np.array([], dtype=np.int16)
 
@@ -409,7 +420,15 @@ class AudioEngine:
 
     def _stream_callback(self, indata: np.ndarray, frames: int, time_info, status):
         if status:
-            pass
+            # Log at most every ~5s so sustained issues are visible but
+            # transient overflows don't spam. PortAudio's CallbackFlags
+            # (input overflow, underflow, priming) are easy to miss
+            # without this — users just saw unexplained transcription
+            # gaps before.
+            now = time.time()
+            if now - getattr(self, "_last_status_log", 0.0) > 5.0:
+                log.warning("AudioEngine: PortAudio status: %s", status)
+                self._last_status_log = now
         audio = indata.copy().flatten()
         timestamp = time.time() - self._start_time
 
@@ -421,8 +440,8 @@ class AudioEngine:
         if self._on_chunk is not None:
             try:
                 self._on_chunk(audio, timestamp)
-            except Exception:
-                pass
+            except Exception as e:
+                log.warning("AudioEngine: on_chunk callback raised: %s", e)
 
 
 def list_audio_devices() -> list[dict]:

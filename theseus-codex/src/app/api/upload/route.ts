@@ -48,6 +48,10 @@ const ALLOWED_EXT = new Set([
   ".txt",
   ".vtt",
   ".jsonl",
+  // Dialectic posts its per-session reflection bundle as a single JSON blob
+  // (`{session_id}_reflection.json`). Accept it so the interlocutor record
+  // round-trips into the Codex without extra rewriting on the desktop side.
+  ".json",
   ".pdf",
   ".docx",
   ".mp3",

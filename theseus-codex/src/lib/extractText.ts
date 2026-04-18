@@ -50,7 +50,11 @@ export interface ExtractionResult {
   mode: "text" | "pdf" | "docx" | "whisper" | "whisper-skipped" | "unknown";
 }
 
-const TEXT_EXTS = new Set([".txt", ".md", ".markdown", ".vtt", ".jsonl"]);
+// `.json` is included so Dialectic's per-session reflection bundle
+// (`{session_id}_reflection.json`) round-trips as textContent — it's a
+// structured record of interventions/decisions, useful as audit context
+// even if it won't yield standalone claims.
+const TEXT_EXTS = new Set([".txt", ".md", ".markdown", ".vtt", ".jsonl", ".json"]);
 const AUDIO_EXTS = new Set([".mp3", ".m4a", ".wav", ".webm", ".ogg"]);
 
 function lowerExt(filename: string): string {

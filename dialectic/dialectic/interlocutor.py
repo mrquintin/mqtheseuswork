@@ -181,6 +181,11 @@ class InterlocutorController:
         self._topic_touch_mono: float | None = None
         self._last_loop_id: str | None = None
         self._last_segment_time: float = 0.0
+        # Cumulative seconds consumed by interventions this session. Used by
+        # the per-mode budget cap; incremented whenever we actually emit a
+        # candidate (estimated from `tts_max_seconds` as an upper bound since
+        # we don't have a hard playback signal here).
+        self._total_spoken_seconds: float = 0.0
 
     def set_mode(self, mode: InterlocutorMode) -> None:
         with self._lock:
@@ -324,9 +329,22 @@ class InterlocutorController:
         with self._lock:
             if self.mode == InterlocutorMode.SILENT or self.stand_down:
                 return
+            # Per-intervention spacing — the *cooldown* between two back-to-back
+            # suggestions. Using the full-session budget here (the old bug) made
+            # the interlocutor effectively mute in conversational mode because
+            # it treated 7 minutes as a minimum interval. The real budget check
+            # is cumulative (see self._total_spoken_seconds below).
+            cooldown = self.cfg.min_intervention_spacing_seconds
             if self._last_intervention_mono > 0.0 and (
-                now - self._last_intervention_mono < self._budget_seconds()
+                now - self._last_intervention_mono < cooldown
             ):
+                self._log_dropped("cooldown_spacing", cand)
+                return
+            # Total per-session budget — once we've spent our budget we stop
+            # emitting for the rest of the session. This is what the old
+            # "budget_cap" reason was meant to express.
+            budget = self._budget_seconds()
+            if budget < 1e8 and self._total_spoken_seconds >= budget:
                 self._log_dropped("budget_cap", cand)
                 return
             latency = now - cand.created_monotonic
@@ -338,6 +356,11 @@ class InterlocutorController:
                 self._log_dropped(f"quality_gate:{gate.rationale}", cand, gate=gate)
                 return
             self._last_intervention_mono = now
+            # Conservative estimate: bill each intervention at the TTS max.
+            # We don't get a callback on actual playback length, and the
+            # overlay-only modes still consume participant attention, so
+            # charging the max is the safer default.
+            self._total_spoken_seconds += float(self.cfg.tts_max_seconds)
             rec = InterventionRecord(
                 id=str(uuid.uuid4()),
                 kind=cand.kind.value,

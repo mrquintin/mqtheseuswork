@@ -49,6 +49,15 @@ class InterlocutorConfig:
     tts_max_seconds: float = 12.0
     visual_latency_drop_seconds: float = 4.0
     audible_latency_drop_seconds: float = 8.0
+
+    # Minimum spacing between successive interventions. Previously the
+    # code reused `budget_conversational_seconds` / `budget_tutor_seconds`
+    # as the per-intervention cooldown, which effectively meant "at most
+    # one intervention every 7 minutes" in conversational mode — a
+    # silent muzzle. These two fields are the *total* session budgets
+    # (eventually used for cumulative-time enforcement); the cooldown
+    # below is the gate that actually throttles emission cadence.
+    min_intervention_spacing_seconds: float = 45.0
     budget_conversational_seconds: float = 420.0
     budget_tutor_seconds: float = 180.0
     use_llm_appropriateness_gate: bool = False

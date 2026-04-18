@@ -68,6 +68,9 @@ Podcast talks/
 
 # Experiment results (regenerable)
 noosphere/noosphere_data/
+# Local runtime ledger and blob store for Noosphere when run from the repo
+# root; never committed — pure per-session state.
+noosphere_data/
 
 # Prisma
 theseus-codex/prisma/*.db

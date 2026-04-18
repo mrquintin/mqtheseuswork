@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import asyncio
+import logging
+import queue
 import re
 import time
 import threading
@@ -15,6 +17,8 @@ import numpy as np
 
 from .config import AnalysisConfig
 from .transcriber import TranscriptSegment, TranscriptionEvent
+
+log = logging.getLogger(__name__)
 
 
 # ======================================================================
@@ -86,37 +90,70 @@ class LiveAnalyzer:
         self._on_open_loop = on_open_loop
         self._on_question = on_question
 
-        # State
+        # State. ``_segments`` and ``_embeddings`` are append-only parallel
+        # lists — index i in one corresponds to index i in the other. They
+        # are only mutated by the single ``_worker_thread`` below, so readers
+        # take ``_lock`` for atomic snapshots and writes happen without
+        # contention from other analysis tasks.
         self._segments: list[TranscriptSegment] = []
-        self._embeddings: list[np.ndarray] = []
+        self._embeddings: list[np.ndarray | None] = []
         self._open_loops: list[OpenLoop] = []
         self._topic_history: list[TopicState] = []
         self._last_question_time: float = 0.0
         self._lock = threading.Lock()
         self._running = False
 
-        # Models (lazy-loaded)
+        # Single-consumer work queue. Previously ``feed_segment`` spawned a
+        # fresh thread per segment, which in turn appended to
+        # ``_embeddings`` in whatever order those threads happened to
+        # finish — misaligning the segment/embedding indices so DBSCAN /
+        # topic windows could silently operate on the wrong utterances.
+        # Serializing on one worker eliminates that race and keeps per-
+        # segment CPU bounded even under bursts.
+        self._work_q: queue.Queue[TranscriptSegment | None] = queue.Queue()
+        self._worker_thread: threading.Thread | None = None
+
         self._nli_model = None
         self._embedder = None
         self._anthropic = None
 
     def start(self) -> None:
         self._running = True
-        # Load models in background
         threading.Thread(target=self._load_models, daemon=True).start()
+        self._worker_thread = threading.Thread(
+            target=self._worker_loop, name="LiveAnalyzer-worker", daemon=True
+        )
+        self._worker_thread.start()
 
     def stop(self) -> None:
         self._running = False
+        # Poison pill so the worker unblocks from ``queue.get`` and exits.
+        try:
+            self._work_q.put_nowait(None)
+        except queue.Full:
+            pass
 
     def feed_segment(self, segment: TranscriptSegment) -> None:
-        """Called when a new transcript segment arrives."""
-        with self._lock:
-            self._segments.append(segment)
+        """Enqueue a segment for analysis on the worker thread."""
+        if not self._running:
+            return
+        try:
+            self._work_q.put_nowait(segment)
+        except queue.Full:
+            log.warning("LiveAnalyzer: work queue full, dropping segment")
 
-        # Run analyses in background threads
-        threading.Thread(
-            target=self._analyze_segment, args=(segment,), daemon=True
-        ).start()
+    def _worker_loop(self) -> None:
+        while self._running:
+            try:
+                item = self._work_q.get(timeout=0.25)
+            except queue.Empty:
+                continue
+            if item is None:
+                return
+            try:
+                self._analyze_segment(item)
+            except Exception as e:
+                log.warning("LiveAnalyzer: analysis failed for a segment: %s", e)
 
     # ------------------------------------------------------------------
     # Model loading
@@ -144,26 +181,24 @@ class LiveAnalyzer:
     # ------------------------------------------------------------------
 
     def _analyze_segment(self, segment: TranscriptSegment) -> None:
-        """Run all analysis pipelines on a new segment."""
+        """Run all analysis pipelines on a new segment.
+
+        Invariant: segments and embeddings are appended together under the
+        lock so that ``_segments[i]`` always pairs with ``_embeddings[i]``.
+        This is what the DBSCAN / topic-window math assumes.
+        """
         if not self._running:
             return
 
-        # Embed the segment
         embedding = self._embed(segment.text)
-        if embedding is not None:
-            with self._lock:
-                self._embeddings.append(embedding)
+        with self._lock:
+            self._segments.append(segment)
+            self._embeddings.append(embedding)
 
-        # 1. Contradiction detection
         self._check_contradictions(segment)
-
-        # 2. Topic tracking
         self._update_topics(segment, embedding)
-
-        # 3. Open-loop detection
         self._check_open_loops(segment, embedding)
 
-        # 4. Question generation (rate-limited)
         now = time.time()
         if now - self._last_question_time >= self.cfg.question_interval_seconds:
             self._generate_questions(segment)
@@ -180,38 +215,56 @@ class LiveAnalyzer:
         with self._lock:
             history = list(self._segments[:-1])  # everything before this segment
 
-        # Check against the last N statements (sliding window)
         window = history[-8:]
         if not window:
             return
 
-        pairs = [(prev.text, segment.text) for prev in window if prev.text.strip()]
+        # Build `pairs` and a *parallel* list of the source segments so
+        # filtered-out empties can't desynchronize the two. Previously we
+        # used `window[i]` keyed by the score index, but `window` still
+        # contained the empty-text entries that `pairs` had dropped — so
+        # an empty slot anywhere in the window shifted every subsequent
+        # attribution by one, pairing contradiction scores with the wrong
+        # utterance.
+        pair_segments: list[TranscriptSegment] = []
+        pairs: list[tuple[str, str]] = []
+        for prev in window:
+            if not prev.text.strip():
+                continue
+            pair_segments.append(prev)
+            pairs.append((prev.text, segment.text))
         if not pairs:
             return
 
         try:
             scores = self._nli_model.predict(pairs)
-            # scores shape: (n_pairs, 3) — [contradiction, entailment, neutral]
-            for i, score_row in enumerate(scores):
-                if hasattr(score_row, '__len__'):
-                    contradiction_score = float(score_row[0])
-                else:
-                    # Some models return a single float
-                    contradiction_score = float(score_row)
+        except Exception as e:
+            log.warning("LiveAnalyzer: NLI predict failed: %s", e)
+            return
 
-                if contradiction_score > self.cfg.contradiction_threshold:
-                    c = Contradiction(
-                        statement_a=window[i].text,
-                        statement_b=segment.text,
-                        score=contradiction_score,
-                        timestamp=segment.start_time,
-                        speaker_a=window[i].speaker,
-                        speaker_b=segment.speaker,
-                    )
-                    if self._on_contradiction:
+        for i, score_row in enumerate(scores):
+            if hasattr(score_row, "__len__"):
+                contradiction_score = float(score_row[0])
+            else:
+                contradiction_score = float(score_row)
+
+            if contradiction_score > self.cfg.contradiction_threshold:
+                prev_seg = pair_segments[i]
+                c = Contradiction(
+                    statement_a=prev_seg.text,
+                    statement_b=segment.text,
+                    score=contradiction_score,
+                    timestamp=segment.start_time,
+                    speaker_a=prev_seg.speaker,
+                    speaker_b=segment.speaker,
+                )
+                if self._on_contradiction:
+                    try:
                         self._on_contradiction(c)
-        except Exception:
-            pass
+                    except Exception as e:
+                        log.warning(
+                            "LiveAnalyzer: on_contradiction callback raised: %s", e
+                        )
 
     # ------------------------------------------------------------------
     # 2. Topic tracking
@@ -226,14 +279,17 @@ class LiveAnalyzer:
         with self._lock:
             n_segments = len(self._segments)
             all_embeddings = list(self._embeddings)
+            all_segs = list(self._segments)
 
-        # Only recluster periodically
         if n_segments % self.cfg.topic_recluster_every != 0:
             return
 
-        # Use the sliding window
-        window_embs = all_embeddings[-self.cfg.topic_window_size:]
-        window_segs = self._segments[-self.cfg.topic_window_size:]
+        # Window from the tail, then drop any slots where embedding failed.
+        # Previously any ``None`` in the window would crash ``np.array``.
+        tail_embs = all_embeddings[-self.cfg.topic_window_size:]
+        tail_segs = all_segs[-self.cfg.topic_window_size:]
+        window_embs = [e for e in tail_embs if e is not None]
+        window_segs = [s for s, e in zip(tail_segs, tail_embs) if e is not None]
         if len(window_embs) < 4:
             return
 

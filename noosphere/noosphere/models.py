@@ -497,6 +497,17 @@ class Claim(BaseModel):
     claim_origin: ClaimOrigin = ClaimOrigin.FOUNDER
     claim_type_verified: Optional[ClaimType] = None
     claim_type_disagreement: bool = False
+    # Per-claim "because/see also" pointers. Concretely these are the
+    # contradiction-pair IDs (Dialectic session ingest), citation anchors
+    # (Papers / PDFs), or transcript segment IDs that originally grounded
+    # the extraction. Omitted from the schema caused silent data loss:
+    # `ingest_artifacts.ingest_dialectic_session_jsonl` was already
+    # passing `evidence_pointers=…` to this constructor, but pydantic v2
+    # drops unknown fields by default, so the round-trip lost them.
+    evidence_pointers: list[str] = []
+    # Transcript alignment — used by ingest_papers and ingest_dialectic
+    # to thread claims back to their source chunks for traceability.
+    chunk_id: str = ""
 
 
 class Principle(BaseModel):

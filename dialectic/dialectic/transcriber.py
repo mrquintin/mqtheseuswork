@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import queue
 import time
 import threading
@@ -14,6 +15,8 @@ import numpy as np
 
 from .audio import SpeechSegment
 from .config import TranscriptionConfig
+
+log = logging.getLogger(__name__)
 
 
 @dataclass
@@ -38,8 +41,15 @@ class WhisperTranscriber:
         self,
         config: TranscriptionConfig,
         on_segment: Callable[[TranscriptSegment], None] | None = None,
+        *,
+        sample_rate: int = 16_000,
     ):
         self.cfg = config
+        # Previously the duration math hard-coded 16_000 in several places,
+        # silently miscalibrating chunking whenever the caller picked a
+        # different sample rate. Pass the capture sample rate in at
+        # construction and use it everywhere.
+        self.sample_rate = int(sample_rate)
         self._on_segment = on_segment
         self._model = None
         self._buffer: list[np.ndarray] = []
@@ -56,15 +66,21 @@ class WhisperTranscriber:
 
     def start(self) -> None:
         self._running = True
-        self._load_model()
+        # Load the Whisper model inside the daemon worker rather than on the
+        # caller's (usually UI) thread. The first call can take tens of
+        # seconds because CTranslate2 downloads and quantizes the model —
+        # freezing the Qt event loop for that long makes the app look
+        # dead on first launch.
         self._worker = threading.Thread(target=self._transcription_loop, daemon=True)
         self._worker.start()
 
     def stop(self) -> None:
         self._running = False
-        # Flush remaining buffer
         if self._buffer:
             self._flush_buffer()
+        if self._worker is not None:
+            self._worker.join(timeout=5.0)
+            self._worker = None
 
     def feed_audio(self, audio: np.ndarray, timestamp: float) -> None:
         """Called from the audio engine with each chunk."""
@@ -73,10 +89,9 @@ class WhisperTranscriber:
                 self._buffer_start = timestamp
 
             self._buffer.append(audio)
-            actual_duration = len(audio) / 16000.0
+            actual_duration = len(audio) / float(self.sample_rate)
             self._buffer_duration += actual_duration
 
-            # Detect silence to find natural break points
             rms = np.sqrt(np.mean(audio.astype(np.float32) ** 2)) / 32768.0
 
             should_flush = False
@@ -108,11 +123,32 @@ class WhisperTranscriber:
                 device=self.cfg.whisper_device,
                 compute_type=self.cfg.whisper_compute_type,
             )
-        except ImportError:
-            # Fallback: emit a placeholder indicating model is not available
+            log.info(
+                "WhisperTranscriber: loaded faster-whisper model=%s device=%s",
+                self.cfg.whisper_model,
+                self.cfg.whisper_device,
+            )
+        except ImportError as e:
+            log.warning(
+                "WhisperTranscriber: faster-whisper not installed (%s); "
+                "transcription will be disabled.",
+                e,
+            )
+            self._model = None
+        except Exception as e:
+            log.warning(
+                "WhisperTranscriber: failed to load model %s on %s: %s",
+                self.cfg.whisper_model,
+                self.cfg.whisper_device,
+                e,
+            )
             self._model = None
 
     def _transcription_loop(self) -> None:
+        # First task: load the model. This may take tens of seconds on cold
+        # start; doing it here (not in ``start()``) keeps the UI thread
+        # responsive while faster-whisper downloads its weights.
+        self._load_model()
         while self._running:
             chunk_data = None
             with self._lock:
@@ -128,7 +164,7 @@ class WhisperTranscriber:
 
     def _transcribe_chunk(self, audio: np.ndarray, start_time: float) -> None:
         """Transcribe a single audio chunk and emit segments."""
-        end_time = start_time + len(audio) / 16000.0
+        end_time = start_time + len(audio) / float(self.sample_rate)
 
         if self._model is None:
             # No model loaded — emit placeholder
@@ -286,7 +322,18 @@ class SegmentQueueTranscriber:
                 device=fw_dev,
                 compute_type=ct,
             )
-        except Exception:
+            log.info(
+                "SegmentQueueTranscriber: loaded faster-whisper model=%s device=%s",
+                self._model_name,
+                fw_dev,
+            )
+        except Exception as e:
+            log.warning(
+                "SegmentQueueTranscriber: failed to load faster-whisper %s on %s: %s",
+                self._model_name,
+                self._device,
+                e,
+            )
             self._model = None
 
     def _transcribe_segment(self, seg: SpeechSegment) -> None:
