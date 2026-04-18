@@ -18,6 +18,7 @@
 import { NextResponse } from "next/server";
 import { getFounderFromAuth } from "@/lib/apiKeyAuth";
 import { db } from "@/lib/db";
+import { sanitizeAndCap } from "@/lib/sanitizeText";
 import { triggerNoosphereProcessing } from "@/lib/triggerNoosphereProcessing";
 
 export async function POST(req: Request) {
@@ -83,17 +84,22 @@ export async function POST(req: Request) {
       withLlm,
     });
 
-    // Annotate the upload row so the UI can show progress.
+    // Annotate the upload row so the UI can show progress. Every
+    // string headed to Postgres is scrubbed of NUL bytes and capped
+    // so an unexpected note payload can't blow the insert.
     try {
       await db.upload.update({
         where: { id: uploadId },
         data: {
           status: result.dispatched ? "processing" : upload.status,
           processLog: {
-            set: [
-              `— Manual re-trigger by ${founder.email} at ${new Date().toISOString()} —`,
-              `— Auto-process: ${result.note} —`,
-            ].join("\n"),
+            set: sanitizeAndCap(
+              [
+                `— Manual re-trigger by ${founder.email} at ${new Date().toISOString()} —`,
+                `— Auto-process: ${result.note} —`,
+              ].join("\n"),
+              8_000,
+            ),
           },
         },
       });
@@ -108,7 +114,10 @@ export async function POST(req: Request) {
           founderId: founder.id,
           uploadId,
           action: "trigger_processing",
-          detail: `manual retrigger: dispatched=${result.dispatched} status=${result.status ?? "none"}`,
+          detail: sanitizeAndCap(
+            `manual retrigger: dispatched=${result.dispatched} status=${result.status ?? "none"}`,
+            2_000,
+          ),
         },
       })
       .catch(() => {

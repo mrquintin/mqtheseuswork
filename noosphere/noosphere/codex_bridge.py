@@ -65,6 +65,42 @@ except ImportError as e:  # pragma: no cover
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# Postgres-safe sanitization.
+#
+# Postgres's UTF-8 enforcement rejects strings containing the NUL
+# byte (``\u0000``) with "invalid byte sequence for encoding "UTF8":
+# 0x00". PDF extraction, DOCX extraction, and even LLM output
+# occasionally produce them. Every string that's about to be inserted
+# into the Codex DB flows through ``_db_safe`` first so one bad
+# byte doesn't nuke the whole ingest.
+#
+# We also strip other C0 control chars (except tab/newline/CR) and
+# lone UTF-16 surrogate halves, which behave the same way on some
+# server collations.
+# ─────────────────────────────────────────────────────────────────────────────
+
+# C0 controls minus \t (\x09), \n (\x0a), \r (\x0d). Also nuke BOM.
+_DB_UNSAFE = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\ufeff]")
+_DB_SURROGATE = re.compile(r"[\ud800-\udfff]")
+
+
+def _db_safe(s: Optional[str], *, cap: Optional[int] = None) -> str:
+    """Scrub for Postgres and optionally cap length.
+
+    ``None`` / non-string inputs return ``""`` so callers can unconditionally
+    pass field values without null-checking first.
+    """
+    if s is None:
+        return ""
+    text = str(s)
+    text = _DB_UNSAFE.sub("", text)
+    text = _DB_SURROGATE.sub("", text)
+    if cap is not None and len(text) > cap:
+        text = text[:cap]
+    return text
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # Naive claim extraction — works without an LLM. Conservative: keeps only
 # sentences that look like first-person / declarative assertions, filters
 # questions and fragments. Good enough for a first-pass Codex display.
@@ -540,8 +576,15 @@ def ingest_from_codex(
         now = datetime.now(timezone.utc)
         written = 0
         claim_idx_to_conclusion_id: list[str | None] = [None] * len(claims)
+        # Pre-compute a sanitized source label we'll reuse in every row's
+        # rationale/sessionLabel. Cap at 300 so a giant filename can't blow
+        # the text column.
+        source_label = _db_safe(
+            row["title"] or row["originalName"] or upload_id,
+            cap=300,
+        )
         for idx, claim in enumerate(claims):
-            claim_text = claim.text.strip()
+            claim_text = _db_safe(claim.text, cap=4_000).strip()
             if len(claim_text) < 20:
                 continue
             cid = _short_cuid_like()
@@ -559,12 +602,12 @@ def ingest_from_codex(
                     noosphere_id,
                     claim_text,
                     "open",
-                    f"Extracted from upload: {row['title'] or row['originalName']}",
+                    _db_safe(f"Extracted from upload: {source_label}", cap=500),
                     json.dumps([]),
                     json.dumps([]),
                     json.dumps([]),
                     0.5,
-                    claim.claim_type,
+                    _db_safe(claim.claim_type, cap=64),
                     now,
                 ),
             )
@@ -629,7 +672,7 @@ def ingest_from_codex(
                     b_cid,
                     float(pair.severity),
                     json.dumps({"source": "heuristic"}),
-                    pair.narrative,
+                    _db_safe(pair.narrative, cap=2_000),
                     now,
                 ),
             )
@@ -661,7 +704,7 @@ def ingest_from_codex(
                         b_cid,
                         sev,
                         json.dumps({"source": "llm"}),
-                        narrative or "LLM flagged as contradictory",
+                        _db_safe(narrative or "LLM flagged as contradictory", cap=2_000),
                         now,
                     ),
                 )
@@ -695,7 +738,7 @@ def ingest_from_codex(
                         existing_id,
                         sev,
                         json.dumps({"source": "llm", "cross_upload": True}),
-                        narrative or "LLM cross-upload contradiction",
+                        _db_safe(narrative or "LLM cross-upload contradiction", cap=2_000),
                         now,
                     ),
                 )
@@ -745,10 +788,10 @@ def ingest_from_codex(
                         "q_" + uuid.uuid4().hex[:24],
                         row["organizationId"],
                         f"oq_{upload_id}_{open_questions_written}",
-                        summary,
+                        _db_safe(summary, cap=2_000),
                         a_cid,
                         b_cid,
-                        reason or "Surfaced during ingest LLM pass",
+                        _db_safe(reason or "Surfaced during ingest LLM pass", cap=2_000),
                         "LLM-flagged",
                         now,
                     ),
@@ -776,11 +819,11 @@ def ingest_from_codex(
                         "rs_" + uuid.uuid4().hex[:24],
                         row["organizationId"],
                         f"rs_{upload_id}_{research_suggestions_written}",
-                        title,
-                        summary,
-                        rationale or "LLM-generated during ingest",
+                        _db_safe(title, cap=300),
+                        _db_safe(summary, cap=2_000),
+                        _db_safe(rationale or "LLM-generated during ingest", cap=2_000),
                         json.dumps([]),
-                        row["title"] or row["originalName"] or upload_id,
+                        source_label,
                         row["founderId"],
                         now,
                     ),
@@ -815,7 +858,7 @@ def ingest_from_codex(
                 row["founderId"],
                 upload_id,
                 "ingest",
-                audit_detail[:500],
+                _db_safe(audit_detail, cap=500),
                 now,
             ),
         )
@@ -845,7 +888,10 @@ def ingest_from_codex(
                    WHERE id = %s''',
                 (
                     "failed",
-                    f"Local ingest-from-codex failed: {sys.exc_info()[1]}"[:400],
+                    _db_safe(
+                        f"Local ingest-from-codex failed: {sys.exc_info()[1]}",
+                        cap=400,
+                    ),
                     upload_id,
                 ),
             )

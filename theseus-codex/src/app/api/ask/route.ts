@@ -159,14 +159,20 @@ export async function POST(req: Request) {
 
     // Log the query as an AuditEvent. Useful for usage analytics +
     // provenance if the firm ever wants to retroactively verify "what
-    // did the oracle tell us on this date?"
+    // did the oracle tell us on this date?" Question text is
+    // user-supplied so scrub NUL / control bytes before insert — a
+    // stray 0x00 from a paste otherwise fails the whole audit.
+    const { sanitizeAndCap } = await import("@/lib/sanitizeText");
     await db.auditEvent
       .create({
         data: {
           organizationId: founder.organizationId,
           founderId: founder.id,
           action: "ask",
-          detail: `Q: ${question.slice(0, 180)}${question.length > 180 ? "…" : ""}`,
+          detail: sanitizeAndCap(
+            `Q: ${question.slice(0, 180)}${question.length > 180 ? "…" : ""}`,
+            2_000,
+          ),
         },
       })
       .catch(() => {

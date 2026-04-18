@@ -32,6 +32,7 @@
  */
 
 import type { Buffer as NodeBuffer } from "node:buffer";
+import { sanitizeAndCap } from "./sanitizeText";
 
 export interface ExtractionResult {
   /** The extracted text; null if nothing could be pulled out. */
@@ -62,12 +63,22 @@ function lowerExt(filename: string): string {
   return i >= 0 ? filename.slice(i).toLowerCase() : "";
 }
 
-/** Trim whitespace but preserve internal newlines. Empty string → null. */
+/**
+ * Trim whitespace but preserve internal newlines, then scrub NUL bytes
+ * and other C0 control characters that Postgres rejects on UTF-8
+ * inserts (`invalid byte sequence for encoding "UTF8": 0x00`). PDFs
+ * and DOCX extraction routinely leak these, and they were silently
+ * killing the upload at the Prisma insert step.
+ *
+ * Also caps length to 2 MB of chars so a pathological PDF can't
+ * blow the insert with tens of megabytes of formatting noise.
+ * Empty string after sanitization → null.
+ */
 function normalize(text: string | null | undefined): string | null {
   if (!text) return null;
-  const trimmed = text.trim();
-  if (!trimmed) return null;
-  return trimmed;
+  const cleaned = sanitizeAndCap(text).trim();
+  if (!cleaned) return null;
+  return cleaned;
 }
 
 export async function extractText(

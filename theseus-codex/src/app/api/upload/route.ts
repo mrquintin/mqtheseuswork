@@ -3,6 +3,7 @@ import { getFounderFromAuth } from "@/lib/apiKeyAuth";
 import { db } from "@/lib/db";
 import { enqueueIngestJob } from "@/lib/jobQueue";
 import { extractText } from "@/lib/extractText";
+import { sanitizeText, sanitizeAndCap } from "@/lib/sanitizeText";
 import { triggerNoosphereProcessing } from "@/lib/triggerNoosphereProcessing";
 import { writeFile, mkdir } from "fs/promises";
 import { join, extname } from "path";
@@ -130,25 +131,45 @@ export async function POST(req: Request) {
     }
 
     // ── Create the Upload row ───────────────────────────────────────────
-    const initialLog =
+    // Every string headed for Postgres is sanitized here for two
+    // reasons:
+    //   1. Postgres rejects UTF-8 NUL bytes ("invalid byte sequence
+    //      for encoding "UTF8": 0x00") — PDFs and DOCX extraction
+    //      leak these. `extractText` already strips them, but we
+    //      scrub again on the boundary so a future caller that
+    //      bypasses `extractText` (e.g. a direct API client) can't
+    //      poison the DB.
+    //   2. Titles/descriptions/filenames are user-controlled, so
+    //      strip C0 control chars that have no business in a label.
+    const safeTitle = sanitizeText(
+      title || file.name.replace(/\.[^/.]+$/, ""),
+    ).slice(0, 500);
+    const safeDescription = sanitizeAndCap(description, 10_000);
+    const safeOriginalName = sanitizeText(file.name).slice(0, 500);
+    const safeMime = sanitizeText(mime || "application/octet-stream").slice(0, 255);
+    const initialLog = sanitizeAndCap(
       `— Upload received (${buffer.length.toLocaleString()} bytes) —\n` +
-      `— Extraction: ${extraction.note} —\n`;
+        `— Extraction: ${extraction.note} —\n`,
+      8_000,
+    );
 
     const upload = await db.upload.create({
       data: {
         organizationId: founder.organizationId,
         founderId: founder.id,
-        title: title || file.name.replace(/\.[^/.]+$/, ""),
-        description,
-        sourceType,
-        originalName: file.name,
-        mimeType: mime || "application/octet-stream",
+        title: safeTitle,
+        description: safeDescription,
+        sourceType: sanitizeText(sourceType).slice(0, 64) || "written",
+        originalName: safeOriginalName,
+        mimeType: safeMime,
         filePath,
         fileSize: buffer.length,
         textContent: extraction.textContent,
         status: "pending",
         processLog: initialLog,
-        errorMessage: extraction.hardFailed ? extraction.note : null,
+        errorMessage: extraction.hardFailed
+          ? sanitizeAndCap(extraction.note, 2_000)
+          : null,
       },
     });
 
@@ -158,7 +179,10 @@ export async function POST(req: Request) {
         founderId: founder.id,
         uploadId: upload.id,
         action: "upload",
-        detail: `Uploaded ${file.name} (${(buffer.length / 1024).toFixed(0)} KB) · ${extraction.mode}`,
+        detail: sanitizeAndCap(
+          `Uploaded ${file.name} (${(buffer.length / 1024).toFixed(0)} KB) · ${extraction.mode}`,
+          2_000,
+        ),
       },
     });
 
@@ -189,7 +213,9 @@ export async function POST(req: Request) {
           await db.upload.update({
             where: { id: upload.id },
             data: {
-              processLog: { set: (initialLog + suffix).slice(0, 8000) },
+              // Sanitize again here so even a misbehaving dispatch
+              // response body can't contaminate the column.
+              processLog: { set: sanitizeAndCap(initialLog + suffix, 8_000) },
               // If dispatch succeeded, move the row from `pending` →
               // `processing` immediately so the UI reflects reality.
               // Naive-mode dispatch bumps it back to `ingested` on
