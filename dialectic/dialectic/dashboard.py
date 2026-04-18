@@ -31,6 +31,7 @@ import queue
 import sys
 import time
 from pathlib import Path
+from typing import Optional
 
 try:
     import pyqtgraph as pg
@@ -59,6 +60,7 @@ from PyQt6.QtWidgets import (
     QSizePolicy,
     QGraphicsDropShadowEffect,
     QPlainTextEdit,
+    QToolButton,
 )
 
 from .config import DialecticConfig, UIConfig
@@ -846,11 +848,139 @@ class _GraphNode:
 
     def __init__(self, cid: str, text: str) -> None:
         self.cid = cid
-        self.text = text[:48]
+        # Keep the first few words intact for on-graph labelling;
+        # the `.text` property is both the hover tooltip AND the
+        # visible node label rendered next to each scatter point.
+        self.text = text[:64]
         self.x = (hash(cid) % 200) / 10.0 - 10.0
         self.y = (hash(cid[::-1]) % 200) / 10.0 - 10.0
         self.vx = 0.0
         self.vy = 0.0
+
+
+class _CardList(QScrollArea):
+    """Vertical scroll list of dismissible cards.
+
+    Used by TENSIONS (contradictions) and PROMPTS (interlocutor
+    suggestions) panels. When there are no cards the placeholder text
+    is shown instead so the empty state tells the user what will
+    appear.
+
+    Each card is a QFrame with an `objectName` matching one of the
+    styles in _DASHBOARD_QSS (`tensionCard` | `promptCard`) so the
+    coloured left-border reflects the card's category.
+    """
+
+    def __init__(
+        self,
+        *,
+        placeholder: str,
+        card_style: str,
+        parent: Optional[QWidget] = None,
+    ) -> None:
+        super().__init__(parent)
+        self._card_style = card_style
+        self._placeholder_text = placeholder
+        self.setWidgetResizable(True)
+        self.setFrameShape(QFrame.Shape.NoFrame)
+        self.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+
+        self._content = QWidget()
+        self._layout = QVBoxLayout(self._content)
+        self._layout.setContentsMargins(0, 0, 0, 0)
+        self._layout.setSpacing(8)
+        self._layout.setAlignment(Qt.AlignmentFlag.AlignTop)
+
+        self._placeholder = QLabel(self._placeholder_text)
+        self._placeholder.setWordWrap(True)
+        self._placeholder.setStyleSheet(
+            "color: #8a7352; font-size: 11px; font-style: italic; "
+            "line-height: 1.45; padding: 6px 4px;"
+        )
+        self._layout.addWidget(self._placeholder)
+
+        self.setWidget(self._content)
+
+    def _ensure_placeholder_hidden(self) -> None:
+        if self._placeholder.isVisible():
+            self._placeholder.setVisible(False)
+
+    def _ensure_placeholder_shown(self) -> None:
+        # Called from `remove_card`: if the only remaining child is the
+        # placeholder, re-show it.
+        if self._layout.count() == 1 and not self._placeholder.isVisible():
+            self._placeholder.setVisible(True)
+
+    def add_card(
+        self,
+        *,
+        headline: str,
+        body: str,
+        meta: str = "",
+    ) -> QFrame:
+        """Add a new card at the TOP of the list (most recent first).
+
+        Returns the card widget so callers that want a dismiss button
+        can wire it up.
+        """
+        self._ensure_placeholder_hidden()
+
+        card = QFrame()
+        card.setObjectName(self._card_style)
+        inner = QVBoxLayout(card)
+        inner.setContentsMargins(2, 2, 2, 2)
+        inner.setSpacing(3)
+
+        hl = QLabel(headline)
+        hl.setWordWrap(True)
+        hl.setStyleSheet(
+            "color: #e3c995; font-size: 12px; font-weight: 600; "
+            "font-family: 'SF Pro Text', 'Helvetica Neue', sans-serif;"
+        )
+        inner.addWidget(hl)
+
+        if body:
+            bd = QLabel(body)
+            bd.setWordWrap(True)
+            bd.setStyleSheet(
+                "color: #b8a082; font-size: 11px; "
+                "font-family: 'SF Pro Text', 'Helvetica Neue', sans-serif; "
+                "line-height: 1.45;"
+            )
+            inner.addWidget(bd)
+
+        if meta:
+            row = QHBoxLayout()
+            row.setContentsMargins(0, 2, 0, 0)
+            mt = QLabel(meta)
+            mt.setStyleSheet(
+                "color: #8a7352; font-size: 9px; "
+                "font-family: 'IBM Plex Mono', monospace; "
+                "letter-spacing: 0.12em; text-transform: uppercase;"
+            )
+            row.addWidget(mt, stretch=1)
+
+            dismiss = QToolButton()
+            dismiss.setText("×")
+            dismiss.setToolTip("Dismiss")
+            dismiss.setCursor(Qt.CursorShape.PointingHandCursor)
+            dismiss.setStyleSheet(
+                "QToolButton { background: transparent; color: #8a7352; "
+                "border: none; font-size: 16px; padding: 0 6px; }"
+                "QToolButton:hover { color: #d4a017; }"
+            )
+            dismiss.clicked.connect(lambda _=None, c=card: self.remove_card(c))
+            row.addWidget(dismiss)
+            inner.addLayout(row)
+
+        # insertWidget(0, ...) puts newest at the top.
+        self._layout.insertWidget(0, card)
+        return card
+
+    def remove_card(self, card: QFrame) -> None:
+        self._layout.removeWidget(card)
+        card.deleteLater()
+        QTimer.singleShot(0, self._ensure_placeholder_shown)
 
 
 _DASHBOARD_QSS = """
@@ -887,6 +1017,24 @@ QLabel#paneHeader {
     font-weight: 700;
     letter-spacing: 3px;
     padding: 2px 0;
+}
+QLabel#paneSubheader {
+    color: #8a7352;
+    font-size: 10px;
+    font-style: italic;
+    padding: 0 0 4px 0;
+}
+QFrame#tensionCard {
+    background-color: rgba(192, 57, 43, 0.10);
+    border-left: 3px solid #c0392b;
+    border-radius: 3px;
+    padding: 6px 10px;
+}
+QFrame#promptCard {
+    background-color: rgba(212, 160, 23, 0.10);
+    border-left: 3px solid #d4a017;
+    border-radius: 3px;
+    padding: 6px 10px;
 }
 QLabel#footerLabel {
     color: #5a4218;
@@ -1085,14 +1233,91 @@ class ThreePaneDialecticWindow(QMainWindow):
         self._plot.addItem(self._scatter)
         self._line_plot = pg.PlotDataItem(pen=pg.mkPen("#c0392b", width=2))
         self._plot.addItem(self._line_plot)
-        center_frame = self._wrap_pane("CLAIM GRAPH", self._plot)
+        # Per-node TextItems rendered next to each scatter point. We
+        # cache one TextItem per claim id (created lazily on first draw,
+        # repositioned on every tick) — much cheaper than recreating
+        # 100 text objects every frame, and still correct when claims
+        # move under the force-directed physics.
+        self._node_labels: dict[str, "pg.TextItem"] = {}
+        center_frame = self._wrap_pane_with_sub(
+            "CLAIM GRAPH",
+            "Main ideas captured in real time · tensions shown as red edges",
+            self._plot,
+        )
         body.addWidget(center_frame, stretch=3)
 
-        # Right: alerts
+        # Right column: three stacked panes so the three value-bearing
+        # events of the session each get dedicated visual real estate
+        # instead of being interleaved in one scrolling log:
+        #
+        #   TENSIONS  — contradictions between claims, card-styled with
+        #                a red left-border. This is the single most
+        #                important feedback the analyzer produces.
+        #   PROMPTS   — follow-up questions the interlocutor suggests
+        #                (conversationally: "would you like to specify
+        #                resolution criteria for that prediction?").
+        #                Amber-left-bordered cards. Each card has its
+        #                own dismiss button so you acknowledge as you go.
+        #   SYSTEM LOG — diagnostics + preflight + session lifecycle.
+        #                The old "Alerts" stream lives here, out of the
+        #                way of the analytic output.
+        right_col = QVBoxLayout()
+        right_col.setContentsMargins(0, 0, 0, 0)
+        right_col.setSpacing(12)
+
+        # ── TENSIONS ───────────────────────────────────────────────
+        self._tensions_list = _CardList(
+            placeholder=(
+                "No tensions yet. When the analyzer spots two claims "
+                "that contradict each other, they appear here with the "
+                "severity score and the two statements."
+            ),
+            card_style="tensionCard",
+        )
+        right_col.addWidget(
+            self._wrap_pane_with_sub(
+                "TENSIONS",
+                "Contradictions detected in real time",
+                self._tensions_list,
+            ),
+            stretch=3,
+        )
+
+        # ── PROMPTS ────────────────────────────────────────────────
+        self._prompts_list = _CardList(
+            placeholder=(
+                "No follow-up questions yet. The interlocutor proposes "
+                "one when a high-confidence contradiction lands, when a "
+                "prediction-shaped statement needs resolution criteria, "
+                "or when an open loop stays unresolved."
+            ),
+            card_style="promptCard",
+        )
+        right_col.addWidget(
+            self._wrap_pane_with_sub(
+                "PROMPTS",
+                "Follow-up questions the interlocutor suggests",
+                self._prompts_list,
+            ),
+            stretch=3,
+        )
+
+        # ── SYSTEM LOG (collapsed header) ──────────────────────────
         self._alerts = QPlainTextEdit()
         self._alerts.setReadOnly(True)
-        right_frame = self._wrap_pane("ALERTS", self._alerts)
-        body.addWidget(right_frame, stretch=2)
+        right_col.addWidget(
+            self._wrap_pane_with_sub(
+                "SYSTEM LOG",
+                "Preflight checks + session lifecycle",
+                self._alerts,
+            ),
+            stretch=2,
+        )
+
+        right_frame = QFrame()
+        right_frame.setObjectName("paneFrame")
+        right_frame.setLayout(right_col)
+        body.addWidget(right_frame, stretch=3)
 
         root.addLayout(body, stretch=1)
 
@@ -1119,6 +1344,30 @@ class ThreePaneDialecticWindow(QMainWindow):
         header = QLabel(header_text)
         header.setObjectName("paneHeader")
         layout.addWidget(header)
+        layout.addWidget(widget, stretch=1)
+        return frame
+
+    def _wrap_pane_with_sub(
+        self,
+        header_text: str,
+        subheader_text: str,
+        widget: QWidget,
+    ) -> QFrame:
+        """Pane wrapper with a one-line italic subheader that explains
+        what the pane is for. Helps the user recognise "oh, that's where
+        contradictions appear" without having to start a session first."""
+        frame = QFrame()
+        frame.setObjectName("paneFrame")
+        layout = QVBoxLayout(frame)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(2)
+        header = QLabel(header_text)
+        header.setObjectName("paneHeader")
+        layout.addWidget(header)
+        sub = QLabel(subheader_text)
+        sub.setObjectName("paneSubheader")
+        sub.setWordWrap(True)
+        layout.addWidget(sub)
         layout.addWidget(widget, stretch=1)
         return frame
 
@@ -1435,15 +1684,30 @@ class ThreePaneDialecticWindow(QMainWindow):
             jsonl_path.touch(exist_ok=True)
             analyzer.set_session_writer(SessionJSONLWriter(jsonl_path))
 
-            # Wire the interlocutor (SILENT mode default — participant
-            # consent is still required to enable anything louder).
+            # Wire the interlocutor with an on_intervention callback
+            # that routes into the PROMPTS pane. Default mode is
+            # PASSIVE — overlay-only suggestions, no TTS — so the user
+            # sees what the interlocutor would say without the app
+            # ever speaking uninvited. Participants are auto-opted-in
+            # because a single-user desktop session effectively IS
+            # consent; multi-speaker consent still goes through the
+            # legacy Dashboard flow if the user wants finer control.
             try:
+                def _on_intervention(cand, rid: str) -> None:
+                    # Bounce onto the Qt main thread — the interlocutor
+                    # fires this from its analysis worker.
+                    QTimer.singleShot(
+                        0, lambda c=cand, i=rid: self._append_prompt_card(c, i)
+                    )
+
                 self._interlocutor = InterlocutorController(
                     self.cfg.interlocutor,
                     session_id=self._session_id,
                     log_dir=self.cfg.recordings_dir,
+                    on_intervention=_on_intervention,
                 )
-                self._interlocutor.set_mode(InterlocutorMode.SILENT)
+                self._interlocutor.set_mode(InterlocutorMode.PASSIVE)
+                self._interlocutor.set_participants_opt_in(True)
             except Exception as e:
                 self._log_alert(
                     f"interlocutor construction failed "
@@ -1576,14 +1840,22 @@ class ThreePaneDialecticWindow(QMainWindow):
         if se.kind == SessionEventKind.CONTRADICTION_ALERT:
             a: ContradictionAlert = se.data["alert"]
             self._edges.append((a.claim_a_id, a.claim_b_id))
+            # Render the contradiction as a full card in the TENSIONS
+            # pane (previously a single log line; too easy to miss).
+            self._tensions_list.add_card(
+                headline=f"⚠ Contradiction · {a.score:.0%} severity",
+                body=f"A: “{a.text_a}”\nB: “{a.text_b}”",
+                meta=datetime.datetime.now().strftime("%H:%M:%S"),
+            )
+            # Lightweight mirror to the system log so the audit trail
+            # stays complete (and the scroll history of contradictions
+            # survives dismissals of the cards above).
             self._log_alert(
-                f"contradiction ({a.score:.0%}): "
-                f"\"{a.text_a[:50]}…\" vs \"{a.text_b[:50]}…\"",
+                f"contradiction ({a.score:.0%}) recorded",
                 level="warn",
             )
-            # Feed into the interlocutor so it can (in active modes) surface
-            # a contradiction prompt to the hosts. In SILENT mode this is a
-            # no-op except for logging, which is what we want by default.
+            # Feed into the interlocutor so PASSIVE mode can surface a
+            # follow-up prompt alongside the contradiction card.
             if self._interlocutor is not None:
                 try:
                     from types import SimpleNamespace as _NS
@@ -1607,6 +1879,35 @@ class ThreePaneDialecticWindow(QMainWindow):
                 f"topic shift → {se.data.get('topic_cluster_id', '')}",
                 level="info",
             )
+
+    def _append_prompt_card(self, candidate, rid: str) -> None:
+        """Render a new interlocutor suggestion in the PROMPTS pane.
+
+        `candidate` is an `InterventionCandidate` — we crib the first
+        and last lines of its four-line overlay script as the card
+        headline + body. The full four lines are the formal artifact
+        the interlocutor produced; the headline/body split here is a
+        UI concession so the card reads well at a glance.
+        """
+        try:
+            lines = list(getattr(candidate, "overlay_lines", ()))
+            kind_ = str(getattr(candidate.kind, "value", candidate.kind))
+            # `overlay_lines` is a fixed 4-tuple: [title, context, snippet, ask]
+            # The first line is the interlocutor's self-ID ("Theseus
+            # (interlocutor)") — we replace it with our own kind label
+            # for consistency with the headline styling.
+            headline = f"▸ {kind_.replace('_', ' ').title()}"
+            body_parts = lines[1:] if len(lines) >= 4 else lines
+            body = "\n".join(p for p in body_parts if p)
+        except Exception:
+            headline = "▸ Suggestion"
+            body = str(candidate)
+
+        self._prompts_list.add_card(
+            headline=headline,
+            body=body,
+            meta=datetime.datetime.now().strftime("%H:%M:%S") + " · dismiss →",
+        )
 
     def _tick_ui(self) -> None:
         if self._pending_partial:
@@ -1651,6 +1952,14 @@ class ThreePaneDialecticWindow(QMainWindow):
         if not nodes:
             self._scatter.setData([], [])
             self._line_plot.setData([], [])
+            # Clear stale labels so the pane really looks empty when
+            # there are no claims.
+            for label in list(self._node_labels.values()):
+                try:
+                    self._plot.removeItem(label)
+                except Exception:
+                    pass
+            self._node_labels.clear()
             return
         xs = [n.x for n in nodes]
         ys = [n.y for n in nodes]
@@ -1667,6 +1976,51 @@ class ThreePaneDialecticWindow(QMainWindow):
             self._line_plot.setData(lx, ly)
         else:
             self._line_plot.setData([], [])
+
+        # ── Labels: one pg.TextItem per claim ──────────────────────
+        # We create the label the first time a claim shows up and
+        # simply reposition it on every redraw. That lets the user
+        # actually read which idea each dot represents — previously
+        # the graph was a constellation of anonymous amber points
+        # that moved around interestingly but meant nothing.
+        live_ids: set[str] = set()
+        for n in nodes:
+            live_ids.add(n.cid)
+            label = self._node_labels.get(n.cid)
+            if label is None:
+                short = n.text
+                # Break long claims onto two lines at a word boundary
+                # so a 50-word claim doesn't stretch off-screen.
+                if len(short) > 28:
+                    cut = short.rfind(" ", 0, 28)
+                    if cut > 14:
+                        short = short[:cut] + "\n" + short[cut + 1 : cut + 1 + 28]
+                    else:
+                        short = short[:28] + "…"
+                label = pg.TextItem(
+                    text=short,
+                    color=(227, 201, 149),  # --parchment
+                    anchor=(0, 1),          # position = anchor at bottom-left of text
+                )
+                # Small font so labels don't overwhelm the dots.
+                try:
+                    from PyQt6.QtGui import QFont as _QFont
+                    label.setFont(_QFont("IBM Plex Mono", 8))
+                except Exception:
+                    pass
+                self._plot.addItem(label)
+                self._node_labels[n.cid] = label
+            # Offset slightly right + up from the dot.
+            label.setPos(n.x + 0.25, n.y + 0.35)
+        # Prune labels whose claims have been evicted (shouldn't
+        # happen in the current code path — claims are append-only —
+        # but defensive so a future cap on node count works cleanly).
+        for stale in list(self._node_labels.keys() - live_ids):
+            try:
+                self._plot.removeItem(self._node_labels[stale])
+            except Exception:
+                pass
+            self._node_labels.pop(stale, None)
 
     def finalize_partial_line(self, text: str) -> None:
         if text.strip():
