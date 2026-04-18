@@ -80,13 +80,32 @@ export async function POST(req: Request) {
     const sourceType = (formData.get("sourceType") as string) || "written";
     // Blog publish fields — default OFF. Accept "1"/"true"/"on"/"yes"
     // to handle different front-end conventions; everything else
-    // including the empty string keeps the upload private.
+    // including the empty string keeps the upload unpublished.
     const rawPublish = (formData.get("publishAsPost") as string) || "";
     const publishAsPost = ["1", "true", "on", "yes"].includes(
       rawPublish.toLowerCase(),
     );
     const blogExcerptInput = (formData.get("blogExcerpt") as string) || "";
     const authorBioInput = (formData.get("authorBio") as string) || "";
+    // Visibility ("org" | "private"). Anything not "private" falls
+    // through to the default "org" → shared with the whole firm.
+    const rawVisibility = (
+      (formData.get("visibility") as string) || "org"
+    ).toLowerCase();
+    const visibility: "org" | "private" =
+      rawVisibility === "private" ? "private" : "org";
+    // Private + blog-publish are mutually exclusive: you can't
+    // publish a file nobody else can see. Fail fast with a clear
+    // message before we do the expensive extraction + write.
+    if (visibility === "private" && publishAsPost) {
+      return NextResponse.json(
+        {
+          error:
+            "An upload can't be both private and published as a blog post. Choose one.",
+        },
+        { status: 400 },
+      );
+    }
 
     if (!file) {
       return NextResponse.json({ error: "No file provided" }, { status: 400 });
@@ -212,6 +231,7 @@ export async function POST(req: Request) {
         errorMessage: extraction.hardFailed
           ? sanitizeAndCap(extraction.note, 2_000)
           : null,
+        visibility,
         ...(publishFields ?? {}),
       },
     });
@@ -299,6 +319,8 @@ export async function POST(req: Request) {
       publishedAt: upload.publishedAt,
       slug: upload.slug,
       publicUrl: upload.slug ? `/post/${upload.slug}` : null,
+      visibility: upload.visibility,
+      isPrivate: upload.visibility === "private",
     });
   } catch (error) {
     console.error("Upload error:", error);

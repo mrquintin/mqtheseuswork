@@ -32,19 +32,34 @@ export async function GET(req: Request) {
   const published = url.searchParams.get("published");
   const status = (url.searchParams.get("status") || "").trim();
 
+  // Visibility rule: you can see any row that is either not private
+  // or that you own. Encoded as an `OR` in the `AND` — `where.AND`
+  // composes with the rest so simple filter queries (status, author)
+  // compose cleanly.
+  const baseAnd: Array<Record<string, unknown>> = [
+    {
+      OR: [
+        { visibility: { not: "private" } },
+        { founderId: founder.id },
+      ],
+    },
+  ];
   const where: Record<string, unknown> = {
     organizationId: founder.organizationId,
     deletedAt: null,
+    AND: baseAnd,
   };
   if (author) where.founderId = author;
   if (status) where.status = status;
   if (published === "1") where.publishedAt = { not: null };
   if (q) {
-    where.OR = [
-      { title: { contains: q, mode: "insensitive" } },
-      { originalName: { contains: q, mode: "insensitive" } },
-      { description: { contains: q, mode: "insensitive" } },
-    ];
+    baseAnd.push({
+      OR: [
+        { title: { contains: q, mode: "insensitive" } },
+        { originalName: { contains: q, mode: "insensitive" } },
+        { description: { contains: q, mode: "insensitive" } },
+      ],
+    });
   }
 
   const uploads = await db.upload.findMany({
@@ -61,6 +76,7 @@ export async function GET(req: Request) {
       status: true,
       publishedAt: true,
       slug: true,
+      visibility: true,
       createdAt: true,
       founderId: true,
       founder: { select: { id: true, name: true } },

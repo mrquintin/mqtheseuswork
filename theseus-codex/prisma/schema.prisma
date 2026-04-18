@@ -149,6 +149,18 @@ model Upload {
   // `deletedAt=now`) or declines.
   deletedAt        DateTime?
 
+  // ── Visibility inside the firm ─────────────────────────────────────
+  // "org"     → visible to every founder in the organization (default,
+  //              previous behaviour — library, dashboard, peer deletion
+  //              requests, the full public-to-the-firm surface).
+  // "private" → only the uploader can see the row anywhere in the UI;
+  //              Noosphere still ingests it so the owner gets their
+  //              own conclusions/contradictions, but nobody else can
+  //              see the file, read it, or open a deletion request
+  //              against it. Blog-publishing a private upload is
+  //              rejected at the API layer — flip visibility first.
+  visibility       String @default("org")
+
   founder          Founder           @relation(fields: [founderId], references: [id])
   organization     Organization      @relation(fields: [organizationId], references: [id], onDelete: Restrict)
   auditEvents      AuditEvent[]
@@ -158,6 +170,7 @@ model Upload {
   @@index([founderId])
   @@index([publishedAt])
   @@index([deletedAt])
+  @@index([visibility])
 }
 
 // ── DeletionRequest ───────────────────────────────────────────────────

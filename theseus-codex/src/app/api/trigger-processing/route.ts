@@ -53,10 +53,12 @@ export async function POST(req: Request) {
       select: {
         id: true,
         organizationId: true,
+        founderId: true,
         status: true,
         title: true,
         textContent: true,
         deletedAt: true,
+        visibility: true,
       },
     });
     if (!upload) {
@@ -64,6 +66,13 @@ export async function POST(req: Request) {
     }
     if (upload.organizationId !== founder.organizationId) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    }
+    // Private uploads: only the owner can retrigger processing. A peer
+    // getting the id (say, via a leaked process log) shouldn't be able
+    // to poke the pipeline and leak timing/status information. 404
+    // rather than 403 so existence isn't confirmed.
+    if (upload.visibility === "private" && upload.founderId !== founder.id) {
+      return NextResponse.json({ error: "Upload not found" }, { status: 404 });
     }
     if (upload.deletedAt) {
       return NextResponse.json(

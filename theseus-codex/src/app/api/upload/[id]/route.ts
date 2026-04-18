@@ -17,7 +17,19 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
     // `deletedAt: null` hides soft-deleted rows from the polling UI —
     // the row still exists in the DB (for audit) but is no longer
     // surfaced to any founder or the public blog.
-    where: { id, organizationId: founder.organizationId, deletedAt: null },
+    //
+    // Private rows are also filtered so a peer can't hit this endpoint
+    // with a guessed id and read the content. The owner still sees
+    // their own private rows (the `OR` clause below).
+    where: {
+      id,
+      organizationId: founder.organizationId,
+      deletedAt: null,
+      OR: [
+        { visibility: { not: "private" } },
+        { founderId: founder.id },
+      ],
+    },
     select: {
       id: true,
       founderId: true,

@@ -113,6 +113,7 @@ export async function POST(req: Request) {
       founderId: true,
       title: true,
       deletedAt: true,
+      visibility: true,
     },
   });
   if (!upload) {
@@ -126,6 +127,13 @@ export async function POST(req: Request) {
       { error: "That upload has already been deleted." },
       { status: 410 },
     );
+  }
+  // Private uploads that aren't yours: 404, not 403. We deliberately
+  // don't leak the existence of peers' private rows through a more
+  // specific error code — a peer who guessed the id should get the
+  // same response as if the id didn't exist.
+  if (upload.visibility === "private" && upload.founderId !== founder.id) {
+    return NextResponse.json({ error: "Upload not found" }, { status: 404 });
   }
   if (upload.founderId === founder.id) {
     return NextResponse.json(

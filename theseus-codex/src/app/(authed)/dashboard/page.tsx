@@ -23,7 +23,19 @@ export default async function DashboardPage() {
   }
 
   const uploads = await db.upload.findMany({
-    where: { organizationId: tenant.organizationId, deletedAt: null },
+    where: {
+      organizationId: tenant.organizationId,
+      deletedAt: null,
+      // Same rule as the library: you always see your own rows, but
+      // peers' private rows are hidden from you. Without this filter
+      // the dashboard would happily show "12 recent contributions"
+      // including peers' private uploads that `/library` hides, which
+      // would be a leak.
+      OR: [
+        { visibility: { not: "private" } },
+        { founderId: tenant.founderId },
+      ],
+    },
     orderBy: { createdAt: "desc" },
     take: 12,
     include: { founder: { select: { name: true } } },
@@ -225,14 +237,41 @@ export default async function DashboardPage() {
                       <div style={{ minWidth: 0 }}>
                         <div
                           style={{
-                            fontFamily: "'EB Garamond', serif",
-                            color: "var(--parchment)",
+                            display: "flex",
+                            alignItems: "center",
+                            gap: "0.45rem",
                             overflow: "hidden",
-                            textOverflow: "ellipsis",
-                            whiteSpace: "nowrap",
                           }}
                         >
-                          {u.title}
+                          <span
+                            style={{
+                              fontFamily: "'EB Garamond', serif",
+                              color: "var(--parchment)",
+                              overflow: "hidden",
+                              textOverflow: "ellipsis",
+                              whiteSpace: "nowrap",
+                            }}
+                          >
+                            {u.title}
+                          </span>
+                          {u.visibility === "private" ? (
+                            <span
+                              className="mono"
+                              title="Private — only you see this row. Noosphere still analyses it."
+                              style={{
+                                fontSize: "0.5rem",
+                                letterSpacing: "0.22em",
+                                textTransform: "uppercase",
+                                color: "var(--amber)",
+                                border: "1px solid var(--amber-dim)",
+                                padding: "0.08rem 0.38rem",
+                                borderRadius: "2px",
+                                flexShrink: 0,
+                              }}
+                            >
+                              Private
+                            </span>
+                          ) : null}
                         </div>
                         <div
                           className="mono"

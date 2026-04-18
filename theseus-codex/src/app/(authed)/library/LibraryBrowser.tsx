@@ -36,6 +36,7 @@ interface LibraryRow {
   status: string;
   publishedAt: string | null;
   slug: string | null;
+  visibility: string;
   createdAt: string;
   founderId: string;
   founder: { id: string; name: string };
@@ -429,15 +430,42 @@ export default function LibraryBrowser() {
                 <div style={{ flex: "1 1 300px", minWidth: 0 }}>
                   <div
                     style={{
-                      fontFamily: "'EB Garamond', serif",
-                      fontSize: "1.12rem",
-                      color: "var(--parchment)",
+                      display: "flex",
+                      alignItems: "center",
+                      gap: "0.5rem",
                       overflow: "hidden",
-                      textOverflow: "ellipsis",
-                      whiteSpace: "nowrap",
                     }}
                   >
-                    {row.title}
+                    <span
+                      style={{
+                        fontFamily: "'EB Garamond', serif",
+                        fontSize: "1.12rem",
+                        color: "var(--parchment)",
+                        overflow: "hidden",
+                        textOverflow: "ellipsis",
+                        whiteSpace: "nowrap",
+                      }}
+                    >
+                      {row.title}
+                    </span>
+                    {row.visibility === "private" ? (
+                      <span
+                        className="mono"
+                        title="Private — only you see this row. Noosphere still analyses it for your own conclusions."
+                        style={{
+                          fontSize: "0.54rem",
+                          letterSpacing: "0.22em",
+                          textTransform: "uppercase",
+                          color: "var(--amber)",
+                          border: "1px solid var(--amber-dim)",
+                          padding: "0.12rem 0.45rem",
+                          borderRadius: "2px",
+                          flexShrink: 0,
+                        }}
+                      >
+                        Private
+                      </span>
+                    ) : null}
                   </div>
                   <div
                     className="mono"

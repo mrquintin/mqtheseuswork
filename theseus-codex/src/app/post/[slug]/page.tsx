@@ -36,7 +36,12 @@ export async function generateMetadata({
 }: PageProps): Promise<Metadata> {
   const { slug } = await params;
   const post = await db.upload.findFirst({
-    where: { slug, publishedAt: { not: null }, deletedAt: null },
+    where: {
+      slug,
+      publishedAt: { not: null },
+      deletedAt: null,
+      visibility: { not: "private" },
+    },
     select: { title: true, blogExcerpt: true, description: true, textContent: true },
   });
   if (!post) return { title: "Post not found · Theseus Codex" };
@@ -58,8 +63,15 @@ export default async function PostPage({ params }: PageProps) {
 
   const post = await db.upload.findFirst({
     // Soft-deleted posts 404 rather than render, so a shared link for
-    // a retracted post behaves the same as an unknown slug.
-    where: { slug, publishedAt: { not: null }, deletedAt: null },
+    // a retracted post behaves the same as an unknown slug. Private
+    // rows 404 too — visibility=private can't coexist with a publish
+    // state in the normal code path, but we enforce it here anyway.
+    where: {
+      slug,
+      publishedAt: { not: null },
+      deletedAt: null,
+      visibility: { not: "private" },
+    },
     select: {
       id: true,
       title: true,

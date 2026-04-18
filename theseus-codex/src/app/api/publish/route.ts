@@ -64,6 +64,7 @@ export async function POST(req: Request) {
         slug: true,
         publishedAt: true,
         deletedAt: true,
+        visibility: true,
       },
     });
     if (!existing) {
@@ -79,6 +80,19 @@ export async function POST(req: Request) {
             "This upload has been deleted; it cannot be published. Ask the owner to restore it via the database first.",
         },
         { status: 410 },
+      );
+    }
+    // Private uploads can't be blog-published (they're private). If
+    // the owner wants to publish, they need to flip visibility to
+    // "org" first — we don't silently override it here because it's
+    // a meaningful intent change.
+    if (body.publish && existing.visibility === "private") {
+      return NextResponse.json(
+        {
+          error:
+            "This upload is marked private. Set visibility to \"org\" before publishing it to the blog.",
+        },
+        { status: 400 },
       );
     }
 
