@@ -168,6 +168,9 @@ def ingest_from_codex_cmd(
                 "title": result.title,
                 "claims_extracted": result.num_claims_extracted,
                 "conclusions_written": result.num_conclusions_written,
+                "contradictions_written": result.num_contradictions_written,
+                "open_questions_written": result.num_open_questions_written,
+                "research_suggestions_written": result.num_research_suggestions_written,
             },
             default=str,
         )

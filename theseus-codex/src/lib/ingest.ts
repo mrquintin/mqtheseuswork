@@ -126,12 +126,16 @@ export async function processUpload(uploadId: string): Promise<void> {
           `To process this upload, on a machine with Noosphere installed run:\n\n` +
           `    # One-time: point Noosphere at the shared Supabase DB\n` +
           `    export DIRECT_URL="postgresql://postgres.<ref>:<pw>@aws-<n>-<region>.pooler.supabase.com:5432/postgres"\n\n` +
-          `    # Extract claims from this specific upload (naive splitter; no LLM required)\n` +
-          `    python -m noosphere ingest-from-codex --upload-id ${uploadId}\n\n` +
-          `    # Or: list everything that's still queued\n` +
-          `    python -m noosphere codex-queued\n\n` +
-          `Add --with-llm for higher-quality claim extraction ` +
-          `(requires ANTHROPIC_API_KEY or OPENAI_API_KEY).\n`,
+          `    # Fast / no-LLM path — produces Conclusions + heuristic Contradictions\n` +
+          `    ./scripts/process-codex-upload.sh ${uploadId}\n\n` +
+          `    # Full path — adds LLM-grade Contradictions + Open Questions\n` +
+          `    # + Research Suggestions. Requires ANTHROPIC_API_KEY or OPENAI_API_KEY.\n` +
+          `    ./scripts/process-codex-upload.sh ${uploadId} --with-llm\n\n` +
+          `    # Or list everything still queued\n` +
+          `    ./scripts/process-codex-upload.sh --list\n\n` +
+          `After processing, the extracted Conclusions show on /conclusions,\n` +
+          `detected Contradictions on /contradictions, Open Questions on\n` +
+          `/open-questions, and Research Suggestions on /research.\n`,
       );
       await db.upload.update({
         where: { id: uploadId },

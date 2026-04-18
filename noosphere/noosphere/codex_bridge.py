@@ -230,8 +230,198 @@ class IngestFromCodexResult:
     title: str
     num_claims_extracted: int
     num_conclusions_written: int
+    num_contradictions_written: int
+    num_open_questions_written: int
+    num_research_suggestions_written: int
     dry_run: bool
     mode: str  # "naive" | "llm"
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Contradiction detection — naive (always runs) + LLM-augmented (optional).
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+@dataclass
+class DetectedContradiction:
+    """A contradicting claim pair. `a_idx` / `b_idx` refer to indices in
+    the claim list we just extracted; if one side is an existing firm
+    Conclusion (cross-upload contradiction) we use `b_existing_id` instead
+    of `b_idx`."""
+    a_idx: int
+    b_idx: int | None  # None when b is an existing firm Conclusion
+    b_existing_id: str | None  # Conclusion.id when b is from the firm corpus
+    severity: float   # 0..1
+    narrative: str
+    source: str       # "heuristic" | "llm"
+
+
+_NEGATION_TOKENS = re.compile(
+    r"\b(not|never|no|none|nothing|nobody|nowhere|n'?t|cannot|can'?t|won'?t|"
+    r"shouldn'?t|wouldn'?t|couldn'?t|isn'?t|aren'?t|wasn'?t|weren'?t|"
+    r"doesn'?t|didn'?t|don'?t|haven'?t|hasn'?t|hadn'?t)\b",
+    flags=re.IGNORECASE,
+)
+_STOPWORDS = {
+    "the", "a", "an", "is", "are", "was", "were", "be", "been", "being",
+    "and", "or", "but", "if", "then", "of", "in", "on", "at", "to", "for",
+    "by", "with", "from", "as", "that", "this", "these", "those", "it",
+    "its", "we", "our", "you", "they", "them", "their", "i", "me", "my",
+    "he", "she", "his", "her", "has", "have", "had", "do", "does", "did",
+    "will", "would", "should", "could", "can", "may", "must", "ought",
+    "so", "than", "such", "some", "any", "all", "every", "each", "both",
+    "more", "most", "much", "many", "few",
+}
+
+
+def _content_tokens(text: str) -> set[str]:
+    toks = re.findall(r"\b[a-z][a-z']+\b", text.lower())
+    return {t for t in toks if t not in _STOPWORDS and len(t) >= 4}
+
+
+def _has_negation(text: str) -> bool:
+    return bool(_NEGATION_TOKENS.search(text))
+
+
+def naive_detect_contradictions(
+    claims: list[NaiveClaim],
+) -> list[DetectedContradiction]:
+    """
+    Heuristic pairwise contradiction scan on the new claims. Flags pairs
+    where:
+      (1) their content vocabulary overlaps significantly (same subject), AND
+      (2) exactly one contains a negation marker (opposite polarity).
+
+    This catches the obvious "X should always …" vs "X should not …" case
+    without needing an NLI model. Recall is modest; precision is decent
+    enough that the flagged pairs are usually worth a human's attention.
+    """
+    out: list[DetectedContradiction] = []
+    tok_sets = [_content_tokens(c.text) for c in claims]
+    neg_flags = [_has_negation(c.text) for c in claims]
+    for i in range(len(claims)):
+        for j in range(i + 1, len(claims)):
+            if neg_flags[i] == neg_flags[j]:
+                continue  # both affirmative or both negative — no polarity flip
+            if not tok_sets[i] or not tok_sets[j]:
+                continue
+            shared = tok_sets[i] & tok_sets[j]
+            # Require meaningful overlap — otherwise it's just two unrelated
+            # sentences that happen to have different polarity. A Jaccard
+            # of 0.35 on content tokens is a useful middle ground.
+            smaller = min(len(tok_sets[i]), len(tok_sets[j]))
+            if smaller == 0 or (len(shared) / smaller) < 0.35:
+                continue
+            # Severity proxy: how much do they overlap? More overlap = more
+            # directly contradictory.
+            overlap_ratio = len(shared) / smaller
+            severity = min(0.9, 0.4 + overlap_ratio * 0.5)
+            out.append(
+                DetectedContradiction(
+                    a_idx=i,
+                    b_idx=j,
+                    b_existing_id=None,
+                    severity=severity,
+                    narrative=(
+                        f"Heuristic: shared vocabulary {sorted(shared)[:6]} "
+                        f"but opposite polarity."
+                    ),
+                    source="heuristic",
+                )
+            )
+    return out
+
+
+def llm_detect_contradictions_and_questions(
+    claims: list[NaiveClaim],
+    firm_conclusions: list[tuple[str, str]],  # (id, text) of existing firm claims
+    *,
+    upload_title: str,
+) -> dict:
+    """
+    Single LLM call that does all three analysis tasks at once —
+    contradictions, open questions, research suggestions. Putting them in
+    one prompt is:
+      (a) cheaper (single context load);
+      (b) more coherent — the questions are generated in light of the
+          contradictions the LLM just identified, instead of being
+          independently invented.
+
+    Returns a dict shaped like:
+      {
+        "contradictions": [{"a": int, "b": int, "severity": float, "narrative": str}],
+        "cross_contradictions": [{"a": int, "existing_id": str, "severity": float, "narrative": str}],
+        "open_questions": [{"summary": str, "unresolved_reason": str, "a": int, "b": int|None}],
+        "research_suggestions": [{"title": str, "summary": str, "rationale": str}],
+      }
+    Missing keys are backfilled to empty lists so the caller never
+    explodes on a partial response.
+
+    Raises on LLM failure so the caller can decide whether to fall back
+    to heuristic-only mode.
+    """
+    from noosphere.llm import llm_client_from_settings
+
+    llm = llm_client_from_settings()
+
+    new_lines = "\n".join(
+        f"  [{i}] {c.text}" for i, c in enumerate(claims)
+    )
+    firm_lines = (
+        "\n".join(f"  <{fid[:10]}> {txt[:240]}" for fid, txt in firm_conclusions[:40])
+        if firm_conclusions
+        else "  (none yet — this is the first upload for this firm.)"
+    )
+
+    system = (
+        "You are an analyst helping a firm surface contradictions, open "
+        "questions, and research directions from a newly uploaded document. "
+        "Answer ONLY in JSON matching the schema below. Be conservative — "
+        "only flag genuine contradictions, not mere topical overlap. Only "
+        "propose questions a founder could actually research. Never "
+        "fabricate evidence."
+    )
+    user = f"""New document: "{upload_title}"
+
+CLAIMS extracted from this document (indices in brackets):
+{new_lines}
+
+FIRM'S EXISTING CONCLUSIONS (for cross-upload contradiction detection):
+{firm_lines}
+
+Return a single JSON object with these keys:
+{{
+  "contradictions": [
+    {{"a": <idx>, "b": <idx>, "severity": <0..1>, "narrative": "<≤200 chars, why they conflict>"}}
+  ],
+  "cross_contradictions": [
+    {{"a": <idx>, "existing_id": "<existing firm claim id prefix>", "severity": <0..1>, "narrative": "<≤200 chars>"}}
+  ],
+  "open_questions": [
+    {{"summary": "<≤180 chars, a concrete question>", "unresolved_reason": "<why unresolved>", "a": <idx or null>, "b": <idx or null>}}
+  ],
+  "research_suggestions": [
+    {{"title": "<short title>", "summary": "<one sentence>", "rationale": "<why this matters>"}}
+  ]
+}}
+
+Rules:
+- 0-5 contradictions, 0-3 cross_contradictions, 3-6 open_questions, 2-4 research_suggestions.
+- If no real contradictions exist, return [] for that list. Do not pad.
+- `a` and `b` must be valid indices into the CLAIMS list above.
+- Output ONLY the JSON object, no prose."""
+
+    raw = llm.complete(system=system, user=user, max_tokens=2500)
+    m = re.search(r"\{.*\}", raw, re.DOTALL)
+    if not m:
+        raise RuntimeError(f"LLM returned non-JSON: {raw[:200]}")
+    payload = json.loads(m.group(0))
+    return {
+        "contradictions": payload.get("contradictions", []) or [],
+        "cross_contradictions": payload.get("cross_contradictions", []) or [],
+        "open_questions": payload.get("open_questions", []) or [],
+        "research_suggestions": payload.get("research_suggestions", []) or [],
+    }
 
 
 def _resolve_codex_db_url(explicit: Optional[str]) -> str:
@@ -335,13 +525,21 @@ def ingest_from_codex(
                 title=row["title"] or row["originalName"] or upload_id,
                 num_claims_extracted=len(claims),
                 num_conclusions_written=0,
+                num_contradictions_written=0,
+                num_open_questions_written=0,
+                num_research_suggestions_written=0,
                 dry_run=True,
                 mode=mode,
             )
 
         # ── Insert conclusions ───────────────────────────────────────────
+        # We also track a parallel list of (claim_index → conclusion_id)
+        # so we can cite the right Conclusion rows from contradictions
+        # and open questions below. Claims that are too short to insert
+        # won't appear in this map (their index maps to None).
         now = datetime.now(timezone.utc)
         written = 0
+        claim_idx_to_conclusion_id: list[str | None] = [None] * len(claims)
         for idx, claim in enumerate(claims):
             claim_text = claim.text.strip()
             if len(claim_text) < 20:
@@ -370,7 +568,224 @@ def ingest_from_codex(
                     now,
                 ),
             )
-            written += cur.rowcount  # 1 on insert, 0 on conflict
+            if cur.rowcount == 1:
+                written += 1
+                claim_idx_to_conclusion_id[idx] = cid
+
+        # ── Contradiction detection ─────────────────────────────────────
+        # Always run the heuristic pass (cheap, no deps). If LLM is
+        # available AND use_llm=True, do the combined contradictions +
+        # questions + research pass for higher quality.
+        contradictions_written = 0
+        open_questions_written = 0
+        research_suggestions_written = 0
+
+        heuristic_pairs = naive_detect_contradictions(claims)
+
+        llm_payload: dict | None = None
+        llm_error: str | None = None
+        if use_llm:
+            try:
+                # Pull up to 40 recent firm conclusions for cross-upload checking.
+                cur.execute(
+                    '''SELECT id, text FROM "Conclusion"
+                       WHERE "organizationId" = %s
+                         AND "noosphereId" NOT LIKE %s
+                       ORDER BY "createdAt" DESC LIMIT 40''',
+                    (row["organizationId"], f"ing_{upload_id}_%"),
+                )
+                firm_conclusions = [(r["id"], r["text"]) for r in cur.fetchall()]
+                llm_payload = llm_detect_contradictions_and_questions(
+                    claims,
+                    firm_conclusions,
+                    upload_title=row["title"] or row["originalName"] or upload_id,
+                )
+            except Exception as exc:
+                # LLM failure is non-fatal — we still have the heuristic
+                # contradictions and the inserted Conclusions. Record the
+                # reason so the caller can surface it in the process log.
+                llm_error = f"{type(exc).__name__}: {exc}"
+
+        # ── Write contradictions (both sources merged) ──────────────────
+        # Heuristic pairs first.
+        for pair in heuristic_pairs:
+            a_cid = claim_idx_to_conclusion_id[pair.a_idx]
+            b_cid = (
+                claim_idx_to_conclusion_id[pair.b_idx]
+                if pair.b_idx is not None
+                else pair.b_existing_id
+            )
+            if not a_cid or not b_cid:
+                continue
+            cur.execute(
+                '''INSERT INTO "Contradiction"
+                   (id, "organizationId", "claimAId", "claimBId", severity,
+                    "sixLayerJson", narrative, "createdAt")
+                   VALUES (%s, %s, %s, %s, %s, %s, %s, %s)''',
+                (
+                    "x_" + uuid.uuid4().hex[:24],
+                    row["organizationId"],
+                    a_cid,
+                    b_cid,
+                    float(pair.severity),
+                    json.dumps({"source": "heuristic"}),
+                    pair.narrative,
+                    now,
+                ),
+            )
+            contradictions_written += cur.rowcount
+
+        # LLM contradictions (within-upload).
+        if llm_payload:
+            for item in llm_payload.get("contradictions", []):
+                try:
+                    a = int(item["a"])
+                    b = int(item["b"])
+                    sev = float(item.get("severity", 0.6))
+                    narrative = str(item.get("narrative", ""))[:500]
+                except (KeyError, ValueError, TypeError):
+                    continue
+                a_cid = claim_idx_to_conclusion_id[a] if 0 <= a < len(claims) else None
+                b_cid = claim_idx_to_conclusion_id[b] if 0 <= b < len(claims) else None
+                if not a_cid or not b_cid or a_cid == b_cid:
+                    continue
+                cur.execute(
+                    '''INSERT INTO "Contradiction"
+                       (id, "organizationId", "claimAId", "claimBId", severity,
+                        "sixLayerJson", narrative, "createdAt")
+                       VALUES (%s, %s, %s, %s, %s, %s, %s, %s)''',
+                    (
+                        "x_" + uuid.uuid4().hex[:24],
+                        row["organizationId"],
+                        a_cid,
+                        b_cid,
+                        sev,
+                        json.dumps({"source": "llm"}),
+                        narrative or "LLM flagged as contradictory",
+                        now,
+                    ),
+                )
+                contradictions_written += cur.rowcount
+
+            # Cross-upload contradictions (new claim vs existing firm claim).
+            # The LLM returns a prefix like "abc1234…"; we match by prefix
+            # against firm_conclusions' full ids.
+            firm_id_lookup = {fid[:10]: fid for fid, _ in firm_conclusions}
+            for item in llm_payload.get("cross_contradictions", []):
+                try:
+                    a = int(item["a"])
+                    existing_prefix = str(item.get("existing_id", ""))[:10]
+                    sev = float(item.get("severity", 0.6))
+                    narrative = str(item.get("narrative", ""))[:500]
+                except (KeyError, ValueError, TypeError):
+                    continue
+                a_cid = claim_idx_to_conclusion_id[a] if 0 <= a < len(claims) else None
+                existing_id = firm_id_lookup.get(existing_prefix)
+                if not a_cid or not existing_id or a_cid == existing_id:
+                    continue
+                cur.execute(
+                    '''INSERT INTO "Contradiction"
+                       (id, "organizationId", "claimAId", "claimBId", severity,
+                        "sixLayerJson", narrative, "createdAt")
+                       VALUES (%s, %s, %s, %s, %s, %s, %s, %s)''',
+                    (
+                        "x_" + uuid.uuid4().hex[:24],
+                        row["organizationId"],
+                        a_cid,
+                        existing_id,
+                        sev,
+                        json.dumps({"source": "llm", "cross_upload": True}),
+                        narrative or "LLM cross-upload contradiction",
+                        now,
+                    ),
+                )
+                contradictions_written += cur.rowcount
+
+        # ── Write open questions (LLM only) ─────────────────────────────
+        if llm_payload:
+            for item in llm_payload.get("open_questions", []):
+                try:
+                    summary = str(item.get("summary", "")).strip()[:500]
+                    reason = str(item.get("unresolved_reason", "")).strip()[:500]
+                except (KeyError, TypeError):
+                    continue
+                if not summary:
+                    continue
+                a = item.get("a")
+                b = item.get("b")
+                a_cid = (
+                    claim_idx_to_conclusion_id[int(a)]
+                    if isinstance(a, int) and 0 <= a < len(claims)
+                    else None
+                )
+                b_cid = (
+                    claim_idx_to_conclusion_id[int(b)]
+                    if isinstance(b, int) and 0 <= b < len(claims)
+                    else None
+                )
+                # OpenQuestion requires claimAId + claimBId NOT NULL; if the
+                # LLM didn't cite any, anchor both to the first inserted
+                # conclusion as a minimal placeholder so the row is valid.
+                # A future schema migration could make these nullable.
+                fallback = next(
+                    (cid for cid in claim_idx_to_conclusion_id if cid is not None),
+                    None,
+                )
+                a_cid = a_cid or fallback
+                b_cid = b_cid or fallback
+                if not a_cid or not b_cid:
+                    continue
+                cur.execute(
+                    '''INSERT INTO "OpenQuestion"
+                       (id, "organizationId", "noosphereId", summary,
+                        "claimAId", "claimBId", "unresolvedReason",
+                        "layerDisagreementSummary", "createdAt")
+                       VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)''',
+                    (
+                        "q_" + uuid.uuid4().hex[:24],
+                        row["organizationId"],
+                        f"oq_{upload_id}_{open_questions_written}",
+                        summary,
+                        a_cid,
+                        b_cid,
+                        reason or "Surfaced during ingest LLM pass",
+                        "LLM-flagged",
+                        now,
+                    ),
+                )
+                open_questions_written += cur.rowcount
+
+        # ── Write research suggestions (LLM only) ───────────────────────
+        if llm_payload:
+            for item in llm_payload.get("research_suggestions", []):
+                try:
+                    title = str(item.get("title", "")).strip()[:300]
+                    summary = str(item.get("summary", "")).strip()[:1000]
+                    rationale = str(item.get("rationale", "")).strip()[:1000]
+                except (KeyError, TypeError):
+                    continue
+                if not title or not summary:
+                    continue
+                cur.execute(
+                    '''INSERT INTO "ResearchSuggestion"
+                       (id, "organizationId", "noosphereId", title, summary,
+                        rationale, "readingUris", "sessionLabel",
+                        "suggestedForFounderId", "createdAt")
+                       VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)''',
+                    (
+                        "rs_" + uuid.uuid4().hex[:24],
+                        row["organizationId"],
+                        f"rs_{upload_id}_{research_suggestions_written}",
+                        title,
+                        summary,
+                        rationale or "LLM-generated during ingest",
+                        json.dumps([]),
+                        row["title"] or row["originalName"] or upload_id,
+                        row["founderId"],
+                        now,
+                    ),
+                )
+                research_suggestions_written += cur.rowcount
 
         # ── Update upload row ────────────────────────────────────────────
         cur.execute(
@@ -381,6 +796,15 @@ def ingest_from_codex(
         )
 
         # ── Audit event ──────────────────────────────────────────────────
+        audit_detail = (
+            f"Noosphere {mode} ingest · "
+            f"{written} conclusions · "
+            f"{contradictions_written} contradictions · "
+            f"{open_questions_written} open questions · "
+            f"{research_suggestions_written} research suggestions"
+        )
+        if llm_error:
+            audit_detail += f" · LLM pass failed: {llm_error[:80]}"
         cur.execute(
             '''INSERT INTO "AuditEvent"
                (id, "organizationId", "founderId", "uploadId", action, detail, "createdAt")
@@ -391,7 +815,7 @@ def ingest_from_codex(
                 row["founderId"],
                 upload_id,
                 "ingest",
-                f"Noosphere {mode} extraction produced {written} conclusions",
+                audit_detail[:500],
                 now,
             ),
         )
@@ -402,6 +826,9 @@ def ingest_from_codex(
             title=row["title"] or row["originalName"] or upload_id,
             num_claims_extracted=len(claims),
             num_conclusions_written=written,
+            num_contradictions_written=contradictions_written,
+            num_open_questions_written=open_questions_written,
+            num_research_suggestions_written=research_suggestions_written,
             dry_run=False,
             mode=mode,
         )
