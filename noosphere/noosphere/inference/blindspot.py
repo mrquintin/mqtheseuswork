@@ -171,7 +171,14 @@ def _discover_adjacent_topics(
 
 
 @register_method(
-    name="suggest_research",
+    # Registry name kept distinct from `methods.suggest_research` (the
+    # discussion-analysis method wrapping ResearchAdvisor). Both were
+    # registered as "suggest_research v1.0.0" which made any import that
+    # loaded both modules raise MethodCollisionError at package-load time.
+    # The Python function name stays `suggest_research` so existing direct
+    # callers (e.g. `from noosphere.inference.blindspot import suggest_research`)
+    # keep working unchanged.
+    name="suggest_research_from_blindspot",
     version="1.0.0",
     method_type=MethodType.AGGREGATION,
     input_schema=BlindspotReport,

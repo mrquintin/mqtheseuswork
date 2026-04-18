@@ -887,11 +887,18 @@ class ThreePaneDialecticWindow(QMainWindow):
         self._recording = False
 
         # Record control
+        #
+        # `insertWidget(index, widget)` only accepts QWidget, but `bar` is
+        # a QHBoxLayout (for grouping the button + potential future sibling
+        # controls on the same row). The correct method for inserting a
+        # nested layout into another layout is `insertLayout`. PyQt5 used
+        # to silently accept the wrong call; PyQt6 raises TypeError, which
+        # is what "Dialectic doesn't open" looked like on the user side.
         bar = QHBoxLayout()
         self._rec_btn = QPushButton("Start session")
         self._rec_btn.clicked.connect(self._toggle)
         bar.addWidget(self._rec_btn)
-        left_l.insertWidget(0, bar)
+        left_l.insertLayout(0, bar)
 
     def _toggle(self) -> None:
         if not self._recording:

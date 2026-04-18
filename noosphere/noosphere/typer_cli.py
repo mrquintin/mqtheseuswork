@@ -52,16 +52,21 @@ def ingest_cmd(
     else:
         from noosphere.ingester import ingest_markdown, ingest_text, ingest_transcript
 
+        # `ingest_markdown / ingest_text / ingest_transcript` only persist
+        # when `store=` is non-None (see ingest_artifacts.py). Previously
+        # this branch called them without `store`, so the CLI reported
+        # success + an artifact_id while nothing was actually written to
+        # the DB. Passing the orchestrator's store fixes the silent no-op.
         suf = path.suffix.lower()
         if suf in {".md", ".markdown"}:
-            art = ingest_markdown(path)
+            art = ingest_markdown(path, store=orch.store)
             log.info("typer_ingest_artifact", artifact_id=art.id, path=str(path))
             typer.echo(json.dumps({"ok": True, "artifact_id": art.id}, default=str))
             return
         if suf in {".vtt", ".txt", ".jsonl"}:
-            art, _chunks, _claims = ingest_transcript(path)
+            art, _chunks, _claims = ingest_transcript(path, store=orch.store)
         else:
-            art = ingest_text(path)
+            art = ingest_text(path, store=orch.store)
         log.info("typer_ingest_artifact", artifact_id=art.id, path=str(path))
         typer.echo(json.dumps({"ok": True, "artifact_id": art.id}, default=str))
 

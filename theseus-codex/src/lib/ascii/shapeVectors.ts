@@ -1,34 +1,34 @@
 /**
- * Shape-vector ASCII renderer — precomputes, for every printable ASCII
- * character, how much of its visible mass falls inside two "sampling
- * circles" arranged vertically inside the character cell (one in the upper
- * half, one in the lower half). This 2D shape vector lets us pick the
- * character that best matches the shape of the corresponding image region,
- * instead of just matching overall lightness — a technique adapted from
- * Alex Harri's "ASCII characters are not pixels" (alexharri.com/blog/ascii-rendering).
+ * Shape-vector ASCII renderer — 6D variant.
  *
- * Two-dimensional shape vectors (vs the 6D variant in the post) are good
- * enough for our 3D scenes because our geometry is mostly wireframe and
- * large silhouette shapes. 2D runs comfortably on CPU at 30fps for the
- * ~80×40 grids we need, without any GPU shaders.
+ * Adapted from Alex Harri's "ASCII characters are not pixels"
+ * (alexharri.com/blog/ascii-rendering). The earlier build of this file
+ * used only 2 sampling circles (upper + lower half of each cell), which
+ * got us shape-aware selection but couldn't tell `p` from `q`, `-` from
+ * `_`, or `/` from `\`. This version uses SIX sampling circles arranged
+ * in a staggered 2×3 grid:
  *
- * Pipeline:
- *   1. Precompute: rasterize each printable ASCII character into a small
- *      bitmap, compute its 2D shape vector (upper/lower mass).
- *   2. Normalize all shape vectors by each component's max (so they span
- *      the [0, 1]² space and every character is reachable).
- *   3. At render time, for each grid cell, sample its image region through
- *      the same two circles → 2D sampling vector.
- *   4. Look up the character whose shape vector is closest (Euclidean).
- *   5. Optional: contrast enhancement (raise vector to an exponent inside
- *      a per-vector normalization) to sharpen boundaries.
+ *     UL           UR            (upper-left, upper-right)
+ *          ML           MR       (middle-left shifted down a hair,
+ *                                 middle-right shifted up a hair —
+ *                                 the staggering covers the gaps and
+ *                                 gives better pickup for diagonals)
+ *     LL           LR            (lower-left, lower-right)
  *
- * Precomputation is amortized at module load; the renderer itself is a
- * tight inner loop suitable for 30fps on modern devices.
+ * Each cell → 6 numbers (one per sampling circle), each number ∈ [0, 1].
+ * Characters are pre-rasterized once at module load; each character's
+ * shape vector is computed the same way. At render time we sample the
+ * scene the same way, then find the nearest character by Euclidean
+ * distance in 6-space. This is the full approach from the post.
+ *
+ * Performance: 6× more samples per cell than the old 2D version, but
+ * our grid sizes (40–100 cols × 14–30 rows ≈ 1–3k cells) mean we're
+ * still at ~15k samples/frame. That's comfortable for CPU at 30fps.
+ * Nearest-neighbour lookup is brute-force over ~95 characters; a k-d
+ * tree would help if grids get much bigger.
  */
 
-/** The printable ASCII set we allow. Excludes chars that look the same in
- *  most monospace fonts (smart quotes, backslash — kept) and control chars. */
+/** The printable ASCII set we allow. */
 export const ASCII_CHARS =
   " !\"#$%&'()*+,-./0123456789:;<=>?@" +
   "ABCDEFGHIJKLMNOPQRSTUVWXYZ" +
@@ -36,87 +36,91 @@ export const ASCII_CHARS =
   "abcdefghijklmnopqrstuvwxyz" +
   "{|}~";
 
-/** Pre-computed shape vector table. Each entry: { char, vector: [upper, lower] }. */
-export type ShapeEntry = {
-  readonly char: string;
-  readonly vector: readonly [number, number];
-};
-
-/** Global cell aspect — width-to-height ratio of one character cell in the
- *  monospace font we target. Most monospace fonts are ~0.55 wide vs tall;
- *  we pick an integer-friendly ratio the sampler can work with. */
 export const CELL_W = 6; // px
 export const CELL_H = 12; // px
 
-/** Radius of each sampling circle inside a cell. A little less than half the
- *  cell width so the two circles don't overlap horizontally much. */
-const SAMPLE_R = 3;
+/** Sampling circle radius — a bit smaller than in the 2D version because
+ *  we now have six circles sharing the same cell, so they need to be
+ *  tighter to avoid overlap. */
+const SAMPLE_R = 2;
 
-/** Centre of the upper / lower sampling circles within a cell. */
-const UPPER_CENTRE_Y = CELL_H * 0.3;
-const LOWER_CENTRE_Y = CELL_H * 0.72;
-const CENTRE_X = CELL_W * 0.5;
+/** Six sampling-circle centres. Slightly staggered: middle circles are
+ *  vertically offset from the upper/lower rows to cover diagonal chars. */
+const CIRCLE_CENTRES: readonly (readonly [number, number])[] = [
+  // UL             UR
+  [CELL_W * 0.28, CELL_H * 0.22],
+  [CELL_W * 0.72, CELL_H * 0.22],
+  // ML (lowered)   MR (raised)
+  [CELL_W * 0.28, CELL_H * 0.52],
+  [CELL_W * 0.72, CELL_H * 0.48],
+  // LL             LR
+  [CELL_W * 0.28, CELL_H * 0.8],
+  [CELL_W * 0.72, CELL_H * 0.8],
+] as const;
 
-/** Density threshold below which a pixel counts as "ink" (0 = black,
- *  255 = white). We invert logic based on whether the renderer draws
- *  light-on-dark; see {@link computeShapeVector}. */
+/** Density threshold below which a pixel counts as ink. */
 const INK_CUTOFF = 128;
 
+/** 6-component shape vector, kept as a plain tuple for perf. */
+export type ShapeVec = readonly [number, number, number, number, number, number];
+
+export type ShapeEntry = {
+  readonly char: string;
+  readonly vector: ShapeVec;
+};
+
 /** Rasterize one character into a small offscreen canvas and compute its
- *  2D shape vector. Runs once per character at module load. */
+ *  6D shape vector by counting ink density inside each sampling circle. */
 function rasterizeAndComputeShape(
   ctx: CanvasRenderingContext2D,
   char: string,
   font: string,
-): readonly [number, number] {
+): ShapeVec {
   ctx.fillStyle = "#000";
   ctx.fillRect(0, 0, CELL_W, CELL_H);
   ctx.fillStyle = "#fff";
   ctx.font = font;
   ctx.textBaseline = "middle";
   ctx.textAlign = "center";
-  // Slightly below centre so descenders render correctly.
-  ctx.fillText(char, CENTRE_X, CELL_H * 0.55);
+  // 0.55 centres the glyph vertically with a small bias for descenders
+  // (g, j, p, q, y) — matching the font-rendering behaviour we get on
+  // the output canvas in AsciiCanvas.
+  ctx.fillText(char, CELL_W * 0.5, CELL_H * 0.55);
 
   const img = ctx.getImageData(0, 0, CELL_W, CELL_H).data;
 
-  // For each sampling circle, count how many pixels inside the circle are
-  // "ink" (i.e. the character was drawn there). Normalize by total pixels.
-  const sample = (centreY: number): number => {
+  const vec = new Array<number>(6) as [number, number, number, number, number, number];
+  for (let c = 0; c < 6; c++) {
+    const [cx, cy] = CIRCLE_CENTRES[c];
     let hits = 0;
     let total = 0;
-    // Tighter iteration: bounding box of the circle, then circle test.
-    const x0 = Math.max(0, Math.floor(CENTRE_X - SAMPLE_R));
-    const x1 = Math.min(CELL_W, Math.ceil(CENTRE_X + SAMPLE_R));
-    const y0 = Math.max(0, Math.floor(centreY - SAMPLE_R));
-    const y1 = Math.min(CELL_H, Math.ceil(centreY + SAMPLE_R));
+    const x0 = Math.max(0, Math.floor(cx - SAMPLE_R));
+    const x1 = Math.min(CELL_W, Math.ceil(cx + SAMPLE_R));
+    const y0 = Math.max(0, Math.floor(cy - SAMPLE_R));
+    const y1 = Math.min(CELL_H, Math.ceil(cy + SAMPLE_R));
+    const r2 = SAMPLE_R * SAMPLE_R;
     for (let y = y0; y < y1; y++) {
-      const dy = y + 0.5 - centreY;
+      const dy = y + 0.5 - cy;
       for (let x = x0; x < x1; x++) {
-        const dx = x + 0.5 - CENTRE_X;
-        if (dx * dx + dy * dy > SAMPLE_R * SAMPLE_R) continue;
+        const dx = x + 0.5 - cx;
+        if (dx * dx + dy * dy > r2) continue;
         total++;
-        // Luminance approx from R channel (we drew white on black).
         const idx = (y * CELL_W + x) * 4;
         if (img[idx] >= INK_CUTOFF) hits++;
       }
     }
-    return total > 0 ? hits / total : 0;
-  };
-
-  return [sample(UPPER_CENTRE_Y), sample(LOWER_CENTRE_Y)];
+    vec[c] = total > 0 ? hits / total : 0;
+  }
+  return vec;
 }
 
-/** Build the shape-vector table. This runs once, lazily, the first time
- *  any ASCII rendering is requested, and caches the result on module.
- *  SSR-safe: returns an empty array during SSR (no `document`), and the
- *  first client-side render triggers the actual build. */
+/** Shape-vector table + per-component max (used for normalization). */
 let cached: readonly ShapeEntry[] | null = null;
-let cachedMaxes: readonly [number, number] = [1, 1];
+let cachedMaxes: ShapeVec = [1, 1, 1, 1, 1, 1] as const;
 
 export function getShapeTable(): {
   entries: readonly ShapeEntry[];
-  max: readonly [number, number];
+  max: ShapeVec;
 } {
   if (cached) return { entries: cached, max: cachedMaxes };
   if (typeof document === "undefined") {
@@ -131,53 +135,62 @@ export function getShapeTable(): {
     return { entries: [], max: cachedMaxes };
   }
 
-  // Use the same font the renderer will use. Browser font-loading is async,
-  // so callers should wait until `document.fonts.ready` before building the
-  // table if they care about exact character shapes.
   const font = `${Math.floor(CELL_H * 0.85)}px "IBM Plex Mono", monospace`;
 
   const raw: ShapeEntry[] = [];
-  let maxU = 0;
-  let maxL = 0;
+  const maxes: [number, number, number, number, number, number] = [0, 0, 0, 0, 0, 0];
   for (const char of ASCII_CHARS) {
     const v = rasterizeAndComputeShape(ctx, char, font);
-    if (v[0] > maxU) maxU = v[0];
-    if (v[1] > maxL) maxL = v[1];
+    for (let i = 0; i < 6; i++) {
+      if (v[i] > maxes[i]) maxes[i] = v[i];
+    }
     raw.push({ char, vector: v });
   }
-  // Normalize so component maxes are both 1.0. If a component is genuinely
-  // zero across the whole alphabet, avoid dividing by zero by treating the
-  // max as 1 (the component simply never contributes).
-  const safeMaxU = maxU > 0 ? maxU : 1;
-  const safeMaxL = maxL > 0 ? maxL : 1;
+  // Normalize each component so every axis spans [0, 1]. Components that
+  // are genuinely always zero stay zero (their axis just doesn't
+  // contribute to lookups). Without normalization the shape-vector cluster
+  // bunches in the bottom-left octant and lookups bias toward a few chars.
+  const safe: ShapeVec = [
+    maxes[0] > 0 ? maxes[0] : 1,
+    maxes[1] > 0 ? maxes[1] : 1,
+    maxes[2] > 0 ? maxes[2] : 1,
+    maxes[3] > 0 ? maxes[3] : 1,
+    maxes[4] > 0 ? maxes[4] : 1,
+    maxes[5] > 0 ? maxes[5] : 1,
+  ] as const;
   cached = raw.map(({ char, vector }) => ({
     char,
-    vector: [vector[0] / safeMaxU, vector[1] / safeMaxL] as const,
+    vector: [
+      vector[0] / safe[0],
+      vector[1] / safe[1],
+      vector[2] / safe[2],
+      vector[3] / safe[3],
+      vector[4] / safe[4],
+      vector[5] / safe[5],
+    ] as ShapeVec,
   }));
-  cachedMaxes = [safeMaxU, safeMaxL] as const;
+  cachedMaxes = safe;
   return { entries: cached, max: cachedMaxes };
 }
 
-/** Euclidean-squared distance between two 2-vectors. Square-root is skipped
- *  because monotonic transforms don't affect nearest-neighbour lookups. */
-export function dist2(a: readonly [number, number], b: readonly [number, number]): number {
-  const du = a[0] - b[0];
-  const dl = a[1] - b[1];
-  return du * du + dl * dl;
+/** Squared Euclidean distance in 6-space. Square-root skipped (monotonic). */
+export function dist6(a: ShapeVec, b: ShapeVec): number {
+  const d0 = a[0] - b[0];
+  const d1 = a[1] - b[1];
+  const d2 = a[2] - b[2];
+  const d3 = a[3] - b[3];
+  const d4 = a[4] - b[4];
+  const d5 = a[5] - b[5];
+  return d0 * d0 + d1 * d1 + d2 * d2 + d3 * d3 + d4 * d4 + d5 * d5;
 }
 
-/** Find the best-matching ASCII character for a sampling vector via
- *  brute-force nearest-neighbour search. For our grid sizes (≤ ~5000 cells)
- *  and ~95 characters, this is ~500K distance computations per frame —
- *  comfortable on CPU. A k-d tree would be faster for grids 5×+ larger. */
-export function pickChar(
-  samplingVector: readonly [number, number],
-  table: readonly ShapeEntry[],
-): string {
+/** Nearest-neighbour lookup. Brute-force over ~95 characters per call;
+ *  for our grids that's under 5ms/frame in total on a modest laptop. */
+export function pickChar(sample: ShapeVec, table: readonly ShapeEntry[]): string {
   let best = " ";
   let bestD = Infinity;
   for (const { char, vector } of table) {
-    const d = dist2(vector, samplingVector);
+    const d = dist6(vector, sample);
     if (d < bestD) {
       bestD = d;
       best = char;
@@ -186,17 +199,16 @@ export function pickChar(
   return best;
 }
 
-/** Apply the global contrast enhancement described in the blog: normalize
- *  vector by its own max component, raise to a power, then denormalize.
- *  Strengthens the shape of the vector (pulls small components toward 0)
- *  without shrinking its overall magnitude. */
-export function enhanceContrast(
-  vector: readonly [number, number],
-  exponent: number,
-): [number, number] {
-  if (exponent <= 1) return [vector[0], vector[1]];
-  const max = Math.max(vector[0], vector[1], 1e-6);
-  const n0 = vector[0] / max;
-  const n1 = vector[1] / max;
-  return [Math.pow(n0, exponent) * max, Math.pow(n1, exponent) * max];
+/** Global contrast enhancement (Harri's exponent-with-normalization). */
+export function enhanceContrast(vec: ShapeVec, exponent: number): ShapeVec {
+  if (exponent <= 1) return vec;
+  const max = Math.max(vec[0], vec[1], vec[2], vec[3], vec[4], vec[5], 1e-6);
+  return [
+    Math.pow(vec[0] / max, exponent) * max,
+    Math.pow(vec[1] / max, exponent) * max,
+    Math.pow(vec[2] / max, exponent) * max,
+    Math.pow(vec[3] / max, exponent) * max,
+    Math.pow(vec[4] / max, exponent) * max,
+    Math.pow(vec[5] / max, exponent) * max,
+  ] as ShapeVec;
 }

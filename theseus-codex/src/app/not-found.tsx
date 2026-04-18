@@ -1,13 +1,13 @@
 import Link from "next/link";
 
-/**
- * Custom 404 page. Keeps the amber/void aesthetic; renders a small ASCII
- * fallen column + a Latin phrase so users feel like they stepped off the
- * path of a ruin rather than hit a generic Next.js error.
- *
- *   Via interrupta. Itinerarium obscurum.
- *     (The road is broken. The way grows dim.)
- */
+// Live 3D ruin (a toppled Doric column rotating in the void) rendered
+// through the ASCII engine. Previously this page had a static ASCII
+// drawing; the live version feels like a dig site you're looking at
+// through a viewport, which matches the mood better. Imported via the
+// client-wrapper shell since this page is a server component and Next 16
+// requires `ssr: false` dynamic imports to live in a client boundary.
+import AsciiRuin from "@/components/AsciiRuinClient";
+
 export default function NotFound() {
   return (
     <main
@@ -21,35 +21,7 @@ export default function NotFound() {
         textAlign: "center",
       }}
     >
-      <pre
-        className="mono"
-        aria-hidden="true"
-        style={{
-          color: "var(--amber-dim)",
-          fontSize: "0.7rem",
-          lineHeight: 1.15,
-          margin: 0,
-          whiteSpace: "pre",
-          textShadow: "var(--glow-sm)",
-        }}
-      >
-{`                    ║
-                    ║
-                    ║
-                    ║
-                    ║
-              ╔═════╩═════╗
-              ║           ║
-              ║   IV . O  ║
-              ║           ║
-              ╚═════╦═════╝
-                    ║
-        ▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒
-            ░░░░░░░░░░░░░░░░░
-         ░░░░  ▒▒  ▓▓  ▒▒  ░░░░
-      ░░░░   ▒▒    ▓▓    ▒▒   ░░░░
-`}
-      </pre>
+      <AsciiRuin cols={64} rows={24} size={540} />
 
       <h1
         style={{
@@ -58,7 +30,7 @@ export default function NotFound() {
           letterSpacing: "0.2em",
           color: "var(--amber)",
           textShadow: "var(--glow-md)",
-          margin: "2rem 0 0.5rem",
+          margin: "1.25rem 0 0.5rem",
         }}
       >
         CCCCIV

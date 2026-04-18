@@ -1,12 +1,46 @@
+# Local docker-compose for the Theseus Codex + public site + Postgres.
+#
+# Production deployments on Vercel + Supabase do NOT use this file — the
+# Codex is deployed to Vercel and the database lives on Supabase. This
+# compose is for self-hosted development and CI smoke tests where we want
+# the whole stack running in containers on a single machine.
+#
+# Previous versions of this file mounted a `portal-data` volume into
+# `/app/data` because the Codex used SQLite. That volume is no longer
+# needed — the Prisma schema is Postgres-only and the `theseus-codex`
+# container reads `DATABASE_URL` from the environment at startup.
+
 services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: theseus
+      POSTGRES_PASSWORD: theseus
+      POSTGRES_DB: theseus_codex
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U theseus -d theseus_codex"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
   theseus-codex:
     build:
       context: ./theseus-codex
     image: theseus-codex:latest
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      # Compose's internal DNS resolves `postgres` to the container above.
+      DATABASE_URL: postgresql://theseus:theseus@postgres:5432/theseus_codex?schema=public
+      DIRECT_URL: postgresql://theseus:theseus@postgres:5432/theseus_codex?schema=public
     ports:
       - "3000:3000"
-    volumes:
-      - portal-data:/app/data
     restart: unless-stopped
 
   theseus-public:
@@ -18,4 +52,4 @@ services:
     restart: unless-stopped
 
 volumes:
-  portal-data:
+  postgres-data:

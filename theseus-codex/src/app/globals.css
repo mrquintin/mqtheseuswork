@@ -375,7 +375,22 @@ input::placeholder, textarea::placeholder {
   .gate-labyrinth,
   .gate-pulse,
   .gate-open,
-  .gate-flash { animation: none !important; }
+  .gate-flash,
+  .crt-noise { animation: none !important; }
+}
+
+/* ── Amber noise drift ──────────────────────────────────────────────────
+ * The `<CRTOverlay />` amber-noise layer wallpapers a 256px tile across
+ * the viewport and drifts the background-position very slowly (48s cycle
+ * for 256px travel = ~5px/s). Slow enough to be subliminal; present enough
+ * that the page feels alive rather than a flat render. */
+.crt-noise {
+  animation: crt-noise-drift 48s linear infinite;
+}
+
+@keyframes crt-noise-drift {
+  0%   { background-position: 0 0; }
+  100% { background-position: 256px 256px; }
 }
 
 /* ── Gate (/) animations ─────────────────────────────────────────────────── */

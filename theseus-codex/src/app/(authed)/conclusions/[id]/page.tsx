@@ -3,6 +3,7 @@ import { notFound } from "next/navigation";
 import { db } from "@/lib/db";
 import PageHelp from "@/components/PageHelp";
 import TabNav from "@/components/TabNav";
+import ConclusionSigil from "./conclusion-sigil";
 import ProvenanceTab from "./provenance-tab";
 import CascadeTab from "./cascade-tab";
 import PeerReviewTab from "./peer-review-tab";
@@ -63,6 +64,7 @@ export default async function ConclusionDetailPage({
         title="Conclusion"
         purpose={`"${conclusion.text.slice(0, 140)}${conclusion.text.length > 140 ? "…" : ""}"`}
         howTo="The tabs below show everything the system knows about this conclusion: its origin (Provenance), its downstream consequences (Cascade), and peer reactions to it (Peer review)."
+        sigil={<ConclusionSigil />}
       />
 
       <div style={{ maxWidth: "1200px", margin: "0 auto", padding: "0 1.5rem" }}>

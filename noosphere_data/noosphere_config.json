@@ -1,0 +1,14 @@
+{
+  "model_name": "",
+  "model_device": "cpu",
+  "coherence_weights": {
+    "s1_consistency": 0.25,
+    "s2_argumentation": 0.1,
+    "s3_probabilistic": 0.15,
+    "s4_geometric": 0.15,
+    "s5_compression": 0.1,
+    "s6_llm_judge": 0.25
+  },
+  "clustering_distance_threshold": 0.3,
+  "min_observation_confidence_for_promotion": 0.75
+}
