@@ -77,18 +77,30 @@ function GateInner() {
         return;
       }
 
-      // Auth succeeded. Play the entrance animation before navigating so the
-      // user sees the gate "open" before the dashboard appears.
+      // Auth succeeded. Play the ignition animation before navigating so
+      // the user arrives inside the Codex rather than cutting to it. The
+      // dashboard side reads the session flag on first mount and plays
+      // the arrival half of the animation (fade-in from amber + Latin
+      // welcome tag) — see EntranceWelcome in the (authed) layout.
       setPhase("entering");
+      try {
+        // sessionStorage is fine: it survives the navigation but is
+        // scoped to this tab, so a subsequent manual refresh doesn't
+        // replay the animation.
+        window.sessionStorage.setItem("codex:just-entered", "1");
+      } catch {
+        /* private-mode / disabled storage is non-fatal; arrival just won't animate. */
+      }
 
-      // Match the CSS keyframe durations (the longest is ~1.2s; we add a
-      // short buffer so the amber flash fully covers the old DOM before
-      // the next page paints).
+      // Match the CSS keyframe durations. The longest is `gate-shockwave`
+      // at 1.3s. We hold a hair past that so the amber flash fully covers
+      // the old DOM before the next page paints — otherwise you get a
+      // brief "peek" of the gate behind the transition.
       const holdMs =
         typeof window !== "undefined" &&
         window.matchMedia("(prefers-reduced-motion: reduce)").matches
-          ? 250
-          : 1400;
+          ? 180
+          : 1380;
 
       window.setTimeout(() => {
         const next = searchParams.get("next") || "/dashboard";
@@ -116,10 +128,17 @@ function GateInner() {
         overflow: "hidden",
       }}
     >
-      {/* The amber flash overlay. Idle = invisible; entering = rapidly
-          rises to full amber and holds. Separate div (rather than animating
-          the whole page) so it composites above every other layer except
-          the CRT scan-lines. */}
+      {/* Ignition layer 1 — sunburst rays. Sits BELOW the amber flash so
+          the rays read as "light escaping the threshold" while the flash
+          above them brightens. Only mounts in the `entering` phase so
+          idle paints don't carry this div at all (conic-gradient can be
+          expensive to rasterise on some GPUs; unmounting is free). */}
+      {phase === "entering" ? <div aria-hidden="true" className="gate-rays" /> : null}
+
+      {/* Ignition layer 2 — the amber shockwave. Idle = invisible; entering
+          = animated radial gradient that expands from the viewport centre
+          outward and fills the screen. Separate fixed div so it composites
+          above the labyrinth + form but below the rays mix-blend. */}
       <div
         aria-hidden="true"
         className={phase === "entering" ? "gate-flash" : undefined}
@@ -128,7 +147,7 @@ function GateInner() {
           inset: 0,
           zIndex: 9000,
           pointerEvents: "none",
-          background: "var(--amber)",
+          background: "transparent",
           opacity: 0,
         }}
       />

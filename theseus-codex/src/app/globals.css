@@ -374,9 +374,10 @@ input::placeholder, textarea::placeholder {
   .fade-up,
   .gate-labyrinth,
   .gate-pulse,
-  .gate-open,
-  .gate-flash,
   .crt-noise { animation: none !important; }
+  /* Note: .gate-open / .gate-flash / .gate-rays / .codex-arrival /
+     .codex-welcome-tag are also disabled by the later @media block at
+     the end of this section. Listed here for discoverability. */
 }
 
 /* ── Amber noise drift ──────────────────────────────────────────────────
@@ -408,13 +409,40 @@ input::placeholder, textarea::placeholder {
   animation: gate-spin-slow 90s linear infinite, gate-breath 4.5s ease-in-out infinite;
 }
 
-/* `gate-open` overrides the slow spin with a much faster one (0.9s, ease-in)
-   while simultaneously scaling the labyrinth up so it feels like the camera
-   is flying through it. Combined with the amber flash overlay, this gives
-   the "gate opens" moment. */
+/*
+ * IGNITION ANIMATION (entrance to the platform)
+ * ─────────────────────────────────────────────
+ * When the user submits the login form, the Gate runs a three-layer
+ * ceremonial transition before navigating to /dashboard. The layers
+ * composite on top of each other:
+ *
+ *   1. `.gate-open` on the armillary hero:
+ *        rotation accelerates to 3+ turns/second, simultaneously scales
+ *        past 8× so the sphere appears to swallow the viewport and
+ *        dissolve into light. Opacity drops to zero on exit so it's fully
+ *        replaced by the amber flash — no awkward half-faded silhouette.
+ *
+ *   2. `.gate-flash` (fixed overlay div):
+ *        a radial-gradient shockwave that begins as a tiny bright spot
+ *        at the viewport centre and expands outward, reaching full
+ *        viewport coverage at t≈1.1s. NOT a linear opacity fade — the
+ *        shockwave *moves*, which reads as an actual blast of light.
+ *
+ *   3. `.gate-rays` (fixed overlay div, optional but striking):
+ *        a conic-gradient "sunburst" rotating in the opposite direction
+ *        of the armillary, scaling out and fading. Mix-blend-mode
+ *        screen so it reads as light rays rather than opaque colour.
+ *
+ * All three start at t=0 (the moment `phase` flips to `entering`), run
+ * ~1.2–1.4s in parallel, and leave the screen solid amber just as
+ * the router navigates. The dashboard picks up the arrival via the
+ * `EntranceWelcome` component which plays the tail of the animation
+ * (fade-in from amber + Latin tag glimmer).
+ */
+
 .gate-open {
-  animation: gate-spin-fast 0.9s cubic-bezier(0.4, 0, 1, 1) forwards,
-    gate-zoom 1.2s cubic-bezier(0.4, 0, 0.7, 1) forwards;
+  animation: gate-ignite 1.25s cubic-bezier(0.25, 0.1, 0.65, 1) forwards;
+  transform-origin: 50% 50%;
 }
 
 @keyframes gate-spin-slow {
@@ -422,26 +450,32 @@ input::placeholder, textarea::placeholder {
   to { transform: rotate(360deg); }
 }
 
-@keyframes gate-spin-fast {
-  from { transform: rotate(0deg); }
-  to { transform: rotate(1080deg); }   /* 3 full turns in under a second */
-}
-
-@keyframes gate-zoom {
-  from {
-    transform: scale(1);
-    filter: drop-shadow(0 0 10px var(--amber-glow));
+/* Hero ignition — combines spin acceleration, scale, glow amplification,
+   and a clean fade-to-white at the tail. The zooming past 8× is what
+   sells the "passing through the gate" feeling; the scale > 1 + opacity
+   → 0 at the end avoids a pop when the amber flash takes over. */
+@keyframes gate-ignite {
+  0% {
+    transform: scale(1) rotate(0deg);
+    filter: drop-shadow(0 0 10px var(--amber-glow)) brightness(1);
+    opacity: 1;
+  }
+  25% {
+    transform: scale(1.6) rotate(540deg);
+    filter: drop-shadow(0 0 36px var(--amber-glow))
+            drop-shadow(0 0 14px var(--amber)) brightness(1.4);
+    opacity: 1;
   }
   60% {
-    transform: scale(2.4);
-    filter: drop-shadow(0 0 40px var(--amber-glow))
-            drop-shadow(0 0 12px var(--amber));
+    transform: scale(4) rotate(1260deg);
+    filter: drop-shadow(0 0 80px var(--amber))
+            drop-shadow(0 0 30px var(--amber)) brightness(2.2);
+    opacity: 0.85;
   }
   100% {
-    transform: scale(6);
-    filter: drop-shadow(0 0 80px var(--amber))
-            drop-shadow(0 0 30px var(--amber));
-    opacity: 0.4;   /* starts dissolving into the flash */
+    transform: scale(9) rotate(1800deg);
+    filter: drop-shadow(0 0 120px var(--amber)) brightness(3.5);
+    opacity: 0;   /* fully dissolves into the flash */
   }
 }
 
@@ -450,16 +484,156 @@ input::placeholder, textarea::placeholder {
   50% { filter: drop-shadow(0 0 20px var(--amber-glow)) drop-shadow(0 0 4px var(--amber)); }
 }
 
-/* Amber flash overlay. Ramps from 0 to peak (~0.85 not 1.0, so the labyrinth
-   silhouette is still faintly visible behind it) then holds. The parent
-   React tree navigates away right as the flash is at peak. */
+/* Radial shockwave. Note this animates `background` (the gradient stop
+   positions), not just `opacity` — that's what makes the light visibly
+   *expand* from the centre rather than just brightening uniformly. */
 .gate-flash {
-  animation: gate-flash 1.4s ease-in forwards;
+  animation: gate-shockwave 1.3s cubic-bezier(0.2, 0.6, 0.4, 1) forwards;
 }
 
-@keyframes gate-flash {
-  0% { opacity: 0; }
-  60% { opacity: 0.15; }
-  85% { opacity: 0.7; }
-  100% { opacity: 0.85; }
+@keyframes gate-shockwave {
+  0% {
+    opacity: 0;
+    background: radial-gradient(circle at center,
+      rgba(255, 255, 220, 0) 0%,
+      rgba(255, 210, 140, 0) 5%,
+      transparent 10%);
+  }
+  18% {
+    opacity: 1;
+    background: radial-gradient(circle at center,
+      rgba(255, 255, 220, 1) 0%,
+      rgba(255, 210, 140, 0.95) 6%,
+      rgba(255, 180, 80, 0.6) 12%,
+      transparent 20%);
+  }
+  45% {
+    opacity: 1;
+    background: radial-gradient(circle at center,
+      rgba(255, 255, 220, 1) 0%,
+      rgba(255, 210, 140, 0.95) 25%,
+      rgba(233, 163, 56, 0.8) 50%,
+      transparent 80%);
+  }
+  80% {
+    opacity: 1;
+    background: radial-gradient(circle at center,
+      rgba(255, 255, 220, 1) 0%,
+      rgba(255, 210, 140, 0.98) 60%,
+      rgba(233, 163, 56, 0.92) 100%);
+  }
+  100% {
+    opacity: 1;
+    background: var(--amber);
+  }
+}
+
+/* Sunburst rays. Conic gradient + counter-rotation gives the
+   "light shattering outward" feel you get in a Renaissance theophany
+   painting. Mix-blend-mode screen keeps it from muddying the amber. */
+.gate-rays {
+  position: fixed;
+  inset: -20%;   /* overshoot so the rays don't show hard edges when they rotate */
+  z-index: 8999;
+  pointer-events: none;
+  background: conic-gradient(
+    from 0deg at 50% 50%,
+    rgba(255, 220, 160, 0) 0deg,
+    rgba(255, 220, 160, 0.9) 8deg,
+    rgba(255, 220, 160, 0) 20deg,
+    rgba(255, 220, 160, 0) 40deg,
+    rgba(255, 220, 160, 0.9) 48deg,
+    rgba(255, 220, 160, 0) 60deg,
+    rgba(255, 220, 160, 0) 80deg,
+    rgba(255, 220, 160, 0.9) 88deg,
+    rgba(255, 220, 160, 0) 100deg,
+    rgba(255, 220, 160, 0) 120deg,
+    rgba(255, 220, 160, 0.9) 128deg,
+    rgba(255, 220, 160, 0) 140deg,
+    rgba(255, 220, 160, 0) 160deg,
+    rgba(255, 220, 160, 0.9) 168deg,
+    rgba(255, 220, 160, 0) 180deg,
+    rgba(255, 220, 160, 0) 200deg,
+    rgba(255, 220, 160, 0.9) 208deg,
+    rgba(255, 220, 160, 0) 220deg,
+    rgba(255, 220, 160, 0) 240deg,
+    rgba(255, 220, 160, 0.9) 248deg,
+    rgba(255, 220, 160, 0) 260deg,
+    rgba(255, 220, 160, 0) 280deg,
+    rgba(255, 220, 160, 0.9) 288deg,
+    rgba(255, 220, 160, 0) 300deg,
+    rgba(255, 220, 160, 0) 320deg,
+    rgba(255, 220, 160, 0.9) 328deg,
+    rgba(255, 220, 160, 0) 340deg,
+    rgba(255, 220, 160, 0) 360deg
+  );
+  mix-blend-mode: screen;
+  opacity: 0;
+  animation: gate-rays-burst 1.3s cubic-bezier(0.15, 0.5, 0.35, 1) forwards;
+}
+
+@keyframes gate-rays-burst {
+  0% {
+    opacity: 0;
+    transform: rotate(0deg) scale(0.1);
+  }
+  25% {
+    opacity: 0.35;
+    transform: rotate(-80deg) scale(0.6);
+  }
+  55% {
+    opacity: 0.6;
+    transform: rotate(-180deg) scale(1.5);
+  }
+  100% {
+    opacity: 0;
+    transform: rotate(-320deg) scale(3.5);
+  }
+}
+
+/* ── Arrival animation (dashboard side of the entrance) ─────────────────
+ * When the dashboard first mounts after a login, the EntranceWelcome
+ * client component adds `.codex-arrival` to the page root for ~0.9s.
+ * The content fades in from a slight scale-down (feels like materialising
+ * rather than popping) while a brief Latin tag glimmers at the top.
+ */
+.codex-arrival {
+  animation: codex-arrival-fade 0.85s ease-out forwards;
+}
+
+@keyframes codex-arrival-fade {
+  0% {
+    opacity: 0;
+    transform: scale(0.97);
+    filter: blur(2px) brightness(1.6);
+  }
+  40% {
+    opacity: 0.85;
+    transform: scale(0.99);
+    filter: blur(0.8px) brightness(1.3);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1);
+    filter: blur(0) brightness(1);
+  }
+}
+
+.codex-welcome-tag {
+  animation: codex-welcome-tag 2.4s cubic-bezier(0.2, 0.4, 0.3, 1) forwards;
+}
+
+@keyframes codex-welcome-tag {
+  0% { opacity: 0; transform: translateY(-6px); letter-spacing: 0.4em; }
+  15% { opacity: 1; transform: translateY(0); letter-spacing: 0.3em; }
+  70% { opacity: 1; transform: translateY(0); letter-spacing: 0.3em; }
+  100% { opacity: 0; transform: translateY(-4px); letter-spacing: 0.35em; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .gate-open,
+  .gate-flash,
+  .gate-rays,
+  .codex-arrival,
+  .codex-welcome-tag { animation: none !important; }
 }

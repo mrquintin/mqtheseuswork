@@ -4,6 +4,7 @@ import Nav from "@/components/Nav";
 import SubNav from "@/components/SubNav";
 import AutoPageHelp from "@/components/AutoPageHelp";
 import NavTransition from "@/components/NavTransition";
+import EntranceWelcome from "@/components/EntranceWelcome";
 
 /**
  * Shell for every signed-in Codex page. Renders the top nav (7 items),
@@ -38,7 +39,11 @@ export default async function AuthedLayout({
       />
       <SubNav />
       <AutoPageHelp />
-      {children}
+      {/* EntranceWelcome wraps the page content so it can apply the
+          `.codex-arrival` fade-in on first mount after login, and overlay
+          a brief Latin welcome tag. Absent the post-login sessionStorage
+          flag it's a no-op pass-through. */}
+      <EntranceWelcome>{children}</EntranceWelcome>
       <NavTransition />
     </>
   );
