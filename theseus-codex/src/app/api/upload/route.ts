@@ -186,55 +186,58 @@ export async function POST(req: Request) {
       },
     });
 
-    // Kick off async ingestion. On Vercel this detects the lack of
-    // Python, marks the row `queued_offline`, and writes next-step
-    // instructions into processLog. On a host with Python available
-    // (the old self-hosted path) it runs the full Noosphere pipeline
-    // in-process. Either way it returns quickly so the HTTP response
-    // isn't held up.
-    enqueueIngestJob(upload.id).catch((err) => {
-      console.error(`Background ingestion for upload ${upload.id} failed:`, err);
-    });
-
-    // Fire-and-forget: trigger the GitHub Actions workflow so Noosphere
-    // processes this upload in the cloud within ~30 seconds. If the
-    // dispatch token isn't set, `triggerNoosphereProcessing` returns a
-    // `{ dispatched: false }` result with a clear note; the workflow's
-    // 10-minute cron sweep picks up anything we miss. Either way we
-    // record the outcome in processLog so the upload page can show the
-    // user what happened.
-    const dispatchPromise = triggerNoosphereProcessing(upload.id, {
-      organizationId: founder.organizationId,
-      withLlm: true,
-    })
-      .then(async (result) => {
+    // Serialize the two async side-effects to avoid a race that was
+    // clobbering the dispatch note. Order:
+    //   1. Fire the GitHub Actions dispatch (fast, ~200ms HTTP POST).
+    //   2. Wait for the response, append its status to processLog.
+    //   3. THEN kick off `enqueueIngestJob` (slow on Vercel — does
+    //      extraction fallback + appends its own notes).
+    // Because step 3 reads-then-writes via `appendLog`, previous notes
+    // are preserved. Previously both steps raced to overwrite the
+    // field and the dispatch note was usually lost.
+    const dispatchPromise = (async () => {
+      try {
+        const result = await triggerNoosphereProcessing(upload.id, {
+          organizationId: founder.organizationId,
+          withLlm: true,
+        });
         const suffix = `\n— Auto-process: ${result.note} —\n`;
         try {
           await db.upload.update({
             where: { id: upload.id },
             data: {
-              // Sanitize again here so even a misbehaving dispatch
-              // response body can't contaminate the column.
-              processLog: { set: sanitizeAndCap(initialLog + suffix, 8_000) },
-              // If dispatch succeeded, move the row from `pending` →
-              // `processing` immediately so the UI reflects reality.
-              // Naive-mode dispatch bumps it back to `ingested` on
-              // completion via codex_bridge.
+              // Append the dispatch note to the existing processLog so
+              // a later ingest-job write doesn't wipe it. (jobQueue's
+              // `appendLog` is also read-then-write so subsequent lines
+              // will preserve this too.)
+              processLog: {
+                set: sanitizeAndCap(initialLog + suffix, 8_000),
+              },
               status: result.dispatched ? "processing" : upload.status,
             },
           });
         } catch {
-          // Non-fatal — the upload itself succeeded, we just couldn't
-          // annotate the log.
+          /* non-fatal */
         }
-      })
-      .catch(() => {
-        /* swallowed — triggerNoosphereProcessing already handles its own errors */
-      });
-    // On Vercel we can optionally `waitUntil` this so the function
-    // doesn't terminate before the dispatch POST resolves. In practice
-    // GitHub's dispatch API responds in <500ms so even without
-    // waitUntil it completes.
+      } finally {
+        // Always run the fallback ingest job. On Vercel it detects the
+        // lack of Python and, if auto-processing is configured, writes
+        // a short "handed off to GitHub Actions" note; if not, it
+        // writes the full "run locally" instructions. Either way it
+        // appends to the existing processLog instead of overwriting.
+        try {
+          await enqueueIngestJob(upload.id);
+        } catch (err) {
+          console.error(
+            `Background ingestion for upload ${upload.id} failed:`,
+            err,
+          );
+        }
+      }
+    })();
+    // Non-blocking from the HTTP response's perspective — the user gets
+    // their upload ack immediately. The dispatch + jobQueue work
+    // continues after response close on Vercel's serverless runtime.
     void dispatchPromise;
 
     return NextResponse.json({

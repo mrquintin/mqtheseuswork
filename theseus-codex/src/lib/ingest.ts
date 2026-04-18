@@ -96,9 +96,16 @@ export async function processUpload(uploadId: string): Promise<void> {
   }
 
   try {
+    // APPEND to whatever processLog already exists (the upload handler
+    // wrote an initial header + auto-process dispatch note before this
+    // job started). Previously we overwrote the field, which nuked the
+    // dispatch status message and made it look like auto-processing
+    // wasn't configured. `appendLog` is read-then-write so it preserves
+    // prior content.
+    await appendLog(uploadId, "— Starting local Noosphere ingest —\n");
     await db.upload.update({
       where: { id: uploadId },
-      data: { status: "processing", processLog: "— Starting Noosphere ingest —\n" },
+      data: { status: "processing" },
     });
 
     let textContent = upload.textContent;
@@ -118,21 +125,63 @@ export async function processUpload(uploadId: string): Promise<void> {
     // Serverless / Python-less hosts: don't even try to spawn. The upload
     // row is already persisted (textContent is in Postgres for text-like
     // files), so mark it as queued for offline processing and return.
+    //
+    // Two flavors:
+    //   (a) auto-processing via GitHub Actions IS configured — a separate
+    //       webhook + cron workflow will pick up `queued_offline` rows.
+    //       We write a short "handed off" note pointing to the Actions
+    //       run and return. The 10-min cron will turn this into
+    //       `ingested` within minutes.
+    //   (b) no auto-processing — fall back to the old "run it yourself"
+    //       instructions.
     // ────────────────────────────────────────────────────────────────────
     if (isNoosphereLikelyUnavailable()) {
+      const autoProcessRepo = process.env.GITHUB_DISPATCH_REPO || "mrquintin/mqtheseuswork";
+      const autoProcessEnabled = Boolean(process.env.GITHUB_DISPATCH_TOKEN);
+
+      if (autoProcessEnabled) {
+        await appendLog(
+          uploadId,
+          `\n— Python not available in this runtime —\n` +
+            `Upload handed off to GitHub Actions. Watch the run live at\n` +
+            `  https://github.com/${autoProcessRepo}/actions/workflows/noosphere-process-uploads.yml\n` +
+            `Results (conclusions, contradictions, questions) appear at\n` +
+            `/conclusions, /contradictions, /open-questions, /research\n` +
+            `within 1–3 minutes. The 10-minute scheduled sweep also\n` +
+            `picks up anything the immediate dispatch misses.\n`,
+        );
+        await db.upload.update({
+          where: { id: uploadId },
+          data: { status: "queued_offline", errorMessage: null },
+        });
+        await db.auditEvent.create({
+          data: {
+            organizationId: upload.organizationId,
+            founderId: upload.founderId,
+            uploadId: upload.id,
+            action: "queued_offline",
+            detail:
+              "Upload stored; dispatched to GitHub Actions for " +
+              "Noosphere processing.",
+          },
+        });
+        return;
+      }
+
+      // Fallback: no auto-processing secrets configured. Explain what to
+      // set OR how to process locally.
       await appendLog(
         uploadId,
         `\n${NOOSPHERE_UNAVAILABLE_MESSAGE}\n\n` +
-          `To process this upload, on a machine with Noosphere installed run:\n\n` +
-          `    # One-time: point Noosphere at the shared Supabase DB\n` +
-          `    export DIRECT_URL="postgresql://postgres.<ref>:<pw>@aws-<n>-<region>.pooler.supabase.com:5432/postgres"\n\n` +
-          `    # Fast / no-LLM path — produces Conclusions + heuristic Contradictions\n` +
-          `    ./scripts/process-codex-upload.sh ${uploadId}\n\n` +
-          `    # Full path — adds LLM-grade Contradictions + Open Questions\n` +
-          `    # + Research Suggestions. Requires ANTHROPIC_API_KEY or OPENAI_API_KEY.\n` +
-          `    ./scripts/process-codex-upload.sh ${uploadId} --with-llm\n\n` +
-          `    # Or list everything still queued\n` +
-          `    ./scripts/process-codex-upload.sh --list\n\n` +
+          `To enable automatic processing, set two repo secrets and one Vercel env var:\n` +
+          `  GitHub → Settings → Secrets → Actions:   CODEX_DATABASE_URL (required), OPENAI_API_KEY (recommended)\n` +
+          `  Vercel → Settings → Environment vars:    GITHUB_DISPATCH_TOKEN (required)\n` +
+          `  See: docs/Auto_Processing_Setup.md for the 5-minute walkthrough.\n\n` +
+          `Or process this upload right now from a machine with Noosphere installed:\n\n` +
+          `    export DIRECT_URL="postgresql://postgres.<ref>:<pw>@...:5432/postgres"\n` +
+          `    ./scripts/process-codex-upload.sh ${uploadId}             # naive mode\n` +
+          `    ./scripts/process-codex-upload.sh ${uploadId} --with-llm  # full LLM\n` +
+          `    ./scripts/process-codex-upload.sh --list                  # see queue\n\n` +
           `After processing, the extracted Conclusions show on /conclusions,\n` +
           `detected Contradictions on /contradictions, Open Questions on\n` +
           `/open-questions, and Research Suggestions on /research.\n`,
@@ -152,7 +201,7 @@ export async function processUpload(uploadId: string): Promise<void> {
           action: "queued_offline",
           detail:
             "Upload stored; Noosphere CLI unavailable in this runtime. " +
-            "Process locally to materialise claims/conclusions.",
+            "Process locally OR configure auto-processing.",
         },
       });
       return;

@@ -122,17 +122,40 @@ jobs:
           fi
 
       - name: Check DB secret presence
+        id: secretcheck
         env:
           CODEX_DATABASE_URL: ${{ secrets.CODEX_DATABASE_URL }}
+          EVENT_NAME: ${{ github.event_name }}
         run: |
+          # Previously: hard-failed with exit 1 when the secret wasn't
+          # set, which turned every scheduled run into a red X even
+          # though nothing was actually broken — it was just an unset
+          # secret. Now: emit an actionable ::warning:: and skip the
+          # rest of the job cleanly. The workflow run shows as green
+          # with a visible notice so the user can see both that the
+          # cron is alive AND that they still need to set the secret.
           if [ -z "${CODEX_DATABASE_URL:-}" ]; then
-            echo "::error::CODEX_DATABASE_URL secret is not set."
-            echo "Add it at Settings → Secrets and variables → Actions →"
-            echo "New repository secret. Use the Supabase DIRECT connection"
-            echo "URL (port 5432, not 6543)."
-            exit 1
+            echo "::warning::CODEX_DATABASE_URL secret is not set — skipping this run."
+            {
+              echo "### Setup incomplete"
+              echo ""
+              echo "\`CODEX_DATABASE_URL\` is not set on this repo. No queued"
+              echo "uploads will be processed until it is."
+              echo ""
+              echo "**Fix:** Settings → Secrets and variables → Actions →"
+              echo "New repository secret. Use the Supabase DIRECT connection"
+              echo "URL (port 5432, **not** the 6543 pooler):"
+              echo ""
+              echo "    postgresql://postgres.<ref>:<pw>@aws-<n>-<region>.pooler.supabase.com:5432/postgres"
+              echo ""
+              echo "For best results also set \`OPENAI_API_KEY\` so the pipeline"
+              echo "runs in LLM mode (richer claim extraction + contradictions)."
+            } >> "$GITHUB_STEP_SUMMARY"
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            exit 0
           fi
           echo "CODEX_DATABASE_URL is set (host hidden)"
+          echo "skip=false" >> "$GITHUB_OUTPUT"
 
       - name: Compute with-llm flag
         id: llm
@@ -159,7 +182,7 @@ jobs:
           fi
 
       - name: Process single upload
-        if: steps.plan.outputs.mode == 'single'
+        if: steps.plan.outputs.mode == 'single' && steps.secretcheck.outputs.skip != 'true'
         working-directory: noosphere
         env:
           PYTHONPATH: ${{ github.workspace }}/noosphere
@@ -180,7 +203,7 @@ jobs:
           python -m noosphere ingest-from-codex "${args[@]}"
 
       - name: Sweep all queued uploads
-        if: steps.plan.outputs.mode == 'all'
+        if: steps.plan.outputs.mode == 'all' && steps.secretcheck.outputs.skip != 'true'
         working-directory: noosphere
         env:
           PYTHONPATH: ${{ github.workspace }}/noosphere

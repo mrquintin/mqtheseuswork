@@ -2,6 +2,7 @@ import Link from "next/link";
 import ConfidenceTierSigil from "@/components/ConfidenceTierSigil";
 import SculptureBackdrop from "@/components/SculptureBackdropClient";
 import RetryProcessingButton from "@/components/RetryProcessingButton";
+import AutoProcessStatusBanner from "@/components/AutoProcessStatusBanner";
 import { db } from "@/lib/db";
 import { requireTenantContext } from "@/lib/tenant";
 
@@ -110,6 +111,8 @@ export default async function DashboardPage() {
               : "The labours rest; the firm listens."}
           </p>
         </div>
+
+        <AutoProcessStatusBanner />
 
         <div
           style={{
