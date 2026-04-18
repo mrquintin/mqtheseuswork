@@ -3,6 +3,7 @@ import { getFounderFromAuth } from "@/lib/apiKeyAuth";
 import { db } from "@/lib/db";
 import { enqueueIngestJob } from "@/lib/jobQueue";
 import { extractText } from "@/lib/extractText";
+import { triggerNoosphereProcessing } from "@/lib/triggerNoosphereProcessing";
 import { writeFile, mkdir } from "fs/promises";
 import { join, extname } from "path";
 import { v4 as uuid } from "uuid";
@@ -161,12 +162,54 @@ export async function POST(req: Request) {
       },
     });
 
-    // Kick off async ingestion. On Vercel this will detect the lack of
-    // Python and mark the row `queued_offline` with instructions; on a
-    // host with Python it'll run the full Noosphere pipeline.
+    // Kick off async ingestion. On Vercel this detects the lack of
+    // Python, marks the row `queued_offline`, and writes next-step
+    // instructions into processLog. On a host with Python available
+    // (the old self-hosted path) it runs the full Noosphere pipeline
+    // in-process. Either way it returns quickly so the HTTP response
+    // isn't held up.
     enqueueIngestJob(upload.id).catch((err) => {
       console.error(`Background ingestion for upload ${upload.id} failed:`, err);
     });
+
+    // Fire-and-forget: trigger the GitHub Actions workflow so Noosphere
+    // processes this upload in the cloud within ~30 seconds. If the
+    // dispatch token isn't set, `triggerNoosphereProcessing` returns a
+    // `{ dispatched: false }` result with a clear note; the workflow's
+    // 10-minute cron sweep picks up anything we miss. Either way we
+    // record the outcome in processLog so the upload page can show the
+    // user what happened.
+    const dispatchPromise = triggerNoosphereProcessing(upload.id, {
+      organizationId: founder.organizationId,
+      withLlm: true,
+    })
+      .then(async (result) => {
+        const suffix = `\n— Auto-process: ${result.note} —\n`;
+        try {
+          await db.upload.update({
+            where: { id: upload.id },
+            data: {
+              processLog: { set: (initialLog + suffix).slice(0, 8000) },
+              // If dispatch succeeded, move the row from `pending` →
+              // `processing` immediately so the UI reflects reality.
+              // Naive-mode dispatch bumps it back to `ingested` on
+              // completion via codex_bridge.
+              status: result.dispatched ? "processing" : upload.status,
+            },
+          });
+        } catch {
+          // Non-fatal — the upload itself succeeded, we just couldn't
+          // annotate the log.
+        }
+      })
+      .catch(() => {
+        /* swallowed — triggerNoosphereProcessing already handles its own errors */
+      });
+    // On Vercel we can optionally `waitUntil` this so the function
+    // doesn't terminate before the dispatch POST resolves. In practice
+    // GitHub's dispatch API responds in <500ms so even without
+    // waitUntil it completes.
+    void dispatchPromise;
 
     return NextResponse.json({
       id: upload.id,
@@ -176,6 +219,7 @@ export async function POST(req: Request) {
       extractionMode: extraction.mode,
       textContentChars: extraction.textContent?.length ?? 0,
       note: extraction.note,
+      autoProcessing: true,
     });
   } catch (error) {
     console.error("Upload error:", error);

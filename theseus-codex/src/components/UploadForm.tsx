@@ -87,33 +87,59 @@ export default function UploadForm() {
       return;
     }
 
-    setSuccess("Upload received. Processing…");
+    setSuccess("Upload received. Noosphere is processing in the cloud…");
     const id = data.id as string;
+    // Track whether a queued_offline state has persisted long enough to
+    // surface a "Retry processing" affordance. The GitHub Actions cron
+    // sweeps every 10 minutes; anything stuck past that warrants a
+    // manual retry button.
+    let queuedOfflineStart: number | null = null;
 
     const iv = setInterval(async () => {
       const pr = await fetch(`/api/upload/${id}`);
       const u = await pr.json();
       if (u.processLog) setPollLog(u.processLog.slice(-4000));
-      if (
-        u.status === "ingested" ||
-        u.status === "failed" ||
-        u.status === "queued_offline"
-      ) {
+
+      // Intermediate states keep polling. `processing` is new: it means
+      // the GitHub Actions workflow has been dispatched and Noosphere
+      // is actively analyzing the upload.
+      if (u.status === "processing") {
+        setSuccess("Noosphere is analyzing this upload… (usually 1–2 minutes)");
+      } else if (u.status === "queued_offline") {
+        if (queuedOfflineStart === null) {
+          queuedOfflineStart = Date.now();
+        }
+        const waitedMs = Date.now() - queuedOfflineStart;
+        if (waitedMs < 60_000) {
+          setSuccess(
+            "Upload saved. Waiting for the cloud processor to pick it up…",
+          );
+        } else {
+          setSuccess(
+            "Processing is taking longer than usual. The cron sweep picks up " +
+              "queued uploads every 10 minutes, or you can retry from /dashboard.",
+          );
+        }
+      }
+
+      // Terminal states — stop polling.
+      if (u.status === "ingested" || u.status === "failed") {
         clearInterval(iv);
         setUploading(false);
         if (u.status === "ingested") {
-          setSuccess("Ingest complete.");
-        } else if (u.status === "queued_offline") {
           setSuccess(
-            "Upload saved. Noosphere processing is queued — run `noosphere ingest` locally to finish.",
+            `Ingest complete — ${u.claimsCount || 0} claim(s) extracted. Redirecting…`,
           );
         } else {
-          setSuccess(`Failed: ${u.errorMessage || ""}`);
+          setSuccess(`Failed: ${u.errorMessage || "unknown error"}`);
         }
-        setTimeout(() => router.push("/dashboard"), 2200);
+        setTimeout(() => router.push("/dashboard"), 2400);
       }
-    }, 1200);
+    }, 1500);
 
+    // Hard stop at 10 minutes — the workflow's own timeout is 25 min but
+    // the user shouldn't stare at a spinner that long. Dashboard polling
+    // takes over once they navigate.
     setTimeout(() => clearInterval(iv), 600_000);
   }
 

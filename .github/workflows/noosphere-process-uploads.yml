@@ -1,0 +1,228 @@
+name: Noosphere — process Codex uploads
+
+# Automatically runs the Noosphere `ingest-from-codex` pipeline against
+# queued uploads in the shared Supabase database. Three ways to fire:
+#
+#   1. `repository_dispatch` with event_type="process-upload" — the
+#      primary path. The Codex `/api/upload` route triggers this
+#      immediately after creating the Upload row, so processing
+#      starts within seconds.
+#
+#   2. `schedule` (every 10 minutes) — safety net. If the immediate
+#      webhook fires from a Vercel edge worker and the HTTPS call
+#      fails silently (rate-limited, token revoked, partial outage),
+#      this cron pass picks up anything still in `queued_offline`.
+#
+#   3. `workflow_dispatch` — manual trigger. Useful when developing
+#      or when you upload from a CLI that didn't fire the webhook.
+#
+# Secrets required on the repo (Settings → Secrets → Actions):
+#
+#   CODEX_DATABASE_URL  — Supabase DIRECT connection URL, port 5432
+#                         (not the 6543 pooler). The Python client
+#                         needs psycopg2's real Postgres protocol,
+#                         and the pooler silently rejects DDL on
+#                         some paths.
+#
+#   OPENAI_API_KEY      — optional but strongly recommended. Without
+#                         it, the workflow runs in "naive" mode:
+#                         regex-based claim splitting and heuristic
+#                         contradiction detection. With it, the LLM
+#                         extracts claims, detects contradictions
+#                         (within + across uploads), suggests open
+#                         questions, and proposes research follow-ups.
+#
+# Exit behavior: the workflow never hard-fails on a single bad upload
+# — individual failures are logged and the rest still process. Only
+# a Python import / dependency crash trips the red X.
+
+on:
+  repository_dispatch:
+    types: [process-upload]
+  schedule:
+    # every 10 minutes — 6 passes per hour is plenty for the safety net
+    # and well under GitHub's free tier (Actions minutes rarely hit cap
+    # for lightweight jobs, and this one is <30s when nothing's queued).
+    - cron: '*/10 * * * *'
+  workflow_dispatch:
+    inputs:
+      upload_id:
+        description: 'Upload ID to process (leave blank = process all queued)'
+        required: false
+        type: string
+      with_llm:
+        description: 'Use LLM mode (extracts richer claims + contradictions + questions)'
+        required: false
+        type: boolean
+        default: true
+
+# Cancel in-flight runs of the same dispatch event so we don't double-
+# process an upload if the webhook fires twice in quick succession.
+# Scheduled runs each get their own concurrency group so they don't
+# cancel in-flight manual runs.
+concurrency:
+  group: noosphere-process-${{ github.event.client_payload.upload_id || inputs.upload_id || github.event_name }}
+  cancel-in-progress: false
+
+jobs:
+  process:
+    name: Run ingest-from-codex
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    # Don't fail the whole scheduled sweep if Noosphere's
+    # pyproject constraints shift slightly — we retry on the next
+    # pass. Manual runs and dispatch-driven runs still surface
+    # errors loudly because they're user-visible.
+    continue-on-error: ${{ github.event_name == 'schedule' }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+          cache-dependency-path: noosphere/requirements.txt
+
+      - name: Install Noosphere
+        working-directory: noosphere
+        run: |
+          python -m pip install -U pip
+          # Install the Python requirements that the ingest pipeline
+          # actually needs. This is a heavy install (torch +
+          # sentence-transformers pull ~1.5GB into the pip cache),
+          # but `actions/setup-python` caches the result keyed on
+          # requirements.txt, so only the first run per commit pays.
+          pip install -r requirements.txt
+          pip install psycopg2-binary
+
+      - name: Determine processing plan
+        id: plan
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          DISPATCH_UPLOAD_ID: ${{ github.event.client_payload.upload_id }}
+          MANUAL_UPLOAD_ID: ${{ inputs.upload_id }}
+        run: |
+          # The plan's single output is `mode` and, if single-shot,
+          # `upload_id`. A `mode=all` triggers the sweep; `mode=single`
+          # processes one specific upload.
+          if [ "$EVENT_NAME" = "repository_dispatch" ] && [ -n "$DISPATCH_UPLOAD_ID" ]; then
+            echo "mode=single" >> "$GITHUB_OUTPUT"
+            echo "upload_id=$DISPATCH_UPLOAD_ID" >> "$GITHUB_OUTPUT"
+            echo "::notice::Processing single upload $DISPATCH_UPLOAD_ID (dispatched)"
+          elif [ "$EVENT_NAME" = "workflow_dispatch" ] && [ -n "$MANUAL_UPLOAD_ID" ]; then
+            echo "mode=single" >> "$GITHUB_OUTPUT"
+            echo "upload_id=$MANUAL_UPLOAD_ID" >> "$GITHUB_OUTPUT"
+            echo "::notice::Processing single upload $MANUAL_UPLOAD_ID (manual)"
+          else
+            echo "mode=all" >> "$GITHUB_OUTPUT"
+            echo "::notice::Processing all queued uploads (sweep)"
+          fi
+
+      - name: Check DB secret presence
+        env:
+          CODEX_DATABASE_URL: ${{ secrets.CODEX_DATABASE_URL }}
+        run: |
+          if [ -z "${CODEX_DATABASE_URL:-}" ]; then
+            echo "::error::CODEX_DATABASE_URL secret is not set."
+            echo "Add it at Settings → Secrets and variables → Actions →"
+            echo "New repository secret. Use the Supabase DIRECT connection"
+            echo "URL (port 5432, not 6543)."
+            exit 1
+          fi
+          echo "CODEX_DATABASE_URL is set (host hidden)"
+
+      - name: Compute with-llm flag
+        id: llm
+        env:
+          HAS_KEY: ${{ secrets.OPENAI_API_KEY != '' }}
+          WITH_LLM: ${{ inputs.with_llm }}
+          EVENT_NAME: ${{ github.event_name }}
+        run: |
+          # Default: use LLM if the key is present. `workflow_dispatch`
+          # respects the checkbox; other triggers assume "yes if key".
+          use_llm="false"
+          if [ "$HAS_KEY" = "true" ]; then
+            if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
+              use_llm="$WITH_LLM"
+            else
+              use_llm="true"
+            fi
+          fi
+          echo "use_llm=$use_llm" >> "$GITHUB_OUTPUT"
+          if [ "$use_llm" = "true" ]; then
+            echo "::notice::LLM mode enabled"
+          else
+            echo "::notice::Naive (regex) mode — set OPENAI_API_KEY secret for richer analysis"
+          fi
+
+      - name: Process single upload
+        if: steps.plan.outputs.mode == 'single'
+        working-directory: noosphere
+        env:
+          PYTHONPATH: ${{ github.workspace }}/noosphere
+          DIRECT_URL: ${{ secrets.CODEX_DATABASE_URL }}
+          DATABASE_URL: ${{ secrets.CODEX_DATABASE_URL }}
+          THESEUS_CODEX_DATABASE_URL: ${{ secrets.CODEX_DATABASE_URL }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          USE_LLM: ${{ steps.llm.outputs.use_llm }}
+          UPLOAD_ID: ${{ steps.plan.outputs.upload_id }}
+        run: |
+          set -eo pipefail
+          args=( --upload-id "$UPLOAD_ID" )
+          if [ "$USE_LLM" = "true" ]; then
+            args+=( --with-llm )
+          fi
+          echo "+ python -m noosphere ingest-from-codex ${args[*]}"
+          python -m noosphere ingest-from-codex "${args[@]}"
+
+      - name: Sweep all queued uploads
+        if: steps.plan.outputs.mode == 'all'
+        working-directory: noosphere
+        env:
+          PYTHONPATH: ${{ github.workspace }}/noosphere
+          DIRECT_URL: ${{ secrets.CODEX_DATABASE_URL }}
+          DATABASE_URL: ${{ secrets.CODEX_DATABASE_URL }}
+          THESEUS_CODEX_DATABASE_URL: ${{ secrets.CODEX_DATABASE_URL }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          USE_LLM: ${{ steps.llm.outputs.use_llm }}
+        run: |
+          set -eo pipefail
+          echo "+ python -m noosphere codex-queued --limit 25"
+          python -m noosphere codex-queued --limit 25 > /tmp/queued.json
+          # `codex-queued` returns rows in status pending/queued_offline/
+          # processing. For the automated sweep we want to skip anything
+          # already in `processing` because either a dispatched workflow
+          # is actively handling it (double-dispatch would duplicate the
+          # claims) or a previous run crashed mid-flight (in which case
+          # the user can manually retry from /dashboard). We only
+          # auto-process the clean "waiting" states.
+          python -c "import json,sys; d=json.load(open('/tmp/queued.json')); rows=d.get('rows',[]); [print(r['id']) for r in rows if (r.get('status') or '').lower() in ('pending','queued_offline','')]" > /tmp/ids.txt
+          id_count=$(wc -l < /tmp/ids.txt | tr -d ' ')
+          total_count=$(python -c "import json; print(json.load(open('/tmp/queued.json')).get('count',0))")
+          echo "::notice::Codex has $total_count row(s) in queue states; sweep will process $id_count of them"
+          if [ "$id_count" = "0" ]; then
+            echo "nothing to do"
+            exit 0
+          fi
+          processed=0
+          failed=0
+          while IFS= read -r uid; do
+            if [ -z "$uid" ]; then continue; fi
+            args=( --upload-id "$uid" )
+            if [ "$USE_LLM" = "true" ]; then
+              args+=( --with-llm )
+            fi
+            echo "── processing $uid ──"
+            if python -m noosphere ingest-from-codex "${args[@]}"; then
+              processed=$((processed + 1))
+            else
+              echo "::warning::ingest failed for $uid (continuing)"
+              failed=$((failed + 1))
+            fi
+          done < /tmp/ids.txt
+          echo "::notice::Sweep complete — processed=$processed failed=$failed"

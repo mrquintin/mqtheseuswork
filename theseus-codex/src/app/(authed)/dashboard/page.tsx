@@ -1,6 +1,7 @@
 import Link from "next/link";
 import ConfidenceTierSigil from "@/components/ConfidenceTierSigil";
 import SculptureBackdrop from "@/components/SculptureBackdropClient";
+import RetryProcessingButton from "@/components/RetryProcessingButton";
 import { db } from "@/lib/db";
 import { requireTenantContext } from "@/lib/tenant";
 
@@ -174,7 +175,22 @@ export default async function DashboardPage() {
                           {u.founder.name} · {new Date(u.createdAt).toLocaleDateString()}
                         </div>
                       </div>
-                      <span className={statusBadge(u.status)}>{u.status.replace("_", " ")}</span>
+                      <div
+                        style={{
+                          display: "flex",
+                          gap: "0.5rem",
+                          alignItems: "center",
+                          flexShrink: 0,
+                        }}
+                      >
+                        <RetryProcessingButton
+                          uploadId={u.id}
+                          status={u.status}
+                        />
+                        <span className={statusBadge(u.status)}>
+                          {u.status.replace("_", " ")}
+                        </span>
+                      </div>
                     </div>
                   </div>
                 ))
