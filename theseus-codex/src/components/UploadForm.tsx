@@ -33,6 +33,13 @@ export default function UploadForm() {
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
   const [pollLog, setPollLog] = useState("");
+  // Blog publish fields — default OFF per the product spec. The
+  // checkbox is the single gate; when enabled, optional excerpt
+  // and byline inputs appear below it. Slug is derived server-side
+  // from `title` at insert time so the founder never has to care.
+  const [publishAsPost, setPublishAsPost] = useState(false);
+  const [blogExcerpt, setBlogExcerpt] = useState("");
+  const [authorBio, setAuthorBio] = useState("");
 
   const handleFile = useCallback(
     (f: File) => {
@@ -74,6 +81,15 @@ export default function UploadForm() {
     formData.append("title", title);
     formData.append("description", description);
     formData.append("sourceType", sourceType);
+    // Blog publish fields. The checkbox defaults to unchecked, so an
+    // unmodified upload stays a private founder artifact — we still
+    // POST the "false" value explicitly so the server-side contract is
+    // unambiguous.
+    formData.append("publishAsPost", publishAsPost ? "1" : "0");
+    if (publishAsPost) {
+      formData.append("blogExcerpt", blogExcerpt.trim());
+      formData.append("authorBio", authorBio.trim());
+    }
 
     const res = await fetch("/api/upload", {
       method: "POST",
@@ -367,6 +383,140 @@ export default function UploadForm() {
             <option value="audio">Audio</option>
             <option value="transcript">Transcript</option>
           </select>
+        </div>
+
+        {/* ── Publication toggle ──────────────────────────────────── */}
+        {/* Privacy-preserving by default: the checkbox is explicitly  */}
+        {/* NOT checked on fresh render, so a hurried founder uploads  */}
+        {/* private data unless they deliberately opt in. Expanded     */}
+        {/* fields (excerpt + byline) only appear once the toggle is   */}
+        {/* on, to keep the form quiet when nobody's publishing.       */}
+        <div
+          style={{
+            marginTop: "0.5rem",
+            padding: "1rem 1.1rem",
+            border: "1px solid var(--stroke)",
+            borderRadius: "4px",
+            background: "rgba(212, 160, 23, 0.035)",
+          }}
+        >
+          <label
+            style={{
+              display: "flex",
+              gap: "0.65rem",
+              alignItems: "flex-start",
+              cursor: "pointer",
+            }}
+          >
+            <input
+              type="checkbox"
+              checked={publishAsPost}
+              onChange={(e) => setPublishAsPost(e.target.checked)}
+              style={{
+                marginTop: "0.22rem",
+                accentColor: "var(--amber)",
+                width: "1rem",
+                height: "1rem",
+              }}
+            />
+            <span style={{ display: "block" }}>
+              <span
+                className="mono"
+                style={{
+                  fontSize: "0.66rem",
+                  letterSpacing: "0.24em",
+                  textTransform: "uppercase",
+                  color: "var(--amber)",
+                  display: "block",
+                  marginBottom: "0.2rem",
+                }}
+              >
+                Publish as blog post
+              </span>
+              <span
+                style={{
+                  fontFamily: "'EB Garamond', serif",
+                  fontSize: "0.92rem",
+                  color: "var(--parchment-dim)",
+                  lineHeight: 1.5,
+                }}
+              >
+                Make this upload visible on{" "}
+                <code
+                  className="mono"
+                  style={{ fontSize: "0.78rem", color: "var(--amber-dim)" }}
+                >
+                  /
+                </code>{" "}
+                and at{" "}
+                <code
+                  className="mono"
+                  style={{ fontSize: "0.78rem", color: "var(--amber-dim)" }}
+                >
+                  /post/&lt;slug&gt;
+                </code>
+                . The Codex itself (conclusions, contradictions, review
+                queue) stays private. You can toggle this later from
+                the dashboard.
+              </span>
+            </span>
+          </label>
+
+          {publishAsPost && (
+            <div
+              style={{
+                marginTop: "1rem",
+                display: "flex",
+                flexDirection: "column",
+                gap: "0.8rem",
+              }}
+            >
+              <div>
+                <label
+                  className="mono"
+                  style={{
+                    fontSize: "0.62rem",
+                    letterSpacing: "0.2em",
+                    textTransform: "uppercase",
+                    color: "var(--amber-dim)",
+                    display: "block",
+                    marginBottom: "0.3rem",
+                  }}
+                >
+                  Excerpt (optional — shown on index card)
+                </label>
+                <textarea
+                  value={blogExcerpt}
+                  onChange={(e) => setBlogExcerpt(e.target.value)}
+                  rows={2}
+                  maxLength={400}
+                  placeholder="One or two sentences that make a reader want to click in."
+                />
+              </div>
+              <div>
+                <label
+                  className="mono"
+                  style={{
+                    fontSize: "0.62rem",
+                    letterSpacing: "0.2em",
+                    textTransform: "uppercase",
+                    color: "var(--amber-dim)",
+                    display: "block",
+                    marginBottom: "0.3rem",
+                  }}
+                >
+                  Byline (optional — defaults to your founder name)
+                </label>
+                <input
+                  type="text"
+                  value={authorBio}
+                  onChange={(e) => setAuthorBio(e.target.value)}
+                  maxLength={160}
+                  placeholder="e.g. Host and guest, July 2026 · podcast ep. 14"
+                />
+              </div>
+            </div>
+          )}
         </div>
 
         {error && <p style={{ color: "var(--ember)", fontSize: "0.9rem" }}>{error}</p>}

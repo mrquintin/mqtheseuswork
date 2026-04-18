@@ -4,6 +4,7 @@ import { db } from "@/lib/db";
 import { enqueueIngestJob } from "@/lib/jobQueue";
 import { extractText } from "@/lib/extractText";
 import { sanitizeText, sanitizeAndCap } from "@/lib/sanitizeText";
+import { pickAvailableSlug } from "@/lib/slugify";
 import { triggerNoosphereProcessing } from "@/lib/triggerNoosphereProcessing";
 import { writeFile, mkdir } from "fs/promises";
 import { join, extname } from "path";
@@ -77,6 +78,15 @@ export async function POST(req: Request) {
     const title = (formData.get("title") as string) || "";
     const description = (formData.get("description") as string) || "";
     const sourceType = (formData.get("sourceType") as string) || "written";
+    // Blog publish fields — default OFF. Accept "1"/"true"/"on"/"yes"
+    // to handle different front-end conventions; everything else
+    // including the empty string keeps the upload private.
+    const rawPublish = (formData.get("publishAsPost") as string) || "";
+    const publishAsPost = ["1", "true", "on", "yes"].includes(
+      rawPublish.toLowerCase(),
+    );
+    const blogExcerptInput = (formData.get("blogExcerpt") as string) || "";
+    const authorBioInput = (formData.get("authorBio") as string) || "";
 
     if (!file) {
       return NextResponse.json({ error: "No file provided" }, { status: 400 });
@@ -153,6 +163,38 @@ export async function POST(req: Request) {
       8_000,
     );
 
+    // If the founder asked to publish this upload as a blog post,
+    // mint a URL-safe slug from the title and grab the optional
+    // excerpt/byline overrides. Slug uniqueness is enforced in the
+    // DB (Upload_slug_key) — `pickAvailableSlug` probes until it
+    // finds an unused one, falling back to a hex suffix if a hundred
+    // numeric attempts all collide.
+    let publishFields: {
+      publishedAt: Date;
+      slug: string;
+      blogExcerpt: string | null;
+      authorBio: string | null;
+    } | null = null;
+    if (publishAsPost) {
+      const slug = await pickAvailableSlug(safeTitle, async (candidate) => {
+        const existing = await db.upload.findUnique({
+          where: { slug: candidate },
+          select: { id: true },
+        });
+        return existing !== null;
+      });
+      publishFields = {
+        publishedAt: new Date(),
+        slug,
+        blogExcerpt: blogExcerptInput
+          ? sanitizeAndCap(blogExcerptInput, 400)
+          : null,
+        authorBio: authorBioInput
+          ? sanitizeAndCap(authorBioInput, 160)
+          : null,
+      };
+    }
+
     const upload = await db.upload.create({
       data: {
         organizationId: founder.organizationId,
@@ -170,6 +212,7 @@ export async function POST(req: Request) {
         errorMessage: extraction.hardFailed
           ? sanitizeAndCap(extraction.note, 2_000)
           : null,
+        ...(publishFields ?? {}),
       },
     });
 
@@ -249,6 +292,13 @@ export async function POST(req: Request) {
       textContentChars: extraction.textContent?.length ?? 0,
       note: extraction.note,
       autoProcessing: true,
+      // Publish surface: empty when the upload stayed private, or the
+      // live URL when it was published. Clients (the React form) show
+      // this as a toast after a successful post so the author can
+      // share / verify immediately.
+      publishedAt: upload.publishedAt,
+      slug: upload.slug,
+      publicUrl: upload.slug ? `/post/${upload.slug}` : null,
     });
   } catch (error) {
     console.error("Upload error:", error);

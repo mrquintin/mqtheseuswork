@@ -3,6 +3,7 @@ import ConfidenceTierSigil from "@/components/ConfidenceTierSigil";
 import SculptureBackdrop from "@/components/SculptureBackdrop";
 import RetryProcessingButton from "@/components/RetryProcessingButton";
 import AutoProcessStatusBanner from "@/components/AutoProcessStatusBanner";
+import PublishToggle from "@/components/PublishToggle";
 import { db } from "@/lib/db";
 import { requireTenantContext } from "@/lib/tenant";
 
@@ -184,8 +185,15 @@ export default async function DashboardPage() {
                           gap: "0.5rem",
                           alignItems: "center",
                           flexShrink: 0,
+                          flexWrap: "wrap",
+                          justifyContent: "flex-end",
                         }}
                       >
+                        <PublishToggle
+                          uploadId={u.id}
+                          initialPublishedAt={u.publishedAt}
+                          initialSlug={u.slug}
+                        />
                         <RetryProcessingButton
                           uploadId={u.id}
                           status={u.status}

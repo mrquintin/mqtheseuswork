@@ -121,12 +121,29 @@ model Upload {
   createdAt        DateTime @default(now())
   updatedAt        DateTime @updatedAt
 
+  // ── Public blog fields ─────────────────────────────────────────────
+  // An Upload becomes a public blog post when `publishedAt IS NOT NULL`.
+  // Default is null → the upload remains a private founder artifact.
+  // `slug` is the URL-safe identifier used for `/post/:slug`; it's
+  // generated from `title` at publish time and guaranteed unique across
+  // the whole table (not per-org — the blog is a single public surface).
+  // `blogExcerpt` is the card/list summary shown on the index; if null
+  // we derive one from the first ~280 chars of `textContent`.
+  // `authorBio` lets the founder override the displayed byline (e.g.
+  // for guest posts or co-authored work); otherwise we show
+  // Founder.name.
+  publishedAt      DateTime?
+  slug             String?   @unique
+  blogExcerpt      String?
+  authorBio        String?
+
   founder      Founder      @relation(fields: [founderId], references: [id])
   organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
   auditEvents  AuditEvent[]
 
   @@index([organizationId])
   @@index([founderId])
+  @@index([publishedAt])
 }
 
 // ── Conclusion — mirrors noosphere.models.Conclusion ───────────────────────

@@ -1,23 +1,35 @@
 import { redirect } from "next/navigation";
 
+import { getFounder } from "@/lib/auth";
+import Gate from "@/components/Gate";
+
 /**
- * Legacy / bookmarked `/login` URL — preserves the path while routing every
- * sign-in through the Gate at `/`. The Gate handles both the unauthenticated
- * (show labyrinth + form) and authenticated (redirect to dashboard) paths,
- * so this file's only job is to forward the URL and keep old bookmarks
- * working after the restructure.
+ * Founder login.
  *
- * The query string (e.g. `?next=/conclusions`) is preserved via the
- * middleware's `login?next=…` redirects — those land here and this file
- * forwards to `/` while keeping the search intact.
+ * The Codex now has two surfaces: a public blog at `/` and the private
+ * founder workspace at `/dashboard` (and every other `(authed)/*`
+ * route). This file hosts the Gate — the amber-oracle labyrinth + form
+ * component — which was previously at `/`. Moving it here frees the
+ * root for the blog index without losing the cinematic sign-in ritual
+ * (Armillary Ignition animation on success still runs).
+ *
+ * Flow:
+ *   - Unauthenticated: render Gate.
+ *   - Authenticated:   redirect to `?next=…` if provided (so a user
+ *                      who hit a protected page while signed out
+ *                      lands where they meant to go), otherwise to
+ *                      `/dashboard`.
  */
-export default async function LoginRedirect({
+export default async function LoginPage({
   searchParams,
 }: {
   searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
   const sp = await searchParams;
   const next = typeof sp.next === "string" ? sp.next : "";
-  const target = next ? `/?next=${encodeURIComponent(next)}` : "/";
-  redirect(target);
+  const founder = await getFounder();
+  if (founder) {
+    redirect(next || "/dashboard");
+  }
+  return <Gate />;
 }

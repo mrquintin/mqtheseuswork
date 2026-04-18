@@ -22,10 +22,11 @@ const AsciiHero = dynamic(() => import("./AsciiHero"), {
 /**
  * The Gate.
  *
- * The Codex has no public face — `/` renders this component when there is
- * no session, and redirects to `/dashboard` when there is one. The gate is
- * therefore what every first-time visitor sees, and it has exactly one
- * thing to do: get the founder into the system, dramatically.
+ * Lives at `/login`. The Codex's front door is the public blog at `/`;
+ * founders authenticate through this component and are dropped into
+ * `/dashboard` (or `?next=…` if middleware bounced them off a
+ * protected route). Its only job is to get a founder into the system,
+ * dramatically.
  *
  * The drama is not a gimmick; it announces the character of the instrument.
  * The slow rotation of the labyrinth, the phosphor glow, the Latin tag, the
