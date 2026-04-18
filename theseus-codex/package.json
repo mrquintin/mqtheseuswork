@@ -11,6 +11,7 @@
     "db:push": "prisma db push",
     "db:migrate": "prisma migrate dev",
     "db:seed": "tsx prisma/seed.ts",
+    "db:clear-library": "tsx scripts/clear-library.ts",
     "worker:ingest": "tsx --tsconfig tsconfig.json src/worker/dequeue-ingest.ts",
     "postinstall": "prisma generate"
   },

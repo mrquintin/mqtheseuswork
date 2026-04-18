@@ -1,9 +1,21 @@
 /**
- * Seed script — two founders from env + mock Noosphere-shaped rows for UI.
+ * Seed script — creates the organization and founder accounts from env.
+ *
+ * By default this script only sets up the minimum needed to log in:
+ * one Organization + the founders listed in the `SEED_FOUNDER_*` env vars.
  *
  * Required env (see .env.example):
  *   SEED_FOUNDER_A_EMAIL, SEED_FOUNDER_A_PASSWORD
  *   SEED_FOUNDER_B_EMAIL, SEED_FOUNDER_B_PASSWORD
+ *
+ * Optional:
+ *   SEED_WITH_MOCK_DATA=1
+ *     Also insert a handful of mock conclusions / contradictions / review
+ *     items so every page has something to render. This was the default
+ *     before, and it made the Codex look like it had been in use for
+ *     weeks even on a fresh install. If you want those mocks back —
+ *     e.g. for screenshots, or when onboarding someone new to the UI —
+ *     set this flag and re-run `npm run seed`.
  */
 
 import { PrismaClient } from "@prisma/client";
@@ -18,7 +30,9 @@ if (!process.env.DATABASE_URL) {
 const db = new PrismaClient({ adapter: createSqlAdapter() });
 const SALT_ROUNDS = 12;
 
-async function main() {
+const WITH_MOCK_DATA = process.env.SEED_WITH_MOCK_DATA === "1";
+
+async function seedAccounts() {
   const aEmail = process.env.SEED_FOUNDER_A_EMAIL;
   const aPass = process.env.SEED_FOUNDER_A_PASSWORD;
   const bEmail = process.env.SEED_FOUNDER_B_EMAIL;
@@ -31,8 +45,6 @@ async function main() {
     );
     process.exit(1);
   }
-
-  console.log("Seeding Theseus Codex…\n");
 
   const org = await db.organization.upsert({
     where: { slug: "theseus-local" },
@@ -92,9 +104,13 @@ async function main() {
     console.log(`  ✓  Founder ${f.name} <${f.email}>`);
   }
 
-  const alphaId = created[0]!.id;
+  return { orgId: org.id, alphaId: created[0]!.id };
+}
 
-  // Mock conclusions (ConfidenceTier + Conclusion fields)
+async function seedMockContent(orgId: string, alphaId: string) {
+  // Mock conclusions — three items tagged `seed-conc-*` so `clear-library.ts`
+  // can find and remove them selectively if you don't want to wipe
+  // everything.
   const conclusionSeeds = [
     {
       text: "Unresolved tensions between fast iteration and epistemic rigor should be surfaced explicitly in every roadmap review.",
@@ -121,7 +137,7 @@ async function main() {
     const c = conclusionSeeds[i]!;
     await db.conclusion.create({
       data: {
-        organizationId: org.id,
+        organizationId: orgId,
         noosphereId: `seed-conc-${i}`,
         text: c.text,
         confidenceTier: c.confidenceTier,
@@ -140,7 +156,7 @@ async function main() {
   await db.driftEvent.deleteMany({ where: { noosphereId: { startsWith: "seed-drift-" } } });
   await db.driftEvent.create({
     data: {
-      organizationId: org.id,
+      organizationId: orgId,
       noosphereId: "seed-drift-1",
       targetId: "principle_seed_1",
       targetKind: "principle",
@@ -157,7 +173,7 @@ async function main() {
   await db.contradiction.deleteMany({});
   await db.contradiction.create({
     data: {
-      organizationId: org.id,
+      organizationId: orgId,
       claimAId: "claim_alpha",
       claimBId: "claim_beta",
       severity: 0.82,
@@ -177,7 +193,7 @@ async function main() {
   await db.researchSuggestion.deleteMany({ where: { noosphereId: { startsWith: "seed-rs-" } } });
   await db.researchSuggestion.create({
     data: {
-      organizationId: org.id,
+      organizationId: orgId,
       noosphereId: "seed-rs-1",
       title: "Read: Geometry of Unresolution",
       summary: "Formalizes partial orders on unresolved belief states.",
@@ -192,7 +208,7 @@ async function main() {
   await db.openQuestion.deleteMany({ where: { noosphereId: { startsWith: "seed-oq-" } } });
   await db.openQuestion.create({
     data: {
-      organizationId: org.id,
+      organizationId: orgId,
       noosphereId: "seed-oq-1",
       summary: "Do we treat LLM judge scores as epistemic or instrumental evidence?",
       claimAId: "claim_judge",
@@ -206,7 +222,7 @@ async function main() {
   await db.reviewItem.deleteMany({ where: { noosphereId: { startsWith: "seed-rev-" } } });
   await db.reviewItem.create({
     data: {
-      organizationId: org.id,
+      organizationId: orgId,
       noosphereId: "seed-rev-1",
       claimAId: "claim_alpha",
       claimBId: "claim_beta",
@@ -233,6 +249,19 @@ async function main() {
     },
   });
   console.log("  ✓  Mock review queue item");
+}
+
+async function main() {
+  console.log("Seeding Theseus Codex…\n");
+
+  const { orgId, alphaId } = await seedAccounts();
+
+  if (WITH_MOCK_DATA) {
+    console.log("\nSEED_WITH_MOCK_DATA=1 — inserting demo rows for screenshot / onboarding.");
+    await seedMockContent(orgId, alphaId);
+  } else {
+    console.log("\nSkipping mock content (set SEED_WITH_MOCK_DATA=1 to include it).");
+  }
 
   console.log("\nSeed complete.");
 }

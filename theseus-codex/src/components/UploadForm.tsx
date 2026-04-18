@@ -2,9 +2,34 @@
 
 import { useState, useRef, useCallback } from "react";
 import { useRouter } from "next/navigation";
+import UploadScroll from "./UploadScrollClient";
 
-const ACCEPTED_EXTENSIONS = ".txt,.md,.markdown,.pdf,.docx,.vtt,.jsonl,.mp3,.m4a,.wav,.webm,.ogg";
+const ACCEPTED_EXTENSIONS =
+  ".txt,.md,.markdown,.pdf,.docx,.vtt,.jsonl,.mp3,.m4a,.wav,.webm,.ogg";
 
+/**
+ * Upload form — bespoke dropzone with an animated ASCII scroll background.
+ *
+ * Behaviour:
+ *   - The scroll renders live regardless of state, so the page has
+ *     motion from first paint (the papyrus breathes).
+ *   - While the user drags a file over the drop target, we pass
+ *     `active` to the scroll, which intensifies the sway and brightens
+ *     the amber.
+ *   - Once a file is picked, `sealed` is passed, which materialises
+ *     a wax seal at the bottom of the scroll — a visual "you have
+ *     committed" signal that's stronger than a filename in a box.
+ *   - The process log is shown below the form as illuminated-manuscript
+ *     text (amber on a deeper amber-black) rather than a generic code
+ *     block.
+ *
+ * Vercel-compat note: the upload API currently saves textContent to
+ * Postgres but cannot invoke `python -m noosphere ingest` (no Python in
+ * the serverless runtime). We deliberately *don't* mention the CLI here
+ * anymore — the copy used to say "Files are stored … then piped through
+ * `python -m noosphere ingest`", which is no longer true in prod. The
+ * process log will explain exactly what happened once ingest resolves.
+ */
 export default function UploadForm() {
   const router = useRouter();
   const fileRef = useRef<HTMLInputElement>(null);
@@ -78,11 +103,26 @@ export default function UploadForm() {
       const pr = await fetch(`/api/upload/${id}`);
       const u = await pr.json();
       if (u.processLog) setPollLog(u.processLog.slice(-4000));
-      if (u.status === "ingested" || u.status === "failed") {
+      // Terminal statuses: ingested (happy path on a host with Python),
+      // failed (we hit a real error), queued_offline (Vercel / no Python;
+      // data is saved but awaits local ingest).
+      if (
+        u.status === "ingested" ||
+        u.status === "failed" ||
+        u.status === "queued_offline"
+      ) {
         clearInterval(iv);
         setUploading(false);
-        setSuccess(u.status === "ingested" ? "Ingest complete." : `Failed: ${u.errorMessage || ""}`);
-        setTimeout(() => router.push("/dashboard"), 1800);
+        if (u.status === "ingested") {
+          setSuccess("Ingest complete.");
+        } else if (u.status === "queued_offline") {
+          setSuccess(
+            "Upload saved. Noosphere processing is queued — run `noosphere ingest` locally to finish.",
+          );
+        } else {
+          setSuccess(`Failed: ${u.errorMessage || ""}`);
+        }
+        setTimeout(() => router.push("/dashboard"), 2200);
       }
     }, 1200);
 
@@ -90,32 +130,54 @@ export default function UploadForm() {
   }
 
   return (
-    <main style={{ maxWidth: "700px", margin: "0 auto", padding: "3rem 2rem" }}>
+    <main style={{ maxWidth: "760px", margin: "0 auto", padding: "2.5rem 2rem" }}>
       <h1
         style={{
-          fontFamily: "'Cinzel', serif",
-          fontSize: "1.3rem",
-          letterSpacing: "0.1em",
-          color: "var(--gold)",
-          marginBottom: "0.5rem",
+          fontFamily: "'Cinzel Decorative', 'Cinzel', serif",
+          fontSize: "1.8rem",
+          letterSpacing: "0.18em",
+          color: "var(--amber)",
+          textShadow: "var(--glow-md)",
+          margin: 0,
+        }}
+      >
+        Dedicatio
+      </h1>
+      <p
+        className="mono"
+        style={{
+          fontSize: "0.65rem",
+          letterSpacing: "0.3em",
+          textTransform: "uppercase",
+          color: "var(--amber-dim)",
+          marginTop: "0.25rem",
+          marginBottom: "0.25rem",
         }}
       >
         Upload Contribution
-      </h1>
+      </p>
       <p
         style={{
           fontFamily: "'EB Garamond', serif",
+          fontStyle: "italic",
           fontSize: "1rem",
           color: "var(--parchment-dim)",
+          marginTop: "0.5rem",
           marginBottom: "2rem",
         }}
       >
-        Accepted: Markdown, plain text, WebVTT, dialectic JSONL, PDF, DOCX, and common audio formats.
-        Files are stored outside <code>public/</code> and piped through{" "}
-        <code>python -m noosphere ingest</code> then <code>synthesize</code>.
+        Commit a transcript, essay, or session to the Codex. Markdown, plain text,
+        WebVTT, Dialectic JSONL, PDF, DOCX, and common audio formats are accepted.
       </p>
 
-      <form onSubmit={handleSubmit} style={{ display: "flex", flexDirection: "column", gap: "1.5rem" }}>
+      <form
+        onSubmit={handleSubmit}
+        style={{ display: "flex", flexDirection: "column", gap: "1.5rem" }}
+      >
+        {/* Bespoke dropzone. The ASCII scroll sits as the background — not a
+            decorative illustration, but the actual interaction target. We
+            put the text content above it with a negative margin so the
+            words overlap the scroll like ink on papyrus. */}
         <div
           className={`upload-zone ${dragover ? "dragover" : ""}`}
           onClick={() => fileRef.current?.click()}
@@ -125,6 +187,15 @@ export default function UploadForm() {
           }}
           onDragLeave={() => setDragover(false)}
           onDrop={handleDrop}
+          style={{
+            position: "relative",
+            minHeight: "220px",
+            padding: "1.25rem 1rem 1rem",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            overflow: "hidden",
+          }}
         >
           <input
             ref={fileRef}
@@ -135,56 +206,121 @@ export default function UploadForm() {
               if (e.target.files?.[0]) handleFile(e.target.files[0]);
             }}
           />
-          {file ? (
-            <div>
-              <p style={{ fontFamily: "'EB Garamond', serif", fontSize: "1.1rem", color: "var(--gold)" }}>
-                {file.name}
-              </p>
-              <p
-                style={{
-                  fontFamily: "'Inter', sans-serif",
-                  fontSize: "0.75rem",
-                  color: "var(--parchment-dim)",
-                  marginTop: "0.3rem",
-                }}
-              >
-                {(file.size / 1024).toFixed(0)} KB · {file.type || "unknown type"}
-              </p>
-            </div>
-          ) : (
-            <div>
-              <p style={{ fontFamily: "'EB Garamond', serif", fontSize: "1.1rem", color: "var(--parchment-dim)" }}>
-                Drop a file here, or click to browse
-              </p>
-            </div>
-          )}
+
+          {/* Scroll fills the container. Pointer events pass through so the
+              outer div stays the click target. */}
+          <div
+            aria-hidden="true"
+            style={{
+              position: "absolute",
+              inset: 0,
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              pointerEvents: "none",
+              opacity: file ? 0.55 : 0.9,
+              transition: "opacity 0.25s ease",
+            }}
+          >
+            <UploadScroll cols={72} rows={14} active={dragover} sealed={!!file} />
+          </div>
+
+          {/* Foreground text. Stays out of the way when a file is picked so
+              the scroll + seal is the dominant visual. */}
+          <div
+            style={{
+              position: "relative",
+              zIndex: 1,
+              textAlign: "center",
+              textShadow: "0 0 6px var(--stone-bg), 0 0 16px var(--stone-bg)",
+            }}
+          >
+            {file ? (
+              <>
+                <p
+                  style={{
+                    fontFamily: "'EB Garamond', serif",
+                    fontSize: "1.15rem",
+                    color: "var(--amber)",
+                    margin: 0,
+                  }}
+                >
+                  {file.name}
+                </p>
+                <p
+                  className="mono"
+                  style={{
+                    fontSize: "0.7rem",
+                    letterSpacing: "0.1em",
+                    color: "var(--parchment-dim)",
+                    marginTop: "0.35rem",
+                    marginBottom: 0,
+                  }}
+                >
+                  {(file.size / 1024).toFixed(0)} KB · {file.type || "unknown type"}
+                </p>
+              </>
+            ) : (
+              <>
+                <p
+                  className="mono"
+                  style={{
+                    fontSize: "0.65rem",
+                    letterSpacing: "0.3em",
+                    textTransform: "uppercase",
+                    color: "var(--amber-dim)",
+                    margin: 0,
+                  }}
+                >
+                  Liber Apertus
+                </p>
+                <p
+                  style={{
+                    fontFamily: "'EB Garamond', serif",
+                    fontSize: "1.05rem",
+                    fontStyle: "italic",
+                    color: "var(--parchment)",
+                    marginTop: "0.25rem",
+                    marginBottom: 0,
+                  }}
+                >
+                  Drop a file here, or click the scroll to browse.
+                </p>
+              </>
+            )}
+          </div>
         </div>
 
         <div>
           <label
+            className="mono"
             style={{
-              fontFamily: "'Inter', sans-serif",
-              fontSize: "0.7rem",
-              letterSpacing: "0.1em",
+              fontSize: "0.65rem",
+              letterSpacing: "0.2em",
               textTransform: "uppercase",
-              color: "var(--parchment-dim)",
+              color: "var(--amber-dim)",
               display: "block",
               marginBottom: "0.4rem",
             }}
           >
             Title
           </label>
-          <input type="text" value={title} onChange={(e) => setTitle(e.target.value)} required />
+          <input
+            type="text"
+            value={title}
+            onChange={(e) => setTitle(e.target.value)}
+            required
+          />
         </div>
 
         <div>
           <label
+            className="mono"
             style={{
-              fontFamily: "'Inter', sans-serif",
-              fontSize: "0.7rem",
-              letterSpacing: "0.1em",
+              fontSize: "0.65rem",
+              letterSpacing: "0.2em",
               textTransform: "uppercase",
-              color: "var(--parchment-dim)",
+              color: "var(--amber-dim)",
               display: "block",
               marginBottom: "0.4rem",
             }}
@@ -200,19 +336,22 @@ export default function UploadForm() {
 
         <div>
           <label
+            className="mono"
             style={{
-              fontFamily: "'Inter', sans-serif",
-              fontSize: "0.7rem",
-              letterSpacing: "0.1em",
+              fontSize: "0.65rem",
+              letterSpacing: "0.2em",
               textTransform: "uppercase",
-              color: "var(--parchment-dim)",
+              color: "var(--amber-dim)",
               display: "block",
               marginBottom: "0.4rem",
             }}
           >
             Type
           </label>
-          <select value={sourceType} onChange={(e) => setSourceType(e.target.value)}>
+          <select
+            value={sourceType}
+            onChange={(e) => setSourceType(e.target.value)}
+          >
             <option value="written">Written</option>
             <option value="annotation">Annotation</option>
             <option value="external">External</option>
@@ -222,26 +361,46 @@ export default function UploadForm() {
         </div>
 
         {error && <p style={{ color: "var(--ember)", fontSize: "0.9rem" }}>{error}</p>}
-        {success && <p style={{ color: "var(--success)", fontSize: "0.9rem" }}>{success}</p>}
+        {success && (
+          <p
+            style={{
+              color: success.startsWith("Failed") ? "var(--ember)" : "var(--success)",
+              fontSize: "0.9rem",
+            }}
+          >
+            {success}
+          </p>
+        )}
 
         {pollLog && (
           <pre
+            className="ascii-frame"
+            data-label="SCRIBE'S LOG"
             style={{
-              maxHeight: "200px",
+              maxHeight: "240px",
               overflow: "auto",
-              fontSize: "0.65rem",
-              background: "#0d0d12",
-              padding: "0.75rem",
-              borderRadius: "6px",
-              color: "#b8b8c8",
+              fontFamily: "'IBM Plex Mono', monospace",
+              fontSize: "0.68rem",
+              lineHeight: 1.55,
+              color: "var(--parchment)",
+              background:
+                "linear-gradient(180deg, rgba(20,14,6,0.5) 0%, rgba(30,20,8,0.4) 100%)",
+              padding: "1rem 1.25rem",
+              margin: 0,
+              whiteSpace: "pre-wrap",
+              wordBreak: "break-word",
             }}
           >
             {pollLog}
           </pre>
         )}
 
-        <button type="submit" className="btn-solid btn" disabled={uploading || !file}>
-          {uploading ? "Processing…" : "Upload & Ingest"}
+        <button
+          type="submit"
+          className="btn-solid btn"
+          disabled={uploading || !file}
+        >
+          {uploading ? "Sealing the scroll…" : "Commit to the Codex"}
         </button>
       </form>
     </main>

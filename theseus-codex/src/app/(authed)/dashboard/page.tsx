@@ -1,7 +1,24 @@
 import Link from "next/link";
-import DashboardPulse from "@/components/DashboardPulseClient";
+import DashboardHearth from "@/components/DashboardHearthClient";
+import ConfidenceTierSigil from "@/components/ConfidenceTierSigil";
 import { db } from "@/lib/db";
 import { requireTenantContext } from "@/lib/tenant";
+
+/**
+ * Dashboard — the landing page after login.
+ *
+ * Visual hierarchy:
+ *   1. A large live ASCII brazier at the top. Its flame intensity is
+ *      derived from system activity (pending + processing + queued
+ *      uploads), so the page *pulses* when work is happening.
+ *   2. A three-column band of labelled ASCII-frame cards: uploads,
+ *      conclusions, drift. Each conclusion gets an inline tier sigil
+ *      so the confidence tier reads at a glance.
+ *   3. A meander (Greek-key) divider before any low-priority sections.
+ *
+ * Empty states are handled by the `LatinEmpty` component so an empty
+ * Codex still feels considered rather than broken.
+ */
 
 export default async function DashboardPage() {
   const tenant = await requireTenantContext();
@@ -28,10 +45,22 @@ export default async function DashboardPage() {
     take: 6,
   });
 
+  // Hearth intensity: uploads still in-flight are the biggest signal.
+  // `queued_offline` counts at half-strength (the firm has sent work but
+  // the CLI hasn't run yet). Cap at 1.0 so the flame never leaves the frame.
+  const activeUploads =
+    uploads.filter((u) => u.status === "processing" || u.status === "pending").length +
+    uploads.filter((u) => u.status === "queued_offline").length * 0.5;
+  const hearthIntensity = Math.max(
+    0.18, // a quiet cauldron even when idle — always some life
+    Math.min(1.0, activeUploads / 4),
+  );
+
   const statusBadge = (status: string) => {
     const cls: Record<string, string> = {
       pending: "badge-pending",
       processing: "badge-processing",
+      queued_offline: "badge-pending",
       ingested: "badge-ingested",
       failed: "badge-failed",
     };
@@ -39,19 +68,55 @@ export default async function DashboardPage() {
   };
 
   return (
-    <main style={{ padding: "2rem 0" }}>
+    <main style={{ padding: "1.25rem 0 3rem" }}>
+      {/* The Oracle's Hearth — sitewide signature element, full-bleed band. */}
       <div
         style={{
           borderTop: "1px solid var(--border)",
           borderBottom: "1px solid var(--border)",
           background:
-            "radial-gradient(ellipse at center, rgba(233,163,56,0.04) 0%, transparent 70%)",
-          margin: "0 0 1.5rem",
-          padding: "0.5rem 0",
+            "radial-gradient(ellipse at center, rgba(233,163,56,0.08) 0%, rgba(233,163,56,0.02) 40%, transparent 80%)",
+          margin: "0 0 2rem",
+          padding: "1.25rem 0 0.75rem",
+          position: "relative",
         }}
       >
-        <DashboardPulse cols={100} rows={14} />
+        <div style={{ display: "flex", justifyContent: "center" }}>
+          <DashboardHearth cols={84} rows={22} intensity={hearthIntensity} />
+        </div>
+        {/* Latin dedication under the hearth. Gives the brazier a shelf to
+            sit on and makes the abstract 3D asset legible as an artifact. */}
+        <p
+          className="mono"
+          style={{
+            textAlign: "center",
+            fontSize: "0.6rem",
+            letterSpacing: "0.3em",
+            textTransform: "uppercase",
+            color: "var(--amber-dim)",
+            marginTop: "0.35rem",
+            marginBottom: 0,
+          }}
+        >
+          Focus Sapientiae · The Firm&apos;s Hearth
+        </p>
+        <p
+          style={{
+            textAlign: "center",
+            fontFamily: "'EB Garamond', serif",
+            fontStyle: "italic",
+            fontSize: "0.8rem",
+            color: "var(--parchment-dim)",
+            marginTop: "0.25rem",
+            marginBottom: 0,
+          }}
+        >
+          {activeUploads > 0
+            ? `${Math.ceil(activeUploads)} contribution${activeUploads > 1.5 ? "s" : ""} on the coals.`
+            : "The coals are banked; the oracle listens."}
+        </p>
       </div>
+
       <div style={{ maxWidth: "1100px", margin: "0 auto", padding: "0 2rem" }}>
         <div
           style={{
@@ -73,7 +138,10 @@ export default async function DashboardPage() {
             gap: "1.5rem",
           }}
         >
-          <section className="ascii-frame" data-label={`UPLOADS · ${toRoman(uploads.length) || "0"}`}>
+          <section
+            className="ascii-frame"
+            data-label={`UPLOADS · ${toRoman(uploads.length) || "0"}`}
+          >
             <div style={{ display: "flex", flexDirection: "column", gap: "0.5rem" }}>
               {uploads.length === 0 ? (
                 <LatinEmpty
@@ -83,7 +151,14 @@ export default async function DashboardPage() {
               ) : (
                 uploads.map((u) => (
                   <div key={u.id} className="portal-card" style={{ padding: "0.9rem 1rem" }}>
-                    <div style={{ display: "flex", justifyContent: "space-between", gap: "1rem", alignItems: "flex-start" }}>
+                    <div
+                      style={{
+                        display: "flex",
+                        justifyContent: "space-between",
+                        gap: "1rem",
+                        alignItems: "flex-start",
+                      }}
+                    >
                       <div style={{ minWidth: 0 }}>
                         <div
                           style={{
@@ -107,7 +182,7 @@ export default async function DashboardPage() {
                           {u.founder.name} · {new Date(u.createdAt).toLocaleDateString()}
                         </div>
                       </div>
-                      <span className={statusBadge(u.status)}>{u.status}</span>
+                      <span className={statusBadge(u.status)}>{u.status.replace("_", " ")}</span>
                     </div>
                   </div>
                 ))
@@ -115,7 +190,10 @@ export default async function DashboardPage() {
             </div>
           </section>
 
-          <section className="ascii-frame" data-label={`CONCLUSIONS · ${toRoman(conclusions.length) || "0"}`}>
+          <section
+            className="ascii-frame"
+            data-label={`CONCLUSIONS · ${toRoman(conclusions.length) || "0"}`}
+          >
             <div style={{ display: "flex", flexDirection: "column", gap: "0.5rem" }}>
               {conclusions.length === 0 ? (
                 <LatinEmpty
@@ -126,26 +204,38 @@ export default async function DashboardPage() {
                 conclusions.map((c) => (
                   <div key={c.id} className="portal-card" style={{ padding: "0.9rem 1rem" }}>
                     <div
-                      className="mono"
                       style={{
-                        fontSize: "0.6rem",
-                        color: "var(--amber-dim)",
-                        textTransform: "uppercase",
-                        letterSpacing: "0.12em",
+                        display: "flex",
+                        gap: "0.9rem",
+                        alignItems: "flex-start",
                       }}
                     >
-                      {c.confidenceTier} · {c.topicHint || "general"}
+                      <ConfidenceTierSigil tier={c.confidenceTier} />
+                      <div style={{ minWidth: 0, flex: 1 }}>
+                        <div
+                          className="mono"
+                          style={{
+                            fontSize: "0.6rem",
+                            color: "var(--amber-dim)",
+                            textTransform: "uppercase",
+                            letterSpacing: "0.12em",
+                          }}
+                        >
+                          {c.confidenceTier} · {c.topicHint || "general"}
+                        </div>
+                        <p
+                          style={{
+                            marginTop: "0.4rem",
+                            marginBottom: 0,
+                            fontSize: "0.95rem",
+                            color: "var(--parchment)",
+                            lineHeight: 1.5,
+                          }}
+                        >
+                          {c.text}
+                        </p>
+                      </div>
                     </div>
-                    <p
-                      style={{
-                        marginTop: "0.4rem",
-                        fontSize: "0.95rem",
-                        color: "var(--parchment)",
-                        lineHeight: 1.5,
-                      }}
-                    >
-                      {c.text}
-                    </p>
                   </div>
                 ))
               )}
