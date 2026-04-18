@@ -65,6 +65,15 @@ export type SculptureBackdropProps = {
   style?: CSSProperties;
 };
 
+// Reasonable default grid so SculptureAscii mounts immediately on
+// first render, long before ResizeObserver reports real dimensions.
+// These numbers correspond to a ~700×550 px container at
+// cellScale=0.65 (CELL_W=6, CELL_H=12) — close to what a typical
+// 1440×900 desktop produces for a half-page backdrop, so the very
+// first paint already looks right; RO just refines it if the real
+// container is bigger or smaller.
+const DEFAULT_DIMS = { cols: 90, rows: 60 } as const;
+
 export default function SculptureBackdrop({
   src,
   side = "right",
@@ -86,8 +95,16 @@ export default function SculptureBackdrop({
 }: SculptureBackdropProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [isNarrow, setIsNarrow] = useState(false);
-  // Derived cols / rows from the measured container size.
-  const [dims, setDims] = useState<{ cols: number; rows: number } | null>(null);
+  // Derived cols / rows from the measured container size. We START
+  // with the safe default above so SculptureAscii renders on FIRST
+  // mount — previously we gated rendering on `dims !== null`, which
+  // meant a sculpture with a container that briefly measured 0×0
+  // (absolute-positioned inside a just-laying-out parent) would
+  // never mount its inner canvas at all. The measurement loop below
+  // still runs; it just REFINES dims instead of being the gate.
+  const [dims, setDims] = useState<{ cols: number; rows: number }>(
+    DEFAULT_DIMS,
+  );
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -107,20 +124,34 @@ export default function SculptureBackdrop({
     const el = containerRef.current;
     if (!el) return;
 
+    const MIN_COLS = 40;
+    const MIN_ROWS = 30;
+
     const computeDims = () => {
       const rect = el.getBoundingClientRect();
-      // Guard against zero/tiny measurements (first paint before CSS
-      // applies): we'd divide by near-zero and pass absurd grid sizes
-      // to SculptureAscii.
-      if (rect.width < 200 || rect.height < 200) return;
       const cellWpx = CELL_W * cellScale;
       const cellHpx = CELL_H * cellScale;
-      const cols = Math.max(40, Math.floor(rect.width / cellWpx));
-      const rows = Math.max(30, Math.floor(rect.height / cellHpx));
+      // Always set SOME dims — previously we early-returned on tiny
+      // measurements, which meant on pages where the absolute
+      // container briefly had width:0/height:0 during initial
+      // paint, `dims` stayed null and the canvas never mounted.
+      // Clamp the derived size to a sane minimum instead, so even
+      // a mis-laid-out parent still produces a visible sculpture.
+      const cols =
+        rect.width > 0
+          ? Math.max(MIN_COLS, Math.floor(rect.width / cellWpx))
+          : DEFAULT_DIMS.cols;
+      const rows =
+        rect.height > 0
+          ? Math.max(MIN_ROWS, Math.floor(rect.height / cellHpx))
+          : DEFAULT_DIMS.rows;
       setDims((prev) => {
-        // Avoid pointless state updates when the rect jitters by a few pixels
-        // (which retriggers the canvas + shape-table re-init).
-        if (prev && Math.abs(prev.cols - cols) < 3 && Math.abs(prev.rows - rows) < 3) {
+        // Skip no-op state updates to avoid resetting the canvas +
+        // shape-table on jitter.
+        if (
+          Math.abs(prev.cols - cols) < 3 &&
+          Math.abs(prev.rows - rows) < 3
+        ) {
           return prev;
         }
         return { cols, rows };
@@ -130,7 +161,26 @@ export default function SculptureBackdrop({
     computeDims();
     const ro = new ResizeObserver(computeDims);
     ro.observe(el);
-    return () => ro.disconnect();
+    // Belt-and-suspenders: on some browsers/layouts RO doesn't fire
+    // again after the initial observe if nothing resizes. Run a few
+    // RAF-driven re-measures during the first ~250ms of the mount
+    // lifecycle to catch the real size once the parent's layout
+    // settles. Harmless if RO already reported correct dims —
+    // setDims() dedupes.
+    let rafId: number | null = null;
+    const rafDeadline = performance.now() + 250;
+    const tick = () => {
+      computeDims();
+      if (performance.now() < rafDeadline) {
+        rafId = requestAnimationFrame(tick);
+      }
+    };
+    rafId = requestAnimationFrame(tick);
+
+    return () => {
+      ro.disconnect();
+      if (rafId !== null) cancelAnimationFrame(rafId);
+    };
   }, [cellScale]);
 
   if (isNarrow) return null;
@@ -161,18 +211,24 @@ export default function SculptureBackdrop({
         ...style,
       }}
     >
-      {dims ? (
-        <SculptureAscii
-          src={src}
-          cols={dims.cols}
-          rows={dims.rows}
-          cellScale={cellScale}
-          yawSpeed={yawSpeed}
-          pitch={pitch}
-          scale={0.9}
-          color="var(--amber)"
-        />
-      ) : null}
+      {/*
+        SculptureAscii renders UNCONDITIONALLY — dims has a safe
+        default (DEFAULT_DIMS) from mount 0, and the observer only
+        refines it. Previously this was `dims ? … : null`, which
+        left backdrops permanently empty on any page where the
+        initial measurement came back 0×0 before CSS layout settled
+        (the root cause of the "sculptures don't render" reports).
+      */}
+      <SculptureAscii
+        src={src}
+        cols={dims.cols}
+        rows={dims.rows}
+        cellScale={cellScale}
+        yawSpeed={yawSpeed}
+        pitch={pitch}
+        scale={0.9}
+        color="var(--amber)"
+      />
     </div>
   );
 }
