@@ -41,6 +41,24 @@ All three run the same workflow — `.github/workflows/noosphere-process-uploads
 | `GITHUB_DISPATCH_TOKEN` | A GitHub Personal Access Token with `repo` scope. Generate at https://github.com/settings/tokens/new | **yes** (for immediate dispatch; without it the cron still runs every 10 min) |
 | `GITHUB_DISPATCH_REPO` | `mrquintin/mqtheseuswork` | optional (defaults to this already) |
 | `OPENAI_API_KEY` | `sk-proj-…` | optional — only needed if you want Whisper transcription of audio uploads to work on Vercel (without it, audio uploads still succeed but transcription happens later in the GH Actions run) |
+| `SUPABASE_URL` | `https://<ref>.supabase.co` (your Supabase project URL) | **yes for podcast uploads** — without this, audio is accepted but won't play on the blog |
+| `SUPABASE_SERVICE_ROLE_KEY` | Supabase dashboard → Project Settings → API → `service_role` key | **yes for podcast uploads** — server-only; never ship to the browser |
+| `SUPABASE_AUDIO_BUCKET` | Bucket name in Supabase Storage (default: `audio`) | optional (defaults to `audio`) |
+| `MAX_AUDIO_BYTES` | Integer bytes cap on audio uploads (default: 52_428_800, i.e. 50 MB) | optional |
+
+> **Podcast audio upload + playback setup:**
+> 1. **Supabase dashboard → Storage → New bucket → name `audio`**. Mark **Public** so the blog post can serve the file directly.
+> 2. **Project Settings → API**: copy the `service_role` key. Set it as `SUPABASE_SERVICE_ROLE_KEY` on Vercel (Production scope).
+> 3. Copy your project URL (starts with `https://...supabase.co`) and set `SUPABASE_URL`.
+> 4. Redeploy Vercel.
+> 5. Upload an audio file at `/upload` with "Publish as blog post" checked. The form will:
+>    - measure the file's duration client-side;
+>    - POST to `/api/upload/audio/prepare` for a one-shot signed upload URL;
+>    - PUT the audio bytes directly to Supabase Storage (bypasses Vercel's 4.4 MB serverless body cap);
+>    - POST to `/api/upload/audio/finalize/:id` to commit the row and fire Noosphere processing.
+> 6. Visit the post at `/post/<slug>` — you'll see an `<audio controls>` player at the top + the transcript below + the ⚡ LISTEN badge on `/`.
+>
+> Audio files up to 50 MB are accepted (≈40 min at 128 kbps, or 2+ hrs at 64 kbps). If `SUPABASE_URL` / `SUPABASE_SERVICE_ROLE_KEY` aren't set, audio upload still succeeds but `audioUrl` stays null and the blog renders text-only — so the pipeline degrades gracefully.
 
 > **Creating the dispatch token:**
 > - Go to https://github.com/settings/tokens (classic) OR https://github.com/settings/personal-access-tokens/new (fine-grained).

@@ -81,6 +81,11 @@ export default async function PostPage({ params }: PageProps) {
       textContent: true,
       publishedAt: true,
       sourceType: true,
+      // New podcast fields — when audioUrl is set we render an
+      // <audio controls> player at the top of the post and label
+      // the card/byline line with the episode duration.
+      audioUrl: true,
+      audioDurationSec: true,
       founder: { select: { name: true } },
     },
   });
@@ -140,6 +145,15 @@ export default async function PostPage({ params }: PageProps) {
             {post.sourceType && post.sourceType !== "written"
               ? ` · ${post.sourceType}`
               : ""}
+            {post.audioUrl ? (
+              <span style={{ color: "var(--amber)" }}>
+                {" · "}
+                Episode
+                {post.audioDurationSec
+                  ? ` · ${formatDuration(post.audioDurationSec)}`
+                  : ""}
+              </span>
+            ) : null}
           </p>
           <h1
             style={{
@@ -172,6 +186,69 @@ export default async function PostPage({ params }: PageProps) {
             </p>
           ) : null}
         </header>
+
+        {post.audioUrl ? (
+          <section
+            className="ascii-frame"
+            data-label="AUDIO · EPISODE"
+            style={{
+              margin: "0 0 2rem",
+              padding: "1.25rem 1.25rem 1rem",
+              background:
+                "linear-gradient(180deg, rgba(212,160,23,0.08), rgba(212,160,23,0.02))",
+            }}
+          >
+            <p
+              className="mono"
+              style={{
+                fontSize: "0.6rem",
+                letterSpacing: "0.26em",
+                textTransform: "uppercase",
+                color: "var(--amber-dim)",
+                margin: "0 0 0.6rem",
+              }}
+            >
+              ◀︎ Listen {post.audioDurationSec
+                ? `· ${formatDuration(post.audioDurationSec)}`
+                : ""}
+            </p>
+            {/*
+              Native HTML5 audio player — zero JS dependency, works on
+              every modern browser + iOS Safari. We skip `preload="auto"`
+              so the 30MB podcast file doesn't download until the
+              visitor actually hits play.
+            */}
+            <audio
+              controls
+              preload="metadata"
+              style={{ width: "100%" }}
+              aria-label={`Audio for ${post.title}`}
+            >
+              <source src={post.audioUrl} />
+              Your browser doesn&rsquo;t support HTML5 audio.{" "}
+              <a
+                href={post.audioUrl}
+                style={{ color: "var(--amber)" }}
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                Download the file
+              </a>
+              .
+            </audio>
+            <p
+              style={{
+                fontFamily: "'EB Garamond', serif",
+                fontStyle: "italic",
+                fontSize: "0.9rem",
+                color: "var(--parchment-dim)",
+                margin: "0.75rem 0 0",
+              }}
+            >
+              Transcript below — scroll to read, or hit play to listen.
+            </p>
+          </section>
+        ) : null}
 
         <div
           className="post-body"
@@ -238,6 +315,20 @@ export default async function PostPage({ params }: PageProps) {
       </article>
     </main>
   );
+}
+
+/**
+ * Format a duration in seconds as `MM:SS` or `H:MM:SS` — what a podcast
+ * app would show next to the play button.
+ */
+function formatDuration(seconds: number): string {
+  const total = Math.max(0, Math.floor(seconds));
+  const h = Math.floor(total / 3600);
+  const m = Math.floor((total % 3600) / 60);
+  const s = total % 60;
+  const mm = m.toString().padStart(2, "0");
+  const ss = s.toString().padStart(2, "0");
+  return h > 0 ? `${h}:${mm}:${ss}` : `${m}:${ss}`;
 }
 
 /**

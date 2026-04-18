@@ -4,7 +4,46 @@ import { useState, useRef, useCallback } from "react";
 import { useRouter } from "next/navigation";
 
 const ACCEPTED_EXTENSIONS =
-  ".txt,.md,.markdown,.pdf,.docx,.vtt,.jsonl,.mp3,.m4a,.wav,.webm,.ogg";
+  ".txt,.md,.markdown,.pdf,.docx,.vtt,.jsonl,.mp3,.m4a,.wav,.webm,.ogg,.aac";
+
+/**
+ * Read the duration of an audio File in the browser by mounting an
+ * offscreen HTMLAudioElement and waiting for `loadedmetadata`. Returns
+ * the duration in whole seconds, or rejects after a timeout / if the
+ * browser can't decode the file. Used to pre-fill
+ * `Upload.audioDurationSec` so published episodes show "— 47:12 —"
+ * badges on the blog index.
+ */
+async function probeAudioDuration(file: File): Promise<number> {
+  return new Promise((resolve, reject) => {
+    const el = document.createElement("audio");
+    const url = URL.createObjectURL(file);
+    const timer = window.setTimeout(() => {
+      cleanup();
+      reject(new Error("duration probe timeout"));
+    }, 6000);
+    const cleanup = () => {
+      window.clearTimeout(timer);
+      URL.revokeObjectURL(url);
+      el.src = "";
+    };
+    el.preload = "metadata";
+    el.onloadedmetadata = () => {
+      const d = el.duration;
+      cleanup();
+      if (!Number.isFinite(d) || d <= 0) {
+        reject(new Error("invalid duration"));
+      } else {
+        resolve(Math.round(d));
+      }
+    };
+    el.onerror = () => {
+      cleanup();
+      reject(new Error("audio load failed"));
+    };
+    el.src = url;
+  });
+}
 
 /**
  * Upload form.
@@ -72,6 +111,109 @@ export default function UploadForm() {
     [handleFile],
   );
 
+  /** Text / PDF / DOCX path: one POST, bytes included. */
+  async function submitInlineFlow(): Promise<string> {
+    const fd = new FormData();
+    fd.append("file", file!);
+    fd.append("title", title);
+    fd.append("description", description);
+    fd.append("sourceType", sourceType);
+    fd.append("publishAsPost", publishAsPost ? "1" : "0");
+    if (publishAsPost) {
+      fd.append("blogExcerpt", blogExcerpt.trim());
+      fd.append("authorBio", authorBio.trim());
+    }
+    fd.append("visibility", privateUpload ? "private" : "org");
+
+    const res = await fetch("/api/upload", { method: "POST", body: fd });
+    const data = await res.json();
+    if (!res.ok) {
+      throw new Error(data.error || "Upload failed");
+    }
+    return data.id as string;
+  }
+
+  /** Audio path: reserve → direct PUT to Supabase → finalize.
+   *
+   * The browser uploads the audio bytes DIRECTLY to Supabase Storage
+   * using the one-shot signed URL we get from /prepare. This bypasses
+   * Vercel's 4.4 MB serverless body cap entirely, so podcast episodes
+   * up to MAX_AUDIO_BYTES (default 50 MB) work without chunking.
+   *
+   * We measure the audio duration client-side via a hidden
+   * HTMLAudioElement before upload so the blog can show "47:12"
+   * badges on published episodes.
+   */
+  async function submitAudioSignedFlow(): Promise<string> {
+    const f = file!;
+    setSuccess("Preparing upload…");
+
+    // 1. Measure duration (best-effort — null if the browser can't parse).
+    const audioDurationSec = await probeAudioDuration(f).catch(() => null);
+
+    // 2. Prepare: reserve row + signed URL
+    const prepareBody = {
+      filename: f.name,
+      mimeType: f.type || "audio/mpeg",
+      size: f.size,
+      title,
+      description,
+      sourceType: sourceType || "audio",
+      visibility: privateUpload ? "private" : "org",
+      publishAsPost,
+      blogExcerpt: publishAsPost ? blogExcerpt.trim() : "",
+      authorBio: publishAsPost ? authorBio.trim() : "",
+      audioDurationSec,
+    };
+    const prep = await fetch("/api/upload/audio/prepare", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(prepareBody),
+    });
+    const prepData = await prep.json();
+    if (!prep.ok) {
+      throw new Error(prepData.error || `Prepare failed (${prep.status})`);
+    }
+    const { uploadId, signedUrl, headers: putHeaders } = prepData as {
+      uploadId: string;
+      signedUrl: string;
+      headers?: Record<string, string>;
+    };
+
+    // 3. PUT the audio bytes directly to Supabase Storage.
+    setSuccess(
+      `Uploading ${(f.size / 1024 / 1024).toFixed(1)} MB directly to storage…`,
+    );
+    const putRes = await fetch(signedUrl, {
+      method: "PUT",
+      headers: {
+        ...(putHeaders || {}),
+        "Content-Type": putHeaders?.["Content-Type"] || f.type || "audio/mpeg",
+      },
+      body: f,
+    });
+    if (!putRes.ok) {
+      const text = await putRes.text().catch(() => "");
+      throw new Error(
+        `Direct upload to storage failed (${putRes.status}): ${text.slice(0, 200)}`,
+      );
+    }
+
+    // 4. Finalize: flip audioUrl + kick off Noosphere processing.
+    setSuccess("Upload complete — registering with the Codex…");
+    const fin = await fetch(`/api/upload/audio/finalize/${uploadId}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ audioDurationSec }),
+    });
+    const finData = await fin.json();
+    if (!fin.ok) {
+      throw new Error(finData.error || `Finalize failed (${fin.status})`);
+    }
+
+    return uploadId;
+  }
+
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (!file) {
@@ -83,40 +225,41 @@ export default function UploadForm() {
     setUploading(true);
     setPollLog("");
 
-    const formData = new FormData();
-    formData.append("file", file);
-    formData.append("title", title);
-    formData.append("description", description);
-    formData.append("sourceType", sourceType);
-    // Blog publish fields. The checkbox defaults to unchecked, so an
-    // unmodified upload stays an org-visible founder artifact — we
-    // still POST the "false" value explicitly so the server-side
-    // contract is unambiguous.
-    formData.append("publishAsPost", publishAsPost ? "1" : "0");
-    if (publishAsPost) {
-      formData.append("blogExcerpt", blogExcerpt.trim());
-      formData.append("authorBio", authorBio.trim());
-    }
-    // Visibility — "org" (default, current behaviour: every founder in
-    // the firm sees this in /library) or "private" (only the uploader).
-    // The upload form enforces mutual exclusion with publishAsPost in
-    // the UI, but the API layer is the actual source of truth.
-    formData.append("visibility", privateUpload ? "private" : "org");
+    // Decide between the two upload paths.
+    //
+    // The plain `/api/upload` route sends the file bytes through a
+    // Vercel serverless function, which caps at 4.4 MB. Podcast
+    // episodes are typically 10–60 MB, so for audio files we need to
+    // go direct-to-storage: (1) call `/api/upload/audio/prepare` for
+    // a signed URL + pre-created Upload row, (2) PUT the bytes to
+    // Supabase Storage from the browser, (3) call
+    // `/api/upload/audio/finalize/:id` to flip `audioUrl` on the row
+    // and fire the Noosphere dispatch.
+    //
+    // We use the signed-URL flow for ANY audio file regardless of
+    // size — it's the right architecture for the blog-playback
+    // feature and avoids one inline/one-signed split that would
+    // just confuse the mental model. Smaller audio files simply
+    // finish the direct PUT faster.
+    const isAudio =
+      file.type.startsWith("audio/") ||
+      /\.(mp3|m4a|wav|webm|ogg|aac)$/i.test(file.name);
 
-    const res = await fetch("/api/upload", {
-      method: "POST",
-      body: formData,
-    });
-
-    const data = await res.json();
-    if (!res.ok) {
+    let uploadId: string;
+    try {
+      if (isAudio) {
+        uploadId = await submitAudioSignedFlow();
+      } else {
+        uploadId = await submitInlineFlow();
+      }
+    } catch (err) {
       setUploading(false);
-      setError(data.error || "Upload failed");
+      setError(err instanceof Error ? err.message : String(err));
       return;
     }
 
     setSuccess("Upload received. Noosphere is processing in the cloud…");
-    const id = data.id as string;
+    const id = uploadId;
     // Track whether a queued_offline state has persisted long enough to
     // surface a "Retry processing" affordance. The GitHub Actions cron
     // sweeps every 10 minutes; anything stuck past that warrants a

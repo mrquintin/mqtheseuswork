@@ -161,6 +161,19 @@ model Upload {
   //              rejected at the API layer — flip visibility first.
   visibility       String @default("org")
 
+  // ── Podcast / audio playback ───────────────────────────────────────
+  // When an audio upload is stored in a public CDN-addressable
+  // location (Supabase Storage in our case), we persist the public
+  // URL here so /post/[slug] can render a <audio controls> player
+  // alongside the transcript. `audioDurationSec` is optional
+  // metadata derived from ffprobe / client-side duration detection
+  // when available; the UI falls back to the player's own duration
+  // readout if it's null. Both fields are null for non-audio rows
+  // and for audio rows uploaded before Supabase Storage was
+  // configured — the blog post still renders, just text-only.
+  audioUrl         String?
+  audioDurationSec Int?
+
   founder          Founder           @relation(fields: [founderId], references: [id])
   organization     Organization      @relation(fields: [organizationId], references: [id], onDelete: Restrict)
   auditEvents      AuditEvent[]

@@ -63,6 +63,8 @@ export default async function PublicBlogIndex() {
       textContent: true,
       publishedAt: true,
       createdAt: true,
+      audioUrl: true,
+      audioDurationSec: true,
       founder: { select: { name: true } },
       organization: { select: { slug: true } },
     },
@@ -232,6 +234,8 @@ export default async function PublicBlogIndex() {
                   p.blogExcerpt ||
                   deriveExcerpt(p.description || p.textContent || "")
                 }
+                isAudio={Boolean(p.audioUrl)}
+                audioDurationSec={p.audioDurationSec || null}
               />
             ))}
           </div>
@@ -247,18 +251,32 @@ function PostCard({
   byline,
   publishedAt,
   excerpt,
+  isAudio,
+  audioDurationSec,
 }: {
   slug: string;
   title: string;
   byline: string;
   publishedAt: Date;
   excerpt: string;
+  isAudio: boolean;
+  audioDurationSec: number | null;
 }) {
   const date = new Date(publishedAt).toLocaleDateString("en-US", {
     year: "numeric",
     month: "long",
     day: "numeric",
   });
+  const durationLabel = (() => {
+    if (!audioDurationSec || audioDurationSec <= 0) return "";
+    const total = Math.floor(audioDurationSec);
+    const h = Math.floor(total / 3600);
+    const m = Math.floor((total % 3600) / 60);
+    const s = total % 60;
+    const mm = m.toString().padStart(2, "0");
+    const ss = s.toString().padStart(2, "0");
+    return h > 0 ? `${h}:${mm}:${ss}` : `${m}:${ss}`;
+  })();
   return (
     <article
       className="portal-card"
@@ -283,9 +301,30 @@ function PostCard({
             textTransform: "uppercase",
             color: "var(--amber-dim)",
             margin: "0 0 0.4rem",
+            display: "flex",
+            alignItems: "center",
+            gap: "0.55rem",
+            flexWrap: "wrap",
           }}
         >
-          {date} · {byline}
+          <span>
+            {date} · {byline}
+          </span>
+          {isAudio ? (
+            <span
+              style={{
+                color: "var(--amber)",
+                border: "1px solid var(--amber)",
+                padding: "0.12rem 0.45rem",
+                borderRadius: "2px",
+                fontSize: "0.56rem",
+                letterSpacing: "0.22em",
+              }}
+              title="Audio episode — click through to listen with the transcript"
+            >
+              ◀︎ Listen{durationLabel ? ` · ${durationLabel}` : ""}
+            </span>
+          ) : null}
         </p>
         <h3
           style={{
@@ -321,7 +360,7 @@ function PostCard({
             marginTop: "0.9rem",
           }}
         >
-          Lege → Read
+          {isAudio ? "Lege et Audi → Read & Listen" : "Lege → Read"}
         </span>
       </Link>
     </article>

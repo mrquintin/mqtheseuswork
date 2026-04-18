@@ -1,0 +1,189 @@
+/**
+ * Minimal client for Supabase Storage via its REST API.
+ *
+ * We avoid adding `@supabase/supabase-js` because we only need two
+ * calls — `createSignedUploadUrl` and `upload` — and pulling in the
+ * whole client library would inflate the serverless bundle for a
+ * feature that's gated behind env config anyway. The Storage REST API
+ * is stable and well-documented at
+ * https://supabase.com/docs/guides/storage.
+ *
+ * Env configuration (both must be set on Vercel for audio uploads
+ * to be playable — the blog gracefully degrades to text-only when
+ * they're missing):
+ *
+ *   SUPABASE_URL                 e.g. https://ltuglowgkaircxgjcjvs.supabase.co
+ *   SUPABASE_SERVICE_ROLE_KEY    server-side-only key; never ship to the
+ *                                 browser. Creates + signs upload URLs.
+ *   SUPABASE_AUDIO_BUCKET        bucket name (default: "audio"). MUST be
+ *                                 created in the Supabase dashboard and
+ *                                 marked public-read.
+ */
+
+const DEFAULT_BUCKET = "audio";
+
+/** True when both env vars are set. Used by routes to decide whether
+ *  to offer the signed-URL flow or degrade gracefully. */
+export function isAudioStorageConfigured(): boolean {
+  return Boolean(
+    process.env.SUPABASE_URL && process.env.SUPABASE_SERVICE_ROLE_KEY,
+  );
+}
+
+export function getAudioBucket(): string {
+  return process.env.SUPABASE_AUDIO_BUCKET || DEFAULT_BUCKET;
+}
+
+function getConfig(): { url: string; key: string; bucket: string } | null {
+  const url = process.env.SUPABASE_URL;
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  if (!url || !key) return null;
+  return { url: url.replace(/\/+$/, ""), key, bucket: getAudioBucket() };
+}
+
+/** Public CDN URL for an object. Constructed from the bucket + path,
+ *  so this doesn't need a network call — safe to call even if the
+ *  storage service is unreachable. */
+export function getPublicAudioUrl(objectPath: string): string | null {
+  const cfg = getConfig();
+  if (!cfg) return null;
+  return `${cfg.url}/storage/v1/object/public/${encodeURIComponent(
+    cfg.bucket,
+  )}/${objectPath.split("/").map(encodeURIComponent).join("/")}`;
+}
+
+export interface SignedUploadHandle {
+  /** One-shot PUT URL the client uses directly from the browser. */
+  signedUrl: string;
+  /** Opaque token Supabase returns — the client must include it as
+   *  `Authorization: Bearer <token>` on the PUT. Newer SDK versions
+   *  bake this into the URL; we forward both for compat. */
+  token: string;
+  /** Path inside the bucket, e.g. "cmo4sd…/podcast.mp3". */
+  path: string;
+  /** Final public URL after the upload completes. */
+  publicUrl: string;
+}
+
+/**
+ * Ask Supabase for a signed URL the client can PUT to directly, so
+ * we don't send large audio through Vercel's 4.4 MB serverless body
+ * limit. Returns null when Storage isn't configured so callers can
+ * fall back to the "small files only" path without special-casing.
+ */
+export async function createSignedAudioUploadUrl(
+  objectPath: string,
+): Promise<SignedUploadHandle | null> {
+  const cfg = getConfig();
+  if (!cfg) return null;
+
+  const endpoint = `${cfg.url}/storage/v1/object/upload/sign/${encodeURIComponent(
+    cfg.bucket,
+  )}/${objectPath.split("/").map(encodeURIComponent).join("/")}`;
+
+  const res = await fetch(endpoint, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${cfg.key}`,
+      apikey: cfg.key,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({}),
+  });
+  if (!res.ok) {
+    const errBody = await res.text().catch(() => "<unreadable>");
+    throw new Error(
+      `Supabase Storage sign failed: HTTP ${res.status} — ${errBody.slice(0, 240)}`,
+    );
+  }
+  const data = (await res.json()) as { url?: string; token?: string };
+  if (!data.url) {
+    throw new Error("Supabase Storage sign returned no URL in response.");
+  }
+  // Supabase's response `url` is relative (e.g. /storage/v1/upload/sign/…);
+  // we turn it into an absolute URL so the browser can PUT to it directly.
+  const signedUrl = data.url.startsWith("http")
+    ? data.url
+    : `${cfg.url}${data.url}`;
+
+  return {
+    signedUrl,
+    token: data.token || "",
+    path: objectPath,
+    publicUrl: getPublicAudioUrl(objectPath)!,
+  };
+}
+
+/**
+ * Server-side upload for the small-audio path (files that already
+ * fit in the Vercel request body). We still route them through
+ * Storage so the blog post has a persistent URL.
+ */
+export async function uploadAudioBuffer(
+  objectPath: string,
+  buffer: Uint8Array,
+  contentType: string,
+): Promise<string | null> {
+  const cfg = getConfig();
+  if (!cfg) return null;
+
+  const endpoint = `${cfg.url}/storage/v1/object/${encodeURIComponent(
+    cfg.bucket,
+  )}/${objectPath.split("/").map(encodeURIComponent).join("/")}`;
+
+  // Wrap the Uint8Array in a Blob. TS-strict with lib.dom.d.ts rejects
+  // a `Uint8Array<ArrayBufferLike>` as a BlobPart because the buffer
+  // could in principle be a SharedArrayBuffer (it isn't, but the type
+  // system doesn't know). We copy into a plain ArrayBuffer first, then
+  // wrap — adds one allocation, preserves correctness, satisfies TS.
+  const ab = new ArrayBuffer(buffer.byteLength);
+  new Uint8Array(ab).set(buffer);
+  const body = new Blob([ab], {
+    type: contentType || "application/octet-stream",
+  });
+
+  const res = await fetch(endpoint, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${cfg.key}`,
+      apikey: cfg.key,
+      "Content-Type": contentType || "application/octet-stream",
+      // Upsert so re-uploading the same path replaces instead of 409.
+      // The object path is `<uploadId>/<filename>` which is unique
+      // per upload, so this only matters for retries.
+      "x-upsert": "true",
+    },
+    body,
+  });
+  if (!res.ok) {
+    const errBody = await res.text().catch(() => "<unreadable>");
+    throw new Error(
+      `Supabase Storage upload failed: HTTP ${res.status} — ${errBody.slice(0, 240)}`,
+    );
+  }
+  return getPublicAudioUrl(objectPath);
+}
+
+/**
+ * Verify an upload actually landed in Storage. Called by the finalize
+ * endpoint before we flip `Upload.audioUrl` — otherwise a client
+ * could POST to /finalize without actually uploading the audio and
+ * we'd attach a 404 URL to a blog post.
+ */
+export async function audioObjectExists(objectPath: string): Promise<boolean> {
+  const cfg = getConfig();
+  if (!cfg) return false;
+
+  const endpoint = `${cfg.url}/storage/v1/object/info/${encodeURIComponent(
+    cfg.bucket,
+  )}/${objectPath.split("/").map(encodeURIComponent).join("/")}`;
+
+  const res = await fetch(endpoint, {
+    method: "GET",
+    headers: {
+      Authorization: `Bearer ${cfg.key}`,
+      apikey: cfg.key,
+    },
+  });
+  return res.ok;
+}
