@@ -114,10 +114,17 @@ else
 fi
 
 if [ "$has_wt_changes" = 0 ] && [ "$ahead_count" = 0 ] && [ "$remote_exists" = 1 ]; then
+  last_sha=$(git rev-parse --short HEAD 2>/dev/null || echo "?")
+  last_subj=$(git log -1 --format='%s' 2>/dev/null || echo "?")
+  last_time=$(git log -1 --format='%cr' 2>/dev/null || echo "?")
   echo ""
   echo "Repo is already in sync with origin/$branch:"
   echo "  - No uncommitted changes in working tree"
   echo "  - No local commits ahead of origin/$branch"
+  echo "  - Last synced: $last_sha \"$last_subj\" ($last_time)"
+  echo ""
+  echo "If you expected pending work, verify with:   git status"
+  echo "An in-progress edit pass may not have saved yet — wait a moment and retry."
   echo ""
   # Guard against non-interactive stdin (piped/CI). A blocking `read` would
   # hang forever; default to "no" if there's no TTY to prompt into.
@@ -142,6 +149,37 @@ fi
 echo ""
 echo "Syncing to GitHub..."
 echo ""
+
+# Show the user exactly what they're about to commit. Previously this
+# script just ran `git add -A` + `git commit` and relied on the commit's
+# stat line ("17 files changed …") to communicate what happened. That
+# was easy to miss — and made it hard to tell, retrospectively, whether
+# a given sync included the edits you expected. This preview lists every
+# modified / added / deleted path, grouped by change type, before the
+# commit fires.
+if [ "$has_wt_changes" = 1 ]; then
+  pending_list=$(git status --porcelain --ignore-submodules=all 2>/dev/null)
+  if [ -n "$pending_list" ]; then
+    pending_count=$(printf "%s\n" "$pending_list" | grep -c . || echo 0)
+    echo "=== Pending changes ($pending_count files) ==="
+    printf "%s\n" "$pending_list" | awk '{
+      code=substr($0,1,2);
+      path=substr($0,4);
+      sym="?";
+      if (code ~ /A/ || code ~ /\?\?/) sym="+";
+      else if (code ~ /D/) sym="-";
+      else if (code ~ /M/) sym="~";
+      else if (code ~ /R/) sym=">";
+      printf "  %s %s\n", sym, path;
+    }' | head -40
+    # If there are more than 40, say so rather than silently truncating.
+    if [ "$pending_count" -gt 40 ]; then
+      echo "  … and $((pending_count - 40)) more"
+    fi
+    echo "  Legend: +  added    ~  modified    -  deleted    >  renamed"
+    echo ""
+  fi
+fi
 
 # Only create a new commit if the working tree actually has changes.
 # Otherwise just push whatever commits are ahead of origin.
