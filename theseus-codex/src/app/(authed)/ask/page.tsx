@@ -1,5 +1,5 @@
 import AskForm from "./AskForm";
-import SculptureBackdrop from "@/components/SculptureBackdropClient";
+import SculptureBackdrop from "@/components/SculptureBackdrop";
 
 /**
  * Ask the Codex. This is the RAG-ish end-user surface for the /api/ask

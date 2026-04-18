@@ -1,6 +1,6 @@
 import Link from "next/link";
 import ConfidenceTierSigil from "@/components/ConfidenceTierSigil";
-import SculptureBackdrop from "@/components/SculptureBackdropClient";
+import SculptureBackdrop from "@/components/SculptureBackdrop";
 import RetryProcessingButton from "@/components/RetryProcessingButton";
 import AutoProcessStatusBanner from "@/components/AutoProcessStatusBanner";
 import { db } from "@/lib/db";

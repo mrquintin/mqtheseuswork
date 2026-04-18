@@ -1,5 +1,5 @@
 import Link from "next/link";
-import SculptureAscii from "@/components/SculptureAsciiClient";
+import SculptureAscii from "@/components/SculptureAscii";
 
 /**
  * 404 page. The Dying Gladiator is the central image — rendered at

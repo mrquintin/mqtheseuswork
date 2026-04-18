@@ -2,7 +2,7 @@ import Link from "next/link";
 import { Suspense } from "react";
 import TemporalReplayBar from "@/components/TemporalReplayBar";
 import ConfidenceTierSigil from "@/components/ConfidenceTierSigil";
-import SculptureBackdrop from "@/components/SculptureBackdropClient";
+import SculptureBackdrop from "@/components/SculptureBackdrop";
 import { db } from "@/lib/db";
 import { fetchReplayConclusions } from "@/lib/noosphereReplayBridge";
 import { AS_OF_ISO } from "@/lib/replayDate";

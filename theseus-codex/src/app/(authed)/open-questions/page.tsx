@@ -1,4 +1,4 @@
-import SculptureBackdrop from "@/components/SculptureBackdropClient";
+import SculptureBackdrop from "@/components/SculptureBackdrop";
 import { db } from "@/lib/db";
 
 /**

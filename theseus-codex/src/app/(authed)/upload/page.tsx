@@ -1,5 +1,5 @@
 import UploadForm from "@/components/UploadForm";
-import SculptureBackdrop from "@/components/SculptureBackdropClient";
+import SculptureBackdrop from "@/components/SculptureBackdrop";
 
 /**
  * Upload page. Wrap the form in a relative-positioned container so the

@@ -389,22 +389,46 @@ export default function SculptureAscii({
           alignItems: "center",
           justifyContent: "center",
           fontFamily: "'IBM Plex Mono', monospace",
-          fontSize: "0.55rem",
-          color: "var(--ember)",
+          fontSize: "0.7rem",
+          color: "var(--ember, #c0392b)",
           letterSpacing: "0.1em",
           textAlign: "center",
           padding: "1rem",
           gap: "0.35rem",
+          border: "1px dashed var(--ember, #c0392b)",
+          borderRadius: "4px",
         }}
       >
         <span>[ sculpture load failed ]</span>
-        <span style={{ color: "var(--parchment-dim)", fontSize: "0.5rem" }}>
+        <span
+          style={{
+            color: "var(--parchment-dim, #8b7a5a)",
+            fontSize: "0.55rem",
+            opacity: 0.8,
+          }}
+        >
           {src}
+        </span>
+        <span
+          style={{
+            color: "var(--parchment-dim, #8b7a5a)",
+            fontSize: "0.5rem",
+            opacity: 0.6,
+            maxWidth: "80%",
+          }}
+        >
+          {loadError.slice(0, 120)}
         </span>
       </div>
     );
   }
 
+  // While the mesh is still loading (typically < 100ms), show an empty
+  // canvas sized to match the final render. Previously we relied on an
+  // outer `dynamic({ ssr: false })` loading state ("Summoning marble…")
+  // but that created a suspend/hydrate tangle in production — with the
+  // wrapper removed, this inline placeholder serves the same purpose
+  // without the nested-bailout hazard.
   return (
     <AsciiCanvas
       cols={cols}

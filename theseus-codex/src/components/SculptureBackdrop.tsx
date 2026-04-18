@@ -1,7 +1,16 @@
 "use client";
 
 import { useEffect, useRef, useState, type CSSProperties } from "react";
-import SculptureAscii from "./SculptureAsciiClient";
+// Import SculptureAscii directly — not via the *Client.tsx dynamic wrapper.
+// Nested `dynamic({ ssr: false })` calls (SculptureBackdropClient →
+// SculptureBackdrop → SculptureAsciiClient → SculptureAscii) emit a
+// `BAILOUT_TO_CLIENT_SIDE_RENDERING` at two levels in Next 14+, which in
+// our deployment was leaving the sculpture permanently stuck on the
+// "Summoning marble…" fallback (never hydrating the real canvas). The
+// wrapper layer wasn't buying us anything — every browser-API touch
+// point in SculptureAscii is already inside `useEffect`, so it's
+// SSR-safe when imported directly from a "use client" component.
+import SculptureAscii from "./SculptureAscii";
 import { CELL_H, CELL_W } from "@/lib/ascii/shapeVectors";
 
 /**

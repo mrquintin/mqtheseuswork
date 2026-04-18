@@ -1,6 +1,6 @@
 import { Suspense } from "react";
 import TemporalReplayBar from "@/components/TemporalReplayBar";
-import SculptureBackdrop from "@/components/SculptureBackdropClient";
+import SculptureBackdrop from "@/components/SculptureBackdrop";
 import { db } from "@/lib/db";
 import { AS_OF_ISO, asOfEndUtc } from "@/lib/replayDate";
 import { requireTenantContext } from "@/lib/tenant";
