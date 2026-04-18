@@ -72,6 +72,13 @@ export default function UploadForm() {
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
   const [pollLog, setPollLog] = useState("");
+  // `uploadProgress` is the fractional progress [0..1] of the direct-
+  // to-storage PUT. We display it as a progress bar during the
+  // signed-flow branch; null means "not in upload phase / N/A".
+  const [uploadProgress, setUploadProgress] = useState<number | null>(null);
+  // Human-readable "97.4 MB / 100 MB" string under the bar so users
+  // can reason about network speed on big files.
+  const [uploadBytes, setUploadBytes] = useState<string>("");
   // Blog publish fields — default OFF per the product spec. The
   // checkbox is the single gate; when enabled, optional excerpt
   // and byline inputs appear below it. Slug is derived server-side
@@ -133,39 +140,46 @@ export default function UploadForm() {
     return data.id as string;
   }
 
-  /** Audio path: reserve → direct PUT to Supabase → finalize.
+  /**
+   * Direct-to-storage upload for any file, audio or not.
    *
-   * The browser uploads the audio bytes DIRECTLY to Supabase Storage
-   * using the one-shot signed URL we get from /prepare. This bypasses
-   * Vercel's 4.4 MB serverless body cap entirely, so podcast episodes
-   * up to MAX_AUDIO_BYTES (default 50 MB) work without chunking.
-   *
-   * We measure the audio duration client-side via a hidden
-   * HTMLAudioElement before upload so the blog can show "47:12"
-   * badges on published episodes.
+   *   1. Probe audio duration client-side if the file is audio
+   *      (best-effort — null if the browser can't decode it).
+   *   2. POST metadata to /api/upload/signed/prepare → get a one-shot
+   *      signed URL + pre-created Upload row id.
+   *   3. PUT the file bytes DIRECTLY to Supabase Storage via XHR so
+   *      we can report real progress. `fetch` doesn't expose upload
+   *      progress; XHR does, via xhr.upload.onprogress. This is the
+   *      difference between a 100 MB podcast uploading silently and
+   *      the user seeing a live "62.4 MB / 100 MB · 62%" bar.
+   *   4. POST /api/upload/signed/finalize/:id → server verifies the
+   *      object landed, sets audioUrl (for audio) or runs extraction
+   *      (for text-y files), and dispatches Noosphere.
    */
-  async function submitAudioSignedFlow(): Promise<string> {
+  async function submitSignedFlow(opts: { isAudio: boolean }): Promise<string> {
     const f = file!;
     setSuccess("Preparing upload…");
 
-    // 1. Measure duration (best-effort — null if the browser can't parse).
-    const audioDurationSec = await probeAudioDuration(f).catch(() => null);
+    // 1. Measure duration (audio only; non-audio skips this).
+    const audioDurationSec = opts.isAudio
+      ? await probeAudioDuration(f).catch(() => null)
+      : null;
 
-    // 2. Prepare: reserve row + signed URL
+    // 2. Prepare: reserve row + signed URL.
     const prepareBody = {
       filename: f.name,
-      mimeType: f.type || "audio/mpeg",
+      mimeType: f.type || (opts.isAudio ? "audio/mpeg" : "application/octet-stream"),
       size: f.size,
       title,
       description,
-      sourceType: sourceType || "audio",
+      sourceType: sourceType || (opts.isAudio ? "audio" : "written"),
       visibility: privateUpload ? "private" : "org",
       publishAsPost,
       blogExcerpt: publishAsPost ? blogExcerpt.trim() : "",
       authorBio: publishAsPost ? authorBio.trim() : "",
       audioDurationSec,
     };
-    const prep = await fetch("/api/upload/audio/prepare", {
+    const prep = await fetch("/api/upload/signed/prepare", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(prepareBody),
@@ -180,28 +194,62 @@ export default function UploadForm() {
       headers?: Record<string, string>;
     };
 
-    // 3. PUT the audio bytes directly to Supabase Storage.
-    setSuccess(
-      `Uploading ${(f.size / 1024 / 1024).toFixed(1)} MB directly to storage…`,
-    );
-    const putRes = await fetch(signedUrl, {
-      method: "PUT",
-      headers: {
-        ...(putHeaders || {}),
-        "Content-Type": putHeaders?.["Content-Type"] || f.type || "audio/mpeg",
-      },
-      body: f,
-    });
-    if (!putRes.ok) {
-      const text = await putRes.text().catch(() => "");
-      throw new Error(
-        `Direct upload to storage failed (${putRes.status}): ${text.slice(0, 200)}`,
-      );
-    }
+    // 3. PUT the bytes directly to Supabase — via XHR for progress.
+    const totalMB = (f.size / 1024 / 1024).toFixed(1);
+    setSuccess(`Uploading ${totalMB} MB directly to storage…`);
+    setUploadProgress(0);
+    setUploadBytes(`0 MB / ${totalMB} MB`);
 
-    // 4. Finalize: flip audioUrl + kick off Noosphere processing.
-    setSuccess("Upload complete — registering with the Codex…");
-    const fin = await fetch(`/api/upload/audio/finalize/${uploadId}`, {
+    await new Promise<void>((resolve, reject) => {
+      const xhr = new XMLHttpRequest();
+      xhr.open("PUT", signedUrl);
+      const ct =
+        (putHeaders && putHeaders["Content-Type"]) ||
+        f.type ||
+        "application/octet-stream";
+      xhr.setRequestHeader("Content-Type", ct);
+      if (putHeaders) {
+        for (const [name, value] of Object.entries(putHeaders)) {
+          if (name.toLowerCase() !== "content-type") {
+            xhr.setRequestHeader(name, value);
+          }
+        }
+      }
+      xhr.upload.onprogress = (ev) => {
+        if (ev.lengthComputable) {
+          const frac = ev.loaded / ev.total;
+          setUploadProgress(frac);
+          setUploadBytes(
+            `${(ev.loaded / 1024 / 1024).toFixed(1)} MB / ${totalMB} MB`,
+          );
+        }
+      };
+      xhr.onload = () => {
+        if (xhr.status >= 200 && xhr.status < 300) {
+          setUploadProgress(1);
+          resolve();
+        } else {
+          reject(
+            new Error(
+              `Direct upload to storage failed (${xhr.status}): ${(xhr.responseText || "").slice(0, 200)}`,
+            ),
+          );
+        }
+      };
+      xhr.onerror = () =>
+        reject(new Error("Direct upload to storage failed: network error"));
+      xhr.ontimeout = () =>
+        reject(new Error("Direct upload to storage timed out"));
+      xhr.send(f);
+    });
+
+    // 4. Finalize: server verifies + extracts + dispatches.
+    setSuccess(
+      opts.isAudio
+        ? "Upload complete — registering with the Codex…"
+        : "Upload complete — extracting text server-side…",
+    );
+    const fin = await fetch(`/api/upload/signed/finalize/${uploadId}`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ audioDurationSec }),
@@ -227,36 +275,42 @@ export default function UploadForm() {
 
     // Decide between the two upload paths.
     //
-    // The plain `/api/upload` route sends the file bytes through a
-    // Vercel serverless function, which caps at 4.4 MB. Podcast
-    // episodes are typically 10–60 MB, so for audio files we need to
-    // go direct-to-storage: (1) call `/api/upload/audio/prepare` for
-    // a signed URL + pre-created Upload row, (2) PUT the bytes to
-    // Supabase Storage from the browser, (3) call
-    // `/api/upload/audio/finalize/:id` to flip `audioUrl` on the row
-    // and fire the Noosphere dispatch.
+    //   INLINE (/api/upload): a single POST, file bytes in the
+    //     request body. Cheap and fast but limited to ~3.5 MB by
+    //     Vercel's 4.4 MB serverless request-body cap. Only used for
+    //     small non-audio files.
     //
-    // We use the signed-URL flow for ANY audio file regardless of
-    // size — it's the right architecture for the blog-playback
-    // feature and avoids one inline/one-signed split that would
-    // just confuse the mental model. Smaller audio files simply
-    // finish the direct PUT faster.
+    //   SIGNED (/api/upload/signed/*): three-step flow — reserve a
+    //     row + signed URL, PUT the bytes DIRECTLY to Supabase
+    //     Storage from the browser (bypassing Vercel entirely), then
+    //     finalize. Supports any file up to MAX_UPLOAD_BYTES
+    //     (default 500 MB).
+    //
+    // We route through the signed flow whenever ANY of these is
+    // true:
+    //   * the file is audio (we want audioUrl for playback);
+    //   * the file is >= 3.5 MB (Vercel body cap territory).
+    // Everything else goes inline for speed.
+    const INLINE_MAX = 3.5 * 1024 * 1024;
     const isAudio =
       file.type.startsWith("audio/") ||
       /\.(mp3|m4a|wav|webm|ogg|aac)$/i.test(file.name);
+    const useSignedFlow = isAudio || file.size > INLINE_MAX;
 
     let uploadId: string;
     try {
-      if (isAudio) {
-        uploadId = await submitAudioSignedFlow();
+      if (useSignedFlow) {
+        uploadId = await submitSignedFlow({ isAudio });
       } else {
         uploadId = await submitInlineFlow();
       }
     } catch (err) {
       setUploading(false);
+      setUploadProgress(null);
       setError(err instanceof Error ? err.message : String(err));
       return;
     }
+    setUploadProgress(null);
 
     setSuccess("Upload received. Noosphere is processing in the cloud…");
     const id = uploadId;
@@ -765,6 +819,59 @@ export default function UploadForm() {
             {success}
           </p>
         )}
+
+        {uploadProgress !== null ? (
+          <div
+            style={{
+              display: "flex",
+              flexDirection: "column",
+              gap: "0.35rem",
+              padding: "0.75rem 0.9rem",
+              border: "1px solid var(--amber-dim)",
+              borderRadius: "4px",
+              background: "rgba(212, 160, 23, 0.06)",
+            }}
+          >
+            <div
+              className="mono"
+              style={{
+                fontSize: "0.64rem",
+                letterSpacing: "0.22em",
+                textTransform: "uppercase",
+                color: "var(--amber)",
+                display: "flex",
+                justifyContent: "space-between",
+                gap: "1rem",
+              }}
+            >
+              <span>
+                Uploading to storage · {(uploadProgress * 100).toFixed(0)}%
+              </span>
+              <span style={{ color: "var(--amber-dim)" }}>{uploadBytes}</span>
+            </div>
+            <div
+              style={{
+                height: "6px",
+                borderRadius: "3px",
+                background: "rgba(212, 160, 23, 0.12)",
+                overflow: "hidden",
+              }}
+              aria-hidden
+            >
+              <div
+                style={{
+                  width: `${Math.min(100, Math.max(0, uploadProgress * 100)).toFixed(
+                    1,
+                  )}%`,
+                  height: "100%",
+                  background:
+                    "linear-gradient(90deg, var(--amber-dim), var(--amber))",
+                  transition: "width 0.18s ease",
+                }}
+              />
+            </div>
+          </div>
+        ) : null}
 
         {pollLog && (
           <pre

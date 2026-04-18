@@ -41,24 +41,30 @@ All three run the same workflow — `.github/workflows/noosphere-process-uploads
 | `GITHUB_DISPATCH_TOKEN` | A GitHub Personal Access Token with `repo` scope. Generate at https://github.com/settings/tokens/new | **yes** (for immediate dispatch; without it the cron still runs every 10 min) |
 | `GITHUB_DISPATCH_REPO` | `mrquintin/mqtheseuswork` | optional (defaults to this already) |
 | `OPENAI_API_KEY` | `sk-proj-…` | optional — only needed if you want Whisper transcription of audio uploads to work on Vercel (without it, audio uploads still succeed but transcription happens later in the GH Actions run) |
-| `SUPABASE_URL` | `https://<ref>.supabase.co` (your Supabase project URL) | **yes for podcast uploads** — without this, audio is accepted but won't play on the blog |
-| `SUPABASE_SERVICE_ROLE_KEY` | Supabase dashboard → Project Settings → API → `service_role` key | **yes for podcast uploads** — server-only; never ship to the browser |
-| `SUPABASE_AUDIO_BUCKET` | Bucket name in Supabase Storage (default: `audio`) | optional (defaults to `audio`) |
-| `MAX_AUDIO_BYTES` | Integer bytes cap on audio uploads (default: 52_428_800, i.e. 50 MB) | optional |
+| `SUPABASE_URL` | `https://<ref>.supabase.co` (your Supabase project URL) | **yes for anything over 3.5 MB** — without this, large uploads hit Vercel's 4.4 MB body cap and fail |
+| `SUPABASE_SERVICE_ROLE_KEY` | Supabase dashboard → Project Settings → API → `service_role` key | **yes** — server-only; never ship to the browser |
+| `SUPABASE_AUDIO_BUCKET` | Bucket name in Supabase Storage (default: `audio` — hosts audio + any non-audio large file) | optional (defaults to `audio`) |
+| `MAX_UPLOAD_BYTES` | Integer bytes cap on direct-to-storage uploads (default: `524288000`, i.e. 500 MB) | optional — bump for files larger than 500 MB |
+| `MAX_AUDIO_BYTES` | Legacy alias for `MAX_UPLOAD_BYTES` | optional — ignored if `MAX_UPLOAD_BYTES` is set |
 
-> **Podcast audio upload + playback setup:**
-> 1. **Supabase dashboard → Storage → New bucket → name `audio`**. Mark **Public** so the blog post can serve the file directly.
-> 2. **Project Settings → API**: copy the `service_role` key. Set it as `SUPABASE_SERVICE_ROLE_KEY` on Vercel (Production scope).
-> 3. Copy your project URL (starts with `https://...supabase.co`) and set `SUPABASE_URL`.
-> 4. Redeploy Vercel.
-> 5. Upload an audio file at `/upload` with "Publish as blog post" checked. The form will:
->    - measure the file's duration client-side;
->    - POST to `/api/upload/audio/prepare` for a one-shot signed upload URL;
->    - PUT the audio bytes directly to Supabase Storage (bypasses Vercel's 4.4 MB serverless body cap);
->    - POST to `/api/upload/audio/finalize/:id` to commit the row and fire Noosphere processing.
-> 6. Visit the post at `/post/<slug>` — you'll see an `<audio controls>` player at the top + the transcript below + the ⚡ LISTEN badge on `/`.
+> **Large-file upload setup (any file up to 500 MB — audio, PDF, DOCX, transcripts):**
+> 1. **Supabase dashboard → Storage → New bucket → name `audio`** (or whatever you set `SUPABASE_AUDIO_BUCKET` to). Mark **Public** so the blog and transcript retrieval work without per-request auth.
+> 2. **CRITICAL — raise the per-file size limit on the bucket.** Supabase defaults to 50 MB, which will reject any 100+ MB podcast episode:
+>    - Storage → click the `audio` bucket → the ⚙︎ (bucket options) / "Edit bucket" menu;
+>    - Set **"File size limit"** to at least `524288000` bytes (500 MB). Higher is fine.
+>    - Without this, the browser PUT fails with `413 Payload Too Large` from Supabase regardless of what `MAX_UPLOAD_BYTES` is set to in Vercel — both limits need to permit the upload.
+> 3. **Project Settings → API**: copy the `service_role` key. Set it as `SUPABASE_SERVICE_ROLE_KEY` on Vercel (Production scope).
+> 4. Copy your project URL (starts with `https://...supabase.co`) and set `SUPABASE_URL`.
+> 5. Redeploy Vercel.
+> 6. Upload at `/upload`. The form transparently picks the right path:
+>    - **≤ 3.5 MB non-audio**: goes inline via `/api/upload` (single POST).
+>    - **> 3.5 MB OR audio of any size**: three-step direct flow:
+>      - POST `/api/upload/signed/prepare` — reserves the Upload row + mints a one-shot signed URL;
+>      - browser PUTs the bytes directly to Supabase (bypasses Vercel entirely; live progress bar shown);
+>      - POST `/api/upload/signed/finalize/:id` — server verifies the object landed, runs `extractText` for PDF/DOCX/text uploads, flips `audioUrl` for audio, fires Noosphere dispatch.
+> 7. Visit `/post/<slug>` — audio posts get an `<audio controls>` player above the transcript + a "◀︎ Listen · MM:SS" badge on the blog index card.
 >
-> Audio files up to 50 MB are accepted (≈40 min at 128 kbps, or 2+ hrs at 64 kbps). If `SUPABASE_URL` / `SUPABASE_SERVICE_ROLE_KEY` aren't set, audio upload still succeeds but `audioUrl` stays null and the blog renders text-only — so the pipeline degrades gracefully.
+> If `SUPABASE_URL` / `SUPABASE_SERVICE_ROLE_KEY` aren't set, uploads fall back to inline mode and anything over 3.5 MB is rejected with a clear error. Set them to unlock the 500 MB cap.
 
 > **Creating the dispatch token:**
 > - Go to https://github.com/settings/tokens (classic) OR https://github.com/settings/personal-access-tokens/new (fine-grained).
