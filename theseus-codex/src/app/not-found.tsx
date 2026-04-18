@@ -1,13 +1,13 @@
 import Link from "next/link";
+import SculptureAscii from "@/components/SculptureAsciiClient";
 
-// Live 3D ruin (a toppled Doric column rotating in the void) rendered
-// through the ASCII engine. Previously this page had a static ASCII
-// drawing; the live version feels like a dig site you're looking at
-// through a viewport, which matches the mood better. Imported via the
-// client-wrapper shell since this page is a server component and Next 16
-// requires `ssr: false` dynamic imports to live in a client boundary.
-import AsciiRuin from "@/components/AsciiRuinClient";
-
+/**
+ * 404 page. Previously rendered a procedural broken-column "ruin"; the
+ * Dying Gladiator reads far more affectingly as "you have walked off
+ * the map". Framed differently from the same sculpture on the Review
+ * Queue — slower rotation, deeper pitch, a reverent Latin pair. Same
+ * mesh, different mood.
+ */
 export default function NotFound() {
   return (
     <main
@@ -21,7 +21,28 @@ export default function NotFound() {
         textAlign: "center",
       }}
     >
-      <AsciiRuin cols={64} rows={24} size={540} />
+      <SculptureAscii
+        src="/sculptures/dying-gladiator.mesh.bin"
+        cols={62}
+        rows={26}
+        yawSpeed={0.018}
+        pitch={-0.18}
+        ariaLabel="The Dying Gladiator — Versailles, rendered as amber ASCII"
+      />
+
+      <p
+        className="mono"
+        style={{
+          fontSize: "0.6rem",
+          letterSpacing: "0.3em",
+          textTransform: "uppercase",
+          color: "var(--amber-dim)",
+          marginTop: "0.85rem",
+          marginBottom: 0,
+        }}
+      >
+        The Dying Gladiator · Versailles
+      </p>
 
       <h1
         style={{

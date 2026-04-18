@@ -43,6 +43,15 @@ out/
 *.pt
 *.onnx
 
+# ... but DO commit the compact sculpture meshes. These are tiny (60–110 KB
+# each, total ~500 KB for six), baked by scripts/process-sculptures.ts
+# from raw STL photogrammetry (which is NOT committed — those are
+# hundreds of MB). The Codex fetches them at runtime from /sculptures/
+# to render rotating amber ASCII busts. Without this negation pattern
+# the `*.bin` rule above sweeps them up and Vercel deploys without them,
+# producing 404s on every sculpture URL.
+!theseus-codex/public/sculptures/*.mesh.bin
+
 # Large media files (exceed GitHub's 100 MB limit; keep locally only)
 *.m4a
 *.mp3

@@ -2,7 +2,7 @@
 
 import { useState, useRef, useCallback } from "react";
 import { useRouter } from "next/navigation";
-import UploadScroll from "./UploadScrollClient";
+import SculptureAscii from "./SculptureAsciiClient";
 
 const ACCEPTED_EXTENSIONS =
   ".txt,.md,.markdown,.pdf,.docx,.vtt,.jsonl,.mp3,.m4a,.wav,.webm,.ogg";
@@ -10,24 +10,22 @@ const ACCEPTED_EXTENSIONS =
 /**
  * Upload form.
  *
- * Layout
+ * Visual
  * ------
- * The redesigned scroll (see UploadScroll.tsx) lives as a banner at the
- * top of the page, above the title, where it never overlaps form copy.
- * Previously the scroll was rendered *behind* the dropzone text — amber
- * on amber — which fought the labels for legibility. The dropzone is
- * now a clean ascii-frame box with its own treatment: a large Liber
- * Apertus glyph that expands into a wax seal the moment a file is
- * picked. Drag-over animates the border and brightens the whole zone.
+ * Previously this page had a procedural ASCII "scroll" banner which was
+ * clever but didn't read convincingly as a scroll. Replaced with the
+ * second Discobolus scan (MSR variant) rotating in amber — a figure mid-
+ * release, a direct visual echo of what the user is about to do (commit
+ * a contribution). Latin tagline "Disce, iace" — learn, then throw.
+ *
+ * The dropzone below is a clean ascii-frame box, no ASCII art behind the
+ * text; Liber Apertus / Sigillatum typography does the ceremony.
  *
  * Vercel-compat copy
  * ------------------
- * The earlier description referenced `python -m noosphere ingest`, which
- * only runs on self-hosted deploys with Python alongside. In the Vercel
- * deploy this would silently turn into `queued_offline` status without
- * explanation. Copy here is neutral about *how* processing happens —
- * the scribe's log (polled after submit) tells the user whether it ran
- * inline or got queued for offline ingest.
+ * Earlier copy mentioned `python -m noosphere ingest`, which is only
+ * true for self-hosted deploys. Neutral phrasing here; the scribe's log
+ * (polled after submit) reports the real status.
  */
 export default function UploadForm() {
   const router = useRouter();
@@ -128,82 +126,81 @@ export default function UploadForm() {
   return (
     <main
       style={{
-        maxWidth: "760px",
+        maxWidth: "820px",
         margin: "0 auto",
-        padding: "1.5rem 2rem 3rem",
+        padding: "2rem 2rem 3rem",
       }}
     >
-      {/* ── Scroll banner ─────────────────────────────────────────────
-          Lives at the very top of the page so it never overlaps with
-          labels or input text. Dimmed by default (UploadScroll passes
-          `color="var(--amber-dim)"` internally); drag-over brightens
-          it via the `active` prop. */}
-      <div
+      {/* ── Discobolus banner ────────────────────────────────────────────
+          The second (MSR) Discobolus scan, rotating. A figure poised
+          between preparation and release is the exact shape of the
+          action the user is about to take on this page. */}
+      <section
         aria-hidden="true"
         style={{
           display: "flex",
+          alignItems: "center",
           justifyContent: "center",
-          margin: "0 -1rem 0.75rem",
-          // Soft vertical fade so the scroll reads as a fading-in artifact
-          // rather than a rectangular block sitting on the page. Mask works
-          // in WebKit + Firefox + Chromium all-modern.
-          maskImage:
-            "linear-gradient(180deg, rgba(0,0,0,0) 0%, rgba(0,0,0,1) 35%, rgba(0,0,0,1) 70%, rgba(0,0,0,0) 100%)",
-          WebkitMaskImage:
-            "linear-gradient(180deg, rgba(0,0,0,0) 0%, rgba(0,0,0,1) 35%, rgba(0,0,0,1) 70%, rgba(0,0,0,0) 100%)",
-        }}
-      >
-        <UploadScroll cols={64} rows={18} active={dragover} sealed={!!file} />
-      </div>
-
-      <h1
-        style={{
-          fontFamily: "'Cinzel Decorative', 'Cinzel', serif",
-          fontSize: "1.8rem",
-          letterSpacing: "0.18em",
-          color: "var(--amber)",
-          textShadow: "var(--glow-md)",
-          margin: 0,
-        }}
-      >
-        Dedicatio
-      </h1>
-      <p
-        className="mono"
-        style={{
-          fontSize: "0.65rem",
-          letterSpacing: "0.3em",
-          textTransform: "uppercase",
-          color: "var(--amber-dim)",
-          marginTop: "0.25rem",
-          marginBottom: "0.25rem",
-        }}
-      >
-        Upload Contribution
-      </p>
-      <p
-        style={{
-          fontFamily: "'EB Garamond', serif",
-          fontStyle: "italic",
-          fontSize: "1rem",
-          color: "var(--parchment-dim)",
-          marginTop: "0.5rem",
+          gap: "2rem",
+          flexWrap: "wrap",
           marginBottom: "2rem",
         }}
       >
-        Commit a transcript, essay, or session to the Codex. Markdown, plain text,
-        WebVTT, Dialectic JSONL, PDF, DOCX, and common audio formats are accepted.
-      </p>
+        <SculptureAscii
+          src="/sculptures/discobolus-alt.mesh.bin"
+          cols={44}
+          rows={24}
+          yawSpeed={0.04}
+          pitch={-0.08}
+          ariaLabel="Discobolus — the discus thrower, rotating as amber ASCII"
+        />
+        <div style={{ maxWidth: "320px" }}>
+          <h1
+            style={{
+              fontFamily: "'Cinzel Decorative', 'Cinzel', serif",
+              fontSize: "1.8rem",
+              letterSpacing: "0.18em",
+              color: "var(--amber)",
+              textShadow: "var(--glow-md)",
+              margin: 0,
+            }}
+          >
+            Dedicatio
+          </h1>
+          <p
+            className="mono"
+            style={{
+              fontSize: "0.62rem",
+              letterSpacing: "0.28em",
+              textTransform: "uppercase",
+              color: "var(--amber-dim)",
+              marginTop: "0.25rem",
+            }}
+          >
+            Upload Contribution · Discobolus, MSR
+          </p>
+          <p
+            style={{
+              fontFamily: "'EB Garamond', serif",
+              fontStyle: "italic",
+              fontSize: "1rem",
+              color: "var(--parchment-dim)",
+              marginTop: "0.5rem",
+              marginBottom: 0,
+              lineHeight: 1.55,
+            }}
+          >
+            Commit a transcript, essay, or session. Markdown, plain text,
+            WebVTT, Dialectic JSONL, PDF, DOCX, and common audio formats
+            are accepted.
+          </p>
+        </div>
+      </section>
 
       <form
         onSubmit={handleSubmit}
         style={{ display: "flex", flexDirection: "column", gap: "1.5rem" }}
       >
-        {/* ── Dropzone ────────────────────────────────────────────────
-            A plain ascii-frame box with Latin heading and either the
-            prompt text or the selected file's metadata. No ASCII art
-            behind the text anymore — the scroll lives up top and does
-            the decorative work. */}
         <div
           className={`upload-zone ${dragover ? "dragover" : ""}`}
           onClick={() => fileRef.current?.click()}
@@ -409,7 +406,7 @@ export default function UploadForm() {
           className="btn-solid btn"
           disabled={uploading || !file}
         >
-          {uploading ? "Sealing the scroll…" : "Commit to the Codex"}
+          {uploading ? "Committing…" : "Commit to the Codex"}
         </button>
       </form>
     </main>

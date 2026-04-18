@@ -1,7 +1,6 @@
 "use client";
 
 import { useState } from "react";
-import ReviewScale from "@/components/ReviewScaleClient";
 
 type Row = {
   id: string;
@@ -14,9 +13,14 @@ type Row = {
   priorScoresJson: string | null;
 };
 
-/** Count how many layers voted each way. `unresolved` is neutral and
- *  doesn't tip the scale. We intentionally ignore any keys not in the
- *  known triplet so unexpected verdict strings don't skew the count. */
+/**
+ * Coherence review queue rows. Previous version rendered a small animated
+ * balance-scale per row; removed in favour of a compact textual verdict-
+ * tally. The Dying Gladiator sculpture at the top of the page carries the
+ * visual weight; individual rows stay typographic so a long queue scans
+ * cleanly.
+ */
+
 function tallyVerdicts(layers: Record<string, string>): {
   cohere: number;
   contradict: number;
@@ -110,68 +114,69 @@ export default function ReviewQueue({ items }: { items: Row[] }) {
           scores = null;
         }
         const tally = tallyVerdicts(layers);
+
+        // Dominant side for a one-glance verdict summary. Ties or
+        // `unresolved`-dominated rows render as "split".
+        let dominant: "cohere" | "contradict" | "split" = "split";
+        if (tally.contradict > tally.cohere) dominant = "contradict";
+        else if (tally.cohere > tally.contradict) dominant = "cohere";
+
         return (
           <div key={it.id} className="portal-card" style={{ padding: "1.25rem" }}>
             <div
+              className="mono"
               style={{
-                display: "flex",
-                gap: "1.25rem",
-                alignItems: "flex-start",
-                flexWrap: "wrap",
+                fontSize: "0.62rem",
+                color: "var(--amber-dim)",
+                textTransform: "uppercase",
+                letterSpacing: "0.12em",
+                marginBottom: "0.5rem",
               }}
             >
-              {/* Live balance scale. Tips toward whichever side has more
-                  layer votes. A symmetric (unresolved-heavy) pair comes to
-                  rest horizontal, which reads as "the firm is still
-                  weighing this" — exactly right for an open review item. */}
-              <div style={{ flexShrink: 0 }}>
-                <ReviewScale
-                  cohereCount={tally.cohere}
-                  contradictCount={tally.contradict}
-                  severity={it.severity}
-                  cols={24}
-                  rows={8}
-                />
-              </div>
+              severity {(it.severity * 100).toFixed(0)}% · aggregator{" "}
+              {it.aggregatorVerdict || "—"} · leaning {dominant}
+            </div>
 
-              <div style={{ flex: 1, minWidth: "220px" }}>
-                <div
-                  className="mono"
-                  style={{
-                    fontSize: "0.62rem",
-                    color: "var(--amber-dim)",
-                    textTransform: "uppercase",
-                    letterSpacing: "0.12em",
-                  }}
-                >
-                  severity {(it.severity * 100).toFixed(0)}% · aggregator{" "}
-                  {it.aggregatorVerdict || "—"}
-                </div>
-                <p
-                  style={{
-                    marginTop: "0.5rem",
-                    color: "var(--parchment)",
-                    fontFamily: "'EB Garamond', serif",
-                    fontSize: "1rem",
-                    lineHeight: 1.55,
-                  }}
-                >
-                  {it.reason}
-                </p>
-                <p
-                  className="mono"
-                  style={{
-                    fontSize: "0.65rem",
-                    color: "var(--parchment-dim)",
-                    marginTop: "0.45rem",
-                  }}
-                >
-                  {tally.contradict} × contradict · {tally.cohere} × cohere
-                  {tally.unresolved > 0 ? ` · ${tally.unresolved} × unresolved` : ""}
-                  {" · pair "}
-                  {it.claimAId.slice(0, 8)}… / {it.claimBId.slice(0, 8)}…
-                </p>
-              </div>
+            <p
+              style={{
+                margin: 0,
+                color: "var(--parchment)",
+                fontFamily: "'EB Garamond', serif",
+                fontSize: "1rem",
+                lineHeight: 1.6,
+              }}
+            >
+              {it.reason}
+            </p>
+
+            {/* Textual verdict tally — replaces the per-row animated
+                balance. Highlights contradict in ember, cohere in amber,
+                unresolved in parchment-dim so the spread is readable at
+                a glance without additional visual chrome. */}
+            <div
+              className="mono"
+              style={{
+                display: "flex",
+                gap: "1.1rem",
+                flexWrap: "wrap",
+                fontSize: "0.72rem",
+                marginTop: "0.55rem",
+                letterSpacing: "0.1em",
+                textTransform: "uppercase",
+              }}
+            >
+              <span style={{ color: "var(--ember)" }}>
+                ✕ {tally.contradict} contradict
+              </span>
+              <span style={{ color: "var(--amber)" }}>∙ {tally.cohere} cohere</span>
+              {tally.unresolved > 0 && (
+                <span style={{ color: "var(--parchment-dim)" }}>
+                  ? {tally.unresolved} unresolved
+                </span>
+              )}
+              <span style={{ color: "var(--parchment-dim)", marginLeft: "auto" }}>
+                pair {it.claimAId.slice(0, 8)}… / {it.claimBId.slice(0, 8)}…
+              </span>
             </div>
 
             <details style={{ marginTop: "0.9rem" }}>

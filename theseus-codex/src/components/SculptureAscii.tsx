@@ -72,7 +72,18 @@ async function loadMesh(src: string): Promise<Float32Array> {
   const cached = meshCache.get(src);
   if (cached) return cached;
   const res = await fetch(src);
-  if (!res.ok) throw new Error(`Failed to fetch ${src}: ${res.status}`);
+  if (!res.ok) {
+    // Common production failure mode: the `.mesh.bin` files were swept up
+    // by a `*.bin` rule in the root `.gitignore` (or similar) and never
+    // deployed. Surface the URL + status clearly so diagnosis doesn't
+    // require F12 detective work.
+    throw new Error(
+      `Failed to fetch ${src}: HTTP ${res.status}. ` +
+        (res.status === 404
+          ? "Mesh file not deployed — check .gitignore / .vercelignore for `*.bin` patterns."
+          : ""),
+    );
+  }
   const buf = await res.arrayBuffer();
   const parsed = parseMesh(buf);
   meshCache.set(src, parsed);
@@ -351,22 +362,37 @@ export default function SculptureAscii({
   );
 
   if (loadError) {
+    // Log the full error to the console so it's obvious in DevTools even if
+    // the visible fallback is deliberately quiet. The console message is
+    // stable enough that "grep the site for 'sculpture load failed'" is a
+    // viable debugging lead.
+    if (typeof window !== "undefined") {
+      console.warn(`[sculpture] ${src} failed: ${loadError}`);
+    }
     return (
       <div
         aria-label={ariaLabel}
+        title={loadError}
         style={{
           width: width,
           height: height,
           display: "flex",
+          flexDirection: "column",
           alignItems: "center",
           justifyContent: "center",
           fontFamily: "'IBM Plex Mono', monospace",
-          fontSize: "0.6rem",
+          fontSize: "0.55rem",
           color: "var(--ember)",
           letterSpacing: "0.1em",
+          textAlign: "center",
+          padding: "1rem",
+          gap: "0.35rem",
         }}
       >
-        [sculpture load failed]
+        <span>[ sculpture load failed ]</span>
+        <span style={{ color: "var(--parchment-dim)", fontSize: "0.5rem" }}>
+          {src}
+        </span>
       </div>
     );
   }

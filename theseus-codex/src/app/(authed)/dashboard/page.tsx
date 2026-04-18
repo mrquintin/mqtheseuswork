@@ -1,24 +1,23 @@
 import Link from "next/link";
-import DashboardHearth from "@/components/DashboardHearthClient";
 import ConfidenceTierSigil from "@/components/ConfidenceTierSigil";
 import SculptureAscii from "@/components/SculptureAsciiClient";
 import { db } from "@/lib/db";
 import { requireTenantContext } from "@/lib/tenant";
 
 /**
- * Dashboard — the landing page after login.
+ * Dashboard — landing page after login.
  *
  * Visual hierarchy:
- *   1. A large live ASCII brazier at the top. Its flame intensity is
- *      derived from system activity (pending + processing + queued
- *      uploads), so the page *pulses* when work is happening.
- *   2. A three-column band of labelled ASCII-frame cards: uploads,
- *      conclusions, drift. Each conclusion gets an inline tier sigil
- *      so the confidence tier reads at a glance.
- *   3. A meander (Greek-key) divider before any low-priority sections.
+ *   1. A live amber ASCII Hercules rotating at the top of the page — the
+ *      firm's signature figure, replacing the previous procedural brazier.
+ *      At ~50 cols wide the figure is legible as Hercules specifically,
+ *      not just "a statue".
+ *   2. Labelled ascii-frame cards for uploads and conclusions. Each
+ *      conclusion carries a confidence-tier sigil inline.
+ *   3. Meander divider before the lower-priority drift-events ledger.
  *
- * Empty states are handled by the `LatinEmpty` component so an empty
- * Codex still feels considered rather than broken.
+ * Empty states use the `LatinEmpty` helper so a quiet Codex still feels
+ * considered rather than broken.
  */
 
 export default async function DashboardPage() {
@@ -46,16 +45,9 @@ export default async function DashboardPage() {
     take: 6,
   });
 
-  // Hearth intensity: uploads still in-flight are the biggest signal.
-  // `queued_offline` counts at half-strength (the firm has sent work but
-  // the CLI hasn't run yet). Cap at 1.0 so the flame never leaves the frame.
   const activeUploads =
     uploads.filter((u) => u.status === "processing" || u.status === "pending").length +
     uploads.filter((u) => u.status === "queued_offline").length * 0.5;
-  const hearthIntensity = Math.max(
-    0.18, // a quiet cauldron even when idle — always some life
-    Math.min(1.0, activeUploads / 4),
-  );
 
   const statusBadge = (status: string) => {
     const cls: Record<string, string> = {
@@ -70,23 +62,32 @@ export default async function DashboardPage() {
 
   return (
     <main style={{ padding: "1.25rem 0 3rem" }}>
-      {/* The Oracle's Hearth — sitewide signature element, full-bleed band. */}
+      {/* ── Hercules band ─────────────────────────────────────────────────
+          Full-bleed dark band with the rotating sculpture centred. Latin
+          dedication + an activity-sensitive tagline underneath. Replaces
+          the earlier procedural brazier — a real scanned museum piece
+          reads as significantly more substantial as a landing visual. */}
       <div
         style={{
           borderTop: "1px solid var(--border)",
           borderBottom: "1px solid var(--border)",
           background:
-            "radial-gradient(ellipse at center, rgba(233,163,56,0.08) 0%, rgba(233,163,56,0.02) 40%, transparent 80%)",
+            "radial-gradient(ellipse at center, rgba(233,163,56,0.08) 0%, rgba(233,163,56,0.02) 45%, transparent 85%)",
           margin: "0 0 2rem",
-          padding: "1.25rem 0 0.75rem",
+          padding: "1.5rem 0 1rem",
           position: "relative",
         }}
       >
         <div style={{ display: "flex", justifyContent: "center" }}>
-          <DashboardHearth cols={84} rows={22} intensity={hearthIntensity} />
+          <SculptureAscii
+            src="/sculptures/hercules.mesh.bin"
+            cols={54}
+            rows={26}
+            yawSpeed={0.028}
+            pitch={-0.1}
+            ariaLabel="Hercules — the firm's signature figure, rotating in amber ASCII"
+          />
         </div>
-        {/* Latin dedication under the hearth. Gives the brazier a shelf to
-            sit on and makes the abstract 3D asset legible as an artifact. */}
         <p
           className="mono"
           style={{
@@ -95,26 +96,26 @@ export default async function DashboardPage() {
             letterSpacing: "0.3em",
             textTransform: "uppercase",
             color: "var(--amber-dim)",
-            marginTop: "0.35rem",
+            marginTop: "0.75rem",
             marginBottom: 0,
           }}
         >
-          Focus Sapientiae · The Firm&apos;s Hearth
+          Hercules · Louvre · Fortitudine et disciplina
         </p>
         <p
           style={{
             textAlign: "center",
             fontFamily: "'EB Garamond', serif",
             fontStyle: "italic",
-            fontSize: "0.8rem",
+            fontSize: "0.92rem",
             color: "var(--parchment-dim)",
-            marginTop: "0.25rem",
+            marginTop: "0.35rem",
             marginBottom: 0,
           }}
         >
           {activeUploads > 0
-            ? `${Math.ceil(activeUploads)} contribution${activeUploads > 1.5 ? "s" : ""} on the coals.`
-            : "The coals are banked; the oracle listens."}
+            ? `${Math.ceil(activeUploads)} contribution${activeUploads > 1.5 ? "s" : ""} in motion.`
+            : "The labours rest; the firm listens."}
         </p>
       </div>
 
@@ -246,59 +247,6 @@ export default async function DashboardPage() {
 
         <div className="meander" aria-hidden="true" />
 
-        {/* Hercules pedestal — a rotating marble sculpture scanned from
-            the Louvre, rendered as amber ASCII, standing between the
-            two-column band above and the drift ledger below. Reads as
-            "the firm's strength and discipline" on the landing page. */}
-        <section
-          aria-hidden="true"
-          style={{
-            margin: "1.25rem 0 1.75rem",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            gap: "2rem",
-            flexWrap: "wrap",
-          }}
-        >
-          <SculptureAscii
-            src="/sculptures/hercules.mesh.bin"
-            cols={42}
-            rows={22}
-            yawSpeed={0.03}
-            ariaLabel="Hercules — classical sculpture rotating as amber ASCII"
-          />
-          <div style={{ maxWidth: "340px" }}>
-            <p
-              className="mono"
-              style={{
-                fontSize: "0.62rem",
-                letterSpacing: "0.3em",
-                textTransform: "uppercase",
-                color: "var(--amber-dim)",
-                margin: 0,
-              }}
-            >
-              Hercules · Louvre
-            </p>
-            <p
-              style={{
-                fontFamily: "'EB Garamond', serif",
-                fontStyle: "italic",
-                fontSize: "1rem",
-                color: "var(--parchment-dim)",
-                marginTop: "0.4rem",
-                marginBottom: 0,
-                lineHeight: 1.55,
-              }}
-            >
-              Fortitudine et disciplina — through strength and discipline. The
-              firm&apos;s inheritance is the labour of distinguishing what it
-              believes from what it merely said.
-            </p>
-          </div>
-        </section>
-
         <section
           className="ascii-frame"
           data-label={`DRIFT EVENTS · ${toRoman(drifts.length) || "0"}`}
@@ -347,9 +295,7 @@ export default async function DashboardPage() {
   );
 }
 
-/** Inline Latin empty state. Used inside ascii-frame sections so the frame
- *  stays populated (rather than collapsing to a lonely label). Shown as
- *  italic Latin phrase with an English gloss underneath in a dimmer color. */
+/** Inline Latin empty state for populated `ascii-frame` sections. */
 function LatinEmpty({ latin, english }: { latin: string; english: string }) {
   return (
     <div style={{ padding: "1rem 0.25rem", textAlign: "center" }}>
@@ -378,9 +324,7 @@ function LatinEmpty({ latin, english }: { latin: string; english: string }) {
   );
 }
 
-/** Convert a small positive integer to Roman numerals (for display accents).
- *  Only called with counts from DB queries capped at ~12, so this doesn't
- *  need to handle huge numbers correctly. Returns empty string for 0. */
+/** Small positive int → Roman numerals, for display accents only. */
 function toRoman(n: number): string {
   if (!n || n < 1) return "";
   const table: [number, string][] = [

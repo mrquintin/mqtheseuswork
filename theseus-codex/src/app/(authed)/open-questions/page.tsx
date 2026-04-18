@@ -1,35 +1,15 @@
-import OpenQuestionPortal from "@/components/OpenQuestionPortalClient";
 import SculptureAscii from "@/components/SculptureAsciiClient";
 import { db } from "@/lib/db";
 
 /**
  * Open questions — coherence tensions the firm has not yet resolved.
  *
- * Each question is rendered as a small ASCII portal (doorway) with a
- * shimmering interior. The shimmer intensity rises with layer disagreement
- * breadth, giving a "hot" vs "quiet" sense at a glance.
- *
- * Since severity isn't a first-class field on the OpenQuestion model,
- * we infer it from `layerDisagreementSummary` length (a proxy for how
- * many layers are in tension) and from the presence of `claimBId`. This
- * is coarse but good enough for the visual treatment — the actual
- * severity lives upstream in the coherence aggregator and can be lifted
- * into the schema later.
+ * Previous version rendered a small procedural "portal arch" inside each
+ * card; they didn't add much visual information beyond what the row text
+ * already conveyed, and they competed with the Discobolus at the top.
+ * Removed. The Discobolus header now carries the whole page's visual
+ * weight, and the cards are clean typography.
  */
-
-function inferSeverity(q: {
-  layerDisagreementSummary: string | null;
-  unresolvedReason: string | null;
-}): number {
-  const s = q.layerDisagreementSummary || "";
-  if (!s) return 0.35;
-  // Rough heuristic: count the number of " vs " mentions. Each counts as
-  // an extra layer in tension.
-  const n = (s.match(/\bvs\b/gi) || []).length;
-  // Floor at 0.4 so every portal looks at least a little alive; cap at
-  // 0.95 so "worst" portals don't max-saturate into unreadable shimmer.
-  return Math.max(0.4, Math.min(0.95, 0.4 + n * 0.15));
-}
 
 export default async function OpenQuestionsPage() {
   const rows = await db.openQuestion.findMany({
@@ -39,10 +19,6 @@ export default async function OpenQuestionsPage() {
 
   return (
     <main style={{ maxWidth: "1080px", margin: "0 auto", padding: "2.75rem 2rem" }}>
-      {/* Discobolus — frozen mid-throw. The disk has not yet left his hand;
-          his weight is committed but the outcome is not. That is exactly
-          the shape of an open question: the firm is already leaning into
-          an answer it cannot yet release. */}
       <section
         aria-hidden="true"
         style={{
@@ -51,12 +27,12 @@ export default async function OpenQuestionsPage() {
           justifyContent: "center",
           gap: "2rem",
           flexWrap: "wrap",
-          marginBottom: "2rem",
+          marginBottom: "2.5rem",
         }}
       >
         <SculptureAscii
           src="/sculptures/discobolus.mesh.bin"
-          cols={42}
+          cols={44}
           rows={22}
           yawSpeed={0.04}
           pitch={-0.08}
@@ -98,10 +74,9 @@ export default async function OpenQuestionsPage() {
               lineHeight: 1.55,
             }}
           >
-            Doorways the firm has not yet walked through. Each portal below
-            is a pair of claims whose coherence layers disagreed — the
-            brighter the shimmer, the sharper the tension, and the longer
-            the disk hangs in the air.
+            Doorways the firm has not yet walked through. Each row below is
+            a pair of claims whose coherence layers disagreed — the disk
+            still hangs in the air.
           </p>
         </div>
       </section>
@@ -140,59 +115,55 @@ export default async function OpenQuestionsPage() {
             listStyle: "none",
             padding: 0,
             margin: 0,
-            display: "grid",
-            gridTemplateColumns: "repeat(auto-fill, minmax(340px, 1fr))",
-            gap: "1.25rem",
+            display: "flex",
+            flexDirection: "column",
+            gap: "0.9rem",
           }}
         >
-          {rows.map((q, i) => {
-            const severity = inferSeverity(q);
+          {rows.map((q) => {
+            // Rough "heat" of the disagreement, derived from the number of
+            // " vs " tokens in the layer-disagreement summary. Used to tint
+            // the severity label so hotter rows stand out at a glance
+            // without a per-card animation carrying the weight.
+            const layerBits = q.layerDisagreementSummary || "";
+            const tensionCount = (layerBits.match(/\bvs\b/gi) || []).length;
+            const heat = Math.min(1, 0.35 + tensionCount * 0.2);
             return (
               <li
                 key={q.id}
                 className="portal-card"
                 style={{
-                  padding: "1rem 1.25rem 1.25rem",
+                  padding: "1.1rem 1.25rem",
                   display: "flex",
                   flexDirection: "column",
-                  gap: "0.65rem",
+                  gap: "0.55rem",
                 }}
               >
-                {/* Portal centred at the top of the card — the defining
-                    visual element, sized to dominate the card while still
-                    leaving room for the question text below. */}
                 <div
+                  className="mono"
                   style={{
-                    display: "flex",
-                    justifyContent: "center",
-                    marginBottom: "0.25rem",
+                    fontSize: "0.6rem",
+                    color: `rgba(233, 163, 56, ${heat})`,
+                    letterSpacing: "0.14em",
+                    textTransform: "uppercase",
                   }}
                 >
-                  <OpenQuestionPortal
-                    severity={severity}
-                    cols={26}
-                    rows={10}
-                    // Stagger animation phases across a column of portals so they
-                    // don't all shimmer in lockstep — feels like an unquiet room.
-                    phase={i * 0.37}
-                  />
+                  Tensio · {tensionCount > 0 ? `${tensionCount} layer${tensionCount > 1 ? "s" : ""} disagreeing` : "pending"}
                 </div>
-
                 <p
                   style={{
                     fontFamily: "'EB Garamond', serif",
                     fontSize: "1.05rem",
                     color: "var(--parchment)",
                     margin: 0,
-                    lineHeight: 1.5,
+                    lineHeight: 1.55,
                   }}
                 >
                   {q.summary}
                 </p>
-
                 <p
                   style={{
-                    fontSize: "0.78rem",
+                    fontSize: "0.8rem",
                     color: "var(--parchment-dim)",
                     margin: 0,
                     lineHeight: 1.5,
@@ -200,7 +171,6 @@ export default async function OpenQuestionsPage() {
                 >
                   {q.unresolvedReason || "—"}
                 </p>
-
                 <div
                   className="mono"
                   style={{
