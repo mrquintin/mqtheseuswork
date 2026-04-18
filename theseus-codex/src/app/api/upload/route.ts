@@ -2,18 +2,45 @@ import { NextResponse } from "next/server";
 import { getFounderFromAuth } from "@/lib/apiKeyAuth";
 import { db } from "@/lib/db";
 import { enqueueIngestJob } from "@/lib/jobQueue";
+import { extractText } from "@/lib/extractText";
 import { writeFile, mkdir } from "fs/promises";
 import { join, extname } from "path";
 import { v4 as uuid } from "uuid";
 
-// Serverless filesystems (Vercel/Netlify) are ephemeral: writes to
-// process.cwd() disappear between invocations. For cloud deploys the correct
-// path is Supabase Storage via a pre-signed URL. We still write to local disk
-// when UPLOAD_LOCAL_DIR is set (local Docker / Render with persistent disk).
+/**
+ * Multipart upload handler.
+ *
+ * On Vercel (serverless) we can't rely on the filesystem — any writes to
+ * `process.cwd()/uploads` disappear the instant the request returns.
+ * Instead, this route extracts whatever textual content it can from the
+ * uploaded file (plain text, PDF body, DOCX paragraphs, Whisper
+ * transcript of audio) and persists it directly into `Upload.textContent`.
+ * That makes the row immediately usable by `noosphere ingest-from-codex`
+ * — no file retrieval needed.
+ *
+ * Supported types out of the box (all extracted → textContent):
+ *   .txt .md .markdown .vtt .jsonl   (UTF-8 pass-through)
+ *   .pdf                              (via pdf-parse)
+ *   .docx                             (via mammoth)
+ *   .mp3 .m4a .wav .webm .ogg         (via OpenAI Whisper; needs API key)
+ *
+ * For self-hosted deploys (UPLOAD_STORAGE unset), we also write the
+ * original binary to `UPLOAD_LOCAL_DIR` so the Noosphere CLI running
+ * locally can fall back to the raw file if extraction produced nothing.
+ */
+
 const UPLOAD_DIR =
   process.env.UPLOAD_LOCAL_DIR || join(process.cwd(), "uploads");
 const DISABLE_LOCAL_WRITES =
   process.env.VERCEL === "1" || process.env.UPLOAD_STORAGE === "remote";
+
+// Vercel Hobby: 4.5 MB request body cap. We leave 100 KB headroom for
+// form fields (title, description, etc.) so the raw file can be
+// ~4.4 MB. Self-hosted deploys aren't subject to this — `writeFile`
+// can handle arbitrary sizes — but enforcing it everywhere keeps the
+// server-vs-serverless behaviour predictable and makes local testing
+// catch the eventual Vercel failure earlier.
+const MAX_FILE_BYTES = Math.floor(4.4 * 1024 * 1024);
 
 const ALLOWED_EXT = new Set([
   ".md",
@@ -30,9 +57,6 @@ const ALLOWED_EXT = new Set([
   ".ogg",
 ]);
 
-/**
- * Multipart upload: .md, .txt, .vtt, .jsonl (+ pdf/docx/audio), saved under /uploads (not public/).
- */
 export async function POST(req: Request) {
   try {
     // Accept either a browser cookie session or a `Authorization: Bearer tcx_…`
@@ -55,37 +79,42 @@ export async function POST(req: Request) {
     const ext = extname(file.name).toLowerCase();
     if (!ALLOWED_EXT.has(ext)) {
       return NextResponse.json(
-        { error: `Unsupported file type ${ext || "(none)"}. Allowed: ${[...ALLOWED_EXT].join(", ")}` },
+        {
+          error:
+            `Unsupported file type ${ext || "(none)"}. Allowed: ` +
+            [...ALLOWED_EXT].join(", "),
+        },
         { status: 400 },
       );
     }
 
     const buffer = Buffer.from(await file.arrayBuffer());
-
-    // On Vercel the filesystem is ephemeral — every invocation starts fresh,
-    // so writing to `/uploads` is effectively `/dev/null`. The right path for
-    // audio/PDF is Supabase Storage (pre-signed URL flow, not implemented in
-    // this route yet). Text-only uploads (jsonl/txt/md/vtt) still work on
-    // serverless because we persist `textContent` directly to Postgres.
-    let filePath = "";
-    const isTextLike =
-      (file.type || "").startsWith("text/") ||
-      file.type === "application/x-ndjson" ||
-      [".txt", ".md", ".markdown", ".vtt", ".jsonl"].some((s) =>
-        file.name.toLowerCase().endsWith(s),
-      );
-
-    if (DISABLE_LOCAL_WRITES && !isTextLike) {
+    if (buffer.length > MAX_FILE_BYTES) {
       return NextResponse.json(
         {
           error:
-            "Binary uploads require Supabase Storage (not yet wired up in this deployment). " +
-            "Upload a .jsonl / .txt / .md / .vtt for now — those are stored inline in Postgres.",
+            `File is ${(buffer.length / 1024 / 1024).toFixed(1)} MB; the serverless ` +
+            `upload limit is ${(MAX_FILE_BYTES / 1024 / 1024).toFixed(1)} MB. ` +
+            "For larger files, upload from a local Noosphere CLI — or wait for " +
+            "the Supabase Storage direct-upload flow.",
         },
         { status: 413 },
       );
     }
 
+    const mime = file.type || "";
+
+    // ── Extract text/transcript from the file ───────────────────────────
+    // This happens BEFORE the Upload row is created, so `textContent` is
+    // populated on insert and Noosphere can process the row immediately.
+    // `extractText` never throws — it returns a structured result with
+    // `textContent` (possibly null), a `note`, and a `hardFailed` flag.
+    const extraction = await extractText(buffer, file.name, mime);
+
+    // ── Persist raw bytes (self-hosted only) ────────────────────────────
+    // On Vercel we lose the binary the moment the request returns, so we
+    // deliberately don't write it; `filePath` is a synthetic `inline:` id.
+    let filePath: string;
     if (!DISABLE_LOCAL_WRITES) {
       await mkdir(UPLOAD_DIR, { recursive: true });
       const storedName = `${uuid()}${ext || ".bin"}`;
@@ -95,12 +124,10 @@ export async function POST(req: Request) {
       filePath = `inline:${uuid()}${ext}`;
     }
 
-    let textContent: string | null = null;
-    const mime = file.type || "";
-
-    if (isTextLike) {
-      textContent = buffer.toString("utf-8");
-    }
+    // ── Create the Upload row ───────────────────────────────────────────
+    const initialLog =
+      `— Upload received (${buffer.length.toLocaleString()} bytes) —\n` +
+      `— Extraction: ${extraction.note} —\n`;
 
     const upload = await db.upload.create({
       data: {
@@ -113,9 +140,10 @@ export async function POST(req: Request) {
         mimeType: mime || "application/octet-stream",
         filePath,
         fileSize: buffer.length,
-        textContent,
+        textContent: extraction.textContent,
         status: "pending",
-        processLog: "",
+        processLog: initialLog,
+        errorMessage: extraction.hardFailed ? extraction.note : null,
       },
     });
 
@@ -125,10 +153,13 @@ export async function POST(req: Request) {
         founderId: founder.id,
         uploadId: upload.id,
         action: "upload",
-        detail: `Uploaded ${file.name} (${(buffer.length / 1024).toFixed(0)} KB)`,
+        detail: `Uploaded ${file.name} (${(buffer.length / 1024).toFixed(0)} KB) · ${extraction.mode}`,
       },
     });
 
+    // Kick off async ingestion. On Vercel this will detect the lack of
+    // Python and mark the row `queued_offline` with instructions; on a
+    // host with Python it'll run the full Noosphere pipeline.
     enqueueIngestJob(upload.id).catch((err) => {
       console.error(`Background ingestion for upload ${upload.id} failed:`, err);
     });
@@ -138,9 +169,18 @@ export async function POST(req: Request) {
       status: upload.status,
       title: upload.title,
       fileSize: upload.fileSize,
+      extractionMode: extraction.mode,
+      textContentChars: extraction.textContent?.length ?? 0,
+      note: extraction.note,
     });
   } catch (error) {
     console.error("Upload error:", error);
-    return NextResponse.json({ error: "Upload failed" }, { status: 500 });
+    return NextResponse.json(
+      {
+        error:
+          `Upload failed: ${error instanceof Error ? error.message : "unknown error"}`,
+      },
+      { status: 500 },
+    );
   }
 }
