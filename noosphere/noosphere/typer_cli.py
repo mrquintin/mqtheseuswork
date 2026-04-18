@@ -83,6 +83,123 @@ def synthesize_cmd() -> None:
     typer.echo(json.dumps({"ok": True, "items_written": n}))
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+# Theseus Codex bridge — process uploads that landed in the Codex's Postgres
+# from the web UI but couldn't be ingested there (Vercel has no Python).
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+@app.command("ingest-from-codex")
+def ingest_from_codex_cmd(
+    upload_id: str = typer.Option(
+        ..., "--upload-id", help="The Upload.id from the Codex DB"
+    ),
+    codex_db_url: Optional[str] = typer.Option(
+        None,
+        "--codex-db-url",
+        help=(
+            "Codex Postgres URL. If omitted, reads "
+            "THESEUS_CODEX_DATABASE_URL / CODEX_DATABASE_URL / "
+            "DIRECT_URL / DATABASE_URL in that order."
+        ),
+    ),
+    with_llm: bool = typer.Option(
+        False,
+        "--with-llm/--no-llm",
+        help=(
+            "Use Noosphere's LLM claim extractor instead of the naive "
+            "sentence-splitter. Requires an ANTHROPIC_API_KEY or "
+            "OPENAI_API_KEY in the environment."
+        ),
+    ),
+    max_claims: int = typer.Option(
+        40,
+        help="Cap on claims extracted per upload. Prevents a long transcript from producing thousands of Conclusion rows.",
+    ),
+    dry_run: bool = typer.Option(
+        False, help="Print what would be written; don't commit anything."
+    ),
+    organization_slug: Optional[str] = typer.Option(
+        None,
+        "--organization-slug",
+        help="Abort if the upload doesn't belong to this tenant (safety for shared DBs).",
+    ),
+) -> None:
+    """Process a queued-offline Codex upload locally.
+
+    Reads the Codex Upload.textContent, extracts claims (naive splitter
+    by default; LLM via --with-llm), and writes Conclusion rows + an
+    AuditEvent back into the same Codex Postgres so the web UI shows
+    the extracted claims immediately.
+
+    Example:
+        export DIRECT_URL='postgresql://postgres.<ref>:<pw>@aws-1-<region>.pooler.supabase.com:5432/postgres'
+        python -m noosphere ingest-from-codex --upload-id cxxx123...
+    """
+    configure_logging(json_format=True)
+    from noosphere.codex_bridge import ingest_from_codex
+
+    try:
+        result = ingest_from_codex(
+            upload_id,
+            codex_db_url=codex_db_url,
+            use_llm=with_llm,
+            max_claims=max_claims,
+            dry_run=dry_run,
+            organization_slug_filter=organization_slug,
+        )
+    except Exception as exc:
+        typer.echo(
+            json.dumps(
+                {"ok": False, "error": str(exc), "upload_id": upload_id},
+                default=str,
+            ),
+            err=True,
+        )
+        raise typer.Exit(1) from exc
+
+    typer.echo(
+        json.dumps(
+            {
+                "ok": True,
+                "mode": result.mode,
+                "dry_run": result.dry_run,
+                "upload_id": result.upload_id,
+                "title": result.title,
+                "claims_extracted": result.num_claims_extracted,
+                "conclusions_written": result.num_conclusions_written,
+            },
+            default=str,
+        )
+    )
+
+
+@app.command("codex-queued")
+def codex_queued_cmd(
+    codex_db_url: Optional[str] = typer.Option(
+        None,
+        "--codex-db-url",
+        help="Codex Postgres URL (see ingest-from-codex for fallback env vars).",
+    ),
+    limit: int = typer.Option(25, help="Max rows to list."),
+) -> None:
+    """List Codex uploads currently pending / queued-offline / processing.
+
+    Quick "what do I need to ingest?" view. Use the printed IDs with
+    ``ingest-from-codex --upload-id <id>``.
+    """
+    configure_logging(json_format=True)
+    from noosphere.codex_bridge import list_queued_uploads
+
+    try:
+        rows = list_queued_uploads(codex_db_url=codex_db_url, limit=limit)
+    except Exception as exc:
+        typer.echo(json.dumps({"ok": False, "error": str(exc)}, default=str), err=True)
+        raise typer.Exit(1) from exc
+
+    typer.echo(json.dumps({"ok": True, "count": len(rows), "rows": rows}, default=str))
+
+
 @app.command("as-of")
 def as_of_cmd(
     when: str = typer.Argument(..., metavar="YYYY-MM-DD"),
