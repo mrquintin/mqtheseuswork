@@ -8,27 +8,26 @@ const ACCEPTED_EXTENSIONS =
   ".txt,.md,.markdown,.pdf,.docx,.vtt,.jsonl,.mp3,.m4a,.wav,.webm,.ogg";
 
 /**
- * Upload form — bespoke dropzone with an animated ASCII scroll background.
+ * Upload form.
  *
- * Behaviour:
- *   - The scroll renders live regardless of state, so the page has
- *     motion from first paint (the papyrus breathes).
- *   - While the user drags a file over the drop target, we pass
- *     `active` to the scroll, which intensifies the sway and brightens
- *     the amber.
- *   - Once a file is picked, `sealed` is passed, which materialises
- *     a wax seal at the bottom of the scroll — a visual "you have
- *     committed" signal that's stronger than a filename in a box.
- *   - The process log is shown below the form as illuminated-manuscript
- *     text (amber on a deeper amber-black) rather than a generic code
- *     block.
+ * Layout
+ * ------
+ * The redesigned scroll (see UploadScroll.tsx) lives as a banner at the
+ * top of the page, above the title, where it never overlaps form copy.
+ * Previously the scroll was rendered *behind* the dropzone text — amber
+ * on amber — which fought the labels for legibility. The dropzone is
+ * now a clean ascii-frame box with its own treatment: a large Liber
+ * Apertus glyph that expands into a wax seal the moment a file is
+ * picked. Drag-over animates the border and brightens the whole zone.
  *
- * Vercel-compat note: the upload API currently saves textContent to
- * Postgres but cannot invoke `python -m noosphere ingest` (no Python in
- * the serverless runtime). We deliberately *don't* mention the CLI here
- * anymore — the copy used to say "Files are stored … then piped through
- * `python -m noosphere ingest`", which is no longer true in prod. The
- * process log will explain exactly what happened once ingest resolves.
+ * Vercel-compat copy
+ * ------------------
+ * The earlier description referenced `python -m noosphere ingest`, which
+ * only runs on self-hosted deploys with Python alongside. In the Vercel
+ * deploy this would silently turn into `queued_offline` status without
+ * explanation. Copy here is neutral about *how* processing happens —
+ * the scribe's log (polled after submit) tells the user whether it ran
+ * inline or got queued for offline ingest.
  */
 export default function UploadForm() {
   const router = useRouter();
@@ -103,9 +102,6 @@ export default function UploadForm() {
       const pr = await fetch(`/api/upload/${id}`);
       const u = await pr.json();
       if (u.processLog) setPollLog(u.processLog.slice(-4000));
-      // Terminal statuses: ingested (happy path on a host with Python),
-      // failed (we hit a real error), queued_offline (Vercel / no Python;
-      // data is saved but awaits local ingest).
       if (
         u.status === "ingested" ||
         u.status === "failed" ||
@@ -130,7 +126,36 @@ export default function UploadForm() {
   }
 
   return (
-    <main style={{ maxWidth: "760px", margin: "0 auto", padding: "2.5rem 2rem" }}>
+    <main
+      style={{
+        maxWidth: "760px",
+        margin: "0 auto",
+        padding: "1.5rem 2rem 3rem",
+      }}
+    >
+      {/* ── Scroll banner ─────────────────────────────────────────────
+          Lives at the very top of the page so it never overlaps with
+          labels or input text. Dimmed by default (UploadScroll passes
+          `color="var(--amber-dim)"` internally); drag-over brightens
+          it via the `active` prop. */}
+      <div
+        aria-hidden="true"
+        style={{
+          display: "flex",
+          justifyContent: "center",
+          margin: "0 -1rem 0.75rem",
+          // Soft vertical fade so the scroll reads as a fading-in artifact
+          // rather than a rectangular block sitting on the page. Mask works
+          // in WebKit + Firefox + Chromium all-modern.
+          maskImage:
+            "linear-gradient(180deg, rgba(0,0,0,0) 0%, rgba(0,0,0,1) 35%, rgba(0,0,0,1) 70%, rgba(0,0,0,0) 100%)",
+          WebkitMaskImage:
+            "linear-gradient(180deg, rgba(0,0,0,0) 0%, rgba(0,0,0,1) 35%, rgba(0,0,0,1) 70%, rgba(0,0,0,0) 100%)",
+        }}
+      >
+        <UploadScroll cols={64} rows={18} active={dragover} sealed={!!file} />
+      </div>
+
       <h1
         style={{
           fontFamily: "'Cinzel Decorative', 'Cinzel', serif",
@@ -174,10 +199,11 @@ export default function UploadForm() {
         onSubmit={handleSubmit}
         style={{ display: "flex", flexDirection: "column", gap: "1.5rem" }}
       >
-        {/* Bespoke dropzone. The ASCII scroll sits as the background — not a
-            decorative illustration, but the actual interaction target. We
-            put the text content above it with a negative margin so the
-            words overlap the scroll like ink on papyrus. */}
+        {/* ── Dropzone ────────────────────────────────────────────────
+            A plain ascii-frame box with Latin heading and either the
+            prompt text or the selected file's metadata. No ASCII art
+            behind the text anymore — the scroll lives up top and does
+            the decorative work. */}
         <div
           className={`upload-zone ${dragover ? "dragover" : ""}`}
           onClick={() => fileRef.current?.click()}
@@ -189,12 +215,12 @@ export default function UploadForm() {
           onDrop={handleDrop}
           style={{
             position: "relative",
-            minHeight: "220px",
-            padding: "1.25rem 1rem 1rem",
+            minHeight: "140px",
+            padding: "1.25rem 1.5rem",
             display: "flex",
             alignItems: "center",
             justifyContent: "center",
-            overflow: "hidden",
+            textAlign: "center",
           }}
         >
           <input
@@ -207,88 +233,71 @@ export default function UploadForm() {
             }}
           />
 
-          {/* Scroll fills the container. Pointer events pass through so the
-              outer div stays the click target. */}
-          <div
-            aria-hidden="true"
-            style={{
-              position: "absolute",
-              inset: 0,
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              pointerEvents: "none",
-              opacity: file ? 0.55 : 0.9,
-              transition: "opacity 0.25s ease",
-            }}
-          >
-            <UploadScroll cols={72} rows={14} active={dragover} sealed={!!file} />
-          </div>
-
-          {/* Foreground text. Stays out of the way when a file is picked so
-              the scroll + seal is the dominant visual. */}
-          <div
-            style={{
-              position: "relative",
-              zIndex: 1,
-              textAlign: "center",
-              textShadow: "0 0 6px var(--stone-bg), 0 0 16px var(--stone-bg)",
-            }}
-          >
-            {file ? (
-              <>
-                <p
-                  style={{
-                    fontFamily: "'EB Garamond', serif",
-                    fontSize: "1.15rem",
-                    color: "var(--amber)",
-                    margin: 0,
-                  }}
-                >
-                  {file.name}
-                </p>
-                <p
-                  className="mono"
-                  style={{
-                    fontSize: "0.7rem",
-                    letterSpacing: "0.1em",
-                    color: "var(--parchment-dim)",
-                    marginTop: "0.35rem",
-                    marginBottom: 0,
-                  }}
-                >
-                  {(file.size / 1024).toFixed(0)} KB · {file.type || "unknown type"}
-                </p>
-              </>
-            ) : (
-              <>
-                <p
-                  className="mono"
-                  style={{
-                    fontSize: "0.65rem",
-                    letterSpacing: "0.3em",
-                    textTransform: "uppercase",
-                    color: "var(--amber-dim)",
-                    margin: 0,
-                  }}
-                >
-                  Liber Apertus
-                </p>
-                <p
-                  style={{
-                    fontFamily: "'EB Garamond', serif",
-                    fontSize: "1.05rem",
-                    fontStyle: "italic",
-                    color: "var(--parchment)",
-                    marginTop: "0.25rem",
-                    marginBottom: 0,
-                  }}
-                >
-                  Drop a file here, or click the scroll to browse.
-                </p>
-              </>
-            )}
-          </div>
+          {file ? (
+            <div>
+              <p
+                className="mono"
+                style={{
+                  fontSize: "0.62rem",
+                  letterSpacing: "0.3em",
+                  textTransform: "uppercase",
+                  color: "var(--ember)",
+                  margin: 0,
+                }}
+              >
+                Sigillatum · Sealed
+              </p>
+              <p
+                style={{
+                  fontFamily: "'EB Garamond', serif",
+                  fontSize: "1.15rem",
+                  color: "var(--amber)",
+                  margin: "0.4rem 0 0",
+                }}
+              >
+                {file.name}
+              </p>
+              <p
+                className="mono"
+                style={{
+                  fontSize: "0.7rem",
+                  letterSpacing: "0.1em",
+                  color: "var(--parchment-dim)",
+                  marginTop: "0.35rem",
+                  marginBottom: 0,
+                }}
+              >
+                {(file.size / 1024).toFixed(0)} KB · {file.type || "unknown type"}
+              </p>
+            </div>
+          ) : (
+            <div>
+              <p
+                className="mono"
+                style={{
+                  fontSize: "0.62rem",
+                  letterSpacing: "0.3em",
+                  textTransform: "uppercase",
+                  color: "var(--amber-dim)",
+                  margin: 0,
+                }}
+              >
+                Liber Apertus
+              </p>
+              <p
+                style={{
+                  fontFamily: "'EB Garamond', serif",
+                  fontSize: "1.05rem",
+                  fontStyle: "italic",
+                  color: "var(--parchment)",
+                  marginTop: "0.4rem",
+                  marginBottom: 0,
+                }}
+              >
+                Drop a file here, or click to browse.
+              </p>
+            </div>
+          )}
         </div>
 
         <div>

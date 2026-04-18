@@ -2,6 +2,7 @@ import Link from "next/link";
 import { Suspense } from "react";
 import TemporalReplayBar from "@/components/TemporalReplayBar";
 import ConfidenceTierSigil from "@/components/ConfidenceTierSigil";
+import SculptureAscii from "@/components/SculptureAsciiClient";
 import { db } from "@/lib/db";
 import { fetchReplayConclusions } from "@/lib/noosphereReplayBridge";
 import { AS_OF_ISO } from "@/lib/replayDate";
@@ -139,6 +140,72 @@ export default async function ConclusionsPage({
         <Suspense fallback={null}>
           <TemporalReplayBar />
         </Suspense>
+
+        {/* Doryphoros — "the spear-bearer", Polykleitos' canonical figure.
+            Stands at the head of the Conclusions list because it is
+            literally the canon: the figure by which proportions are
+            measured. The firm's conclusions are its own canon. */}
+        <section
+          aria-hidden="true"
+          style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            gap: "2rem",
+            flexWrap: "wrap",
+            margin: "0.5rem 0 2rem",
+          }}
+        >
+          <SculptureAscii
+            src="/sculptures/doryphoros.mesh.bin"
+            cols={34}
+            rows={22}
+            yawSpeed={0.025}
+            pitch={-0.1}
+            ariaLabel="Doryphoros — the spear-bearer, canon of proportion"
+          />
+          <div style={{ maxWidth: "340px" }}>
+            <h1
+              style={{
+                fontFamily: "'Cinzel Decorative', 'Cinzel', serif",
+                fontSize: "1.8rem",
+                letterSpacing: "0.18em",
+                color: "var(--amber)",
+                textShadow: "var(--glow-sm)",
+                margin: 0,
+              }}
+            >
+              Conclusiones
+            </h1>
+            <p
+              className="mono"
+              style={{
+                fontSize: "0.62rem",
+                letterSpacing: "0.28em",
+                textTransform: "uppercase",
+                color: "var(--amber-dim)",
+                margin: "0.25rem 0 0",
+              }}
+            >
+              The firm&apos;s canon · Doryphoros, MIA
+            </p>
+            <p
+              style={{
+                fontFamily: "'EB Garamond', serif",
+                fontStyle: "italic",
+                fontSize: "0.95rem",
+                color: "var(--parchment-dim)",
+                marginTop: "0.5rem",
+                marginBottom: 0,
+                lineHeight: 1.55,
+              }}
+            >
+              Polykleitos made the figure by which all other figures are
+              measured. A conclusion the firm stands behind is the same kind
+              of object.
+            </p>
+          </div>
+        </section>
 
         <p
           className="mono"

@@ -1,6 +1,7 @@
 import Link from "next/link";
 import DashboardHearth from "@/components/DashboardHearthClient";
 import ConfidenceTierSigil from "@/components/ConfidenceTierSigil";
+import SculptureAscii from "@/components/SculptureAsciiClient";
 import { db } from "@/lib/db";
 import { requireTenantContext } from "@/lib/tenant";
 
@@ -244,6 +245,59 @@ export default async function DashboardPage() {
         </div>
 
         <div className="meander" aria-hidden="true" />
+
+        {/* Hercules pedestal — a rotating marble sculpture scanned from
+            the Louvre, rendered as amber ASCII, standing between the
+            two-column band above and the drift ledger below. Reads as
+            "the firm's strength and discipline" on the landing page. */}
+        <section
+          aria-hidden="true"
+          style={{
+            margin: "1.25rem 0 1.75rem",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            gap: "2rem",
+            flexWrap: "wrap",
+          }}
+        >
+          <SculptureAscii
+            src="/sculptures/hercules.mesh.bin"
+            cols={42}
+            rows={22}
+            yawSpeed={0.03}
+            ariaLabel="Hercules — classical sculpture rotating as amber ASCII"
+          />
+          <div style={{ maxWidth: "340px" }}>
+            <p
+              className="mono"
+              style={{
+                fontSize: "0.62rem",
+                letterSpacing: "0.3em",
+                textTransform: "uppercase",
+                color: "var(--amber-dim)",
+                margin: 0,
+              }}
+            >
+              Hercules · Louvre
+            </p>
+            <p
+              style={{
+                fontFamily: "'EB Garamond', serif",
+                fontStyle: "italic",
+                fontSize: "1rem",
+                color: "var(--parchment-dim)",
+                marginTop: "0.4rem",
+                marginBottom: 0,
+                lineHeight: 1.55,
+              }}
+            >
+              Fortitudine et disciplina — through strength and discipline. The
+              firm&apos;s inheritance is the labour of distinguishing what it
+              believes from what it merely said.
+            </p>
+          </div>
+        </section>
 
         <section
           className="ascii-frame"

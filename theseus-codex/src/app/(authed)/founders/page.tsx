@@ -1,5 +1,6 @@
 import { Suspense } from "react";
 import TemporalReplayBar from "@/components/TemporalReplayBar";
+import SculptureAscii from "@/components/SculptureAsciiClient";
 import { db } from "@/lib/db";
 import { AS_OF_ISO, asOfEndUtc } from "@/lib/replayDate";
 import { requireTenantContext } from "@/lib/tenant";
@@ -46,27 +47,71 @@ export default async function FoundersPage({
           Replay: uploads listed per founder are those with <code>createdAt</code> ≤ end of {asOf} (UTC).
         </p>
       ) : null}
-      <h1
+      {/* Augustus Prima Porta — scanned from the SMK copy. The emperor's
+          arm extended in address, armour sculpted with the firm's own
+          story. Apt patron for a page about the people whose convictions
+          the Codex carries. */}
+      <section
+        aria-hidden="true"
         style={{
-          fontFamily: "'Cinzel', serif",
-          fontSize: "1.3rem",
-          letterSpacing: "0.1em",
-          color: "var(--gold)",
-          marginBottom: "0.5rem",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          gap: "2rem",
+          flexWrap: "wrap",
+          marginBottom: "2.5rem",
         }}
       >
-        The Founders
-      </h1>
-      <p
-        style={{
-          fontFamily: "'EB Garamond', serif",
-          fontSize: "1rem",
-          color: "var(--parchment-dim)",
-          marginBottom: "3rem",
-        }}
-      >
-        Per-founder profile and upload-derived signals (portal store).
-      </p>
+        <SculptureAscii
+          src="/sculptures/augustus.mesh.bin"
+          cols={40}
+          rows={24}
+          yawSpeed={0.02}
+          pitch={-0.08}
+          ariaLabel="Augustus Prima Porta — rendered from SMK scan as rotating ASCII"
+        />
+        <div style={{ maxWidth: "360px" }}>
+          <h1
+            style={{
+              fontFamily: "'Cinzel Decorative', 'Cinzel', serif",
+              fontSize: "1.8rem",
+              letterSpacing: "0.18em",
+              color: "var(--amber)",
+              textShadow: "var(--glow-md)",
+              margin: 0,
+            }}
+          >
+            Fundatores
+          </h1>
+          <p
+            className="mono"
+            style={{
+              fontSize: "0.62rem",
+              letterSpacing: "0.28em",
+              textTransform: "uppercase",
+              color: "var(--amber-dim)",
+              marginTop: "0.25rem",
+            }}
+          >
+            The Founders · Augustus, SMK
+          </p>
+          <p
+            style={{
+              fontFamily: "'EB Garamond', serif",
+              fontStyle: "italic",
+              fontSize: "1rem",
+              color: "var(--parchment-dim)",
+              marginTop: "0.75rem",
+              marginBottom: 0,
+              lineHeight: 1.55,
+            }}
+          >
+            Per-founder profiles and the upload-derived signals their
+            contributions generate. The emperor stands here as a reminder:
+            a firm&apos;s beliefs are traceable to the people who speak them.
+          </p>
+        </div>
+      </section>
 
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))", gap: "1rem" }}>
         {allFounders.map((f) => {

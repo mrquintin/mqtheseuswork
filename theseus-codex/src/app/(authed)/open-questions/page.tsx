@@ -1,4 +1,5 @@
 import OpenQuestionPortal from "@/components/OpenQuestionPortalClient";
+import SculptureAscii from "@/components/SculptureAsciiClient";
 import { db } from "@/lib/db";
 
 /**
@@ -38,46 +39,72 @@ export default async function OpenQuestionsPage() {
 
   return (
     <main style={{ maxWidth: "1080px", margin: "0 auto", padding: "2.75rem 2rem" }}>
-      <h1
+      {/* Discobolus — frozen mid-throw. The disk has not yet left his hand;
+          his weight is committed but the outcome is not. That is exactly
+          the shape of an open question: the firm is already leaning into
+          an answer it cannot yet release. */}
+      <section
+        aria-hidden="true"
         style={{
-          fontFamily: "'Cinzel Decorative', 'Cinzel', serif",
-          fontSize: "2rem",
-          letterSpacing: "0.18em",
-          color: "var(--amber)",
-          textShadow: "var(--glow-md)",
-          margin: 0,
-        }}
-      >
-        Quaestiones Apertae
-      </h1>
-      <p
-        className="mono"
-        style={{
-          fontSize: "0.65rem",
-          letterSpacing: "0.28em",
-          textTransform: "uppercase",
-          color: "var(--amber-dim)",
-          marginTop: "0.25rem",
-        }}
-      >
-        Open questions
-      </p>
-      <p
-        style={{
-          fontFamily: "'EB Garamond', serif",
-          fontStyle: "italic",
-          fontSize: "1rem",
-          color: "var(--parchment-dim)",
-          marginTop: "0.75rem",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          gap: "2rem",
+          flexWrap: "wrap",
           marginBottom: "2rem",
-          maxWidth: "48em",
-          lineHeight: 1.55,
         }}
       >
-        Doorways the firm has not yet walked through. Each portal represents
-        a pair of claims whose coherence layers disagreed — the brighter
-        the shimmer, the sharper the tension.
-      </p>
+        <SculptureAscii
+          src="/sculptures/discobolus.mesh.bin"
+          cols={42}
+          rows={22}
+          yawSpeed={0.04}
+          pitch={-0.08}
+          ariaLabel="Discobolus — the discus thrower frozen mid-throw"
+        />
+        <div style={{ maxWidth: "360px" }}>
+          <h1
+            style={{
+              fontFamily: "'Cinzel Decorative', 'Cinzel', serif",
+              fontSize: "2rem",
+              letterSpacing: "0.18em",
+              color: "var(--amber)",
+              textShadow: "var(--glow-md)",
+              margin: 0,
+            }}
+          >
+            Quaestiones Apertae
+          </h1>
+          <p
+            className="mono"
+            style={{
+              fontSize: "0.65rem",
+              letterSpacing: "0.28em",
+              textTransform: "uppercase",
+              color: "var(--amber-dim)",
+              marginTop: "0.25rem",
+            }}
+          >
+            Open questions · Discobolus, British Museum
+          </p>
+          <p
+            style={{
+              fontFamily: "'EB Garamond', serif",
+              fontStyle: "italic",
+              fontSize: "1rem",
+              color: "var(--parchment-dim)",
+              marginTop: "0.75rem",
+              marginBottom: 0,
+              lineHeight: 1.55,
+            }}
+          >
+            Doorways the firm has not yet walked through. Each portal below
+            is a pair of claims whose coherence layers disagreed — the
+            brighter the shimmer, the sharper the tension, and the longer
+            the disk hangs in the air.
+          </p>
+        </div>
+      </section>
 
       {rows.length === 0 ? (
         <div
