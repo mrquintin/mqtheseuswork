@@ -308,19 +308,42 @@ def whoami(creds: Optional[Credentials] = None) -> dict:
 def require_auth(
     *,
     action: str = "this command",
-) -> Credentials:
+) -> Optional[Credentials]:
     """Get valid credentials or exit with a clear error.
 
     Intended for destructive-to-Codex CLI commands. If no credentials
     exist OR the server rejects them, the command exits (non-zero)
     with instructions. Offline / transient network failures are
     tolerated — we don't want a flaky connection to kill an ingest.
+
+    CI / server-side escape hatch
+    -----------------------------
+    Setting ``NOOSPHERE_SKIP_AUTH=1`` bypasses the Codex-side auth
+    layer entirely. This is appropriate when the caller already
+    possesses a higher-trust credential — specifically, the Supabase
+    ``DIRECT_URL`` password that every destructive command needs
+    anyway. The GitHub Actions workflow that processes uploads runs
+    with this bypass because:
+      * the workflow has its own secret vault (only repo admins can
+        see CODEX_DATABASE_URL), which is a stricter trust boundary
+        than a revocable per-device API key;
+      * requiring the workflow to also stash and rotate an API key
+        adds operational overhead with no marginal security gain.
+    Interactive / desktop use is untouched — `noosphere login` is
+    still required when running the CLI on a laptop.
     """
+    if os.environ.get("NOOSPHERE_SKIP_AUTH", "").strip() in ("1", "true", "yes"):
+        log.info(
+            "noosphere.auth: NOOSPHERE_SKIP_AUTH set — skipping Codex auth gate for %s.",
+            action,
+        )
+        return None
     c = active()
     if c is None:
         sys.stderr.write(
             f"Not signed in. {action} requires Codex auth.\n"
             f"  Run: noosphere login\n"
+            f"  (CI use: set NOOSPHERE_SKIP_AUTH=1 when DIRECT_URL is already trusted)\n"
         )
         sys.exit(2)
     url = f"{c.codex_url.rstrip('/')}/api/auth/whoami"

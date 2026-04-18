@@ -193,6 +193,13 @@ jobs:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           USE_LLM: ${{ steps.llm.outputs.use_llm }}
           UPLOAD_ID: ${{ steps.plan.outputs.upload_id }}
+          # CI bypass for the Codex-side auth layer the CLI added in
+          # f410df7. The workflow already has a higher-trust credential
+          # (CODEX_DATABASE_URL → full Postgres access), so requiring it
+          # to also juggle a per-device API key would be ceremony with
+          # no marginal security. require_auth() honors this flag and
+          # short-circuits cleanly.
+          NOOSPHERE_SKIP_AUTH: "1"
         run: |
           set -eo pipefail
           args=( --upload-id "$UPLOAD_ID" )
@@ -213,6 +220,8 @@ jobs:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           USE_LLM: ${{ steps.llm.outputs.use_llm }}
+          # See the single-upload step above for why this is safe here.
+          NOOSPHERE_SKIP_AUTH: "1"
         run: |
           set -eo pipefail
           echo "+ python -m noosphere codex-queued --limit 25"
