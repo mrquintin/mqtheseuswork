@@ -1,5 +1,6 @@
 import { spawn } from "child_process";
 import { join } from "path";
+import { isNoosphereLikelyUnavailable } from "./pythonRuntime";
 
 const NOOSPHERE_PYTHON = process.env.NOOSPHERE_PYTHON || "python3";
 const NOOSPHERE_SRC_ROOT =
@@ -40,6 +41,13 @@ print(json.dumps(out, default=str))
 function runBridge(stdin: string): Promise<{ ok: boolean; data: unknown; stderr: string }> {
   const dbUrl = process.env.NOOSPHERE_DATABASE_URL;
   if (!dbUrl) {
+    return Promise.resolve({ ok: true, data: [], stderr: "" });
+  }
+  // Belt-and-suspenders: even if NOOSPHERE_DATABASE_URL is set, don't
+  // attempt a Python spawn on a runtime that has no interpreter (Vercel,
+  // Netlify). Return empty data so calling pages render their empty state
+  // instead of surfacing an ENOENT to the user.
+  if (isNoosphereLikelyUnavailable()) {
     return Promise.resolve({ ok: true, data: [], stderr: "" });
   }
   return new Promise((resolve) => {

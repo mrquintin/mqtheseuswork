@@ -1,5 +1,6 @@
 import { spawn } from "child_process";
 import { join } from "path";
+import { isNoosphereLikelyUnavailable } from "./pythonRuntime";
 
 const NOOSPHERE_PYTHON = process.env.NOOSPHERE_PYTHON || "python3";
 const NOOSPHERE_SRC_ROOT =
@@ -94,6 +95,15 @@ function runPythonJson(script: string, stdin?: string): Promise<{
     return Promise.resolve({
       ok: true,
       data: { skipped: true, reason: "NOOSPHERE_DATABASE_URL unset" },
+      stderr: "",
+    });
+  }
+  // See noosphereLiteratureBridge.ts — we don't attempt Python spawn on
+  // serverless runtimes even if the DB URL is set.
+  if (isNoosphereLikelyUnavailable()) {
+    return Promise.resolve({
+      ok: true,
+      data: { skipped: true, reason: "Noosphere CLI not available in this runtime" },
       stderr: "",
     });
   }

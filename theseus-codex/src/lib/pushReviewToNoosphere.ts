@@ -1,5 +1,6 @@
 import { spawn } from "child_process";
 import { join } from "path";
+import { isNoosphereLikelyUnavailable } from "./pythonRuntime";
 
 const NOOSPHERE_PYTHON = process.env.NOOSPHERE_PYTHON || "python3";
 const NOOSPHERE_SRC_ROOT =
@@ -20,6 +21,16 @@ export function pushReviewResolutionToNoosphere(payload: {
   const dbUrl = process.env.NOOSPHERE_DATABASE_URL;
   if (!dbUrl) {
     return Promise.resolve({ ok: true, stderr: "" });
+  }
+  // Same rationale as the other bridges: don't even attempt `spawn` on
+  // serverless runtimes. The resolution has already been persisted to
+  // the Codex Postgres; the Noosphere side-channel is a cache-warm,
+  // not a write-through.
+  if (isNoosphereLikelyUnavailable()) {
+    return Promise.resolve({
+      ok: true,
+      stderr: "skipped: Noosphere CLI not available in this runtime",
+    });
   }
 
   const script = `

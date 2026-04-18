@@ -1,8 +1,12 @@
 import { NextResponse } from "next/server";
-import { spawn } from "child_process";
 import { Prisma } from "@prisma/client";
 import { getFounder } from "@/lib/auth";
 import { db } from "@/lib/db";
+import {
+  runNoospherePython,
+  isNoosphereLikelyUnavailable,
+  NOOSPHERE_UNAVAILABLE_MESSAGE,
+} from "@/lib/pythonRuntime";
 
 // TODO: Migrate shared types to packages/theseus-api-types/ when created
 
@@ -141,26 +145,26 @@ export interface GatedResponse<T = unknown> {
 
 // ─── Rigor Gate ──────────────────────────────────────────
 
-function spawnPython(
+/**
+ * Wrapper around the Noosphere Python CLI used by the Rigor Gate helpers
+ * below. Delegates to `runNoospherePython` so the serverless "no Python
+ * available" case is handled in one place (returns `code: -1` with a
+ * recognisable stderr message callers can surface verbatim).
+ */
+async function spawnPython(
   args: string[],
 ): Promise<{ code: number; stdout: string; stderr: string }> {
-  return new Promise((resolve) => {
-    const proc = spawn("python", ["-m", "noosphere", ...args]);
-    let stdout = "";
-    let stderr = "";
-    proc.stdout.on("data", (d: Buffer) => {
-      stdout += d.toString();
-    });
-    proc.stderr.on("data", (d: Buffer) => {
-      stderr += d.toString();
-    });
-    proc.on("close", (code) =>
-      resolve({ code: code ?? 1, stdout, stderr }),
-    );
-    proc.on("error", () =>
-      resolve({ code: 1, stdout, stderr: "spawn failed" }),
-    );
-  });
+  const res = await runNoospherePython(["-m", "noosphere", ...args]);
+  if (res.skipped) {
+    return { code: -1, stdout: "", stderr: NOOSPHERE_UNAVAILABLE_MESSAGE };
+  }
+  return {
+    code: res.code ?? 1,
+    stdout: res.out,
+    // The helper merges stdout+stderr; good enough for these callers which
+    // only look at the final JSON on stdout when code===0.
+    stderr: res.code === 0 ? "" : res.out,
+  };
 }
 
 export async function submitToRigorGate(

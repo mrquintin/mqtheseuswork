@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { withGated } from "@/lib/api/round3";
+import { callNoosphereJson } from "@/lib/pythonRuntime";
 
 export const POST = withGated("inverse.run", async (req) => {
   const body = (await req.json()) as { conclusionId?: string };
@@ -10,28 +11,13 @@ export const POST = withGated("inverse.run", async (req) => {
     );
   }
 
-  const { spawn } = await import("child_process");
-  const result = await new Promise<{ ok: boolean; data?: unknown; error?: string }>((resolve) => {
-    const proc = spawn("python", [
-      "-m", "noosphere", "inverse-inference", "--conclusion-id", body.conclusionId!,
-    ]);
-    let stdout = "";
-    let stderr = "";
-    proc.stdout.on("data", (d: Buffer) => { stdout += d.toString(); });
-    proc.stderr.on("data", (d: Buffer) => { stderr += d.toString(); });
-    proc.on("close", (code) => {
-      if (code === 0) {
-        try {
-          resolve({ ok: true, data: JSON.parse(stdout) });
-        } catch {
-          resolve({ ok: true, data: stdout });
-        }
-      } else {
-        resolve({ ok: false, error: stderr || "Inverse inference failed" });
-      }
-    });
-    proc.on("error", () => resolve({ ok: false, error: "Failed to spawn process" }));
-  });
-
-  return NextResponse.json(result, { status: result.ok ? 200 : 500 });
+  // Previously this route did its own spawn("python", ...) and returned
+  // `Failed to spawn process` on Vercel. `callNoosphereJson` centralises
+  // that handling: 501 + a clear message when the CLI isn't reachable,
+  // 200 + parsed JSON on success, 500 on non-zero exit.
+  const result = await callNoosphereJson(
+    ["inverse-inference", "--conclusion-id", body.conclusionId],
+    "Inverse inference failed",
+  );
+  return NextResponse.json(result, { status: result.status });
 });

@@ -1,5 +1,6 @@
 import { spawn } from "child_process";
 import { join } from "path";
+import { isNoosphereLikelyUnavailable } from "./pythonRuntime";
 
 const NOOSPHERE_PYTHON = process.env.NOOSPHERE_PYTHON || "python3";
 const NOOSPHERE_SRC_ROOT =
@@ -25,6 +26,10 @@ function runPythonJson(script: string, stdin: string): Promise<{
 }> {
   const dbUrl = process.env.NOOSPHERE_DATABASE_URL;
   if (!dbUrl) {
+    return Promise.resolve({ ok: true, data: [], stderr: "" });
+  }
+  // See noosphereLiteratureBridge.ts.
+  if (isNoosphereLikelyUnavailable()) {
     return Promise.resolve({ ok: true, data: [], stderr: "" });
   }
   return new Promise((resolve) => {

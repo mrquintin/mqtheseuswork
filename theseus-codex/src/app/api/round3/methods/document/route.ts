@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { withGated } from "@/lib/api/round3";
+import { callNoosphereJson } from "@/lib/pythonRuntime";
 
 export const POST = withGated("methods.document", async (req) => {
   const body = (await req.json()) as { name?: string; version?: string };
@@ -10,29 +11,9 @@ export const POST = withGated("methods.document", async (req) => {
     );
   }
 
-  const { spawn } = await import("child_process");
-  const result = await new Promise<{ ok: boolean; data?: unknown; error?: string }>((resolve) => {
-    const proc = spawn("python", [
-      "-m", "noosphere", "docgen", "generate",
-      `--method=${body.name}`, `--version=${body.version}`,
-    ]);
-    let stdout = "";
-    let stderr = "";
-    proc.stdout.on("data", (d: Buffer) => { stdout += d.toString(); });
-    proc.stderr.on("data", (d: Buffer) => { stderr += d.toString(); });
-    proc.on("close", (code) => {
-      if (code === 0) {
-        try {
-          resolve({ ok: true, data: JSON.parse(stdout) });
-        } catch {
-          resolve({ ok: true, data: stdout });
-        }
-      } else {
-        resolve({ ok: false, error: stderr || "Documentation generation failed" });
-      }
-    });
-    proc.on("error", () => resolve({ ok: false, error: "Failed to spawn process" }));
-  });
-
-  return NextResponse.json(result, { status: result.ok ? 200 : 500 });
+  const result = await callNoosphereJson(
+    ["docgen", "generate", `--method=${body.name}`, `--version=${body.version}`],
+    "Documentation generation failed",
+  );
+  return NextResponse.json(result, { status: result.status });
 });
