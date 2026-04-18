@@ -853,8 +853,102 @@ class _GraphNode:
         self.vy = 0.0
 
 
+_DASHBOARD_QSS = """
+QWidget#centralRoot {
+    background-color: #0e0a06;
+    color: #e3c995;
+}
+QWidget#centralRoot QLabel {
+    color: #d4a017;
+}
+QLabel#titleLabel {
+    color: #d4a017;
+    font-size: 22px;
+    font-weight: 600;
+    letter-spacing: 6px;
+}
+QLabel#subtitleLabel {
+    color: #a08868;
+    font-size: 12px;
+    font-style: italic;
+}
+QLabel#statusBadge {
+    color: #7a9a6a;
+    font-size: 11px;
+    letter-spacing: 3px;
+    padding: 4px 10px;
+    border: 1px solid #3e2c13;
+    border-radius: 4px;
+    background-color: #15100a;
+}
+QLabel#paneHeader {
+    color: #d4a017;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 3px;
+    padding: 2px 0;
+}
+QLabel#footerLabel {
+    color: #5a4218;
+    font-size: 10px;
+    letter-spacing: 1px;
+}
+QPlainTextEdit {
+    background-color: #15100a;
+    color: #e3c995;
+    border: 1px solid #3e2c13;
+    border-radius: 6px;
+    font-family: "SF Mono", "Menlo", "Consolas", monospace;
+    font-size: 12px;
+    padding: 10px 12px;
+    selection-background-color: #5a4218;
+    selection-color: #f5e4c5;
+}
+QFrame#paneFrame {
+    background-color: transparent;
+    border: none;
+}
+QPushButton#recordBtn {
+    background-color: #d4a017;
+    color: #0e0a06;
+    border: none;
+    border-radius: 8px;
+    padding: 14px 40px;
+    font-size: 13px;
+    font-weight: 700;
+    letter-spacing: 4px;
+}
+QPushButton#recordBtn:hover { background-color: #efb82a; }
+QPushButton#recordBtn:disabled {
+    background-color: #5a4218;
+    color: #2a1e0c;
+}
+QPushButton#recordBtn[recording="true"] {
+    background-color: #c0392b;
+    color: #f5e4c5;
+}
+QPushButton#recordBtn[recording="true"]:hover {
+    background-color: #e04a3b;
+}
+"""
+
+
 class ThreePaneDialecticWindow(QMainWindow):
-    """Transcript (left), claim graph (center), alerts (right)."""
+    """Transcript (left), claim graph (center), alerts (right).
+
+    Redesigned for clarity — the window opens instantly, shows a
+    beautiful dark-amber UI that matches the Theseus Codex aesthetic,
+    runs a preflight diagnostic at startup (audio / torch /
+    faster-whisper availability), and gives unmistakable feedback at
+    every step: Idle → Initializing → Loading models → Listening →
+    Stopped, with errors routed to the Alerts pane (never silent).
+
+    Expensive constructors (VADRingCapture triggers a torch.hub
+    Silero VAD load; SegmentQueueTranscriber's first transcribe
+    triggers a faster-whisper download) are deferred until the user
+    clicks Begin Session, and are run on a worker thread so the
+    main event loop stays responsive.
+    """
 
     def __init__(
         self,
@@ -867,28 +961,25 @@ class ThreePaneDialecticWindow(QMainWindow):
         super().__init__()
         self.cfg = config
         self._loop = loop
+        self._whisper_model_name = whisper_model
+        self._whisper_device = whisper_device
+
         ui = config.ui
         self.setWindowTitle(ui.window_title + " — Live")
-        self.setMinimumSize(1200, 720)
+        self.setMinimumSize(1200, 760)
 
-        # Queue capacity: previously 64, which on 16 kHz speech bursts can
-        # fill in a few seconds if the transcriber stalls (cold-start model
-        # load, GPU stall). Bumping to 256 gives us roughly a minute of
-        # headroom while still being bounded.
-        self._segment_q: queue.Queue = queue.Queue(maxsize=256)
-        self._trans_q: asyncio.Queue = asyncio.Queue()
-        self._session_q: asyncio.Queue = asyncio.Queue()
-        self._cap = VADRingCapture(config.audio, self._segment_q)
-        self._transcriber = SegmentQueueTranscriber(
-            self._segment_q,
-            self._trans_q,
-            loop,
-            model=whisper_model,
-            device=whisper_device,
-        )
-        self._analyzer = DialecticSessionAnalyzer(
-            config.analysis, self._session_q, session_writer=None
-        )
+        # Heavy components are NOT created here. Constructing
+        # VADRingCapture chains through SileroVADSegmenter, which
+        # calls torch.hub.load() — that can block the main thread
+        # for tens of seconds on first launch (or minutes on slow
+        # networks). Deferring them keeps the window snappy and
+        # lets us show a status indicator during init.
+        self._segment_q: queue.Queue | None = None
+        self._trans_q: asyncio.Queue | None = None
+        self._session_q: asyncio.Queue | None = None
+        self._cap: VADRingCapture | None = None
+        self._transcriber: SegmentQueueTranscriber | None = None
+        self._analyzer: DialecticSessionAnalyzer | None = None
         self._interlocutor: InterlocutorController | None = None
         self._session_id: str = ""
         self._nodes: dict[str, _GraphNode] = {}
@@ -896,133 +987,502 @@ class ThreePaneDialecticWindow(QMainWindow):
         self._pending_partial: str = ""
         self._transcript_lines: list[str] = []
         self._tasks: list[asyncio.Task] = []
+        self._recording = False
+        self._initializing = False
+        # Preflight results populated by ``_run_preflight`` and shown
+        # in the Alerts pane; also used to grey out the Begin button
+        # if a critical dependency is missing.
+        self._preflight_ok = True
 
+        self._build_ui()
+        self._run_preflight()
+
+    # ------------------------------------------------------------------
+    # UI construction
+    # ------------------------------------------------------------------
+
+    def _build_ui(self) -> None:
         central = QWidget()
+        central.setObjectName("centralRoot")
+        central.setStyleSheet(_DASHBOARD_QSS)
         self.setCentralWidget(central)
-        central.setStyleSheet(f"background-color: {ui.bg_color};")
-        h = QHBoxLayout(central)
-        h.setContentsMargins(10, 10, 10, 10)
-        h.setSpacing(10)
+
+        root = QVBoxLayout(central)
+        root.setContentsMargins(28, 22, 28, 18)
+        root.setSpacing(14)
+
+        # ── Header: title + status badge ───────────────────────────
+        header = QHBoxLayout()
+        header.setContentsMargins(0, 0, 0, 0)
+        title = QLabel("DIALECTIC")
+        title.setObjectName("titleLabel")
+        header.addWidget(title)
+        header.addStretch()
+        self._status_label = QLabel("● READY")
+        self._status_label.setObjectName("statusBadge")
+        header.addWidget(self._status_label)
+        root.addLayout(header)
+
+        subtitle = QLabel(
+            "Live conversation analysis — transcript, claim graph, and "
+            "contradiction alerts. Click BEGIN SESSION to start recording."
+        )
+        subtitle.setObjectName("subtitleLabel")
+        subtitle.setWordWrap(True)
+        root.addWidget(subtitle)
+
+        # ── Centered Begin/End button ──────────────────────────────
+        btn_row = QHBoxLayout()
+        btn_row.setContentsMargins(0, 6, 0, 6)
+        btn_row.addStretch()
+        self._rec_btn = QPushButton("BEGIN SESSION")
+        self._rec_btn.setObjectName("recordBtn")
+        self._rec_btn.setProperty("recording", "false")
+        self._rec_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._rec_btn.setMinimumHeight(52)
+        self._rec_btn.setMinimumWidth(260)
+        self._rec_btn.clicked.connect(self._toggle)
+        btn_row.addWidget(self._rec_btn)
+        btn_row.addStretch()
+        root.addLayout(btn_row)
+
+        # ── Three-pane body ────────────────────────────────────────
+        body = QHBoxLayout()
+        body.setSpacing(14)
+        body.setContentsMargins(0, 4, 0, 0)
 
         # Left: transcript
-        left = QFrame()
-        left_l = QVBoxLayout(left)
-        left_l.addWidget(QLabel("TRANSCRIPT"))
         self._transcript = QPlainTextEdit()
         self._transcript.setReadOnly(True)
-        self._transcript.setStyleSheet("font-family: 'SF Mono', monospace; font-size: 11px;")
-        left_l.addWidget(self._transcript)
-        h.addWidget(left, stretch=2)
+        self._transcript.setPlainText(
+            "Waiting for audio input…\n\n"
+            "Once you click BEGIN SESSION, speech will appear here line\n"
+            "by line. Partial hypotheses appear first and are refined as\n"
+            "the transcription model converges on each utterance.\n\n"
+            "Recordings are saved to\n"
+            f"{self.cfg.recordings_dir}\n"
+        )
+        left_frame = self._wrap_pane("TRANSCRIPT", self._transcript)
+        body.addWidget(left_frame, stretch=2)
 
-        # Center: graph
-        center = QFrame()
-        cl = QVBoxLayout(center)
-        cl.addWidget(QLabel("CLAIM GRAPH"))
+        # Middle: claim graph
         self._plot = pg.PlotWidget()
-        self._plot.showGrid(x=True, y=True, alpha=0.2)
-        self._scatter = pg.ScatterPlotItem(size=10, pen=pg.mkPen("b"), brush=pg.mkBrush(80, 120, 200, 200))
+        self._plot.setBackground("#15100a")
+        self._plot.showGrid(x=True, y=True, alpha=0.15)
+        # Amber-tinted axes to match the dashboard palette.
+        for side in ("left", "bottom", "right", "top"):
+            axis = self._plot.getAxis(side)
+            try:
+                axis.setPen(pg.mkPen("#3e2c13"))
+                axis.setTextPen(pg.mkPen("#8a7352"))
+            except Exception:
+                pass
+        self._scatter = pg.ScatterPlotItem(
+            size=14,
+            pen=pg.mkPen("#d4a017"),
+            brush=pg.mkBrush(212, 160, 23, 200),
+        )
         self._plot.addItem(self._scatter)
-        self._line_plot = pg.PlotDataItem(pen=pg.mkPen(200, 80, 80, width=2))
+        self._line_plot = pg.PlotDataItem(pen=pg.mkPen("#c0392b", width=2))
         self._plot.addItem(self._line_plot)
-        cl.addWidget(self._plot)
-        h.addWidget(center, stretch=3)
+        center_frame = self._wrap_pane("CLAIM GRAPH", self._plot)
+        body.addWidget(center_frame, stretch=3)
 
         # Right: alerts
-        right = QFrame()
-        rl = QVBoxLayout(right)
-        rl.addWidget(QLabel("ALERTS"))
         self._alerts = QPlainTextEdit()
         self._alerts.setReadOnly(True)
-        self._alerts.setStyleSheet("font-family: 'Helvetica Neue'; font-size: 11px;")
-        rl.addWidget(self._alerts)
-        h.addWidget(right, stretch=2)
+        right_frame = self._wrap_pane("ALERTS", self._alerts)
+        body.addWidget(right_frame, stretch=2)
 
+        root.addLayout(body, stretch=1)
+
+        # ── Footer ─────────────────────────────────────────────────
+        footer = QLabel(
+            f"Dialectic · recordings → {self.cfg.recordings_dir} · "
+            "⌘Q to quit"
+        )
+        footer.setObjectName("footerLabel")
+        footer.setWordWrap(True)
+        root.addWidget(footer)
+
+        # 1 Hz redraw timer (physics + partial transcript flush).
         self._timer = QTimer(self)
         self._timer.setInterval(1000)
         self._timer.timeout.connect(self._tick_ui)
-        self._recording = False
 
-        # Record control
-        #
-        # `insertWidget(index, widget)` only accepts QWidget, but `bar` is
-        # a QHBoxLayout (for grouping the button + potential future sibling
-        # controls on the same row). The correct method for inserting a
-        # nested layout into another layout is `insertLayout`. PyQt5 used
-        # to silently accept the wrong call; PyQt6 raises TypeError, which
-        # is what "Dialectic doesn't open" looked like on the user side.
-        bar = QHBoxLayout()
-        self._rec_btn = QPushButton("Start session")
-        self._rec_btn.clicked.connect(self._toggle)
-        bar.addWidget(self._rec_btn)
-        left_l.insertLayout(0, bar)
+    def _wrap_pane(self, header_text: str, widget: QWidget) -> QFrame:
+        frame = QFrame()
+        frame.setObjectName("paneFrame")
+        layout = QVBoxLayout(frame)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(6)
+        header = QLabel(header_text)
+        header.setObjectName("paneHeader")
+        layout.addWidget(header)
+        layout.addWidget(widget, stretch=1)
+        return frame
+
+    # ------------------------------------------------------------------
+    # Status + alerts helpers
+    # ------------------------------------------------------------------
+
+    def _set_status(self, text: str, color: str = "#7a9a6a") -> None:
+        """Update the top-right status badge.
+
+        Colors by convention:
+          * ``#7a9a6a`` (olive green) — Ready / Listening
+          * ``#d4a017`` (amber)       — Initializing / Processing
+          * ``#c0392b`` (red)         — Error / Stopped with error
+          * ``#8a7352`` (muted)       — Stopped cleanly
+        """
+        self._status_label.setText(text)
+        self._status_label.setStyleSheet(
+            f"color: {color}; font-size: 11px; letter-spacing: 3px; "
+            f"padding: 4px 10px; border: 1px solid #3e2c13; "
+            f"border-radius: 4px; background-color: #15100a;"
+        )
+
+    def _log_alert(self, message: str, *, level: str = "info") -> None:
+        """Append a timestamped line to the Alerts pane.
+
+        Levels: ``info`` (default amber-dim), ``ok`` (olive),
+        ``warn`` (amber), ``error`` (red). The QPlainTextEdit uses
+        one style for the whole widget, so we mark the severity
+        inline with a leading sigil instead.
+        """
+        sigil = {"info": "·", "ok": "✓", "warn": "⚠", "error": "✕"}.get(
+            level, "·"
+        )
+        ts = datetime.datetime.now().strftime("%H:%M:%S")
+        self._alerts.appendPlainText(f"{ts}  {sigil}  {message}")
+
+    # ------------------------------------------------------------------
+    # Preflight diagnostics
+    # ------------------------------------------------------------------
+
+    def _run_preflight(self) -> None:
+        """Check critical dependencies; write results to the Alerts pane.
+
+        Runs synchronously on startup but every individual check is
+        cheap (no model loads). If a *critical* dep is missing we
+        disable the Begin Session button and surface instructions.
+        """
+        self._alerts.setPlainText("")
+        self._log_alert("Dialectic startup — running preflight checks")
+
+        critical_ok = True
+
+        # sounddevice + at least one input device
+        try:
+            import sounddevice as sd  # noqa: F401
+            devs = [
+                d for d in sd.query_devices()
+                if d.get("max_input_channels", 0) > 0
+            ]
+            if devs:
+                default_name = ""
+                try:
+                    default_idx = sd.default.device[0]
+                    if 0 <= default_idx < len(sd.query_devices()):
+                        default_name = str(
+                            sd.query_devices(default_idx)["name"]
+                        )
+                except Exception:
+                    pass
+                self._log_alert(
+                    f"audio    · {len(devs)} input device(s) detected"
+                    + (f" · default: {default_name}" if default_name else ""),
+                    level="ok",
+                )
+            else:
+                critical_ok = False
+                self._log_alert(
+                    "audio    · no input devices found. On macOS, grant "
+                    "Microphone permission in System Settings → Privacy "
+                    "& Security → Microphone, then restart Dialectic.",
+                    level="error",
+                )
+        except ImportError as e:
+            critical_ok = False
+            self._log_alert(
+                f"audio    · sounddevice not installed ({e}). "
+                "Install with: pip install sounddevice",
+                level="error",
+            )
+        except Exception as e:
+            critical_ok = False
+            self._log_alert(
+                f"audio    · device query failed: {type(e).__name__}: {e}",
+                level="error",
+            )
+
+        # faster-whisper
+        try:
+            import faster_whisper  # noqa: F401
+            self._log_alert(
+                f"whisper  · faster-whisper available "
+                f"(model={self._whisper_model_name} device={self._whisper_device})",
+                level="ok",
+            )
+        except ImportError:
+            critical_ok = False
+            self._log_alert(
+                "whisper  · faster-whisper not installed. "
+                "Install with: pip install faster-whisper",
+                level="error",
+            )
+
+        # torch (needed for Silero VAD; energy fallback works without it
+        # but quality drops sharply, so warn loudly rather than fail)
+        try:
+            import torch
+            self._log_alert(
+                f"vad      · torch {torch.__version__} available for Silero VAD",
+                level="ok",
+            )
+        except ImportError:
+            self._log_alert(
+                "vad      · torch not installed — will fall back to "
+                "RMS-energy segmentation (lower quality). Install torch "
+                "for Silero VAD if speech segmentation seems off.",
+                level="warn",
+            )
+
+        # Cloud upload status
+        if cloud_is_configured():
+            self._log_alert(
+                "cloud    · DIALECTIC_CLOUD_URL + _API_KEY set — "
+                "sessions will auto-upload to the Codex on stop",
+                level="ok",
+            )
+        else:
+            self._log_alert(
+                "cloud    · DIALECTIC_CLOUD_URL / _API_KEY not set — "
+                "sessions stay local. Set both env vars to auto-upload.",
+                level="info",
+            )
+
+        self._preflight_ok = critical_ok
+        if critical_ok:
+            self._set_status("● READY", color="#7a9a6a")
+            self._log_alert(
+                "preflight complete — click BEGIN SESSION to start", level="ok"
+            )
+        else:
+            self._set_status("● NOT READY", color="#c0392b")
+            self._rec_btn.setEnabled(False)
+            self._rec_btn.setToolTip(
+                "A critical dependency is missing. See the Alerts pane "
+                "for the fix."
+            )
+            self._log_alert(
+                "preflight FAILED — fix the issues above and restart",
+                level="error",
+            )
+
+    # ------------------------------------------------------------------
+    # Session lifecycle
+    # ------------------------------------------------------------------
 
     def _toggle(self) -> None:
+        if self._initializing:
+            return  # already in the middle of a start; ignore clicks
         if not self._recording:
             self._start_session()
         else:
             self._stop_session()
 
     def _start_session(self) -> None:
-        self._recording = True
-        self._rec_btn.setText("Stop session")
+        """Kick off a session; heavy construction runs off the UI thread.
+
+        The order of events the user sees:
+          1. Click BEGIN SESSION → button disables, status → INITIALIZING
+          2. Worker thread instantiates VADRingCapture (triggers Silero VAD
+             download on first run) and SegmentQueueTranscriber (triggers
+             faster-whisper model download on first use).
+          3. Back on the main thread, we start the audio stream, launch
+             the pump tasks, and flip status → LISTENING.
+
+        If any step fails, the error goes into the Alerts pane with a
+        clear message, status flips to ERROR, and the button reverts
+        so the user can retry.
+        """
+        if not self._preflight_ok:
+            self._log_alert(
+                "Cannot start — preflight failed. See earlier errors.",
+                level="error",
+            )
+            return
+
+        self._initializing = True
+        self._rec_btn.setEnabled(False)
+        self._rec_btn.setText("INITIALIZING…")
+        self._set_status("● INITIALIZING", color="#d4a017")
+
         ts = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
         self._session_id = f"session_{ts}"
-        from .session_writer import SessionJSONLWriter
-
-        # Touch the JSONL so cloud upload always has a payload to send,
-        # even for sessions that never extract a formal claim. Without
-        # this, short or silent sessions just vanished on stop().
-        jsonl_path = self.cfg.recordings_dir / f"{self._session_id}.jsonl"
-        jsonl_path.parent.mkdir(parents=True, exist_ok=True)
-        jsonl_path.touch(exist_ok=True)
-        self._analyzer.set_session_writer(SessionJSONLWriter(jsonl_path))
-
-        # Wire the interlocutor. In the three-pane default path this was
-        # previously NULL, so nothing ever wrote a reflection bundle and
-        # the interlocutor's prediction / contradiction follow-ups never
-        # fired. We keep it in SILENT mode by default — consent still
-        # happens through the env / UI — but at least the plumbing exists
-        # so future mode changes just work.
-        try:
-            self._interlocutor = InterlocutorController(
-                self.cfg.interlocutor,
-                session_id=self._session_id,
-                log_dir=self.cfg.recordings_dir,
-            )
-            self._interlocutor.set_mode(InterlocutorMode.SILENT)
-        except Exception as e:
-            # If the interlocutor construction fails, keep going — the
-            # session still records and transcribes.
-            import logging as _logging
-            _logging.getLogger(__name__).warning(
-                "ThreePane: failed to construct interlocutor: %s", e
-            )
-            self._interlocutor = None
-
-        self._cap.start()
-        self._transcriber.start()
-        self._alerts.appendPlainText(
-            f"Session {self._session_id} started.\n"
-            "Loading faster-whisper + NLI models (first run can take ~30s)…\n"
+        self._log_alert(f"starting session {self._session_id}")
+        self._log_alert(
+            "initializing audio capture + loading models "
+            "(first run can take 10–30s)…"
         )
-        self._tasks.append(asyncio.ensure_future(self._pump_transcription()))
-        self._tasks.append(asyncio.ensure_future(self._pump_session()))
-        self._timer.start()
+
+        import threading as _threading
+
+        def _worker() -> None:
+            """Heavy one-time construction — runs off the UI thread."""
+            try:
+                # These constructors can each block for seconds on cold
+                # start: VADRingCapture → torch.hub.load Silero VAD;
+                # SegmentQueueTranscriber will download faster-whisper
+                # weights on first .start().
+                segment_q: queue.Queue = queue.Queue(maxsize=256)
+                trans_q: asyncio.Queue = asyncio.Queue()
+                session_q: asyncio.Queue = asyncio.Queue()
+                cap = VADRingCapture(self.cfg.audio, segment_q)
+                transcriber = SegmentQueueTranscriber(
+                    segment_q,
+                    trans_q,
+                    self._loop,
+                    model=self._whisper_model_name,
+                    device=self._whisper_device,
+                )
+                analyzer = DialecticSessionAnalyzer(
+                    self.cfg.analysis, session_q, session_writer=None
+                )
+            except Exception as exc:
+                # Bounce back to UI thread to report failure and reset.
+                QTimer.singleShot(
+                    0, lambda e=exc: self._on_init_failed(e)
+                )
+                return
+
+            # Success — hand the freshly constructed components back to
+            # the UI thread and finish starting there (Qt objects have
+            # thread affinity, and sounddevice is friendliest when its
+            # InputStream is opened on the owning thread).
+            QTimer.singleShot(
+                0,
+                lambda: self._finish_start_on_ui_thread(
+                    segment_q, trans_q, session_q, cap, transcriber, analyzer
+                ),
+            )
+
+        _threading.Thread(
+            target=_worker, name="DialecticInit", daemon=True
+        ).start()
+
+    def _on_init_failed(self, exc: BaseException) -> None:
+        """Recover from a failure during session initialization."""
+        self._initializing = False
+        self._recording = False
+        self._rec_btn.setEnabled(True)
+        self._rec_btn.setText("BEGIN SESSION")
+        self._rec_btn.setProperty("recording", "false")
+        self._rec_btn.style().unpolish(self._rec_btn)
+        self._rec_btn.style().polish(self._rec_btn)
+        self._set_status("● ERROR", color="#c0392b")
+        self._log_alert(
+            f"init failed: {type(exc).__name__}: {exc}", level="error"
+        )
+        # Detailed traceback to stderr for developers; the UI already
+        # shows the user-friendly version above.
+        import traceback as _tb
+        _tb.print_exc()
+
+    def _finish_start_on_ui_thread(
+        self,
+        segment_q: queue.Queue,
+        trans_q: asyncio.Queue,
+        session_q: asyncio.Queue,
+        cap: VADRingCapture,
+        transcriber: SegmentQueueTranscriber,
+        analyzer: DialecticSessionAnalyzer,
+    ) -> None:
+        """Final phase of start — runs on the UI/event-loop thread."""
+        try:
+            self._segment_q = segment_q
+            self._trans_q = trans_q
+            self._session_q = session_q
+            self._cap = cap
+            self._transcriber = transcriber
+            self._analyzer = analyzer
+
+            from .session_writer import SessionJSONLWriter
+
+            # Always touch the JSONL so cloud-upload has something to
+            # send even if the session yields zero formal claims.
+            jsonl_path = (
+                self.cfg.recordings_dir / f"{self._session_id}.jsonl"
+            )
+            jsonl_path.parent.mkdir(parents=True, exist_ok=True)
+            jsonl_path.touch(exist_ok=True)
+            analyzer.set_session_writer(SessionJSONLWriter(jsonl_path))
+
+            # Wire the interlocutor (SILENT mode default — participant
+            # consent is still required to enable anything louder).
+            try:
+                self._interlocutor = InterlocutorController(
+                    self.cfg.interlocutor,
+                    session_id=self._session_id,
+                    log_dir=self.cfg.recordings_dir,
+                )
+                self._interlocutor.set_mode(InterlocutorMode.SILENT)
+            except Exception as e:
+                self._log_alert(
+                    f"interlocutor construction failed "
+                    f"(continuing without): {type(e).__name__}: {e}",
+                    level="warn",
+                )
+                self._interlocutor = None
+
+            cap.start()
+            transcriber.start()
+            self._tasks.append(
+                asyncio.ensure_future(self._pump_transcription())
+            )
+            self._tasks.append(asyncio.ensure_future(self._pump_session()))
+            self._timer.start()
+
+            self._recording = True
+            self._initializing = False
+            self._rec_btn.setEnabled(True)
+            self._rec_btn.setText("END SESSION")
+            self._rec_btn.setProperty("recording", "true")
+            self._rec_btn.style().unpolish(self._rec_btn)
+            self._rec_btn.style().polish(self._rec_btn)
+            self._set_status("● LISTENING", color="#7a9a6a")
+            self._log_alert("listening — start speaking", level="ok")
+            # Replace the idle transcript placeholder with a fresh pane.
+            self._transcript.setPlainText("")
+            self._transcript_lines = []
+        except Exception as exc:
+            self._on_init_failed(exc)
 
     def _stop_session(self) -> None:
+        self._set_status("● STOPPING", color="#d4a017")
         self._recording = False
-        self._rec_btn.setText("Start session")
-        self._timer.stop()
-        try:
-            self._cap.stop()
-        except Exception as e:
-            import logging as _logging
-            _logging.getLogger(__name__).warning("ThreePane: capture stop raised: %s", e)
-        try:
-            self._transcriber.stop()
-        except Exception as e:
-            import logging as _logging
-            _logging.getLogger(__name__).warning("ThreePane: transcriber stop raised: %s", e)
+
+        if self._timer is not None:
+            self._timer.stop()
+
+        if self._cap is not None:
+            try:
+                self._cap.stop()
+            except Exception as e:
+                self._log_alert(
+                    f"audio stop raised: {type(e).__name__}: {e}",
+                    level="warn",
+                )
+        if self._transcriber is not None:
+            try:
+                self._transcriber.stop()
+            except Exception as e:
+                self._log_alert(
+                    f"transcriber stop raised: {type(e).__name__}: {e}",
+                    level="warn",
+                )
+
         for t in self._tasks:
             t.cancel()
         self._tasks.clear()
@@ -1032,17 +1492,33 @@ class ThreePaneDialecticWindow(QMainWindow):
             try:
                 self._interlocutor.save_reflection_bundle()
             except Exception as e:
-                import logging as _logging
-                _logging.getLogger(__name__).warning(
-                    "ThreePane: reflection save raised: %s", e
+                self._log_alert(
+                    f"reflection save raised: {type(e).__name__}: {e}",
+                    level="warn",
                 )
             self._interlocutor = None
 
-        status = f"Session {sid} stopped."
-        if sid and cloud_is_configured():
-            upload_session_async(sid, self.cfg.recordings_dir)
-            status += " Cloud upload started."
-        self._alerts.appendPlainText(status + "\n")
+        self._rec_btn.setText("BEGIN SESSION")
+        self._rec_btn.setProperty("recording", "false")
+        self._rec_btn.style().unpolish(self._rec_btn)
+        self._rec_btn.style().polish(self._rec_btn)
+        self._set_status("● STOPPED", color="#8a7352")
+
+        if sid:
+            self._log_alert(f"session {sid} stopped", level="ok")
+            if cloud_is_configured():
+                try:
+                    upload_session_async(sid, self.cfg.recordings_dir)
+                    self._log_alert(
+                        "cloud upload started (background thread)",
+                        level="info",
+                    )
+                except Exception as e:
+                    self._log_alert(
+                        f"cloud upload failed to start: "
+                        f"{type(e).__name__}: {e}",
+                        level="warn",
+                    )
 
     async def _pump_transcription(self) -> None:
         while True:
@@ -1084,8 +1560,10 @@ class ThreePaneDialecticWindow(QMainWindow):
         if se.kind == SessionEventKind.CONTRADICTION_ALERT:
             a: ContradictionAlert = se.data["alert"]
             self._edges.append((a.claim_a_id, a.claim_b_id))
-            self._alerts.appendPlainText(
-                f"Contradiction ({a.score:.0%}): {a.text_a[:60]}… vs {a.text_b[:60]}…\n"
+            self._log_alert(
+                f"contradiction ({a.score:.0%}): "
+                f"\"{a.text_a[:50]}…\" vs \"{a.text_b[:50]}…\"",
+                level="warn",
             )
             # Feed into the interlocutor so it can (in active modes) surface
             # a contradiction prompt to the hosts. In SILENT mode this is a
@@ -1109,8 +1587,9 @@ class ThreePaneDialecticWindow(QMainWindow):
                     )
             return
         if se.kind == SessionEventKind.TOPIC_SHIFT:
-            self._alerts.appendPlainText(
-                f"Topic shift → {se.data.get('topic_cluster_id', '')}\n"
+            self._log_alert(
+                f"topic shift → {se.data.get('topic_cluster_id', '')}",
+                level="info",
             )
 
     def _tick_ui(self) -> None:
