@@ -84,6 +84,55 @@ const JITTER: readonly (readonly [number, number])[] = [
   [0, 1.0],
 ] as const;
 
+/**
+ * Resolve a CSS color string to a concrete `rgb(…)` / `rgba(…)` value that
+ * the Canvas 2D `fillStyle` setter will accept.
+ *
+ * WHY: Canvas `fillStyle` does NOT resolve CSS custom properties. Assigning
+ * `ctx.fillStyle = "var(--amber)"` is silently rejected by the browser —
+ * fillStyle retains its previous value (which on a fresh canvas is the
+ * default `#000000` black). The net effect: every ASCII glyph in the whole
+ * codex was being drawn in pure black over a dark page and reading as
+ * invisible. This helper makes all amber-coloured components actually
+ * amber.
+ *
+ * HOW: create an off-DOM element (via the output canvas's parent), set its
+ * `color` to the requested value, append briefly, read `getComputedStyle`,
+ * remove. This works for `var(--x)`, named colours, hex, hsl, rgb, and
+ * anything else the browser natively understands.
+ */
+function resolveCssColor(value: string, anchor: Element | null): string {
+  if (!value || value === "transparent") return value;
+  if (typeof window === "undefined" || typeof document === "undefined") {
+    return value;
+  }
+  // Fast path: the value is already a concrete color, no resolution needed.
+  // (Avoids a DOM round-trip on every re-render for the common case where
+  // the caller passed a hex/rgb/rgba/hsl string directly.)
+  if (
+    /^#[0-9a-f]{3,8}$/i.test(value) ||
+    value.startsWith("rgb(") ||
+    value.startsWith("rgba(") ||
+    value.startsWith("hsl(") ||
+    value.startsWith("hsla(")
+  ) {
+    return value;
+  }
+  try {
+    const probe = document.createElement("span");
+    probe.style.color = value;
+    probe.style.display = "none";
+    // Anchor inside the tree that hosts the canvas so the right scope's
+    // custom properties (e.g. data-theme="dark" overrides) resolve.
+    (anchor?.parentElement ?? document.body).appendChild(probe);
+    const resolved = getComputedStyle(probe).color;
+    probe.remove();
+    return resolved || value;
+  } catch {
+    return value;
+  }
+}
+
 export default function AsciiCanvas({
   cols,
   rows,
@@ -102,6 +151,13 @@ export default function AsciiCanvas({
   const tableRef = useRef<readonly ShapeEntry[] | null>(null);
   const renderRef = useRef(render);
   renderRef.current = render;
+
+  // Resolved colours — concrete `rgb(...)` strings usable by Canvas.
+  // Updated on mount + whenever the `color` / `background` props change.
+  // We fall back to a hard-coded amber so we never render a truly black
+  // scene even if the probe somehow fails (e.g. detached DOM).
+  const fillRef = useRef<string>("rgb(233, 163, 56)");
+  const bgRef = useRef<string>("transparent");
 
   const width = cols * CELL_W;
   const height = rows * CELL_H;
@@ -127,6 +183,38 @@ export default function AsciiCanvas({
     };
   }, []);
 
+  // Resolve the CSS colour props to concrete rgb() strings whenever they
+  // change. Also runs once on mount. We hook this to `outputRef.current`
+  // as the DOM anchor so the resolution picks up any ancestor-scoped
+  // custom-property overrides (e.g. a section with its own `--amber`).
+  useEffect(() => {
+    fillRef.current = resolveCssColor(color, outputRef.current);
+    bgRef.current =
+      background === "transparent"
+        ? "transparent"
+        : resolveCssColor(background, outputRef.current);
+  }, [color, background]);
+
+  // Re-resolve on theme changes. `data-theme` on <html> flips between
+  // dark and light; each scope has its own `--amber` value, so without
+  // this, toggling theme would leave the ASCII frozen at the previous
+  // amber.
+  useEffect(() => {
+    if (typeof document === "undefined") return;
+    const obs = new MutationObserver(() => {
+      fillRef.current = resolveCssColor(color, outputRef.current);
+      bgRef.current =
+        background === "transparent"
+          ? "transparent"
+          : resolveCssColor(background, outputRef.current);
+    });
+    obs.observe(document.documentElement, {
+      attributes: true,
+      attributeFilter: ["data-theme", "class"],
+    });
+    return () => obs.disconnect();
+  }, [color, background]);
+
   const drawFrame = useCallback(
     (timeMs: number) => {
       const out = outputRef.current;
@@ -147,13 +235,18 @@ export default function AsciiCanvas({
         typeof window !== "undefined" ? window.devicePixelRatio || 1 : 1;
       outCtx.save();
       outCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
-      if (background !== "transparent") {
-        outCtx.fillStyle = background;
+      // Use the resolved colour refs, NOT the raw props. Passing
+      // `var(--amber)` directly to `fillStyle` would be silently rejected
+      // by the browser and leave the glyphs drawn in default-black —
+      // which is exactly the bug we're fixing here.
+      const resolvedBg = bgRef.current;
+      if (resolvedBg !== "transparent") {
+        outCtx.fillStyle = resolvedBg;
         outCtx.fillRect(0, 0, width, height);
       } else {
         outCtx.clearRect(0, 0, width, height);
       }
-      outCtx.fillStyle = color;
+      outCtx.fillStyle = fillRef.current;
       outCtx.font = `${Math.floor(CELL_H * 0.85)}px "IBM Plex Mono", monospace`;
       outCtx.textBaseline = "middle";
       outCtx.textAlign = "center";
@@ -199,7 +292,11 @@ export default function AsciiCanvas({
 
       outCtx.restore();
     },
-    [background, color, contrast, cols, rows, width, height],
+    // `color` and `background` are intentionally absent — their resolved
+    // values are read from `fillRef` / `bgRef` at draw time. Including
+    // them here would rebuild the callback every theme change (and
+    // interrupt the animation frame loop needlessly).
+    [contrast, cols, rows, width, height],
   );
 
   useEffect(() => {
