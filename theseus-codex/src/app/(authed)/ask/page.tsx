@@ -2,13 +2,25 @@ import AskForm from "./AskForm";
 import SculptureBackdrop from "@/components/SculptureBackdrop";
 
 /**
- * Ask the Codex. This is the RAG-ish end-user surface for the /api/ask
- * endpoint: type a question, see an answer grounded in the firm's
- * Conclusion corpus, with inline citations.
+ * Ask the Codex. RAG surface for the /api/ask endpoint: type a
+ * question, see a grounded answer with inline source citations.
+ *
+ * Backend: Claude Opus 4.7 (configurable via ASK_LLM_MODEL) with
+ * retrieval-augmented context drawn from two stores:
+ *   - Firm Conclusions: atomic claims Noosphere has distilled from
+ *     previous uploads (cited as [C:<id-prefix>]).
+ *   - Upload excerpts: paragraph-sized chunks retrieved from raw
+ *     transcripts, essays, and session text by keyword-overlap
+ *     scoring (cited as [U:<title>]).
+ *
+ * The oracle ALWAYS answers. If nothing in the corpus applies, it
+ * answers from general knowledge with a clear "not found in the
+ * firm's corpus" preamble. See api/ask/route.ts for the full prompt
+ * and retrieval rules.
  *
  * Patron sculpture: the Discobolus (British Museum) on the right —
- * the discus thrower captured in resolved motion, fitting for the page
- * where a question becomes an answer.
+ * the discus thrower captured in resolved motion, fitting for the
+ * page where a question becomes an answer.
  */
 export default function AskPage() {
   return (

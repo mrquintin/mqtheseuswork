@@ -1,63 +1,266 @@
 import { NextResponse } from "next/server";
 import { getFounderFromAuth } from "@/lib/apiKeyAuth";
 import { db } from "@/lib/db";
+import { sanitizeAndCap } from "@/lib/sanitizeText";
 
 /**
- * Ask the Codex.
+ * Ask the Codex — grounded RAG query surface.
  *
- * The central value proposition of the system: "upload your material,
- * then ask the LLM questions grounded in what you've uploaded." This
- * endpoint is the minimum viable realisation of that:
+ * The central value proposition of the system: the founder asks a
+ * question; the oracle answers using what the firm has uploaded,
+ * citing specific sources. Previously this endpoint only had access
+ * to `Conclusion` rows (atomic claims Noosphere has distilled from
+ * uploads) and refused to answer if the firm hadn't recorded a
+ * position. That made it feel brittle — a firm with 3 conclusions
+ * couldn't ask anything beyond those 3 statements.
  *
- *   1. Authenticate (cookie session OR Bearer API key — same as /api/upload).
- *   2. Collect the organisation's Conclusion rows. These are the atomic
- *      claims that `noosphere ingest-from-codex` has distilled from
- *      every previous upload — already filtered, classified, and
- *      attributed. Much denser than raw upload text.
- *   3. Build a grounded prompt: "Here are the firm's recorded beliefs.
- *      Answer ONLY from them. If the firm hasn't said, say so."
- *   4. Call OpenAI. Return the answer + the ids of the Conclusions
- *      that were provided as context, so the UI can show citations.
+ * Current behaviour:
  *
- * Why NOT vector search yet
- * -------------------------
- * At ≤ a few hundred Conclusions, sending them all as plain context is
- * simpler, cheaper to explain, and strictly higher-recall than a
- * retrieval step that could miss relevant claims. We truncate to the
- * 120 most-recent ~200-character rows (≈ 4-6k tokens of context) to
- * stay well under any modern chat-model's limit, with room for the
- * answer. When a firm grows past that, a proper embedding-based RAG
- * path becomes worth the complexity — at which point this endpoint
- * gets a retrieve-then-ask inner loop but its external contract
- * (question in, answer + sources out) stays unchanged.
+ *   1. Authenticate (cookie session OR Bearer API key).
+ *   2. Gather ALL relevant corpus material for the caller's
+ *      organisation:
+ *        a. Conclusions — atomic claims, already distilled.
+ *        b. Upload excerpts — raw text content, chunked + scored
+ *           by keyword overlap with the question. This is the new
+ *           "retrieval" half of RAG; previously absent.
+ *   3. Send the corpus to Claude Opus 4.7 (configurable via
+ *      ASK_LLM_MODEL) via the Anthropic REST API.
+ *   4. ALWAYS produce an answer. If nothing in the corpus applies,
+ *      Claude answers from general knowledge and flags the answer
+ *      as un-sourced. This replaces the previous "the firm has not
+ *      recorded a position" refusal pattern.
+ *   5. Return the answer plus a structured `sources` list so the UI
+ *      can render both Conclusion citations and Upload citations
+ *      (with slug links where the upload is published).
  *
- * Why NOT raw Upload.textContent as context
+ * Why fetch() instead of @anthropic-ai/sdk
  * -----------------------------------------
- * Raw uploads are 10-100× longer than Conclusions. Including them in
- * the prompt burns tokens on boilerplate. If the user wants to ask
- * about something specific that didn't become a Conclusion yet, the
- * correct answer is "run `noosphere ingest-from-codex` on that upload
- * first, so the claim gets surfaced", not "pretend the raw PDF is
- * structured context."
+ * Anthropic's /v1/messages endpoint is a trivial JSON POST. Pulling
+ * in the SDK for a single call bloats the serverless bundle and
+ * brings its own transitive deps; direct fetch is ~40 lines of glue
+ * and has no version-drift risk.
  */
 
-const SYSTEM_PROMPT = `You are the Theseus Codex's oracle.
+// ─── Model config ──────────────────────────────────────────────────
 
-You answer questions from within a single firm's corpus of recorded beliefs, called Conclusions. Each Conclusion is an atomic claim the firm has surfaced, tagged with a confidenceTier:
+/** Default model. claude-opus-4-7 launched 16 Apr 2026 as Anthropic's
+ *  flagship for complex reasoning. Override via ASK_LLM_MODEL if a
+ *  newer Opus/Sonnet ships. */
+const DEFAULT_MODEL = "claude-opus-4-7";
+const ANTHROPIC_MESSAGES_URL = "https://api.anthropic.com/v1/messages";
+const ANTHROPIC_API_VERSION = "2023-06-01";
 
-  firm     — the firm stands behind this belief in its strongest form.
-  founder  — a single founder's conviction; not yet firm-wide.
-  open     — an unresolved coherence tension, under active review.
-  retired  — a belief the firm formerly held, now retracted.
+// ─── Retrieval tuning ──────────────────────────────────────────────
 
-Rules:
-1. Answer ONLY from the Conclusions provided below.
-2. When you make a claim, name the Conclusion ids that support it in square brackets, e.g. "[c-a5f7…]".
-3. Weight firm and founder tiers more than open; never cite retired as current belief.
-4. If the firm has not recorded a position on the question, say so explicitly. Do not speculate.
-5. Prefer concision. One-to-three sentence answers are ideal; longer only if the question genuinely demands it.`;
+/** Max Conclusions loaded into context. They're already small (~200
+ *  chars each) so we can fit them all up to this cap even on
+ *  reasoning-heavy models. */
+const MAX_CONCLUSIONS = 150;
 
-interface ConclusionForContext {
+/** Max upload rows to scan when building retrieval chunks. Ordered
+ *  by createdAt desc — recent material is usually more relevant. */
+const MAX_UPLOADS_TO_SCAN = 40;
+
+/** Approximate characters per retrieved upload chunk. Paragraph-sized. */
+const CHUNK_TARGET_CHARS = 800;
+
+/** How many top-scoring upload chunks to include in the prompt.
+ *  15 chunks × 800 chars ≈ 12k chars ≈ 3k tokens — well under any
+ *  modern model's input budget. */
+const TOP_CHUNKS = 15;
+
+/** Lowercase English stopwords to filter out before scoring. Short
+ *  list kept on purpose — we want ok recall, not NLP-grade filtering. */
+const STOPWORDS = new Set([
+  "a",
+  "an",
+  "and",
+  "are",
+  "as",
+  "at",
+  "be",
+  "but",
+  "by",
+  "do",
+  "does",
+  "for",
+  "from",
+  "has",
+  "have",
+  "he",
+  "her",
+  "him",
+  "his",
+  "how",
+  "i",
+  "if",
+  "in",
+  "into",
+  "is",
+  "it",
+  "its",
+  "me",
+  "my",
+  "no",
+  "not",
+  "of",
+  "on",
+  "or",
+  "our",
+  "out",
+  "said",
+  "she",
+  "so",
+  "that",
+  "the",
+  "their",
+  "them",
+  "then",
+  "there",
+  "they",
+  "this",
+  "to",
+  "was",
+  "we",
+  "were",
+  "what",
+  "when",
+  "where",
+  "which",
+  "who",
+  "why",
+  "will",
+  "with",
+  "would",
+  "you",
+  "your",
+]);
+
+function tokenize(text: string): string[] {
+  return text
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, " ")
+    .split(/\s+/)
+    .filter((t) => t.length >= 3 && !STOPWORDS.has(t));
+}
+
+interface ChunkRecord {
+  uploadId: string;
+  uploadTitle: string;
+  uploadSlug: string | null;
+  chunkIndex: number;
+  text: string;
+  score: number;
+}
+
+/**
+ * Split a long text into ~CHUNK_TARGET_CHARS-sized chunks on
+ * paragraph or sentence boundaries. Keeps reasonable semantic
+ * coherence without a real tokenizer.
+ */
+function chunkText(text: string): string[] {
+  if (!text) return [];
+  // Split on paragraph breaks first.
+  const paras = text.split(/\n\s*\n/).map((p) => p.trim()).filter(Boolean);
+  const chunks: string[] = [];
+  let buf = "";
+  for (const p of paras) {
+    if (!buf) {
+      buf = p;
+    } else if ((buf + "\n\n" + p).length <= CHUNK_TARGET_CHARS * 1.5) {
+      buf += "\n\n" + p;
+    } else {
+      chunks.push(buf);
+      buf = p;
+    }
+    if (buf.length >= CHUNK_TARGET_CHARS) {
+      chunks.push(buf);
+      buf = "";
+    }
+  }
+  if (buf) chunks.push(buf);
+
+  // Further split any still-oversized chunks on sentence boundaries.
+  const out: string[] = [];
+  for (const c of chunks) {
+    if (c.length <= CHUNK_TARGET_CHARS * 1.8) {
+      out.push(c);
+      continue;
+    }
+    const sentences = c.split(/(?<=[.!?])\s+(?=[A-Z])/);
+    let s = "";
+    for (const sent of sentences) {
+      if (!s) {
+        s = sent;
+      } else if ((s + " " + sent).length <= CHUNK_TARGET_CHARS) {
+        s += " " + sent;
+      } else {
+        out.push(s);
+        s = sent;
+      }
+    }
+    if (s) out.push(s);
+  }
+  return out;
+}
+
+/**
+ * Score a chunk for relevance: count how many UNIQUE question tokens
+ * appear in the chunk, normalised by sqrt(chunk length) so longer
+ * chunks don't dominate just by being longer. This is a poor-man's
+ * TF-IDF — good enough for ~hundreds of chunks without embedding
+ * infrastructure.
+ */
+function scoreChunk(chunk: string, questionTokens: Set<string>): number {
+  if (questionTokens.size === 0) return 0;
+  const chunkTokens = new Set(tokenize(chunk));
+  let matches = 0;
+  for (const t of questionTokens) {
+    if (chunkTokens.has(t)) matches++;
+  }
+  if (matches === 0) return 0;
+  // sqrt(length) normalisation: modestly prefer shorter chunks with
+  // the same match count, without heavily penalising long chunks.
+  return matches / Math.max(1, Math.sqrt(chunk.length / 100));
+}
+
+// ─── Prompt assembly ───────────────────────────────────────────────
+
+const SYSTEM_PROMPT = `You are the oracle of the Theseus Codex — a firm's institutional memory surface.
+
+Your job: answer the founder's question. You have two kinds of source material to draw on, in order of priority:
+
+1. FIRM CONCLUSIONS — atomic claims the firm has distilled from its work and recorded. Each carries a confidenceTier:
+     firm     — the firm stands behind this belief in its strongest form.
+     founder  — a single founder's conviction; not yet firm-wide.
+     open     — an unresolved coherence tension, under active review.
+     retired  — a belief the firm formerly held, now retracted.
+
+2. UPLOAD EXCERPTS — passages from sessions, transcripts, essays, and papers the firm has uploaded. Retrieved for relevance to the question.
+
+Citation protocol (IMPORTANT):
+
+  When you make a claim grounded in a firm Conclusion, cite it inline using [C:<first-8-chars-of-id>]. Example: "Position sizing is bounded by conviction half-life [C:cmo4sd12]."
+  When you make a claim grounded in an Upload excerpt, cite it using [U:<short-title>]. Example: "[U:Q3 retro] suggests the opposite."
+  Multiple citations on the same sentence are fine: "... [C:cmo4sd12] [U:Q3 retro]."
+
+Answering rules:
+
+  ALWAYS answer the question. Do not refuse or say "the firm has not recorded a position."
+
+  If the firm's corpus has directly relevant material, answer primarily from it and cite heavily.
+
+  If the corpus only partially addresses the question, answer the covered parts from the corpus (with citations) and the uncovered parts from your own general knowledge (without citations), being explicit about the boundary. Example: "On the first half the firm has recorded [C:...]. On the second half the firm has no recorded position; from general knowledge, ..."
+
+  If the corpus does not address the question at all, answer from your own general knowledge and open with a brief disclaimer: "The firm has not recorded material on this; from general knowledge:".
+
+  Never cite retired tier as current belief.
+
+  Weight firm and founder tiers heavily; treat open as unresolved.
+
+  Prefer concision. One to three sentences is ideal. Longer only when the question genuinely demands it.`;
+
+interface ConclusionContext {
   id: string;
   text: string;
   confidenceTier: string;
@@ -65,27 +268,134 @@ interface ConclusionForContext {
   rationale: string;
 }
 
-function buildUserMessage(question: string, conclusions: ConclusionForContext[]): string {
-  if (conclusions.length === 0) {
-    return `The firm has recorded no Conclusions yet.\n\nQuestion: ${question}`;
-  }
-  const rendered = conclusions
-    .map(
-      (c, i) =>
-        `[${i + 1}] id=${c.id.slice(0, 10)} · tier=${c.confidenceTier} · topic=${c.topicHint || "general"}\n     ${c.text}`,
-    )
-    .join("\n\n");
-  return `CORPUS OF FIRM CONCLUSIONS (${conclusions.length} total):\n\n${rendered}\n\n———\n\nQuestion: ${question}\n\nAnswer grounded in the corpus above. Cite ids.`;
+interface UploadContext {
+  id: string;
+  title: string;
+  slug: string | null;
 }
+
+function buildUserMessage(
+  question: string,
+  conclusions: ConclusionContext[],
+  chunks: ChunkRecord[],
+): string {
+  const parts: string[] = [];
+
+  if (conclusions.length > 0) {
+    const rendered = conclusions
+      .map(
+        (c) =>
+          `- [C:${c.id.slice(0, 8)}] tier=${c.confidenceTier} · topic=${
+            c.topicHint || "general"
+          }\n  ${c.text}${c.rationale ? `\n  (rationale: ${c.rationale.slice(0, 300)})` : ""}`,
+      )
+      .join("\n");
+    parts.push(`FIRM CONCLUSIONS (${conclusions.length}):\n${rendered}`);
+  } else {
+    parts.push("FIRM CONCLUSIONS: (none recorded yet)");
+  }
+
+  if (chunks.length > 0) {
+    const rendered = chunks
+      .map(
+        (c) =>
+          `— [U:${c.uploadTitle.slice(0, 40)}]${c.uploadSlug ? ` (/post/${c.uploadSlug})` : ""}\n${c.text}`,
+      )
+      .join("\n\n");
+    parts.push(
+      `UPLOAD EXCERPTS (top ${chunks.length} by relevance to this question):\n${rendered}`,
+    );
+  } else {
+    parts.push(
+      "UPLOAD EXCERPTS: (no relevant passages found in the firm's uploads)",
+    );
+  }
+
+  parts.push(`———\n\nQuestion: ${question}`);
+  return parts.join("\n\n");
+}
+
+// ─── Anthropic call ────────────────────────────────────────────────
+
+interface AnthropicContentBlock {
+  type: string;
+  text?: string;
+}
+
+interface AnthropicResponse {
+  content?: AnthropicContentBlock[];
+  stop_reason?: string;
+  usage?: { input_tokens?: number; output_tokens?: number };
+  model?: string;
+  error?: { type?: string; message?: string };
+}
+
+async function callClaude(
+  apiKey: string,
+  model: string,
+  userMessage: string,
+): Promise<{ text: string; inputTokens: number; outputTokens: number }> {
+  const res = await fetch(ANTHROPIC_MESSAGES_URL, {
+    method: "POST",
+    headers: {
+      "x-api-key": apiKey,
+      "anthropic-version": ANTHROPIC_API_VERSION,
+      "content-type": "application/json",
+    },
+    body: JSON.stringify({
+      model,
+      max_tokens: 1024,
+      // Grounded/deterministic-ish — we're citing, not brainstorming.
+      // Opus handles low-temperature reasoning well; 0.3 keeps answers
+      // terse and on-corpus without being rote.
+      temperature: 0.3,
+      system: SYSTEM_PROMPT,
+      messages: [{ role: "user", content: userMessage }],
+    }),
+  });
+
+  const bodyText = await res.text();
+  let parsed: AnthropicResponse;
+  try {
+    parsed = JSON.parse(bodyText) as AnthropicResponse;
+  } catch {
+    throw new Error(
+      `Anthropic returned non-JSON response (HTTP ${res.status}): ${bodyText.slice(0, 240)}`,
+    );
+  }
+
+  if (!res.ok) {
+    const msg = parsed.error?.message || `HTTP ${res.status}`;
+    throw new Error(`Anthropic ${parsed.error?.type || "error"}: ${msg}`);
+  }
+
+  const textBlock = parsed.content?.find((b) => b.type === "text");
+  const text = (textBlock?.text || "").trim();
+  if (!text) {
+    throw new Error("Anthropic returned no text content");
+  }
+  return {
+    text,
+    inputTokens: parsed.usage?.input_tokens ?? 0,
+    outputTokens: parsed.usage?.output_tokens ?? 0,
+  };
+}
+
+// ─── Route handler ─────────────────────────────────────────────────
 
 export async function POST(req: Request) {
   try {
     const founder = await getFounderFromAuth(req);
     if (!founder) {
-      return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
+      return NextResponse.json(
+        { error: "Not authenticated" },
+        { status: 401 },
+      );
     }
 
-    const body = (await req.json().catch(() => ({}))) as { question?: string };
+    const body = (await req.json().catch(() => ({}))) as {
+      question?: string;
+    };
     const question = (body.question || "").trim();
     if (!question) {
       return NextResponse.json(
@@ -100,28 +410,25 @@ export async function POST(req: Request) {
       );
     }
 
-    const apiKey = process.env.OPENAI_API_KEY;
+    const apiKey = process.env.ANTHROPIC_API_KEY;
     if (!apiKey) {
       return NextResponse.json(
         {
           error:
-            "OpenAI API key not configured. Set OPENAI_API_KEY in Vercel → Settings → Environment Variables, redeploy, and retry.",
+            "Anthropic API key not configured. Set ANTHROPIC_API_KEY in Vercel → Settings → Environment Variables, redeploy, and retry.",
         },
         { status: 503 },
       );
     }
 
-    // Gather recent Conclusions as context. We take up to 120 most
-    // recent rows; 120 rows × ~200 char/row ≈ 24k chars ≈ 6k tokens,
-    // leaving ample headroom under gpt-4o-mini's 128k context.
+    // ── Retrieval step 1: Conclusions (all of them) ──────────────
     const conclusions = await db.conclusion.findMany({
       where: { organizationId: founder.organizationId },
       orderBy: [
-        // Prioritise the firmer beliefs. Within each tier, newest first.
-        { confidenceTier: "asc" }, // "firm" < "founder" < "open" < "retired" alphabetically
+        { confidenceTier: "asc" }, // firm < founder < open < retired
         { createdAt: "desc" },
       ],
-      take: 120,
+      take: MAX_CONCLUSIONS,
       select: {
         id: true,
         text: true,
@@ -131,38 +438,84 @@ export async function POST(req: Request) {
       },
     });
 
-    const userMessage = buildUserMessage(question, conclusions);
-
-    // Call OpenAI. Using the chat completions endpoint for maximum
-    // model flexibility — the caller can swap `model` by env var if
-    // they want Claude or a different GPT without touching code.
-    const model = process.env.ASK_LLM_MODEL || "gpt-4o-mini";
-    const { default: OpenAI } = await import("openai");
-    const openai = new OpenAI({ apiKey });
-    const completion = await openai.chat.completions.create({
-      model,
-      messages: [
-        { role: "system", content: SYSTEM_PROMPT },
-        { role: "user", content: userMessage },
-      ],
-      temperature: 0.3, // grounded / deterministic-ish; we're citing, not brainstorming
-      max_tokens: 800,
+    // ── Retrieval step 2: Upload chunks, keyword-scored ───────────
+    //
+    // Uploads are long. We can't stuff them all in context so we
+    // chunk every candidate upload into paragraph-sized pieces and
+    // keep the top TOP_CHUNKS by relevance to the question. This is
+    // the "R" in RAG: a cheap, embedding-free retriever that still
+    // pulls the right paragraph when the question uses words the
+    // paragraph contains.
+    //
+    // Visibility rules mirror /library: ingested uploads belonging
+    // to the org, not deleted, not another founder's private row.
+    const uploadRows = await db.upload.findMany({
+      where: {
+        organizationId: founder.organizationId,
+        deletedAt: null,
+        status: "ingested",
+        textContent: { not: null },
+        OR: [{ visibility: { not: "private" } }, { founderId: founder.id }],
+      },
+      orderBy: { createdAt: "desc" },
+      take: MAX_UPLOADS_TO_SCAN,
+      select: {
+        id: true,
+        title: true,
+        slug: true,
+        textContent: true,
+      },
     });
 
-    const answer = completion.choices[0]?.message?.content?.trim() || "";
-    if (!answer) {
+    const questionTokens = new Set(tokenize(question));
+    const scoredChunks: ChunkRecord[] = [];
+    const uploadMeta: UploadContext[] = [];
+
+    for (const up of uploadRows) {
+      if (!up.textContent) continue;
+      uploadMeta.push({ id: up.id, title: up.title, slug: up.slug });
+      const chunks = chunkText(up.textContent);
+      for (let i = 0; i < chunks.length; i++) {
+        const score = scoreChunk(chunks[i]!, questionTokens);
+        if (score <= 0) continue;
+        scoredChunks.push({
+          uploadId: up.id,
+          uploadTitle: up.title,
+          uploadSlug: up.slug,
+          chunkIndex: i,
+          text: chunks[i]!,
+          score,
+        });
+      }
+    }
+
+    // Keep the top K chunks overall (not per-upload — a single
+    // highly-relevant upload should be able to dominate if that's
+    // the right thing for the question).
+    scoredChunks.sort((a, b) => b.score - a.score);
+    const topChunks = scoredChunks.slice(0, TOP_CHUNKS);
+
+    // ── Call Claude ────────────────────────────────────────────────
+    const model = process.env.ASK_LLM_MODEL || DEFAULT_MODEL;
+    const userMessage = buildUserMessage(question, conclusions, topChunks);
+
+    let answer: string;
+    let inputTokens = 0;
+    let outputTokens = 0;
+    try {
+      const result = await callClaude(apiKey, model, userMessage);
+      answer = result.text;
+      inputTokens = result.inputTokens;
+      outputTokens = result.outputTokens;
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
       return NextResponse.json(
-        { error: "LLM returned empty response" },
+        { error: `Oracle call failed: ${message}` },
         { status: 502 },
       );
     }
 
-    // Log the query as an AuditEvent. Useful for usage analytics +
-    // provenance if the firm ever wants to retroactively verify "what
-    // did the oracle tell us on this date?" Question text is
-    // user-supplied so scrub NUL / control bytes before insert — a
-    // stray 0x00 from a paste otherwise fails the whole audit.
-    const { sanitizeAndCap } = await import("@/lib/sanitizeText");
+    // ── Audit log (non-fatal) ──────────────────────────────────────
     await db.auditEvent
       .create({
         data: {
@@ -170,26 +523,76 @@ export async function POST(req: Request) {
           founderId: founder.id,
           action: "ask",
           detail: sanitizeAndCap(
-            `Q: ${question.slice(0, 180)}${question.length > 180 ? "…" : ""}`,
+            `Q: ${question.slice(0, 180)}${question.length > 180 ? "…" : ""} | ` +
+              `model=${model} C=${conclusions.length} U=${topChunks.length} ` +
+              `in=${inputTokens} out=${outputTokens}`,
             2_000,
           ),
         },
       })
       .catch(() => {
-        // Non-fatal — don't deny the caller their answer over an audit-log failure.
+        /* non-fatal */
       });
+
+    // ── Response ───────────────────────────────────────────────────
+    // `sources` is a heterogeneous list — a `type` discriminator lets
+    // the client render each kind with the right affordances
+    // (conclusion → tier pill; upload → clickable title, link to
+    // /post/<slug> when public).
+    interface SourceEntry {
+      type: "conclusion" | "upload";
+      id: string;
+      label: string;
+      tier?: string;
+      topic?: string;
+      text: string;
+      url?: string | null;
+    }
+
+    // Deduplicate upload sources by id — a single upload can
+    // contribute multiple top chunks; we surface just one source
+    // entry per upload but concatenate the top 2 chunks into `text`
+    // so the founder sees why it was cited.
+    const uploadSources = new Map<string, SourceEntry>();
+    for (const c of topChunks) {
+      if (uploadSources.has(c.uploadId)) {
+        const existing = uploadSources.get(c.uploadId)!;
+        if (existing.text.length < CHUNK_TARGET_CHARS * 2) {
+          existing.text += "\n\n…\n\n" + c.text;
+        }
+      } else {
+        uploadSources.set(c.uploadId, {
+          type: "upload",
+          id: c.uploadId,
+          label: c.uploadTitle,
+          text: c.text,
+          url: c.uploadSlug ? `/post/${c.uploadSlug}` : null,
+        });
+      }
+    }
+
+    const sources: SourceEntry[] = [
+      ...conclusions.map<SourceEntry>((c) => ({
+        type: "conclusion",
+        id: c.id,
+        label: c.confidenceTier,
+        tier: c.confidenceTier,
+        topic: c.topicHint,
+        text: c.text,
+      })),
+      ...uploadSources.values(),
+    ];
 
     return NextResponse.json({
       question,
       answer,
       model,
       conclusionsInContext: conclusions.length,
-      sources: conclusions.map((c) => ({
-        id: c.id,
-        tier: c.confidenceTier,
-        topic: c.topicHint,
-        text: c.text,
-      })),
+      uploadsInContext: uploadSources.size,
+      uploadChunksInContext: topChunks.length,
+      inputTokens,
+      outputTokens,
+      sources,
     });
   } catch (error) {
     console.error("/api/ask error:", error);

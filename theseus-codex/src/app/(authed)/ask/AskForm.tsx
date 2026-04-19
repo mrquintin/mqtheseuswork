@@ -1,27 +1,49 @@
 "use client";
 
+import Link from "next/link";
 import { useState } from "react";
 
 /**
  * Ask the Codex — client-side form. Posts to /api/ask, renders the
- * grounded answer + expandable source Conclusions. Intentionally
- * minimal: this is a query surface, not a conversation — each submit
- * starts a fresh round with full corpus context so there's no
- * session-state to manage.
+ * grounded answer plus the heterogeneous sources list (Conclusion
+ * citations + Upload citations).
+ *
+ * Visual contract:
+ *   - The answer's text is rendered verbatim, preserving any
+ *     inline citation markers [C:xxxxx] / [U:xxxxx] the oracle added.
+ *   - The source panel groups Conclusions (tier-coloured chips) above
+ *     Upload excerpts (clickable titles that link to /post/<slug>
+ *     when the upload is publicly published).
  */
 
-interface Source {
+interface SourceConclusion {
+  type: "conclusion";
   id: string;
+  label: string;
   tier: string;
   topic: string;
   text: string;
 }
+
+interface SourceUpload {
+  type: "upload";
+  id: string;
+  label: string;
+  text: string;
+  url: string | null;
+}
+
+type Source = SourceConclusion | SourceUpload;
 
 interface AskResult {
   question: string;
   answer: string;
   model: string;
   conclusionsInContext: number;
+  uploadsInContext: number;
+  uploadChunksInContext: number;
+  inputTokens: number;
+  outputTokens: number;
   sources: Source[];
 }
 
@@ -56,6 +78,13 @@ export default function AskForm() {
       setLoading(false);
     }
   }
+
+  const conclusionSources = (result?.sources ?? []).filter(
+    (s): s is SourceConclusion => s.type === "conclusion",
+  );
+  const uploadSources = (result?.sources ?? []).filter(
+    (s): s is SourceUpload => s.type === "upload",
+  );
 
   return (
     <div>
@@ -153,8 +182,18 @@ export default function AskForm() {
             }}
           >
             <span>
-              Grounded in <strong style={{ color: "var(--amber)" }}>{result.conclusionsInContext}</strong>{" "}
-              Conclusions · model {result.model}
+              Grounded in{" "}
+              <strong style={{ color: "var(--amber)" }}>
+                {result.conclusionsInContext}
+              </strong>{" "}
+              conclusion{result.conclusionsInContext === 1 ? "" : "s"} ·{" "}
+              <strong style={{ color: "var(--amber)" }}>
+                {result.uploadsInContext}
+              </strong>{" "}
+              upload{result.uploadsInContext === 1 ? "" : "s"} ·{" "}
+              <span title={`${result.inputTokens} in / ${result.outputTokens} out tokens`}>
+                model {result.model}
+              </span>
             </span>
             {result.sources.length > 0 && (
               <button
@@ -169,59 +208,155 @@ export default function AskForm() {
           </div>
 
           {showSources && result.sources.length > 0 && (
-            <ul
+            <div
               style={{
-                listStyle: "none",
-                padding: 0,
-                margin: "1rem 0 0",
+                marginTop: "1rem",
+                paddingTop: "1rem",
+                borderTop: "1px solid var(--amber-deep)",
                 display: "flex",
                 flexDirection: "column",
-                gap: "0.6rem",
-                maxHeight: "360px",
+                gap: "1.25rem",
+                maxHeight: "520px",
                 overflowY: "auto",
-                borderTop: "1px solid var(--amber-deep)",
-                paddingTop: "1rem",
               }}
             >
-              {result.sources.map((s, i) => (
-                <li
-                  key={s.id}
-                  style={{
-                    display: "flex",
-                    gap: "0.9rem",
-                    fontSize: "0.82rem",
-                    lineHeight: 1.5,
-                    color: "var(--parchment-dim)",
-                  }}
-                >
-                  <span
+              {uploadSources.length > 0 && (
+                <section>
+                  <h3
                     className="mono"
                     style={{
                       fontSize: "0.58rem",
-                      letterSpacing: "0.1em",
+                      letterSpacing: "0.25em",
+                      textTransform: "uppercase",
                       color: "var(--amber-dim)",
-                      flexShrink: 0,
-                      width: "5.5rem",
+                      margin: "0 0 0.6rem",
+                      fontWeight: 500,
                     }}
                   >
-                    [{String(i + 1).padStart(2, "0")}] {s.tier}
-                  </span>
-                  <span>
-                    <code
-                      className="mono"
-                      style={{
-                        fontSize: "0.65rem",
-                        color: "var(--amber)",
-                        marginRight: "0.5rem",
-                      }}
-                    >
-                      {s.id.slice(0, 10)}
-                    </code>
-                    {s.text}
-                  </span>
-                </li>
-              ))}
-            </ul>
+                    Fontes · Uploads ({uploadSources.length})
+                  </h3>
+                  <ul
+                    style={{
+                      listStyle: "none",
+                      padding: 0,
+                      margin: 0,
+                      display: "flex",
+                      flexDirection: "column",
+                      gap: "0.7rem",
+                    }}
+                  >
+                    {uploadSources.map((s) => (
+                      <li
+                        key={s.id}
+                        style={{
+                          display: "flex",
+                          flexDirection: "column",
+                          gap: "0.3rem",
+                          fontSize: "0.82rem",
+                          lineHeight: 1.5,
+                          color: "var(--parchment-dim)",
+                          paddingLeft: "0.75rem",
+                          borderLeft: "2px solid var(--amber-deep)",
+                        }}
+                      >
+                        <div
+                          className="mono"
+                          style={{
+                            fontSize: "0.62rem",
+                            letterSpacing: "0.12em",
+                            color: "var(--amber)",
+                          }}
+                        >
+                          {s.url ? (
+                            <Link
+                              href={s.url}
+                              style={{
+                                color: "var(--amber)",
+                                textDecoration: "underline",
+                                textDecorationStyle: "dotted",
+                                textUnderlineOffset: "3px",
+                              }}
+                            >
+                              {s.label}
+                            </Link>
+                          ) : (
+                            <span>{s.label}</span>
+                          )}
+                        </div>
+                        <span style={{ whiteSpace: "pre-wrap" }}>{s.text}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </section>
+              )}
+
+              {conclusionSources.length > 0 && (
+                <section>
+                  <h3
+                    className="mono"
+                    style={{
+                      fontSize: "0.58rem",
+                      letterSpacing: "0.25em",
+                      textTransform: "uppercase",
+                      color: "var(--amber-dim)",
+                      margin: "0 0 0.6rem",
+                      fontWeight: 500,
+                    }}
+                  >
+                    Conclusiones · Firm claims ({conclusionSources.length})
+                  </h3>
+                  <ul
+                    style={{
+                      listStyle: "none",
+                      padding: 0,
+                      margin: 0,
+                      display: "flex",
+                      flexDirection: "column",
+                      gap: "0.5rem",
+                    }}
+                  >
+                    {conclusionSources.map((s, i) => (
+                      <li
+                        key={s.id}
+                        style={{
+                          display: "flex",
+                          gap: "0.9rem",
+                          fontSize: "0.82rem",
+                          lineHeight: 1.5,
+                          color: "var(--parchment-dim)",
+                        }}
+                      >
+                        <span
+                          className="mono"
+                          style={{
+                            fontSize: "0.58rem",
+                            letterSpacing: "0.1em",
+                            color: "var(--amber-dim)",
+                            flexShrink: 0,
+                            width: "5.5rem",
+                          }}
+                        >
+                          [{String(i + 1).padStart(2, "0")}] {s.tier}
+                        </span>
+                        <span>
+                          <code
+                            className="mono"
+                            style={{
+                              fontSize: "0.65rem",
+                              color: "var(--amber)",
+                              marginRight: "0.5rem",
+                            }}
+                          >
+                            {s.id.slice(0, 10)}
+                          </code>
+                          {s.text}
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                </section>
+              )}
+            </div>
           )}
         </article>
       )}
