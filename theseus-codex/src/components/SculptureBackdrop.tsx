@@ -219,6 +219,26 @@ export default function SculptureBackdrop({
 
   const fadeDir = side === "right" ? "to left" : "to right";
 
+  // When the inner sculpture is translated horizontally via `offsetX`,
+  // the mask fade zone needs to translate with it — otherwise the
+  // figure's silhouette ends up in a visibly-opaque portion of the
+  // gradient and produces a hard "black border" at the edge farthest
+  // from the anchor (the classic symptom of "the arm that used to fade
+  // nicely into the text now cuts off sharply").
+  //
+  // For `side="left"` the gradient runs "to right" (0% at the anchor,
+  // 100% on the content side). A negative `offsetX` translates the
+  // sculpture leftward, so we want every non-zero mask stop to also
+  // shift leftward by the same pixel amount. For `side="right"` the
+  // gradient runs "to left", so the direction flips: shift stops
+  // rightward by `|offsetX|`. Both are captured by a single signed
+  // shift value below.
+  //
+  // CSS `calc()` with pixel-plus-percent is supported in every
+  // evergreen browser mask implementation.
+  const maskShiftPx = side === "left" ? offsetX : -offsetX;
+  const maskImage = `linear-gradient(${fadeDir}, rgba(0,0,0,1) 0%, rgba(0,0,0,0.88) calc(45% + ${maskShiftPx}px), rgba(0,0,0,0.35) calc(80% + ${maskShiftPx}px), rgba(0,0,0,0) calc(100% + ${maskShiftPx}px))`;
+
   return (
     <div
       ref={containerRef}
@@ -235,8 +255,8 @@ export default function SculptureBackdrop({
         zIndex: 0,
         overflow: "hidden",
         opacity,
-        maskImage: `linear-gradient(${fadeDir}, rgba(0,0,0,1) 0%, rgba(0,0,0,0.88) 45%, rgba(0,0,0,0.35) 80%, rgba(0,0,0,0) 100%)`,
-        WebkitMaskImage: `linear-gradient(${fadeDir}, rgba(0,0,0,1) 0%, rgba(0,0,0,0.88) 45%, rgba(0,0,0,0.35) 80%, rgba(0,0,0,0) 100%)`,
+        maskImage,
+        WebkitMaskImage: maskImage,
         display: "flex",
         alignItems: ANCHOR_TO_ALIGN_ITEMS[verticalAnchor],
         justifyContent: side === "right" ? "flex-end" : "flex-start",
