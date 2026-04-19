@@ -87,6 +87,11 @@ const MODELS: { file: string; slug: string; targetTris: number }[] = [
     slug: "augustus",
     targetTris: 3000,
   },
+  {
+    file: "atlas-holding-earth.stl",
+    slug: "atlas",
+    targetTris: 3000,
+  },
 ];
 
 const OUT_DIR = join(process.cwd(), "public", "sculptures");

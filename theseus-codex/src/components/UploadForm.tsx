@@ -432,7 +432,7 @@ export default function UploadForm() {
             marginBottom: 0,
           }}
         >
-          Upload Contribution · Augustus Prima Porta, SMK
+          Upload Contribution · Atlas Holding Earth
         </p>
         <p
           style={{

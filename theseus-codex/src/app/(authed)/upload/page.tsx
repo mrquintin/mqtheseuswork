@@ -3,15 +3,16 @@ import SculptureBackdrop from "@/components/SculptureBackdrop";
 
 /**
  * Upload page. Wrap the form in a relative-positioned container so the
- * Augustus Prima Porta backdrop can sit behind it on the left. See
- * SculptureBackdrop for the half-page backdrop pattern.
+ * Atlas backdrop can sit behind it on the left. See SculptureBackdrop
+ * for the half-page backdrop pattern.
  *
- * Patron sculpture: **Augustus Prima Porta (SMK)**. The Codex's
- * upload action is called "Dedicatio" (dedication) on the form header,
- * and Augustus — an imperial patron figure captured in the oratorial
- * adlocutio pose — is the canonical classical figure of dedication.
- * He also reads as the most visually commanding in the set, which the
- * previous Discobolus (mid-throw, partially cropped) did not.
+ * Patron sculpture: **Atlas Holding Earth**. The Titan who bears the
+ * weight of the heavens reads as the firm's collective knowledge
+ * burden: every upload adds a little more mass the Codex must carry.
+ * The orb-and-shoulders silhouette is also legible from its top-
+ * anchored position — you see the globe first, then the straining
+ * arms, then the torso — which reads well through the figure's small
+ * visible window.
  *
  * Positioning notes
  * -----------------
@@ -39,7 +40,7 @@ export default function UploadPage() {
   return (
     <div style={{ position: "relative", overflow: "hidden", minHeight: "80vh" }}>
       <SculptureBackdrop
-        src="/sculptures/augustus.mesh.bin"
+        src="/sculptures/atlas.mesh.bin"
         side="left"
         yawSpeed={0.018}
         verticalAnchor="top"
