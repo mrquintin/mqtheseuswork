@@ -432,7 +432,7 @@ export default function UploadForm() {
             marginBottom: 0,
           }}
         >
-          Upload Contribution · Discobolus, MSR
+          Upload Contribution · Augustus Prima Porta, SMK
         </p>
         <p
           style={{
