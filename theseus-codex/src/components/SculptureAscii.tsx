@@ -680,10 +680,16 @@ export default function SculptureAscii({
 
         // Lambertian + rim light. Rim keeps silhouette edges legible
         // when the normal is close to perpendicular to the viewer.
+        // The weights below are tuned together: the low ambient floor
+        // (0.04) means dark sides really are dark (good for 3D feel on
+        // solid figures like Atlas's globe), the full-weight Lambert
+        // (1.0) pushes lit sides to peak brightness, and the strong
+        // rim (0.45 with a cubic falloff) highlights silhouette edges
+        // so the figure's contour stays crisp even on low-poly meshes.
         const dot = nxn * lx + nyn * ly + nzn * lz;
         const lambert = Math.max(0, dot);
-        const rim = Math.pow(1 - Math.max(0, nzn), 2.5) * 0.35;
-        let brightness = Math.min(1, lambert * 0.85 + rim + 0.12);
+        const rim = Math.pow(1 - Math.max(0, nzn), 3) * 0.45;
+        let brightness = Math.min(1, lambert * 1.0 + rim + 0.04);
         if (isBackFacing) {
           brightness *= 0.3;
         }
@@ -702,11 +708,35 @@ export default function SculptureAscii({
         depth[a]! < depth[b]! ? -1 : depth[a]! > depth[b]! ? 1 : 0,
       );
 
-      // ── Pass 3: rasterize. Fill triangles with amber at shade alpha.
-      //    The exact RGB doesn't matter for the ASCII picker — it reads R
-      //    as brightness — but we pick a warm amber so any fallback canvas
-      //    render (e.g. during AsciiCanvas font-load wait) still looks on-
-      //    brand rather than grey.
+      // ── Pass 3: rasterize. Fill triangles with amber at shade alpha,
+      //    modulated by a depth-fog term so the viewer gets a real 3D
+      //    intensity gradient across the figure.
+      //
+      // Why depth-fog on top of Lambert: Lambert alone only responds to
+      // NORMAL direction — on a nearly-radial surface (like a sphere)
+      // every facet's normal picks up light at roughly the same angle
+      // relative to the viewer, so Lambert-only shading can flatten to
+      // a plain disc. Adding atmospheric-perspective fog (far = dimmer,
+      // near = brighter) gives the picker a second gradient to sample,
+      // and a low-poly sphere stops looking like a circle.
+      //
+      // The fog range below (0.62 at the back, 1.00 at the front) was
+      // chosen conservatively so solid figures still read clearly —
+      // any farther and dark sides of the figure would stop producing
+      // a visible ASCII glyph at all given the outer opacity/mask stack
+      // that most pages apply on top.
+      let minDepth = Infinity;
+      let maxDepth = -Infinity;
+      for (let k = 0; k < visibleCount; k++) {
+        const d = depth[orderView[k]!]!;
+        if (d < minDepth) minDepth = d;
+        if (d > maxDepth) maxDepth = d;
+      }
+      const depthRange = maxDepth - minDepth || 1;
+      const fogNear = 1.0;
+      const fogFar = 0.62;
+      const fogSpan = fogNear - fogFar; // 0.38
+
       for (let k = 0; k < visibleCount; k++) {
         const i = orderView[k]!;
         const pax = projX[i * 3]!;
@@ -715,7 +745,11 @@ export default function SculptureAscii({
         const pby = projY[i * 3 + 1]!;
         const pcx = projX[i * 3 + 2]!;
         const pcy = projY[i * 3 + 2]!;
-        const a = shade[i]!;
+        // Normalized depth: 0 at the farthest triangle, 1 at the
+        // nearest. Positive Z is toward the viewer after rotation.
+        const depthNorm = (depth[i]! - minDepth) / depthRange;
+        const fog = fogFar + fogSpan * depthNorm;
+        const a = Math.min(1, shade[i]! * fog);
         ctx.fillStyle = `rgba(255, 210, 140, ${a})`;
         ctx.beginPath();
         ctx.moveTo(pax, pay);
