@@ -13,15 +13,17 @@ import SculptureBackdrop from "@/components/SculptureBackdrop";
  * `verticalAnchor="center"` the Discobolus sat exactly behind the
  * mid-form region and read as "concealed". Two small overrides:
  *
- *   verticalAnchor="top" + offsetY=-12
- *       Pins the figure near the top of the 80vh column and lifts it
- *       a touch further to clear the page header's own breathing room.
+ *   verticalAnchor="top" + offsetY=-48
+ *       Pins the figure to the top of the 80vh column and lifts it a
+ *       further 48 px so the head sits nearer the page header instead
+ *       of level with the form's fieldset, matching the "lifted further
+ *       up" tune requested in UX feedback.
  *
- *   offsetX=-72
- *       Shifts the figure 72 px further to the left. Combined with the
- *       fade-mask this pushes the figure's right edge well clear of the
- *       form's input column, while `overflow: hidden` on the outer
- *       wrapper clips the part that leaves the viewport cleanly.
+ *   offsetX=-96
+ *       Shifts the figure 96 px to the left. Combined with the fade
+ *       mask this pushes the figure's right edge well clear of the
+ *       form's input column; `overflow: hidden` on the outer wrapper
+ *       clips the part that leaves the viewport cleanly.
  *
  * The numbers were tuned against a 1440-wide viewport; on anything
  * narrower the SculptureBackdrop hides itself via its 768 px breakpoint.
@@ -34,8 +36,8 @@ export default function UploadPage() {
         side="left"
         yawSpeed={0.018}
         verticalAnchor="top"
-        offsetY={-12}
-        offsetX={-72}
+        offsetY={-48}
+        offsetX={-96}
       />
       <div style={{ position: "relative", zIndex: 1 }}>
         <UploadForm />
