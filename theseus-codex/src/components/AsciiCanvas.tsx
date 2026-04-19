@@ -182,8 +182,17 @@ export default function AsciiCanvas({
   // rather than rebuilding the shape-vector table.
   const cw = CELL_W * cellScale;
   const ch = CELL_H * cellScale;
-  const width = cols * cw;
-  const height = rows * ch;
+  // Canvas pixel buffers MUST be integer-sized. If `width`/`height` are
+  // fractional (which happens whenever `cellScale` is not 1.0), the
+  // pixel-index math below (`idx = (sy * width + sx) * 4`) drifts
+  // horizontally by `frac * sy` bytes per row against the real ImageData
+  // buffer, which is always integer-sized. Over 400+ rows that's 200+
+  // pixels of drift — the sampling ends up in the wrong column on every
+  // row below the top, every sample comes back zero, `pickChar` returns
+  // " " for every cell, and the canvas renders blank. `Math.round` so
+  // output dimensions exactly match the integer canvas buffer.
+  const width = Math.round(cols * cw);
+  const height = Math.round(rows * ch);
 
   // Build the shape-vector table once on mount, after fonts load.
   useEffect(() => {
