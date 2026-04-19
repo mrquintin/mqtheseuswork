@@ -494,8 +494,30 @@ export default function SculptureAscii({
     };
   }, [meshState]);
 
-  const width = cols * CELL_W;
-  const height = rows * CELL_H;
+  // The source canvas that AsciiCanvas hands us in the render
+  // callback is sized `cols * CELL_W * cellScale` px by
+  // `rows * CELL_H * cellScale` px — cellScale is applied to the
+  // pixel buffer, not bypassed. Earlier this line read
+  //
+  //   const width = cols * CELL_W;
+  //   const height = rows * CELL_H;
+  //
+  // which is the "canonical" canvas size BEFORE cellScale. With
+  // cellScale = 0.65 (SculptureBackdrop's default), the projection
+  // math below ran at 1.54× the pixel buffer's actual dimensions:
+  // `cx = width / 2` landed past the right edge, `cy = height * 0.55`
+  // landed well past the bottom, and any figure taller than the
+  // real canvas lost its legs to clip-off-bottom. For tall meshes
+  // like the Atlas-holding-earth scan (2:1 height:width ratio) the
+  // visible result was essentially just the globe — the body was
+  // drawn outside the canvas entirely.
+  //
+  // Applying cellScale here aligns the projection with the actual
+  // pixel buffer, so figures always render inside the canvas and
+  // their silhouettes sit where the `cy = 0.55 * height` bias
+  // intends them to.
+  const width = cols * CELL_W * cellScale;
+  const height = rows * CELL_H * cellScale;
 
   const render = useCallback(
     (ctx: CanvasRenderingContext2D, timeMs: number) => {
