@@ -3,34 +3,34 @@
 import { useEffect, useState } from "react";
 
 /**
- * The arrival half of the entrance animation.
+ * The arrival half of the entrance animation (minimalist rewrite).
  *
  * Context
  * -------
- * When a user submits the login form on the Gate, three overlapping
- * animations run for ~1.3s (see `.gate-ignite` / `.gate-shockwave` /
- * `.gate-rays-burst` in globals.css) while the client still holds the
- * Gate page — at the peak of the shockwave Next.js navigates to
- * /dashboard. This component is what picks up on the other side: it
- * detects that we just arrived via the gate (via a sessionStorage flag
- * the Gate sets), plays the fade-in / materialise / Latin-glimmer tail
- * of the animation, and then clears the flag so subsequent page loads
- * (reload, back-nav, etc.) don't replay it.
+ * When the user submits the login form, the Gate component plays a
+ * short exit (~720 ms): form + wordmark + labyrinth fade out while a
+ * thin amber hairline sweeps across the viewport's horizon. Navigation
+ * happens mid-sweep. This component picks up on the other side.
  *
  * Visual contract
  * ---------------
- * - Adds `.codex-arrival` to the main authed-page wrapper via a wrapper
- *   div (duration 0.85s, fade + scale up + de-blur).
- * - Renders a brief Latin greeting at the top of the viewport:
- *     VENIT DOMINUS HORTORUM — *the lord of the gardens has come* —
- *   animated via `.codex-welcome-tag` (2.4s, fades in, holds, fades out).
- * - Respects `prefers-reduced-motion: reduce` by skipping everything.
+ * - Reads the `codex:just-entered` sessionStorage flag set by the Gate.
+ * - If present, mirrors the hairline on arrival: a thin amber line at
+ *   the vertical midline materialises briefly, fades, and the page
+ *   content fades up from a small `translateY` below (via the
+ *   `.codex-arrival` class).
+ * - No Latin banner, no blur, no brightness jump, no scale — quiet and
+ *   precise. Total duration ~650 ms.
+ * - Respects `prefers-reduced-motion: reduce` (no-op).
  *
- * Why this lives in a client wrapper around the authed layout's children
- * ---------------------------------------------------------------------
- * The flag (`codex:just-entered` in sessionStorage) is only readable
- * client-side. We render the wrapper on every authed page mount but the
- * wrapper is cheap (a div + a short-lived tag) when the flag is absent.
+ * Prior revision
+ * --------------
+ * An earlier version rendered a floating Latin welcome tag
+ * ("Introibo · You have crossed the threshold") at the top of the
+ * viewport and ran a `blur(2px) brightness(1.6)` scale-up on the page
+ * content. The content stutter from the blur-to-sharp transition was
+ * visually noisy and competed with the dashboard's own fade-in. Both
+ * are removed in favour of a single `translateY + opacity` ease.
  */
 export default function EntranceWelcome({
   children,
@@ -38,7 +38,7 @@ export default function EntranceWelcome({
   children: React.ReactNode;
 }) {
   const [justEntered, setJustEntered] = useState(false);
-  const [showTag, setShowTag] = useState(false);
+  const [showHairline, setShowHairline] = useState(false);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -60,13 +60,13 @@ export default function EntranceWelcome({
     if (reduced) return;
 
     setJustEntered(true);
-    setShowTag(true);
+    setShowHairline(true);
 
     // Remove the arrival class after the animation so subsequent state
-    // updates don't inherit the fade/scale transforms.
-    const t1 = window.setTimeout(() => setJustEntered(false), 900);
-    // Unmount the Latin tag once its animation has had time to run.
-    const t2 = window.setTimeout(() => setShowTag(false), 2500);
+    // updates don't inherit the fade/translate transforms.
+    const t1 = window.setTimeout(() => setJustEntered(false), 700);
+    // Unmount the hairline once its animation has had time to run.
+    const t2 = window.setTimeout(() => setShowHairline(false), 750);
 
     return () => {
       window.clearTimeout(t1);
@@ -76,38 +76,19 @@ export default function EntranceWelcome({
 
   return (
     <div className={justEntered ? "codex-arrival" : undefined}>
-      {showTag ? (
+      {showHairline ? (
         <div
           aria-hidden="true"
           style={{
             position: "fixed",
-            top: "5.5rem",
-            left: 0,
-            right: 0,
-            textAlign: "center",
+            inset: 0,
+            display: "grid",
+            placeItems: "center",
             pointerEvents: "none",
             zIndex: 100,
           }}
         >
-          <div
-            className="codex-welcome-tag mono"
-            style={{
-              display: "inline-block",
-              fontSize: "0.68rem",
-              letterSpacing: "0.3em",
-              textTransform: "uppercase",
-              color: "var(--amber)",
-              textShadow: "0 0 18px var(--amber), 0 0 4px var(--amber)",
-              padding: "0.4rem 1.1rem",
-              border: "1px solid var(--amber-deep)",
-              background:
-                "linear-gradient(180deg, rgba(20,14,6,0.7) 0%, rgba(20,14,6,0.4) 100%)",
-              backdropFilter: "blur(2px)",
-              WebkitBackdropFilter: "blur(2px)",
-            }}
-          >
-            ✦ Introibo · You have crossed the threshold ✦
-          </div>
+          <div className="codex-arrival-hairline" />
         </div>
       ) : null}
       {children}

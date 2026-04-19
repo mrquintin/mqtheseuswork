@@ -25,15 +25,7 @@ const AsciiHero = dynamic(() => import("./AsciiHero"), {
  * Lives at `/login`. The Codex's front door is the public blog at `/`;
  * founders authenticate through this component and are dropped into
  * `/dashboard` (or `?next=…` if middleware bounced them off a
- * protected route). Its only job is to get a founder into the system,
- * dramatically.
- *
- * The drama is not a gimmick; it announces the character of the instrument.
- * The slow rotation of the labyrinth, the phosphor glow, the Latin tag, the
- * amber flash on authentication — these are the aesthetic commitments that
- * will reappear throughout the app. A new founder who enters this way knows
- * they are not using a generic dashboard; they are stepping into a specific
- * institution with a specific voice.
+ * protected route).
  *
  * Three authentication phases (state machine):
  *
@@ -41,11 +33,18 @@ const AsciiHero = dynamic(() => import("./AsciiHero"), {
  *   submitting — input disabled, button shows "opening…", labyrinth glows
  *                brighter but nothing else moves. Transition is reversible:
  *                on auth failure we return to idle and surface the error.
- *   entering   — auth succeeded. The form fades out, the labyrinth scales
- *                up and spins toward the viewer, an amber flash crossfades
- *                the screen to solid amber, and then we navigate. Total
- *                duration ~1.4s. Runs in reduced-motion mode as a simple
- *                250ms fade.
+ *   entering   — auth succeeded. The form + wordmark + labyrinth gently
+ *                fade out and drift down a hair while a single thin amber
+ *                hairline sweeps across the horizon. ~700ms, no flash, no
+ *                scale explosion — just a quiet, precise threshold crossing.
+ *                Reduced-motion mode skips to a flat 200ms fade.
+ *
+ * Prior revisions of this file included a three-layer "ignition" — a
+ * rotating sunburst, a radial amber shockwave that filled the viewport in
+ * solid amber, and the labyrinth scaling past 9×. It was loud and the
+ * amber flash was the most frequent user complaint. Replaced with the
+ * horizon-hairline sweep below; the arrival half (`EntranceWelcome`)
+ * mirrors it on the dashboard side.
  */
 
 type Phase = "idle" | "submitting" | "entering";
@@ -93,15 +92,14 @@ function GateInner() {
         /* private-mode / disabled storage is non-fatal; arrival just won't animate. */
       }
 
-      // Match the CSS keyframe durations. The longest is `gate-shockwave`
-      // at 1.3s. We hold a hair past that so the amber flash fully covers
-      // the old DOM before the next page paints — otherwise you get a
-      // brief "peek" of the gate behind the transition.
+      // Match the CSS keyframe duration. The gate-leave animation
+      // (hairline sweep + fade-down) runs ~700ms; hold a hair past
+      // that so the sweep completes before the navigation resolves.
       const holdMs =
         typeof window !== "undefined" &&
         window.matchMedia("(prefers-reduced-motion: reduce)").matches
-          ? 180
-          : 1380;
+          ? 200
+          : 720;
 
       window.setTimeout(() => {
         const next = searchParams.get("next") || "/dashboard";
@@ -129,38 +127,37 @@ function GateInner() {
         overflow: "hidden",
       }}
     >
-      {/* Ignition layer 1 — sunburst rays. Sits BELOW the amber flash so
-          the rays read as "light escaping the threshold" while the flash
-          above them brightens. Only mounts in the `entering` phase so
-          idle paints don't carry this div at all (conic-gradient can be
-          expensive to rasterise on some GPUs; unmounting is free). */}
-      {phase === "entering" ? <div aria-hidden="true" className="gate-rays" /> : null}
+      {/* Single visual effect during `entering`: a thin amber hairline
+          strokes horizontally across the vertical midline of the viewport.
+          It starts at 0px wide from the centre point and grows outward to
+          the viewport edges, then dims. No flash, no fills, no bombast —
+          just a precise threshold indicator. See `.gate-hairline` keyframes
+          in globals.css.
 
-      {/* Ignition layer 2 — the amber shockwave. Idle = invisible; entering
-          = animated radial gradient that expands from the viewport centre
-          outward and fills the screen. Separate fixed div so it composites
-          above the labyrinth + form but below the rays mix-blend. */}
-      <div
-        aria-hidden="true"
-        className={phase === "entering" ? "gate-flash" : undefined}
-        style={{
-          position: "fixed",
-          inset: 0,
-          zIndex: 9000,
-          pointerEvents: "none",
-          background: "transparent",
-          opacity: 0,
-        }}
-      />
+          We use a wrapper with `inset: 0, display: grid, place-items: center`
+          so the line is always centred regardless of the form's scroll
+          position on short viewports. */}
+      {phase === "entering" ? (
+        <div
+          aria-hidden="true"
+          style={{
+            position: "fixed",
+            inset: 0,
+            display: "grid",
+            placeItems: "center",
+            pointerEvents: "none",
+            zIndex: 9000,
+          }}
+        >
+          <div className="gate-hairline" />
+        </div>
+      ) : null}
 
-      {/* The hero is a rotating 3D wireframe (labyrinth + colonnade) that
-          is rendered live and then converted to amber ASCII art — so the
-          first thing a visitor sees is a real 3D scene projected through
-          the shape-vector ASCII engine, not a static SVG.
-          On `entering` we scale + fade the whole ASCII block to suggest
-          "falling through the labyrinth". */}
+      {/* The hero (rotating labyrinth + colonnade in amber ASCII). On
+          `entering` it participates in the same gentle fade-down as the
+          form below — no scale explosion, no rotation spike. */}
       <div
-        className={phase === "entering" ? "gate-open" : "gate-pulse"}
+        className={phase === "entering" ? "gate-leave" : "gate-pulse"}
         style={{
           position: "relative",
           marginBottom: "1.5rem",
@@ -174,12 +171,11 @@ function GateInner() {
         <AsciiHero cols={66} rows={28} size={560} />
       </div>
 
-      {/* Wordmark + Latin tag. On `entering` these fade to zero opacity so
-          only the labyrinth is visible at the moment of transition. */}
+      {/* Wordmark + Latin tag. On `entering` these fade out and drift
+          down a hair along with the form — a single unified exit. */}
       <div
+        className={phase === "entering" ? "gate-leave" : undefined}
         style={{
-          opacity: phase === "entering" ? 0 : 1,
-          transition: "opacity 0.35s ease",
           textAlign: "center",
         }}
       >
@@ -230,16 +226,13 @@ function GateInner() {
       <form
         onSubmit={handleSubmit}
         aria-label="Sign in to the Theseus Codex"
-        className="ascii-frame"
+        className={`ascii-frame${phase === "entering" ? " gate-leave" : ""}`}
         data-label="INTROITUS · ENTER"
         style={{
           width: "min(420px, 100%)",
           display: "flex",
           flexDirection: "column",
           gap: "0.9rem",
-          opacity: phase === "entering" ? 0 : 1,
-          transform: phase === "entering" ? "translateY(12px)" : "translateY(0)",
-          transition: "opacity 0.45s ease, transform 0.45s ease",
           pointerEvents: isLocked ? "none" : "auto",
         }}
       >
