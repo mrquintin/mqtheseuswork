@@ -72,15 +72,15 @@ export default async function PublicBlogIndex() {
 
   return (
     // The sculpture backdrop used to live inside the 42vh hero section
-    // with `overflow: hidden`, which clipped the Discobolus at the hero
+    // with `overflow: hidden`, which clipped the figure at the hero
     // boundary — only a head-and-torso chunk was visible, floating in
     // the top-right corner. Moving it up to `<main>` (with its own
-    // overflow lock) lets the figure span the full landing-page height,
-    // so the sculpture reads as an ambient presence behind both the
-    // hero text and the publication list rather than a truncated
-    // fragment. The wider `widthVW` + larger `maxWidthPx` + higher
-    // opacity make the amber silhouette feel like a considered visual
-    // signature rather than a decoration stuck in the corner.
+    // overflow lock) lets the object span the full landing-page
+    // height, so the silhouette reads as an ambient presence behind
+    // both the hero text and the publication list rather than a
+    // truncated fragment. The wider `widthVW` + larger `maxWidthPx` +
+    // higher opacity make the amber silhouette feel like a considered
+    // visual signature rather than a decoration stuck in the corner.
     <main
       style={{
         minHeight: "100vh",
@@ -90,15 +90,22 @@ export default async function PublicBlogIndex() {
     >
       <PublicHeader authed={Boolean(founder)} />
 
+      {/* Patron object for the public landing: the Spartan (Corinthian)
+          helmet. The figure's iconic silhouette — rounded dome + tall
+          crest + T-shaped face opening — reads immediately even at
+          half-page scale and without requiring the viewer to recognise
+          a specific mythological figure the way a human statue would.
+          It also maps cleanly onto the page's mission: a codex of what
+          a firm has learned and is willing to defend. */}
       <SculptureBackdrop
-        src="/sculptures/discobolus-alt.mesh.bin"
+        src="/sculptures/spartan-helmet.mesh.bin"
         side="right"
         // 0.5 sits comfortably between the original 0.42 (felt tentative)
         // and the 0.72 authed-page default (would fight blog post text
         // below the hero). Enough presence to feel intentional.
         opacity={0.5}
         // ~65% of viewport on large screens, with a generous max so on
-        // big monitors the figure can still feel human-scale.
+        // big monitors the helmet can still feel human-scale.
         widthVW={65}
         maxWidthPx={1000}
       />

@@ -92,6 +92,11 @@ const MODELS: { file: string; slug: string; targetTris: number }[] = [
     slug: "atlas",
     targetTris: 3000,
   },
+  {
+    file: "spartan-helmet.stl",
+    slug: "spartan-helmet",
+    targetTris: 3000,
+  },
 ];
 
 const OUT_DIR = join(process.cwd(), "public", "sculptures");
