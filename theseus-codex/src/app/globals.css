@@ -389,6 +389,38 @@ input::placeholder, textarea::placeholder {
   animation: crt-noise-drift 48s linear infinite;
 }
 
+/* ── Light-mode CRT overlay dampening ─────────────────────────────────────
+ *
+ * The CRT noise + darkening vignette are the signature "amber oracle"
+ * effect in dark mode. In light mode they'd fight the bright
+ * parchment background instead: the noise layer is a dark amber
+ * pattern at mix-blend-mode `screen` (designed for a black base) —
+ * over parchment it just muddies the page. And the vignette
+ * darkens the rim of a page that's supposed to read as ink-on-paper.
+ *
+ * Both get suppressed here. If a user ever wants the CRT feel back
+ * they can flip `data-theme` to dark.
+ */
+[data-theme="light"] .crt-noise {
+  display: none;
+}
+
+[data-theme="light"] .crt-vignette {
+  /* A whisper of darkening at the corners keeps the reading page
+   * from feeling flat, without looking like an old monitor. */
+  background: radial-gradient(
+    ellipse at center,
+    transparent 70%,
+    rgba(90, 78, 58, 0.10) 100%
+  ) !important;
+}
+
+/* Dark mode is the default — explicit selector keeps the cascade
+ * readable when we inspect in devtools. */
+[data-theme="dark"] .crt-noise {
+  display: block;
+}
+
 @keyframes crt-noise-drift {
   0%   { background-position: 0 0; }
   100% { background-position: 256px 256px; }

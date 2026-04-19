@@ -80,9 +80,14 @@ export default function CRTOverlay() {
   return (
     <>
       {/* Vignette — slightly softer than before. Centre 60% of the screen
-          is fully clear; only the outer rim fades toward black. */}
+          is fully clear; only the outer rim fades toward black in dark
+          mode; effectively hidden in light mode (see globals.css
+          `[data-theme="light"] .crt-vignette`). The className is the
+          hook that lets the light theme dim/hide the effect; the inline
+          style is the dark-mode default. */}
       <div
         aria-hidden="true"
+        className="crt-vignette"
         style={{
           position: "fixed",
           inset: 0,

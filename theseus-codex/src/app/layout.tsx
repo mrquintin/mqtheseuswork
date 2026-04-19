@@ -16,13 +16,28 @@ export default function RootLayout({
   return (
     <html lang="en" data-theme="dark" suppressHydrationWarning>
       <head>
+        {/*
+          Theme bootstrap — must run before first paint to avoid a
+          flash-of-wrong-theme when a returning visitor prefers light
+          mode. The script order is:
+            1. stored choice wins if present (localStorage "theme"),
+            2. else the OS-level `prefers-color-scheme: light` hint,
+            3. else dark (the default, matching the HTML attribute).
+          We also wrap setting data-theme in a try so a locked-down
+          iframe (no localStorage access) silently falls through to
+          the inline default instead of a 500-byte SecurityError.
+        */}
         <script
           dangerouslySetInnerHTML={{
             __html: `
               try {
-                const t = localStorage.getItem("theme");
-                if (t) document.documentElement.setAttribute("data-theme", t);
-              } catch {}
+                var stored = localStorage.getItem("theme");
+                if (stored === "light" || stored === "dark") {
+                  document.documentElement.setAttribute("data-theme", stored);
+                } else if (window.matchMedia && window.matchMedia("(prefers-color-scheme: light)").matches) {
+                  document.documentElement.setAttribute("data-theme", "light");
+                }
+              } catch (e) {}
             `,
           }}
         />

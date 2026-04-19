@@ -1,13 +1,14 @@
 import Link from "next/link";
+import ThemeToggle from "./ThemeToggle";
 
 /**
  * Public-side header — renders on `/` and `/post/:slug` only.
  *
- * Two states:
- *   - `authed=false` → "Founder login →" in the right corner.
- *   - `authed=true`  → "Dashboard →" so signed-in founders can bounce
- *                      back to the private workspace without signing
- *                      out first.
+ * Three controls on the right:
+ *   - <ThemeToggle/>          → flip amber-on-stone ↔︎ ink-on-parchment
+ *   - `authed=false`          → "Founder login →"
+ *   - `authed=true`           → "Dashboard →" (direct bounce back to
+ *                                the private workspace)
  *
  * This is deliberately minimal: no persistent nav bar, no search, no
  * nothing. The blog is primarily for reading, so we keep the chrome
@@ -72,23 +73,26 @@ export default function PublicHeader({ authed }: { authed: boolean }) {
         </span>
       </Link>
 
-      <Link
-        href={authed ? "/dashboard" : "/login"}
-        className="mono"
-        style={{
-          fontSize: "0.6rem",
-          letterSpacing: "0.26em",
-          textTransform: "uppercase",
-          color: "var(--amber)",
-          textDecoration: "none",
-          padding: "0.4rem 0.9rem",
-          border: "1px solid var(--amber-dim)",
-          borderRadius: "3px",
-          transition: "all 0.18s ease",
-        }}
-      >
-        {authed ? "Dashboard →" : "Founder login →"}
-      </Link>
+      <div style={{ display: "flex", gap: "0.6rem", alignItems: "center" }}>
+        <ThemeToggle size={30} />
+        <Link
+          href={authed ? "/dashboard" : "/login"}
+          className="mono"
+          style={{
+            fontSize: "0.6rem",
+            letterSpacing: "0.26em",
+            textTransform: "uppercase",
+            color: "var(--amber)",
+            textDecoration: "none",
+            padding: "0.4rem 0.9rem",
+            border: "1px solid var(--amber-dim)",
+            borderRadius: "3px",
+            transition: "all 0.18s ease",
+          }}
+        >
+          {authed ? "Dashboard →" : "Founder login →"}
+        </Link>
+      </div>
     </header>
   );
 }

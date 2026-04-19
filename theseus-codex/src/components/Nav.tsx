@@ -5,6 +5,7 @@ import { usePathname, useRouter } from "next/navigation";
 
 import LabyrinthIcon from "./LabyrinthIcon";
 import { SUB_NAV_GROUPS, findGroupForPath } from "./SubNav";
+import ThemeToggle from "./ThemeToggle";
 
 /**
  * Top-level navigation.
@@ -183,6 +184,7 @@ export default function Nav({
                   </span>
                 ) : null}
               </span>
+              <ThemeToggle size={28} />
               <button
                 onClick={handleLogout}
                 className="btn"
@@ -192,17 +194,20 @@ export default function Nav({
               </button>
             </>
           ) : (
-            <Link
-              href="/"
-              className="btn"
-              style={{
-                fontSize: "0.65rem",
-                padding: "0.3rem 0.8rem",
-                textDecoration: "none",
-              }}
-            >
-              Sign In
-            </Link>
+            <>
+              <ThemeToggle size={28} />
+              <Link
+                href="/"
+                className="btn"
+                style={{
+                  fontSize: "0.65rem",
+                  padding: "0.3rem 0.8rem",
+                  textDecoration: "none",
+                }}
+              >
+                Sign In
+              </Link>
+            </>
           )}
         </div>
       </div>
