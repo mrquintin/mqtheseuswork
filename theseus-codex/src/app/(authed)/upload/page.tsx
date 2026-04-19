@@ -6,13 +6,11 @@ import SculptureBackdrop from "@/components/SculptureBackdrop";
  * Atlas backdrop can sit behind it on the left. See SculptureBackdrop
  * for the half-page backdrop pattern.
  *
- * Patron sculpture: **Atlas Holding Earth**. The Titan who bears the
- * weight of the heavens reads as the firm's collective knowledge
- * burden: every upload adds a little more mass the Codex must carry.
- * The orb-and-shoulders silhouette is also legible from its top-
- * anchored position — you see the globe first, then the straining
- * arms, then the torso — which reads well through the figure's small
- * visible window.
+ * Patron sculpture: **Sisyphus**. The repeated act of uploading —
+ * committing another session, another essay, another transcript — is
+ * Sisyphus's boulder at firm-memory scale. Each upload adds a small
+ * increment to the weight the Codex rolls uphill; the point isn't
+ * that the hill ends, it's that the climb is the work.
  *
  * Positioning notes
  * -----------------
@@ -40,7 +38,7 @@ export default function UploadPage() {
   return (
     <div style={{ position: "relative", overflow: "hidden", minHeight: "80vh" }}>
       <SculptureBackdrop
-        src="/sculptures/atlas.mesh.bin"
+        src="/sculptures/sisyphus.mesh.bin"
         side="left"
         yawSpeed={0.018}
         verticalAnchor="top"

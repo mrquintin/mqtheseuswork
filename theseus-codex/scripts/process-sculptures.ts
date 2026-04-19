@@ -66,7 +66,26 @@ type MeshVerts = Float32Array;
 
 const RAW_STL_DIR = join(process.cwd(), "assets", "sculptures", "raw-stl");
 const DOWNLOADS = join(homedir(), "Downloads");
-const MODELS: { file: string; slug: string; targetTris: number }[] = [
+interface ModelSpec {
+  file: string;
+  slug: string;
+  targetTris: number;
+  /**
+   * Skip the automatic "swap longest axis → Y" reorientation.
+   *
+   * The default heuristic (longest dimension = up) is correct for
+   * most single-figure STLs — a standing human is tallest in its
+   * height axis. But it fails for compositions where a horizontal
+   * element exceeds the figure's height: e.g. Sisyphus pushing a
+   * boulder, where figure + boulder span ~2.4 along the horizontal
+   * but the figure itself is only ~2.0 tall. Those meshes ship
+   * pre-rotated so Y is already the vertical axis, and this flag
+   * tells the pipeline to trust that rather than re-swapping.
+   */
+  skipAutoOrient?: boolean;
+}
+
+const MODELS: ModelSpec[] = [
   {
     file: "british-museum-discobolus1-1.stl",
     slug: "discobolus",
@@ -96,6 +115,21 @@ const MODELS: { file: string; slug: string; targetTris: number }[] = [
     file: "spartan-helmet.stl",
     slug: "spartan-helmet",
     targetTris: 3000,
+  },
+  {
+    file: "minotaur.stl",
+    slug: "minotaur",
+    targetTris: 3000,
+  },
+  {
+    // Sisyphus ships from 3MF conversion with Y already set as the
+    // vertical axis. Its longest dimension is actually Z (the
+    // figure-plus-boulder composition's horizontal reach), so the
+    // usual "longest = up" swap would rotate him onto his side.
+    file: "sisyphus.stl",
+    slug: "sisyphus",
+    targetTris: 3000,
+    skipAutoOrient: true,
   },
 ];
 
@@ -419,13 +453,18 @@ function processOne(m: (typeof MODELS)[number]): void {
   console.log(`      parsed        ${parsedTris.toLocaleString()} triangles`);
 
   const bbox = boundingBox(verts);
-  orientYUpInPlace(verts, bbox);
+  if (!m.skipAutoOrient) {
+    orientYUpInPlace(verts, bbox);
+  }
   const bboxY = boundingBox(verts);
   normalizeInPlace(verts, bboxY);
+  const orientNote = m.skipAutoOrient
+    ? "pre-oriented — auto-swap skipped"
+    : `longest axis now Y`;
   console.log(
     `      normalized    bbox ${bbox.size
       .map((s) => s.toFixed(1))
-      .join(" × ")}  (longest axis now Y)`,
+      .join(" × ")}  (${orientNote})`,
   );
 
   const decimated = decimateToTarget(verts, m.targetTris);

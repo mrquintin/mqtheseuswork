@@ -432,7 +432,7 @@ export default function UploadForm() {
             marginBottom: 0,
           }}
         >
-          Upload Contribution · Atlas Holding Earth
+          Upload Contribution · Sisyphus
         </p>
         <p
           style={{

@@ -90,15 +90,13 @@ export default async function PublicBlogIndex() {
     >
       <PublicHeader authed={Boolean(founder)} />
 
-      {/* Patron object for the public landing: the Spartan (Corinthian)
-          helmet. The figure's iconic silhouette — rounded dome + tall
-          crest + T-shaped face opening — reads immediately even at
-          half-page scale and without requiring the viewer to recognise
-          a specific mythological figure the way a human statue would.
-          It also maps cleanly onto the page's mission: a codex of what
-          a firm has learned and is willing to defend. */}
+      {/* Patron object for the public landing: the Minotaur — the
+          creature at the heart of the labyrinth Theseus was sent to
+          confront. Thematically anchors the whole brand: the Codex
+          exists so a firm can meet what lives at the center of its
+          own knowledge-maze and name it. */}
       <SculptureBackdrop
-        src="/sculptures/spartan-helmet.mesh.bin"
+        src="/sculptures/minotaur.mesh.bin"
         side="right"
         // 0.5 sits comfortably between the original 0.42 (felt tentative)
         // and the 0.72 authed-page default (would fight blog post text
