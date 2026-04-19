@@ -6,13 +6,15 @@ import SculptureBackdrop from "@/components/SculptureBackdrop";
  * endpoint: type a question, see an answer grounded in the firm's
  * Conclusion corpus, with inline citations.
  *
- * Patron sculpture: Augustus Prima Porta on the right.
+ * Patron sculpture: the Discobolus (British Museum) on the right —
+ * the discus thrower captured in resolved motion, fitting for the page
+ * where a question becomes an answer.
  */
 export default function AskPage() {
   return (
     <div style={{ position: "relative", overflow: "hidden", minHeight: "80vh" }}>
       <SculptureBackdrop
-        src="/sculptures/augustus.mesh.bin"
+        src="/sculptures/discobolus.mesh.bin"
         side="right"
         yawSpeed={0.01}
       />
@@ -49,7 +51,7 @@ export default function AskPage() {
               marginTop: "0.25rem",
             }}
           >
-            Ask the Codex · Augustus Prima Porta, SMK
+            Ask the Codex · Discobolus, British Museum
           </p>
           <p
             style={{

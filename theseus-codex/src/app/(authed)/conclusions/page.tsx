@@ -137,7 +137,7 @@ export default async function ConclusionsPage({
   return (
     <div style={{ position: "relative", overflow: "hidden", minHeight: "80vh" }}>
       <SculptureBackdrop
-        src="/sculptures/discobolus.mesh.bin"
+        src="/sculptures/discobolus-alt.mesh.bin"
         side="right"
         yawSpeed={0.01}
       />
@@ -178,7 +178,7 @@ export default async function ConclusionsPage({
               margin: "0.25rem 0 0",
             }}
           >
-            The firm&apos;s canon · Discobolus, British Museum
+            The firm&apos;s canon · Discobolus, MSR
           </p>
           <p
             style={{
