@@ -16,7 +16,7 @@ import logging
 import threading
 from typing import Callable, Optional
 
-from PyQt6.QtCore import Qt, QTimer
+from PyQt6.QtCore import Qt, QTimer, pyqtSignal
 from PyQt6.QtGui import QFont
 from PyQt6.QtWidgets import (
     QApplication,
@@ -107,6 +107,17 @@ class LoginDialog(QDialog):
     app (Dialectic requires authentication to run).
     """
 
+    # Thread-safe signals for marshalling worker results back to the
+    # Qt main thread. `QTimer.singleShot(0, callable)` was the previous
+    # approach but QTimer is a QObject and must be created on the thread
+    # that owns the event loop — if we construct one on the worker
+    # thread, Qt silently refuses to fire it, so the "SIGNING IN…"
+    # state would persist forever even on a successful POST. pyqtSignals
+    # use Qt's cross-thread queued-connection machinery, which is
+    # what we actually want.
+    _login_succeeded = pyqtSignal(object)  # payload: StoredCredentials
+    _login_failed = pyqtSignal(str)         # payload: user-safe message
+
     def __init__(
         self,
         *,
@@ -124,6 +135,15 @@ class LoginDialog(QDialog):
 
         self.credentials: Optional[credentials.StoredCredentials] = None
         self._in_flight = False
+
+        # Wire the cross-thread signals to the main-thread handlers.
+        # Default connection type = AutoConnection: since the receivers
+        # live on the same thread the signals are connected on (the
+        # Qt main thread), but emitted from a different thread, Qt
+        # uses a queued connection automatically. That's exactly what
+        # we need — the handlers run on the GUI thread.
+        self._login_succeeded.connect(self._on_success)
+        self._login_failed.connect(self._on_failure)
 
         root = QVBoxLayout(self)
         root.setContentsMargins(26, 22, 26, 22)
@@ -245,6 +265,14 @@ class LoginDialog(QDialog):
         self._set_busy(True)
 
         def _do_login() -> None:
+            # Worker thread: do the blocking HTTP POST, then emit one
+            # of the two pyqtSignals to bounce the result back onto
+            # the main thread. We specifically do NOT use
+            # QTimer.singleShot here — QTimer is a QObject and must
+            # be created on the thread that owns the event loop; a
+            # timer constructed on this worker thread would never
+            # fire, leaving the dialog "SIGNING IN…" forever even on
+            # a successful round-trip (the actual bug we just fixed).
             try:
                 creds = credentials.login(
                     codex_url=url,
@@ -252,14 +280,12 @@ class LoginDialog(QDialog):
                     email=email,
                     password=password,
                 )
-                QTimer.singleShot(0, lambda: self._on_success(creds))
+                self._login_succeeded.emit(creds)
             except credentials.AuthError as e:
-                QTimer.singleShot(0, lambda msg=str(e): self._on_failure(msg))
+                self._login_failed.emit(str(e))
             except Exception as e:  # pragma: no cover — defensive
                 log.exception("Unexpected login error")
-                QTimer.singleShot(
-                    0, lambda msg=f"Unexpected error: {e}": self._on_failure(msg)
-                )
+                self._login_failed.emit(f"Unexpected error: {e}")
 
         threading.Thread(target=_do_login, daemon=True, name="DialecticLogin").start()
 

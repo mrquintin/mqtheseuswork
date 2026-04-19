@@ -187,16 +187,48 @@ class AuthError(Exception):
 
 
 def _ssl_context() -> Optional[ssl.SSLContext]:
-    """Build a verified SSL context unless the user opted out.
+    """Build a verified SSL context that actually trusts real CAs.
 
-    Mirrors the override used by `cloud_uploader.py` so a single env
-    var controls TLS verification across the app.
+    Why this is not a one-liner: on macOS the Python.org "framework"
+    builds ship *without* any CA trust store unless the user runs the
+    post-install `Install Certificates.command` script (a huge number
+    of Dialectic installs skip this). Python's default SSLContext on
+    those builds returns a context with no anchors, so every HTTPS
+    call dies with CERTIFICATE_VERIFY_FAILED — which, with the old
+    login dialog's broken thread marshalling, looked like "sign-in
+    takes forever" because the error never reached the UI.
+
+    We resolve this in priority order:
+
+      1. If ``DIALECTIC_CLOUD_VERIFY_TLS=0`` — insecure mode for
+         enterprise intercepting proxies. Mirrors cloud_uploader.py.
+      2. If ``certifi`` is importable — use its Mozilla CA bundle.
+         PyInstaller bundles already ship with it, and pip-installed
+         setups usually do as well (it comes in transitively via
+         requests/openai).
+      3. If ``SSL_CERT_FILE`` or ``SSL_CERT_DIR`` are set — honour them.
+      4. Otherwise fall back to the system default (works on Linux
+         and on Homebrew/macOS Python where OpenSSL is linked to the
+         system trust store).
     """
     if os.environ.get("DIALECTIC_CLOUD_VERIFY_TLS", "1") == "0":
         ctx = ssl.create_default_context()
         ctx.check_hostname = False
         ctx.verify_mode = ssl.CERT_NONE
         return ctx
+
+    try:
+        import certifi  # type: ignore[import-not-found]
+
+        return ssl.create_default_context(cafile=certifi.where())
+    except Exception:  # noqa: BLE001 — certifi is optional
+        pass
+
+    cafile = os.environ.get("SSL_CERT_FILE")
+    capath = os.environ.get("SSL_CERT_DIR")
+    if cafile or capath:
+        return ssl.create_default_context(cafile=cafile, capath=capath)
+
     return None
 
 
@@ -247,7 +279,22 @@ def login(
             message = str(e.reason)
         raise AuthError(f"Sign-in rejected: {message}") from e
     except urllib.error.URLError as e:
-        raise AuthError(f"Can't reach {codex_url}: {e.reason}") from e
+        reason = e.reason
+        # Detect TLS trust-store failures specifically — they were the
+        # #1 silent cause of "sign-in takes forever" before we fixed
+        # the thread-marshalling bug upstream.
+        if isinstance(reason, ssl.SSLCertVerificationError) or (
+            isinstance(reason, ssl.SSLError)
+            and "CERTIFICATE_VERIFY_FAILED" in str(reason)
+        ):
+            raise AuthError(
+                "Can't verify the Codex's TLS certificate. "
+                "This usually means your Python install is missing root "
+                "CAs — try `pip install --upgrade certifi` or, on "
+                "Python.org builds, run "
+                "`/Applications/Python\\ 3.XX/Install\\ Certificates.command`."
+            ) from e
+        raise AuthError(f"Can't reach {codex_url}: {reason}") from e
     except OSError as e:
         raise AuthError(f"Network error: {e}") from e
 
