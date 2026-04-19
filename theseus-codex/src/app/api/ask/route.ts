@@ -345,10 +345,13 @@ async function callClaude(
     body: JSON.stringify({
       model,
       max_tokens: 1024,
-      // Grounded/deterministic-ish — we're citing, not brainstorming.
-      // Opus handles low-temperature reasoning well; 0.3 keeps answers
-      // terse and on-corpus without being rote.
-      temperature: 0.3,
+      // `temperature` was explicitly omitted: Anthropic deprecated
+      // it for claude-opus-4-7 (POST returns
+      // `invalid_request_error: temperature is deprecated for this
+      // model.` if you pass any value). Opus 4.7 uses its own
+      // internal reasoning schedule; the grounded-system-prompt +
+      // retrieved-context pattern produces appropriately terse,
+      // citation-heavy answers on its own.
       system: SYSTEM_PROMPT,
       messages: [{ role: "user", content: userMessage }],
     }),
