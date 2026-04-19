@@ -6,15 +6,13 @@ import SculptureBackdrop from "@/components/SculptureBackdrop";
  * endpoint: type a question, see an answer grounded in the firm's
  * Conclusion corpus, with inline citations.
  *
- * Patron sculpture: the Doryphoros (Polykleitos' canon) on the right —
- * the page where you consult the firm's canon deserves the figure by
- * which all other figures are measured.
+ * Patron sculpture: Augustus Prima Porta on the right.
  */
 export default function AskPage() {
   return (
     <div style={{ position: "relative", overflow: "hidden", minHeight: "80vh" }}>
       <SculptureBackdrop
-        src="/sculptures/doryphoros.mesh.bin"
+        src="/sculptures/augustus.mesh.bin"
         side="right"
         yawSpeed={0.01}
       />
@@ -51,7 +49,7 @@ export default function AskPage() {
               marginTop: "0.25rem",
             }}
           >
-            Ask the Codex · Doryphoros, MIA
+            Ask the Codex · Augustus Prima Porta, SMK
           </p>
           <p
             style={{

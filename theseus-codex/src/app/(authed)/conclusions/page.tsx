@@ -137,7 +137,7 @@ export default async function ConclusionsPage({
   return (
     <div style={{ position: "relative", overflow: "hidden", minHeight: "80vh" }}>
       <SculptureBackdrop
-        src="/sculptures/doryphoros.mesh.bin"
+        src="/sculptures/discobolus.mesh.bin"
         side="right"
         yawSpeed={0.01}
       />
@@ -178,7 +178,7 @@ export default async function ConclusionsPage({
               margin: "0.25rem 0 0",
             }}
           >
-            The firm&apos;s canon · Doryphoros, MIA
+            The firm&apos;s canon · Discobolus, British Museum
           </p>
           <p
             style={{
@@ -192,9 +192,9 @@ export default async function ConclusionsPage({
               maxWidth: "44em",
             }}
           >
-            Polykleitos made the figure by which all other figures are
-            measured. A conclusion the firm stands behind is the same kind
-            of object.
+            The discus thrower is captured in resolved motion. Conclusions
+            here are the firm&apos;s equivalent: commitments that move
+            deliberation from potential to action.
           </p>
         </header>
 

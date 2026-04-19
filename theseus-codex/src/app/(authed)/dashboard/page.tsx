@@ -10,10 +10,8 @@ import { requireTenantContext } from "@/lib/tenant";
 /**
  * Dashboard — landing page after login.
  *
- * Patron sculpture: **Hercules (Louvre)**, rendered huge and dim on the
- * right side of the page. A viewer sees Hercules and the UI content
- * simultaneously — the strength and discipline of the firm, and its
- * current intellectual metabolism.
+ * Patron sculpture: **Augustus Prima Porta (SMK)**, rendered huge and dim
+ * on the right side of the page.
  */
 
 export default async function DashboardPage() {
@@ -85,7 +83,7 @@ export default async function DashboardPage() {
 
   return (
     <div style={{ position: "relative", overflow: "hidden", minHeight: "80vh" }}>
-      <SculptureBackdrop src="/sculptures/hercules.mesh.bin" side="right" />
+      <SculptureBackdrop src="/sculptures/augustus.mesh.bin" side="right" />
 
       <main
         style={{
@@ -120,7 +118,7 @@ export default async function DashboardPage() {
               marginBottom: 0,
             }}
           >
-            Hercules, Louvre · Fortitudine et disciplina
+            Augustus Prima Porta, SMK · Imperium rationis
           </p>
           <p
             style={{

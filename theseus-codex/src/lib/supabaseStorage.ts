@@ -187,3 +187,44 @@ export async function audioObjectExists(objectPath: string): Promise<boolean> {
   });
   return res.ok;
 }
+
+/**
+ * Best-effort read of the configured bucket's file-size limit, in bytes.
+ *
+ * Why this exists:
+ * - Codex has its own app-level upload cap (`MAX_UPLOAD_BYTES`), but
+ *   Supabase buckets can enforce a *lower* per-file cap (often 50 MB by
+ *   default).
+ * - When the bucket cap is lower, browser PUTs can fail with opaque
+ *   "network error" symptoms after waiting.
+ *
+ * The prepare route can call this to fail fast with an actionable 413
+ * before the browser starts a long upload.
+ */
+export async function getAudioBucketFileSizeLimitBytes(): Promise<number | null> {
+  const cfg = getConfig();
+  if (!cfg) return null;
+
+  const endpoint = `${cfg.url}/storage/v1/bucket/${encodeURIComponent(
+    cfg.bucket,
+  )}`;
+
+  const res = await fetch(endpoint, {
+    method: "GET",
+    headers: {
+      Authorization: `Bearer ${cfg.key}`,
+      apikey: cfg.key,
+    },
+  });
+  if (!res.ok) return null;
+
+  const data = (await res.json().catch(() => null)) as
+    | { file_size_limit?: number | string | null }
+    | null;
+  if (!data) return null;
+  const raw = data.file_size_limit;
+  if (raw === null || raw === undefined || raw === "") return null;
+  const n = typeof raw === "number" ? raw : Number(raw);
+  if (!Number.isFinite(n) || n <= 0) return null;
+  return Math.floor(n);
+}

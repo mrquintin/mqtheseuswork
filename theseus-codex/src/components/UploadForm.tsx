@@ -188,9 +188,10 @@ export default function UploadForm() {
     if (!prep.ok) {
       throw new Error(prepData.error || `Prepare failed (${prep.status})`);
     }
-    const { uploadId, signedUrl, headers: putHeaders } = prepData as {
+    const { uploadId, signedUrl, token, headers: putHeaders } = prepData as {
       uploadId: string;
       signedUrl: string;
+      token?: string;
       headers?: Record<string, string>;
     };
 
@@ -202,21 +203,33 @@ export default function UploadForm() {
 
     await new Promise<void>((resolve, reject) => {
       const xhr = new XMLHttpRequest();
+      let lastLoadedBytes = 0;
       xhr.open("PUT", signedUrl);
       const ct =
         (putHeaders && putHeaders["Content-Type"]) ||
         f.type ||
         "application/octet-stream";
       xhr.setRequestHeader("Content-Type", ct);
+      // Supabase signed-upload endpoints may require Bearer token auth
+      // (older API variants), while newer ones encode auth in the URL.
+      // We support both by adding Authorization when token is present.
+      if (token) {
+        xhr.setRequestHeader("Authorization", `Bearer ${token}`);
+      }
       if (putHeaders) {
         for (const [name, value] of Object.entries(putHeaders)) {
-          if (name.toLowerCase() !== "content-type") {
+          // Keep the signed PUT as lean as possible: avoid extra headers
+          // that can trigger stricter CORS/preflight behavior in some
+          // browser+storage combinations (notably x-upsert).
+          const lower = name.toLowerCase();
+          if (lower !== "content-type" && lower !== "x-upsert") {
             xhr.setRequestHeader(name, value);
           }
         }
       }
       xhr.upload.onprogress = (ev) => {
         if (ev.lengthComputable) {
+          lastLoadedBytes = ev.loaded;
           const frac = ev.loaded / ev.total;
           setUploadProgress(frac);
           setUploadBytes(
@@ -237,7 +250,17 @@ export default function UploadForm() {
         }
       };
       xhr.onerror = () =>
-        reject(new Error("Direct upload to storage failed: network error"));
+        reject(
+          new Error(
+            "Direct upload to storage failed: network/CORS error" +
+              (lastLoadedBytes > 0
+                ? ` after ${(lastLoadedBytes / 1024 / 1024).toFixed(1)} MB`
+                : "") +
+              ". Verify Supabase bucket CORS and file-size limit.",
+          ),
+        );
+      xhr.onabort = () =>
+        reject(new Error("Direct upload to storage was aborted"));
       xhr.ontimeout = () =>
         reject(new Error("Direct upload to storage timed out"));
       xhr.send(f);
@@ -272,6 +295,8 @@ export default function UploadForm() {
     setSuccess("");
     setUploading(true);
     setPollLog("");
+    setUploadProgress(null);
+    setUploadBytes("");
 
     // Decide between the two upload paths.
     //
@@ -307,6 +332,8 @@ export default function UploadForm() {
     } catch (err) {
       setUploading(false);
       setUploadProgress(null);
+      setUploadBytes("");
+      setSuccess("");
       setError(err instanceof Error ? err.message : String(err));
       return;
     }

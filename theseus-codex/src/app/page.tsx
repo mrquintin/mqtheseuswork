@@ -85,7 +85,7 @@ export default async function PublicBlogIndex() {
         }}
       >
         <SculptureBackdrop
-          src="/sculptures/doryphoros.mesh.bin"
+          src="/sculptures/discobolus-alt.mesh.bin"
           side="right"
           opacity={0.42}
           widthVW={50}

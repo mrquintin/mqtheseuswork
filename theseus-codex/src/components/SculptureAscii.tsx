@@ -58,6 +58,8 @@ export type SculptureAsciiProps = {
 /** Cache so we don't re-fetch the same mesh across page navigation. */
 const meshCache = new Map<string, Float32Array>();
 
+type Vec3 = readonly [number, number, number];
+
 /** Parse the compact binary into a Float32Array of 9-float triangles. */
 function parseMesh(buf: ArrayBuffer): Float32Array {
   const view = new DataView(buf);
@@ -75,26 +77,324 @@ function parseMesh(buf: ArrayBuffer): Float32Array {
   return new Float32Array(buf, 8, count * 9);
 }
 
+function slugFromSrc(src: string): string {
+  const m = src.match(/\/?([^/?]+)\.mesh\.bin(?:\?.*)?$/);
+  return m?.[1] ?? "default";
+}
+
+function addTri(out: number[], a: Vec3, b: Vec3, c: Vec3): void {
+  out.push(a[0], a[1], a[2], b[0], b[1], b[2], c[0], c[1], c[2]);
+}
+
+function addSphere(
+  out: number[],
+  center: Vec3,
+  radius: number,
+  latSteps = 8,
+  lonSteps = 12,
+): void {
+  const [cx, cy, cz] = center;
+  for (let lat = 0; lat < latSteps; lat++) {
+    const t0 = (lat / latSteps) * Math.PI;
+    const t1 = ((lat + 1) / latSteps) * Math.PI;
+    const y0 = Math.cos(t0) * radius;
+    const y1 = Math.cos(t1) * radius;
+    const r0 = Math.sin(t0) * radius;
+    const r1 = Math.sin(t1) * radius;
+    for (let lon = 0; lon < lonSteps; lon++) {
+      const p0 = (lon / lonSteps) * Math.PI * 2;
+      const p1 = ((lon + 1) / lonSteps) * Math.PI * 2;
+      const a: Vec3 = [cx + Math.cos(p0) * r0, cy + y0, cz + Math.sin(p0) * r0];
+      const b: Vec3 = [cx + Math.cos(p1) * r0, cy + y0, cz + Math.sin(p1) * r0];
+      const c: Vec3 = [cx + Math.cos(p0) * r1, cy + y1, cz + Math.sin(p0) * r1];
+      const d: Vec3 = [cx + Math.cos(p1) * r1, cy + y1, cz + Math.sin(p1) * r1];
+      if (lat === 0) {
+        addTri(out, a, c, d);
+      } else if (lat === latSteps - 1) {
+        addTri(out, a, d, b);
+      } else {
+        addTri(out, a, c, d);
+        addTri(out, a, d, b);
+      }
+    }
+  }
+}
+
+function sub(a: Vec3, b: Vec3): Vec3 {
+  return [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
+}
+
+function add(a: Vec3, b: Vec3): Vec3 {
+  return [a[0] + b[0], a[1] + b[1], a[2] + b[2]];
+}
+
+function mul(v: Vec3, s: number): Vec3 {
+  return [v[0] * s, v[1] * s, v[2] * s];
+}
+
+function cross(a: Vec3, b: Vec3): Vec3 {
+  return [
+    a[1] * b[2] - a[2] * b[1],
+    a[2] * b[0] - a[0] * b[2],
+    a[0] * b[1] - a[1] * b[0],
+  ];
+}
+
+function normalize(v: Vec3): Vec3 {
+  const len = Math.hypot(v[0], v[1], v[2]);
+  if (len < 1e-6) return [0, 1, 0];
+  return [v[0] / len, v[1] / len, v[2] / len];
+}
+
+function addCapsule(
+  out: number[],
+  start: Vec3,
+  end: Vec3,
+  radius: number,
+  radialSegments = 10,
+): void {
+  const axis = sub(end, start);
+  const axisLen = Math.hypot(axis[0], axis[1], axis[2]);
+  if (axisLen < 1e-5) return;
+  const dir = normalize(axis);
+  const seed: Vec3 = Math.abs(dir[1]) < 0.9 ? [0, 1, 0] : [1, 0, 0];
+  const u = normalize(cross(dir, seed));
+  const v = normalize(cross(dir, u));
+  for (let i = 0; i < radialSegments; i++) {
+    const a0 = (i / radialSegments) * Math.PI * 2;
+    const a1 = ((i + 1) / radialSegments) * Math.PI * 2;
+    const r0 = add(mul(u, Math.cos(a0) * radius), mul(v, Math.sin(a0) * radius));
+    const r1 = add(mul(u, Math.cos(a1) * radius), mul(v, Math.sin(a1) * radius));
+    const s0 = add(start, r0);
+    const s1 = add(start, r1);
+    const e0 = add(end, r0);
+    const e1 = add(end, r1);
+    addTri(out, s0, e0, e1);
+    addTri(out, s0, e1, s1);
+  }
+  addSphere(out, start, radius, 5, 8);
+  addSphere(out, end, radius, 5, 8);
+}
+
+type Pose = {
+  pelvis: Vec3;
+  neck: Vec3;
+  head: Vec3;
+  leftShoulder: Vec3;
+  rightShoulder: Vec3;
+  leftElbow: Vec3;
+  rightElbow: Vec3;
+  leftHand: Vec3;
+  rightHand: Vec3;
+  leftHip: Vec3;
+  rightHip: Vec3;
+  leftKnee: Vec3;
+  rightKnee: Vec3;
+  leftFoot: Vec3;
+  rightFoot: Vec3;
+};
+
+const BASE_POSE: Pose = {
+  pelvis: [0, 0.05, 0],
+  neck: [0, 0.58, 0],
+  head: [0, 0.82, 0],
+  leftShoulder: [-0.2, 0.56, 0],
+  rightShoulder: [0.2, 0.56, 0],
+  leftElbow: [-0.34, 0.4, 0],
+  rightElbow: [0.34, 0.4, 0],
+  leftHand: [-0.34, 0.18, 0.04],
+  rightHand: [0.34, 0.18, -0.04],
+  leftHip: [-0.13, 0.03, 0],
+  rightHip: [0.13, 0.03, 0],
+  leftKnee: [-0.13, -0.34, 0.02],
+  rightKnee: [0.13, -0.34, -0.02],
+  leftFoot: [-0.12, -0.76, 0.08],
+  rightFoot: [0.12, -0.76, -0.08],
+};
+
+const POSE_OVERRIDES: Record<string, Partial<Pose>> = {
+  "discobolus-alt": {
+    neck: [0.04, 0.58, -0.1],
+    head: [0.1, 0.82, -0.14],
+    leftShoulder: [-0.15, 0.55, -0.08],
+    rightShoulder: [0.22, 0.58, 0.08],
+    leftElbow: [-0.45, 0.63, -0.18],
+    rightElbow: [0.36, 0.35, 0.22],
+    leftHand: [-0.65, 0.5, -0.28],
+    rightHand: [0.48, 0.12, 0.34],
+    leftKnee: [-0.18, -0.2, 0.25],
+    rightKnee: [0.22, -0.33, -0.2],
+    leftFoot: [-0.29, -0.62, 0.42],
+    rightFoot: [0.2, -0.74, -0.25],
+  },
+  discobolus: {
+    neck: [0.02, 0.58, -0.05],
+    head: [0.06, 0.82, -0.08],
+    leftElbow: [-0.42, 0.62, -0.08],
+    rightElbow: [0.34, 0.32, 0.18],
+    leftHand: [-0.58, 0.48, -0.18],
+    rightHand: [0.46, 0.14, 0.28],
+    leftKnee: [-0.2, -0.23, 0.12],
+    rightKnee: [0.18, -0.32, -0.12],
+  },
+  doryphoros: {
+    pelvis: [-0.02, 0.05, 0],
+    neck: [0.03, 0.58, 0.01],
+    leftShoulder: [-0.2, 0.56, 0.03],
+    rightShoulder: [0.2, 0.56, -0.03],
+    leftElbow: [-0.24, 0.35, 0.08],
+    rightElbow: [0.33, 0.43, -0.08],
+    leftHand: [-0.2, 0.1, 0.15],
+    rightHand: [0.36, 0.18, -0.16],
+    leftHip: [-0.14, 0.03, 0.03],
+    rightHip: [0.14, 0.03, -0.03],
+    leftKnee: [-0.08, -0.3, 0.05],
+    rightKnee: [0.18, -0.34, -0.08],
+    leftFoot: [-0.04, -0.76, 0.2],
+    rightFoot: [0.2, -0.76, -0.14],
+  },
+  hercules: {
+    head: [0, 0.85, 0],
+    leftShoulder: [-0.24, 0.58, 0],
+    rightShoulder: [0.24, 0.58, 0],
+    leftElbow: [-0.38, 0.45, -0.05],
+    rightElbow: [0.4, 0.43, 0.05],
+    leftHand: [-0.4, 0.2, -0.08],
+    rightHand: [0.42, 0.2, 0.08],
+    leftHip: [-0.15, 0.02, 0],
+    rightHip: [0.15, 0.02, 0],
+  },
+  augustus: {
+    neck: [0.02, 0.58, 0.02],
+    head: [0.03, 0.83, 0.03],
+    leftElbow: [-0.28, 0.36, 0.08],
+    leftHand: [-0.24, 0.16, 0.12],
+    rightElbow: [0.28, 0.52, -0.1],
+    rightHand: [0.44, 0.64, -0.18],
+    leftKnee: [-0.1, -0.32, 0.08],
+    rightKnee: [0.16, -0.34, -0.02],
+  },
+  "dying-gladiator": {
+    pelvis: [0.03, 0.01, 0.08],
+    neck: [0.08, 0.47, -0.16],
+    head: [0.14, 0.62, -0.26],
+    leftShoulder: [-0.12, 0.46, -0.02],
+    rightShoulder: [0.26, 0.5, -0.24],
+    leftElbow: [-0.28, 0.28, 0.12],
+    rightElbow: [0.5, 0.3, -0.44],
+    leftHand: [-0.32, 0.04, 0.2],
+    rightHand: [0.62, 0.04, -0.52],
+    leftHip: [-0.08, 0.01, 0.2],
+    rightHip: [0.15, 0.01, -0.02],
+    leftKnee: [-0.28, -0.2, 0.44],
+    rightKnee: [0.2, -0.3, -0.18],
+    leftFoot: [-0.38, -0.58, 0.58],
+    rightFoot: [0.14, -0.7, -0.26],
+  },
+};
+
+function normalizeMesh(verts: Float32Array): Float32Array {
+  if (verts.length === 0) return verts;
+  let minX = Infinity;
+  let minY = Infinity;
+  let minZ = Infinity;
+  let maxX = -Infinity;
+  let maxY = -Infinity;
+  let maxZ = -Infinity;
+  for (let i = 0; i < verts.length; i += 3) {
+    const x = verts[i]!;
+    const y = verts[i + 1]!;
+    const z = verts[i + 2]!;
+    if (x < minX) minX = x;
+    if (y < minY) minY = y;
+    if (z < minZ) minZ = z;
+    if (x > maxX) maxX = x;
+    if (y > maxY) maxY = y;
+    if (z > maxZ) maxZ = z;
+  }
+  const cx = (minX + maxX) / 2;
+  const cy = (minY + maxY) / 2;
+  const cz = (minZ + maxZ) / 2;
+  const longest = Math.max(maxX - minX, maxY - minY, maxZ - minZ);
+  const s = longest > 0 ? 2 / longest : 1;
+  const out = new Float32Array(verts.length);
+  for (let i = 0; i < verts.length; i += 3) {
+    out[i] = (verts[i]! - cx) * s;
+    out[i + 1] = (verts[i + 1]! - cy) * s;
+    out[i + 2] = (verts[i + 2]! - cz) * s;
+  }
+  return out;
+}
+
+function buildProceduralStatueMesh(slug: string): Float32Array {
+  const pose: Pose = { ...BASE_POSE, ...(POSE_OVERRIDES[slug] ?? {}) };
+  const tris: number[] = [];
+
+  addCapsule(tris, pose.neck, pose.pelvis, 0.11, 12);
+  addCapsule(tris, pose.leftShoulder, pose.rightShoulder, 0.07, 10);
+  addCapsule(tris, pose.leftHip, pose.rightHip, 0.08, 10);
+  addSphere(tris, pose.head, 0.13, 9, 12);
+
+  addCapsule(tris, pose.leftShoulder, pose.leftElbow, 0.05, 10);
+  addCapsule(tris, pose.leftElbow, pose.leftHand, 0.045, 10);
+  addCapsule(tris, pose.rightShoulder, pose.rightElbow, 0.05, 10);
+  addCapsule(tris, pose.rightElbow, pose.rightHand, 0.045, 10);
+
+  addCapsule(tris, pose.leftHip, pose.leftKnee, 0.058, 10);
+  addCapsule(tris, pose.leftKnee, pose.leftFoot, 0.053, 10);
+  addCapsule(tris, pose.rightHip, pose.rightKnee, 0.058, 10);
+  addCapsule(tris, pose.rightKnee, pose.rightFoot, 0.053, 10);
+
+  // Discobolus variants get a "disc" so the silhouette reads correctly.
+  if (slug.includes("discobolus")) {
+    const discCenter = pose.leftHand;
+    addSphere(tris, [discCenter[0] - 0.1, discCenter[1] + 0.02, discCenter[2]], 0.1, 4, 10);
+  }
+
+  return normalizeMesh(new Float32Array(tris));
+}
+
+function fallbackMesh(src: string): Float32Array {
+  const slug = slugFromSrc(src);
+  const cacheKey = `__procedural__${slug}`;
+  const cached = meshCache.get(cacheKey);
+  if (cached) return cached;
+  const mesh = buildProceduralStatueMesh(slug);
+  meshCache.set(cacheKey, mesh);
+  return mesh;
+}
+
 async function loadMesh(src: string): Promise<Float32Array> {
   const cached = meshCache.get(src);
   if (cached) return cached;
-  const res = await fetch(src);
-  if (!res.ok) {
-    // Common production failure mode: the `.mesh.bin` files were swept up
-    // by a `*.bin` rule in the root `.gitignore` (or similar) and never
-    // deployed. Surface the URL + status clearly so diagnosis doesn't
-    // require F12 detective work.
-    throw new Error(
-      `Failed to fetch ${src}: HTTP ${res.status}. ` +
-        (res.status === 404
-          ? "Mesh file not deployed — check .gitignore / .vercelignore for `*.bin` patterns."
-          : ""),
-    );
+  try {
+    const res = await fetch(src);
+    if (!res.ok) {
+      // Common production failure mode: the `.mesh.bin` files were swept up
+      // by a `*.bin` rule in the root `.gitignore` and never deployed.
+      // We'll fall back to a procedural mesh so the page still renders.
+      throw new Error(
+        `Failed to fetch ${src}: HTTP ${res.status}. ` +
+          (res.status === 404
+            ? "Mesh file not deployed — check .gitignore / .vercelignore for `*.bin` patterns."
+            : ""),
+      );
+    }
+    const buf = await res.arrayBuffer();
+    const parsed = parseMesh(buf);
+    meshCache.set(src, parsed);
+    return parsed;
+  } catch (err) {
+    const generated = fallbackMesh(src);
+    meshCache.set(src, generated);
+    if (typeof window !== "undefined") {
+      const msg = err instanceof Error ? err.message : String(err);
+      console.warn(
+        `[sculpture] ${src} unavailable (${msg}). Using procedural fallback mesh.`,
+      );
+    }
+    return generated;
   }
-  const buf = await res.arrayBuffer();
-  const parsed = parseMesh(buf);
-  meshCache.set(src, parsed);
-  return parsed;
 }
 
 /** Decide which triangle winding faces the camera "correctly". Museum STL

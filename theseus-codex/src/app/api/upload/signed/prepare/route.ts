@@ -34,6 +34,8 @@ import { sanitizeText, sanitizeAndCap } from "@/lib/sanitizeText";
 import { pickAvailableSlug } from "@/lib/slugify";
 import {
   createSignedAudioUploadUrl,
+  getAudioBucketFileSizeLimitBytes,
+  getAudioBucket,
   isAudioStorageConfigured,
 } from "@/lib/supabaseStorage";
 
@@ -148,6 +150,26 @@ export async function POST(req: Request) {
             `the file or raise MAX_UPLOAD_BYTES on Vercel. Note: ` +
             `Supabase also has a per-file "File size limit" in the ` +
             `bucket settings — raise that too.`,
+        },
+        { status: 413 },
+      );
+    }
+
+    // Supabase can enforce a stricter per-file cap than our app-level
+    // MAX_UPLOAD_BYTES. When that happens, the browser PUT often fails as
+    // an opaque network/CORS error after waiting. Detect it up front and
+    // return a clear, actionable 413 before any bytes are sent.
+    const bucketCapBytes = await getAudioBucketFileSizeLimitBytes().catch(
+      () => null,
+    );
+    if (bucketCapBytes && size > bucketCapBytes) {
+      return NextResponse.json(
+        {
+          error:
+            `File is ${(size / 1024 / 1024).toFixed(1)} MB, but Supabase bucket ` +
+            `"${getAudioBucket()}" is capped at ${(bucketCapBytes / 1024 / 1024).toFixed(1)} MB. ` +
+            `Raise Storage → Bucket settings → File size limit to at least ` +
+            `${(size / 1024 / 1024).toFixed(1)} MB (or 500 MB).`,
         },
         { status: 413 },
       );
@@ -307,7 +329,6 @@ export async function POST(req: Request) {
       // cleanly regardless of the browser's default Content-Type
       // inference.
       headers: {
-        "x-upsert": "true",
         "Content-Type": safeMime,
       },
     });

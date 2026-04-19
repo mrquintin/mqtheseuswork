@@ -79,6 +79,11 @@ theseus-codex/prisma/*.db
 # Kept on disk for provenance but never tracked by git.
 reference/
 
+# Raw STL sculpture scans (hundreds of MB each). We keep source meshes
+# in-repo for local processing, but never commit them; only the compact
+# generated `.mesh.bin` outputs under `public/sculptures/` are tracked.
+theseus-codex/assets/sculptures/raw-stl/
+
 # macOS auto-saved screenshots (never commit)
 Screenshot *.png
 Screenshot *.jpg

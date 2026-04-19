@@ -3,7 +3,9 @@
  * ships with and renders as amber ASCII.
  *
  * Input:  binary STL files (high-poly photogrammetry — one of ours, the
- *         Augustus Prima Porta, is 503 MB / 10M triangles).
+ *         Augustus Prima Porta, is 503 MB / 10M triangles), loaded from:
+ *           1) ./assets/sculptures/raw-stl/   (preferred, gitignored)
+ *           2) ~/Downloads/                   (legacy fallback)
  * Output: a tiny `.mesh.bin` per sculpture (<100 KB, ~2500 triangles)
  *         that the runtime fetches, parses, and paints.
  *
@@ -62,13 +64,9 @@ type Vec3 = readonly [number, number, number];
 /** Triangles live as a flat Float32Array — 9 floats per triangle (Ax,Ay,Az,Bx,By,Bz,Cx,Cy,Cz). */
 type MeshVerts = Float32Array;
 
+const RAW_STL_DIR = join(process.cwd(), "assets", "sculptures", "raw-stl");
 const DOWNLOADS = join(homedir(), "Downloads");
 const MODELS: { file: string; slug: string; targetTris: number }[] = [
-  {
-    file: "doryphoros-at-the-minneapolis-institute-of-art-1.stl",
-    slug: "doryphoros",
-    targetTris: 3000,
-  },
   {
     file: "british-museum-discobolus1-1.stl",
     slug: "discobolus",
@@ -78,11 +76,6 @@ const MODELS: { file: string; slug: string; targetTris: number }[] = [
     file: "msr-discobolus.stl",
     slug: "discobolus-alt",
     targetTris: 2500,
-  },
-  {
-    file: "louvre-variants-of-hercules-1-1.stl",
-    slug: "hercules",
-    targetTris: 3000,
   },
   {
     file: "versailles-the-dying-gladiator-1.stl",
@@ -99,6 +92,14 @@ const MODELS: { file: string; slug: string; targetTris: number }[] = [
 const OUT_DIR = join(process.cwd(), "public", "sculptures");
 
 // ─────────────────────────────────────────────────────────────────────
+
+function resolveInputPath(filename: string): string | null {
+  const candidates = [join(RAW_STL_DIR, filename), join(DOWNLOADS, filename)];
+  for (const p of candidates) {
+    if (existsSync(p)) return p;
+  }
+  return null;
+}
 
 /** Read triangle count from a binary STL without loading triangles. */
 function readTriangleCount(buf: Buffer): number {
@@ -377,15 +378,21 @@ function human(n: number): string {
 }
 
 function processOne(m: (typeof MODELS)[number]): void {
-  const inPath = join(DOWNLOADS, m.file);
-  if (!existsSync(inPath)) {
-    console.log(`  ⚠  skip  ${m.slug}  (not found at ${inPath})`);
+  const inPath = resolveInputPath(m.file);
+  if (!inPath) {
+    console.log(
+      `  ⚠  skip  ${m.slug}  (not found at ${join(
+        RAW_STL_DIR,
+        m.file,
+      )} or ${join(DOWNLOADS, m.file)})`,
+    );
     return;
   }
   const inSize = statSync(inPath).size;
   console.log(
     `  ▸  ${m.slug.padEnd(16)}  ${m.file}  (${human(inSize)})`,
   );
+  console.log(`      source        ${inPath}`);
 
   const buf = readFileSync(inPath);
   const total = readTriangleCount(buf);
@@ -425,6 +432,8 @@ function processOne(m: (typeof MODELS)[number]): void {
 function main(): void {
   if (!existsSync(OUT_DIR)) mkdirSync(OUT_DIR, { recursive: true });
   console.log(`\nSculpture processing\n────────────────────\n`);
+  console.log(`  raw STL dir: ${RAW_STL_DIR}`);
+  console.log(`  fallback dir: ${DOWNLOADS}\n`);
   for (const m of MODELS) processOne(m);
   console.log(`\nDone. Meshes written to ${OUT_DIR}\n`);
 }
