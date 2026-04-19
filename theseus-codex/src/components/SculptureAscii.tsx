@@ -606,21 +606,50 @@ export default function SculptureAscii({
         depth[i] = (az2 + bz2 + cz2) / 3;
 
         // Screen-space cross product. Positive magnitude + winding sign
-        // gives a cheap normal.z check. We account for detected winding
-        // so meshes exported with CW order still render correctly.
+        // tells us whether this triangle is facing the viewer (front)
+        // or facing away (back). We account for detected winding so
+        // meshes exported with CW order still render correctly.
         const ex = pbx - pax;
         const ey = pby - pay;
         const fx = pcx - pax;
         const fy = pcy - pay;
         const crossZ = ex * fy - ey * fx;
-        const facing = crossZ * winding;
-        if (facing <= 0) {
+        // Skip degenerate (zero-area) triangles — they carry no facing
+        // signal and nothing to render anyway.
+        if (Math.abs(crossZ) < 1e-6) {
           visible[i] = 0;
           continue;
         }
+        const isBackFacing = crossZ * winding < 0;
 
-        // Compute world-space normal (post-rotation) for shading. Edges
-        // in 3D (post-transform).
+        // DEPTH-CUEING FOR HOLLOW SHELLS
+        // ──────────────────────────────
+        // Earlier this branch hard-culled back-facing triangles. For a
+        // solid body (Discobolus, Augustus) that's correct — back-faces
+        // would be occluded by their own front-faces anyway, and culling
+        // saves a bit of fill work.
+        //
+        // For a HOLLOW SHELL like the Spartan helmet, culling is what
+        // produced the reported "wall of text": the face opening and
+        // the neck opening had no front-facing triangles, so the painter
+        // drew nothing there — which meant the page background showed
+        // through instead of the helmet's interior/back-exterior
+        // surface that you would actually see in real life. Front and
+        // back of the helmet then read as indistinguishable amber mass.
+        //
+        // Fix: render BOTH front and back triangles, but dim the back
+        // pass to ~30%. The painter's-algorithm sort still puts back
+        // behind front, so front silhouettes remain dominant. In
+        // regions where no front triangle covers a pixel (the helmet's
+        // holes), the back surface paints faintly through, giving the
+        // viewer a real depth cue: "there's a far wall visible through
+        // the face opening." For the solid figures it's a no-op —
+        // their back triangles are always fully occluded by the front.
+        //
+        // Flip the normal for back-faces so Lambert shading evaluates
+        // against the surface the viewer is actually seeing (the
+        // interior-facing side of that triangle), not the exterior
+        // pointing away.
         const e1x = bx1 - ax1;
         const e1y = by1 - ay1;
         const e1z = bz2 - az2;
@@ -630,7 +659,6 @@ export default function SculptureAscii({
         let nxn = e1y * e2z - e1z * e2y;
         let nyn = e1z * e2x - e1x * e2z;
         let nzn = e1x * e2y - e1y * e2x;
-        // Normalize. If degenerate, skip.
         const nlen = Math.hypot(nxn, nyn, nzn);
         if (nlen < 1e-8) {
           visible[i] = 0;
@@ -644,12 +672,21 @@ export default function SculptureAscii({
           nyn = -nyn;
           nzn = -nzn;
         }
-        // Shading: lambertian + rim light so silhouette edges stay readable
-        // when facing directly at the viewer.
+        if (isBackFacing) {
+          nxn = -nxn;
+          nyn = -nyn;
+          nzn = -nzn;
+        }
+
+        // Lambertian + rim light. Rim keeps silhouette edges legible
+        // when the normal is close to perpendicular to the viewer.
         const dot = nxn * lx + nyn * ly + nzn * lz;
         const lambert = Math.max(0, dot);
         const rim = Math.pow(1 - Math.max(0, nzn), 2.5) * 0.35;
-        const brightness = Math.min(1, lambert * 0.85 + rim + 0.12);
+        let brightness = Math.min(1, lambert * 0.85 + rim + 0.12);
+        if (isBackFacing) {
+          brightness *= 0.3;
+        }
         shade[i] = brightness;
         visible[i] = 1;
         order[visibleCount++] = i;
