@@ -164,12 +164,29 @@ export default function Nav({
           </a>
           {founder ? (
             <>
-              <span
+              {/* Founder's name doubles as the entry point to /account —
+                  the single surface for passphrase rotation and (later)
+                  profile / email / avatar edits. A subtle hover-
+                  underline signals the affordance without adding chrome. */}
+              <Link
+                href="/account"
+                title="Account settings"
                 style={{
                   fontFamily: "'Cinzel', serif",
                   fontSize: "0.65rem",
                   letterSpacing: "0.1em",
                   color: "var(--gold-dim)",
+                  textDecoration: "none",
+                  borderBottom: "1px dotted transparent",
+                  transition: "border-color 0.15s, color 0.15s",
+                }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.color = "var(--amber)";
+                  e.currentTarget.style.borderBottomColor = "var(--amber-dim)";
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.color = "var(--gold-dim)";
+                  e.currentTarget.style.borderBottomColor = "transparent";
                 }}
               >
                 {founder.name}
@@ -183,7 +200,7 @@ export default function Nav({
                     · {founder.organizationSlug}
                   </span>
                 ) : null}
-              </span>
+              </Link>
               <ThemeToggle size={28} />
               <button
                 onClick={handleLogout}
