@@ -71,25 +71,51 @@ export default async function PublicBlogIndex() {
   });
 
   return (
-    <main style={{ minHeight: "100vh", position: "relative" }}>
+    // The sculpture backdrop used to live inside the 42vh hero section
+    // with `overflow: hidden`, which clipped the Discobolus at the hero
+    // boundary — only a head-and-torso chunk was visible, floating in
+    // the top-right corner. Moving it up to `<main>` (with its own
+    // overflow lock) lets the figure span the full landing-page height,
+    // so the sculpture reads as an ambient presence behind both the
+    // hero text and the publication list rather than a truncated
+    // fragment. The wider `widthVW` + larger `maxWidthPx` + higher
+    // opacity make the amber silhouette feel like a considered visual
+    // signature rather than a decoration stuck in the corner.
+    <main
+      style={{
+        minHeight: "100vh",
+        position: "relative",
+        overflow: "hidden",
+      }}
+    >
       <PublicHeader authed={Boolean(founder)} />
 
-      {/* Hero section — minimal, just a wordmark + thesis line. */}
+      <SculptureBackdrop
+        src="/sculptures/discobolus-alt.mesh.bin"
+        side="right"
+        // 0.5 sits comfortably between the original 0.42 (felt tentative)
+        // and the 0.72 authed-page default (would fight blog post text
+        // below the hero). Enough presence to feel intentional.
+        opacity={0.5}
+        // ~65% of viewport on large screens, with a generous max so on
+        // big monitors the figure can still feel human-scale.
+        widthVW={65}
+        maxWidthPx={1000}
+      />
+
+      {/* Hero section — minimal, just a wordmark + thesis line. Now
+          sized against the viewport fold so the sculpture has vertical
+          room. `overflow: visible` so the backdrop (on <main>) can
+          render outside this section; z-index on the inner div keeps
+          text above the figure. */}
       <section
         style={{
           position: "relative",
-          overflow: "hidden",
-          minHeight: "42vh",
-          padding: "3.5rem 2rem 2rem",
+          minHeight: "70vh",
+          padding: "4.5rem 2rem 2.5rem",
           textAlign: "center",
         }}
       >
-        <SculptureBackdrop
-          src="/sculptures/discobolus-alt.mesh.bin"
-          side="right"
-          opacity={0.42}
-          widthVW={50}
-        />
         <div
           style={{
             position: "relative",
@@ -154,10 +180,14 @@ export default async function PublicBlogIndex() {
         </div>
       </section>
 
-      {/* Blog index ─────────────────────────────────────────────── */}
+      {/* Blog index — explicit z-index so post cards always paint
+          ABOVE the SculptureBackdrop mounted on <main>. Without this
+          the sculpture's amber silhouette would bleed through the card
+          bodies on the content-aligned side of the page. */}
       <section
         style={{
           position: "relative",
+          zIndex: 1,
           maxWidth: "800px",
           margin: "0 auto",
           padding: "1rem 2rem 6rem",
