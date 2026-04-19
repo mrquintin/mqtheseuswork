@@ -83,11 +83,16 @@ export default function Nav({
         style={{
           maxWidth: "1200px",
           margin: "0 auto",
-          padding: "0 1rem",
+          // Vertical padding gives the tabs room to breathe below the
+          // browser chrome. Before this the nav had `padding: "0 1rem"`
+          // so the tabs sat flush against the top of the viewport; we
+          // add ~20px top/bottom and bump minHeight accordingly so the
+          // row is centered with clear whitespace on either side.
+          padding: "1.25rem 1rem",
           display: "flex",
           alignItems: "center",
           justifyContent: "space-between",
-          minHeight: "56px",
+          minHeight: "88px",
           flexWrap: "wrap",
           gap: "0.5rem",
         }}
