@@ -61,8 +61,37 @@ export type SculptureBackdropProps = {
   opacity?: number;
   /** Glyph density. 0.5–0.8 is the sweet spot for detail; 1.0 = chunky. Default 0.7. */
   cellScale?: number;
+  /**
+   * Where to anchor the sculpture vertically inside the backdrop box.
+   * "center" (default) keeps the figure centred in the 80vh-ish column.
+   * "top" / "bottom" pin it to the corresponding edge — useful on pages
+   * like /upload where a tall form sits directly over the default centre
+   * and conceals the figure's torso.
+   */
+  verticalAnchor?: "top" | "center" | "bottom";
+  /**
+   * Fine-tune the sculpture's horizontal position by translating the
+   * inner SculptureAscii. NEGATIVE values move it TOWARD the
+   * anchored edge — e.g. with `side="left"`, `offsetX={-60}` shifts
+   * the figure 60px further to the left, letting more of the content
+   * breathe on the right without shrinking the figure. The backdrop
+   * wrapper has `overflow: hidden`, so anything translated past the
+   * edge is simply clipped.
+   */
+  offsetX?: number;
+  /**
+   * Vertical translation of the inner SculptureAscii, in px. Negative
+   * values lift the figure up.
+   */
+  offsetY?: number;
   /** Extra CSS for the wrapper. */
   style?: CSSProperties;
+};
+
+const ANCHOR_TO_ALIGN_ITEMS: Record<"top" | "center" | "bottom", string> = {
+  top: "flex-start",
+  center: "center",
+  bottom: "flex-end",
 };
 
 // Reasonable default grid so SculptureAscii mounts immediately on
@@ -91,6 +120,9 @@ export default function SculptureBackdrop({
   // potential sample work per frame on a typical 1400×800 backdrop,
   // which the shape picker handles at 60fps on modest hardware.
   cellScale = 0.65,
+  verticalAnchor = "center",
+  offsetX = 0,
+  offsetY = 0,
   style,
 }: SculptureBackdropProps) {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -206,7 +238,7 @@ export default function SculptureBackdrop({
         maskImage: `linear-gradient(${fadeDir}, rgba(0,0,0,1) 0%, rgba(0,0,0,0.88) 45%, rgba(0,0,0,0.35) 80%, rgba(0,0,0,0) 100%)`,
         WebkitMaskImage: `linear-gradient(${fadeDir}, rgba(0,0,0,1) 0%, rgba(0,0,0,0.88) 45%, rgba(0,0,0,0.35) 80%, rgba(0,0,0,0) 100%)`,
         display: "flex",
-        alignItems: "center",
+        alignItems: ANCHOR_TO_ALIGN_ITEMS[verticalAnchor],
         justifyContent: side === "right" ? "flex-end" : "flex-start",
         ...style,
       }}
@@ -218,17 +250,31 @@ export default function SculptureBackdrop({
         left backdrops permanently empty on any page where the
         initial measurement came back 0×0 before CSS layout settled
         (the root cause of the "sculptures don't render" reports).
+
+        Wrapped in a `will-change: transform` div so the offset
+        translation compositor-promotes the sculpture without forcing
+        the whole mask/opacity stack to re-rasterise on every frame.
       */}
-      <SculptureAscii
-        src={src}
-        cols={dims.cols}
-        rows={dims.rows}
-        cellScale={cellScale}
-        yawSpeed={yawSpeed}
-        pitch={pitch}
-        scale={0.9}
-        color="var(--amber)"
-      />
+      <div
+        style={{
+          transform:
+            offsetX || offsetY
+              ? `translate(${offsetX}px, ${offsetY}px)`
+              : undefined,
+          willChange: offsetX || offsetY ? "transform" : undefined,
+        }}
+      >
+        <SculptureAscii
+          src={src}
+          cols={dims.cols}
+          rows={dims.rows}
+          cellScale={cellScale}
+          yawSpeed={yawSpeed}
+          pitch={pitch}
+          scale={0.9}
+          color="var(--amber)"
+        />
+      </div>
     </div>
   );
 }
