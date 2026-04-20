@@ -1584,7 +1584,7 @@ class ThreePaneDialecticWindow(QMainWindow):
         self._rec_btn.setText("INITIALIZING…")
         self._set_status("● INITIALIZING", color="#d4a017")
 
-        ts = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+            ts = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
         self._session_id = f"session_{ts}"
         self._log_alert(f"starting session {self._session_id}")
         self._log_alert(
@@ -1741,14 +1741,14 @@ class ThreePaneDialecticWindow(QMainWindow):
 
     def _stop_session(self) -> None:
         self._set_status("● STOPPING", color="#d4a017")
-        self._recording = False
+            self._recording = False
 
         if self._timer is not None:
             self._timer.stop()
 
         if self._cap is not None:
             try:
-                self._cap.stop()
+            self._cap.stop()
             except Exception as e:
                 self._log_alert(
                     f"audio stop raised: {type(e).__name__}: {e}",
@@ -1756,16 +1756,16 @@ class ThreePaneDialecticWindow(QMainWindow):
                 )
         if self._transcriber is not None:
             try:
-                self._transcriber.stop()
+            self._transcriber.stop()
             except Exception as e:
                 self._log_alert(
                     f"transcriber stop raised: {type(e).__name__}: {e}",
                     level="warn",
                 )
 
-        for t in self._tasks:
-            t.cancel()
-        self._tasks.clear()
+            for t in self._tasks:
+                t.cancel()
+            self._tasks.clear()
 
         sid = self._session_id or ""
         if self._interlocutor is not None:
@@ -1872,7 +1872,7 @@ class ThreePaneDialecticWindow(QMainWindow):
                     import logging as _logging
                     _logging.getLogger(__name__).warning(
                         "ThreePane: interlocutor feed_contradiction raised: %s", e
-                    )
+            )
             return
         if se.kind == SessionEventKind.TOPIC_SHIFT:
             self._log_alert(
@@ -1907,7 +1907,7 @@ class ThreePaneDialecticWindow(QMainWindow):
             headline=headline,
             body=body,
             meta=datetime.datetime.now().strftime("%H:%M:%S") + " · dismiss →",
-        )
+            )
 
     def _tick_ui(self) -> None:
         if self._pending_partial:
