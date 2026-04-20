@@ -110,11 +110,21 @@ class MockLLMClient:
 
 
 def llm_client_from_settings() -> LLMClient:
-    """Factory using `noosphere.config.get_settings()`."""
+    """Factory using `noosphere.config.get_settings()`.
+
+    Reads the *effective* provider/model/key from settings, which respects
+    the operator's preference but auto-falls-back to whichever provider
+    actually has credentials in the environment. This is what lets the
+    GitHub Actions workflow work with only ``OPENAI_API_KEY`` set — the
+    default preference is ``anthropic``, but the effective provider flips
+    to ``openai`` when Anthropic's env var is empty.
+    """
     from noosphere.config import get_settings
 
     s = get_settings()
+    provider = s.effective_llm_provider()
     key = s.effective_llm_api_key()
-    if s.llm_provider == "openai":
-        return OpenAILLMClient(api_key=key, model=s.llm_model)
-    return AnthropicLLMClient(api_key=key, model=s.llm_model)
+    model = s.effective_llm_model()
+    if provider == "openai":
+        return OpenAILLMClient(api_key=key, model=model)
+    return AnthropicLLMClient(api_key=key, model=model)

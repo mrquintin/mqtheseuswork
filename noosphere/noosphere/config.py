@@ -75,13 +75,68 @@ class NoosphereSettings(BaseSettings):
             return merged
         return {**base}
 
+    def effective_llm_provider(self) -> Literal["anthropic", "openai"]:
+        """Pick the provider that actually has credentials.
+
+        We honour ``llm_provider`` as a *preference*, but if the preferred
+        provider has no key configured AND the other one does, fall
+        through to it. This lets deploys that have only one of the two
+        API keys set (a very common case — the GitHub Actions workflow
+        ships with just ``OPENAI_API_KEY``, for example) work without
+        any config tweaks. If *neither* key is set, we keep the
+        preference so downstream errors still point to the preferred
+        provider.
+        """
+        if self.llm_api_key:
+            # Explicit override wins — trust whatever the operator chose.
+            return self.llm_provider
+        anthropic_key = os.environ.get("ANTHROPIC_API_KEY", "")
+        openai_key = os.environ.get("OPENAI_API_KEY", "")
+        if self.llm_provider == "anthropic":
+            if anthropic_key:
+                return "anthropic"
+            if openai_key:
+                return "openai"
+            return "anthropic"
+        # preference = openai
+        if openai_key:
+            return "openai"
+        if anthropic_key:
+            return "anthropic"
+        return "openai"
+
     def effective_llm_api_key(self) -> str:
-        """API key from explicit setting or provider-default env var."""
+        """API key for the *effective* provider (respects auto-fallback)."""
         if self.llm_api_key:
             return self.llm_api_key
-        if self.llm_provider == "anthropic":
+        provider = self.effective_llm_provider()
+        if provider == "anthropic":
             return os.environ.get("ANTHROPIC_API_KEY", "")
         return os.environ.get("OPENAI_API_KEY", "")
+
+    def effective_llm_model(self) -> str:
+        """Model identifier matching the effective provider.
+
+        If the configured ``llm_model`` is sensible for the effective
+        provider (e.g. a ``claude-*`` slug while we're on Anthropic, or
+        a ``gpt-*`` slug while we're on OpenAI), keep it. Otherwise we
+        pick a known-good default for the provider — otherwise we'd
+        try to feed ``claude-3-5-sonnet`` into the OpenAI SDK and get
+        an unhelpful "model not found" error when the auto-fallback
+        kicks in.
+        """
+        provider = self.effective_llm_provider()
+        model = self.llm_model or ""
+        lower = model.lower()
+        if provider == "anthropic" and "claude" in lower:
+            return model
+        if provider == "openai" and ("gpt" in lower or lower.startswith("o1")):
+            return model
+        return (
+            "claude-3-5-sonnet-20241022"
+            if provider == "anthropic"
+            else "gpt-4o-mini"
+        )
 
 
 @lru_cache
