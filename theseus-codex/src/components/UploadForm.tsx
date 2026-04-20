@@ -1088,18 +1088,16 @@ export default function UploadForm() {
                   lineHeight: 1.5,
                 }}
               >
-                Only you will see {isBulk ? "these files" : "this file"} in{" "}
+                {`Only you will see ${isBulk ? "these files" : "this file"} in `}
                 <code
                   className="mono"
                   style={{ fontSize: "0.78rem", color: "var(--amber-dim)" }}
                 >
                   /library
                 </code>
-                . Noosphere still analyses{" "}
-                {isBulk ? "them" : "it"} for your conclusions,
-                contradictions, and open questions, but other founders in
-                the firm can&rsquo;t read, view, or request deletion. You
-                can lift the veil later from the dashboard.
+                {`. Noosphere still analyses ${
+                  isBulk ? "them" : "it"
+                } for your conclusions, contradictions, and open questions, but other founders in the firm can\u2019t read, view, or request deletion. You can lift the veil later from the dashboard.`}
               </span>
             </span>
           </label>
@@ -1153,24 +1151,25 @@ export default function UploadForm() {
                   lineHeight: 1.5,
                 }}
               >
-                Make {isBulk ? "each upload" : "this upload"} visible on{" "}
+                {`Make ${
+                  isBulk ? "each upload" : "this upload"
+                } visible on `}
                 <code
                   className="mono"
                   style={{ fontSize: "0.78rem", color: "var(--amber-dim)" }}
                 >
                   /
-                </code>{" "}
-                and at{" "}
+                </code>
+                {" and at "}
                 <code
                   className="mono"
                   style={{ fontSize: "0.78rem", color: "var(--amber-dim)" }}
                 >
                   /post/&lt;slug&gt;
                 </code>
-                . The Codex itself (conclusions, contradictions, review
-                queue) stays private. You can toggle this later from the
-                dashboard.
-                {isBulk && " Each file gets its own post."}
+                {`. The Codex itself (conclusions, contradictions, review queue) stays private. You can toggle this later from the dashboard.${
+                  isBulk ? " Each file gets its own post." : ""
+                }`}
               </span>
             </span>
           </label>
