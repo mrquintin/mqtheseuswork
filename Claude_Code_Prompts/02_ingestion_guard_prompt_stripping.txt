@@ -1,0 +1,102 @@
+# Claude Code Prompt 2 of 12 — Ingestion: pre-processing to strip prompts and questions before extraction
+
+**Sequence:** prompt 2 of 12 (Wave 1 — independent of prompt 01). When you finish, report back with: files you created/modified, any notable choices, any blockers.
+
+**Before you start — read current state:**
+1. Read `noosphere/noosphere/ingester.py` — the TranscriptParser and how it segments text.
+2. Read `noosphere/noosphere/mitigations/` — check if `ingestion_guard.py` or similar already exists. Read any existing guard/mitigation modules.
+3. Read the upload API route at `theseus-codex/src/app/api/upload/route.ts` — note how `textContent` is extracted and passed to Noosphere.
+4. Examine a sample uploaded transcript to understand the format. The typical pattern is: a question/prompt from an interviewer, followed by the founder's response.
+
+## The problem
+
+Many uploads to the Codex follow a Q&A or interview format: a prompt or question is followed by the founder's response. The ingestion pipeline currently feeds the entire text — questions AND responses — to the claim extractor. Even with improved LLM prompts (prompt 01), the extraction may still occasionally misattribute external questions as founder claims, especially for ambiguous or rhetorical passages.
+
+A defense-in-depth approach requires a pre-processing step that identifies and strips or tags prompt/question sections BEFORE they reach the claim extractor.
+
+## Your task
+
+Create a pre-processing module that identifies Q&A structure in uploaded text and either:
+- Strips the question/prompt sections, passing only the founder's response sections to extraction
+- Or tags sections with metadata (`is_prompt: true`) so the extractor can skip them
+
+## SCOPE (files you may create or modify — stay within this list)
+- `noosphere/noosphere/mitigations/prompt_separator.py`        CREATE
+- `noosphere/noosphere/ingester.py`                              MODIFY (integrate the separator)
+- `noosphere/noosphere/orchestrator.py`                          MODIFY (if it calls ingestion directly)
+- `noosphere/noosphere/codex_bridge.py`                          MODIFY (if it preprocesses text before ingestion)
+
+## Step-by-step
+
+1. **Create `noosphere/noosphere/mitigations/prompt_separator.py`** with a `PromptSeparator` class:
+
+   ```python
+   """
+   Pre-processing module that identifies and separates prompt/question
+   sections from founder response sections in uploaded text.
+
+   Defense-in-depth complement to the LLM-side author-attribution
+   filtering in claim_extractor.py.
+   """
+
+   class SeparatedContent:
+       """Result of prompt separation."""
+       founder_sections: list[str]     # Text the founder authored
+       prompt_sections: list[str]      # Questions/prompts directed at the founder
+       confidence: float               # How confident the separator is in its split
+
+   class PromptSeparator:
+       def separate(self, text: str, source_type: str = "written") -> SeparatedContent:
+           """
+           Separate founder content from prompts/questions.
+
+           Uses heuristics first, LLM fallback for ambiguous cases.
+
+           Args:
+               text: Full uploaded text content
+               source_type: "written", "transcript", "annotation", "external"
+           """
+   ```
+
+2. **Implement heuristic detection** for common Q&A patterns:
+   - Lines starting with "Q:", "Question:", "Prompt:", "Interviewer:" → prompt section
+   - Lines starting with "A:", "Answer:", "Response:", founder name + ":" → founder section
+   - Bold or formatted question markers (e.g., `**Question:**`)
+   - Paragraphs that are entirely questions (end with `?`, contain interrogative words)
+   - Blockquoted sections that appear to be prompts
+   - For transcripts: speaker-labeled lines where the speaker is NOT the founder
+
+3. **Implement LLM fallback** for ambiguous text. When heuristics can't confidently split the text (confidence < 0.7), use a short Claude call:
+   ```python
+   system = (
+       "You are given a text that may contain both questions/prompts directed at an author "
+       "and the author's own responses. Identify which paragraphs are the author's own "
+       "assertions and which are external prompts, questions, or challenges. "
+       "Return JSON: {\"founder_paragraphs\": [0, 2, 4], \"prompt_paragraphs\": [1, 3]}"
+   )
+   ```
+
+4. **Integrate into the ingestion pipeline.** In `ingester.py`, before text reaches the ClaimExtractor, run it through the PromptSeparator:
+   ```python
+   separator = PromptSeparator()
+   separated = separator.separate(text_content, source_type=upload.source_type)
+   # Only pass founder_sections to the claim extractor
+   ```
+
+5. **For transcript format specifically**, leverage the existing `TranscriptParser` speaker detection. If the transcript has speaker labels, the separator should use speaker identity: segments from the founder are founder content; segments from other speakers (interviewers, debaters) are prompts. The founder's name should be configurable (from the `Founder` record or a setting).
+
+6. **Add logging** so that separated prompt sections are recorded in the process log for transparency:
+   ```python
+   logger.info("prompt_separator",
+       founder_sections=len(separated.founder_sections),
+       prompt_sections=len(separated.prompt_sections),
+       confidence=separated.confidence)
+   ```
+
+7. **Write tests** in `noosphere/tests/test_prompt_separator.py` covering:
+   - Simple Q&A format ("Q: ... A: ...")
+   - Interview transcript with speaker labels
+   - Unstructured essay with no prompts (should return all text as founder content)
+   - Mixed content with embedded quotes
+
+Do not proceed to any other work. Do not edit anything outside SCOPE.

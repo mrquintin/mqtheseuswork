@@ -1,0 +1,117 @@
+# Claude Code Prompt 3 of 12 — Dashboard: hide failed and pending uploads from the homepage
+
+**Sequence:** prompt 3 of 12 (Wave 2 — independent of prompts 04–05). When you finish, report back with: files you created/modified, any notable choices, any blockers.
+
+**Before you start — read current state:**
+1. Read `theseus-codex/src/app/(authed)/dashboard/page.tsx` — note the uploads query on lines 30–47. It fetches up to 12 uploads with `deletedAt: null` but NO status filter. Failed, pending, and processing uploads all appear alongside ingested ones.
+2. Read the `statusBadge` function (line 89) — note it handles `pending`, `processing`, `queued_offline`, `ingested`, `failed`.
+3. Read `theseus-codex/prisma/schema.prisma` — note the Upload model's `status` field: `pending | processing | ingested | failed | queued_offline`.
+
+## The problem
+
+The dashboard homepage shows ALL non-deleted uploads regardless of processing status. Failed uploads — which produced no conclusions, no contradictions, no useful output — appear prominently on the first page a founder sees after login. The founder described this as "quite annoying" — work that hasn't been processed shouldn't be "thrust in our face."
+
+The dashboard should show only successfully-ingested uploads in its main uploads section. Failed or pending uploads should be handled separately: either in a secondary section, or via a small notification banner that links to the library where they can be retried.
+
+## SCOPE (files you may modify — stay within this list)
+- `theseus-codex/src/app/(authed)/dashboard/page.tsx`    MODIFY
+
+## Step-by-step
+
+1. **Split the uploads query into two queries:**
+
+   **Main query — successfully ingested uploads only:**
+   ```typescript
+   const ingestedUploads = await db.upload.findMany({
+     where: {
+       organizationId: tenant.organizationId,
+       deletedAt: null,
+       status: "ingested",
+       OR: [
+         { visibility: { not: "private" } },
+         { founderId: tenant.founderId },
+       ],
+     },
+     orderBy: { createdAt: "desc" },
+     take: 12,
+     include: { founder: { select: { name: true } } },
+   });
+   ```
+
+   **Secondary query — count of failed/pending/processing uploads:**
+   ```typescript
+   const pendingUploads = await db.upload.count({
+     where: {
+       organizationId: tenant.organizationId,
+       deletedAt: null,
+       status: { in: ["pending", "processing", "queued_offline"] },
+       OR: [
+         { visibility: { not: "private" } },
+         { founderId: tenant.founderId },
+       ],
+     },
+   });
+   const failedUploads = await db.upload.count({
+     where: {
+       organizationId: tenant.organizationId,
+       deletedAt: null,
+       status: "failed",
+       OR: [
+         { visibility: { not: "private" } },
+         { founderId: tenant.founderId },
+       ],
+     },
+   });
+   ```
+
+2. **Replace the main uploads section** to use `ingestedUploads` instead of `uploads`. Remove the status badge, RetryProcessingButton, and processing-related UI from the main list — those are only relevant for non-ingested uploads. The main list should show clean, successfully-processed contributions only.
+
+3. **Add a compact notification banner** above the main grid (below the existing decay alerts and deletion request banners) for failed and pending uploads:
+
+   ```tsx
+   {(failedUploads > 0 || pendingUploads > 0) && (
+     <Link href="/library" style={{ textDecoration: "none", display: "block" }}>
+       <div className="portal-card" style={{
+         padding: "0.7rem 1rem",
+         marginBottom: "1rem",
+         display: "flex",
+         justifyContent: "space-between",
+         alignItems: "center",
+         fontSize: "0.8rem",
+       }}>
+         <span style={{ color: "var(--parchment-dim)" }}>
+           {failedUploads > 0 && (
+             <span style={{ color: "var(--ember)" }}>
+               {failedUploads} failed upload{failedUploads > 1 ? "s" : ""}
+             </span>
+           )}
+           {failedUploads > 0 && pendingUploads > 0 && " · "}
+           {pendingUploads > 0 && (
+             <span>{pendingUploads} processing</span>
+           )}
+         </span>
+         <span className="mono" style={{
+           fontSize: "0.6rem",
+           color: "var(--amber-dim)",
+           textTransform: "uppercase",
+         }}>
+           View in library →
+         </span>
+       </div>
+     </Link>
+   )}
+   ```
+
+4. **Update the `activeUploads` calculation** to use the new count variables instead of filtering the main list:
+   ```typescript
+   const activeUploads = pendingUploads;
+   ```
+
+5. **Update the ascii-frame label** to reflect only ingested uploads:
+   ```
+   data-label={`UPLOADS · ${toRoman(ingestedUploads.length) || "0"}`}
+   ```
+
+6. **Do NOT change** the conclusions section, drift events section, decay alerts, or deletion request banner. Only modify the uploads display.
+
+Do not proceed to any other work. Do not edit anything outside SCOPE.
