@@ -246,3 +246,102 @@ export async function getAudioBucketFileSizeLimitBytes(): Promise<number | null>
   if (!Number.isFinite(n) || n <= 0) return null;
   return Math.floor(n);
 }
+
+/**
+ * Ensure the audio bucket is configured to accept at least
+ * `requiredBytes` per file. If the current cap is already high
+ * enough, this is a no-op. If the cap is lower (or unset — see the
+ * `null` trap below), we PATCH the bucket to raise the cap to
+ * `max(requiredBytes, DEFAULT_TARGET)` in one service-role-authed
+ * request.
+ *
+ * Why this is needed
+ * ------------------
+ * A freshly-created Supabase bucket has `file_size_limit = null`,
+ * which the docs describe as "no per-bucket cap" but in practice
+ * means "inherits the project's plan-level per-file ceiling". On the
+ * free tier that ceiling is 50 MB; on Pro it's 50 GB. Either way
+ * `null` is NOT the same as "unlimited", and a size-preflight that
+ * reads `null` and skips the check will let an oversized upload
+ * start and then fail with an opaque 413 halfway through the PUT.
+ *
+ * Raising the cap via the admin API turns `null` into an explicit
+ * number we control, so subsequent preflights can see it AND the
+ * Supabase-side check won't reject the PUT until it hits the actual
+ * plan-level ceiling.
+ *
+ * Failure modes handled:
+ * - `cfg` missing → `{ ok: false, reason: "unconfigured" }`.
+ * - GET on bucket fails (404, network, etc.) → treat current cap as
+ *   unknown and attempt a raise anyway.
+ * - PATCH rejected (e.g. plan-level hard ceiling hit) → `{ ok: false,
+ *   reason: "plan_limit", currentCapBytes }` so the caller can surface
+ *   an actionable "upgrade your Supabase plan" message.
+ */
+export async function ensureAudioBucketCapacity(requiredBytes: number): Promise<
+  | { ok: true; currentCapBytes: number | null; raised: boolean; targetCapBytes: number }
+  | { ok: false; reason: "unconfigured" | "plan_limit" | "other"; currentCapBytes: number | null; detail?: string }
+> {
+  const cfg = getConfig();
+  if (!cfg) {
+    return { ok: false, reason: "unconfigured", currentCapBytes: null };
+  }
+
+  const current = await getAudioBucketFileSizeLimitBytes().catch(() => null);
+  // Fast path — the bucket already permits this and larger files.
+  if (current !== null && current >= requiredBytes) {
+    return {
+      ok: true,
+      currentCapBytes: current,
+      raised: false,
+      targetCapBytes: current,
+    };
+  }
+
+  // We raise to max(requested, 500 MB) so we don't have to re-raise
+  // for every slightly-bigger upload. 500 MB matches the app-level
+  // MAX_UPLOAD_BYTES default in /api/upload/signed/prepare.
+  const DEFAULT_TARGET = 500 * 1024 * 1024;
+  const target = Math.max(requiredBytes, DEFAULT_TARGET);
+
+  const endpoint = `${cfg.url}/storage/v1/bucket/${encodeURIComponent(
+    cfg.bucket,
+  )}`;
+
+  // Supabase Storage accepts PATCH on `/bucket/:id` with a partial
+  // body; only the fields you pass are updated. We send file_size_limit
+  // only — `public`, `name`, `allowed_mime_types` stay untouched.
+  const res = await fetch(endpoint, {
+    method: "PATCH",
+    headers: {
+      Authorization: `Bearer ${cfg.key}`,
+      apikey: cfg.key,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ file_size_limit: target }),
+  });
+
+  if (res.ok) {
+    return {
+      ok: true,
+      currentCapBytes: current,
+      raised: true,
+      targetCapBytes: target,
+    };
+  }
+
+  // Read the error body for diagnostics. Supabase returns JSON
+  // `{ statusCode, error, message }`; anything else we capture as text.
+  const errBody = await res.text().catch(() => "");
+  // 413 on the PATCH itself means the target exceeds the project's
+  // plan-level ceiling. Other 4xx means permissions / misconfig.
+  const planCapped =
+    res.status === 413 ||
+    /plan|limit|exceed/i.test(errBody);
+  return {
+    ok: false,
+    reason: planCapped ? "plan_limit" : "other",
+    currentCapBytes: current,
+    detail: errBody.slice(0, 400),
+  };
+}

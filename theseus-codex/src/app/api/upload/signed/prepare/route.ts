@@ -34,7 +34,7 @@ import { sanitizeText, sanitizeAndCap } from "@/lib/sanitizeText";
 import { pickAvailableSlug } from "@/lib/slugify";
 import {
   createSignedAudioUploadUrl,
-  getAudioBucketFileSizeLimitBytes,
+  ensureAudioBucketCapacity,
   getAudioBucket,
   isAudioStorageConfigured,
 } from "@/lib/supabaseStorage";
@@ -155,24 +155,50 @@ export async function POST(req: Request) {
       );
     }
 
-    // Supabase can enforce a stricter per-file cap than our app-level
-    // MAX_UPLOAD_BYTES. When that happens, the browser PUT often fails as
-    // an opaque network/CORS error after waiting. Detect it up front and
-    // return a clear, actionable 413 before any bytes are sent.
-    const bucketCapBytes = await getAudioBucketFileSizeLimitBytes().catch(
-      () => null,
-    );
-    if (bucketCapBytes && size > bucketCapBytes) {
-      return NextResponse.json(
-        {
-          error:
-            `File is ${(size / 1024 / 1024).toFixed(1)} MB, but Supabase bucket ` +
-            `"${getAudioBucket()}" is capped at ${(bucketCapBytes / 1024 / 1024).toFixed(1)} MB. ` +
-            `Raise Storage → Bucket settings → File size limit to at least ` +
-            `${(size / 1024 / 1024).toFixed(1)} MB (or 500 MB).`,
-        },
-        { status: 413 },
-      );
+    // Supabase buckets enforce a per-file cap in addition to our
+    // app-level MAX_UPLOAD_BYTES. When the bucket cap is lower than
+    // the incoming file, Supabase rejects the direct PUT mid-flight
+    // with a 413 "Payload too large" and the user sees a confusing
+    // failure after a long upload wait.
+    //
+    // `ensureAudioBucketCapacity` fixes this by PATCH-ing the bucket
+    // to raise its `file_size_limit` to at least the incoming file
+    // size (defaulting to 500 MB so small-then-big upload sequences
+    // don't trigger a raise every request). The service-role key has
+    // admin privileges to do this. Earlier versions of this route
+    // called `getAudioBucketFileSizeLimitBytes` and returned 413 if
+    // the cap was lower — but if the bucket had no cap set at all
+    // (common default), the read returned `null`, we skipped the
+    // check, and the user hit the same Supabase-side 413 anyway.
+    const ensure = await ensureAudioBucketCapacity(size);
+    if (!ensure.ok) {
+      const sizeMb = `${(size / 1024 / 1024).toFixed(1)} MB`;
+      const capMb = ensure.currentCapBytes
+        ? `${(ensure.currentCapBytes / 1024 / 1024).toFixed(1)} MB`
+        : "unknown (bucket has no cap set but the plan enforces one)";
+      let message: string;
+      if (ensure.reason === "unconfigured") {
+        message =
+          "Supabase Storage is not configured on the server. Set " +
+          "SUPABASE_URL + SUPABASE_SERVICE_ROLE_KEY on Vercel and " +
+          "redeploy, then retry the upload.";
+      } else if (ensure.reason === "plan_limit") {
+        message =
+          `File is ${sizeMb}. Supabase bucket "${getAudioBucket()}" ` +
+          `is capped at ${capMb}, and the attempt to raise the cap ` +
+          `was rejected — almost certainly because your Supabase ` +
+          `plan has a hard per-file ceiling below ${sizeMb}. ` +
+          `Upgrade the Supabase plan, or trim the file below the ` +
+          `ceiling.`;
+      } else {
+        message =
+          `File is ${sizeMb}. Supabase bucket "${getAudioBucket()}" ` +
+          `is capped at ${capMb} and we couldn't raise it (` +
+          `${ensure.detail ? ensure.detail.slice(0, 120) : "no detail"}). ` +
+          `Raise Storage → Bucket settings → File size limit in the ` +
+          `Supabase dashboard to at least ${sizeMb} (or 500 MB).`;
+      }
+      return NextResponse.json({ error: message }, { status: 413 });
     }
 
     const ext = lowerExt(filename);
