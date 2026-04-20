@@ -175,7 +175,9 @@ export async function POST(req: Request) {
       const sizeMb = `${(size / 1024 / 1024).toFixed(1)} MB`;
       const capMb = ensure.currentCapBytes
         ? `${(ensure.currentCapBytes / 1024 / 1024).toFixed(1)} MB`
-        : "unknown (bucket has no cap set but the plan enforces one)";
+        : "unset";
+      const detail = ensure.detail ? ensure.detail.slice(0, 240) : "";
+      const detailSuffix = detail ? ` Supabase response: ${detail}` : "";
       let message: string;
       if (ensure.reason === "unconfigured") {
         message =
@@ -189,14 +191,14 @@ export async function POST(req: Request) {
           `was rejected — almost certainly because your Supabase ` +
           `plan has a hard per-file ceiling below ${sizeMb}. ` +
           `Upgrade the Supabase plan, or trim the file below the ` +
-          `ceiling.`;
+          `ceiling.${detailSuffix}`;
       } else {
         message =
           `File is ${sizeMb}. Supabase bucket "${getAudioBucket()}" ` +
-          `is capped at ${capMb} and we couldn't raise it (` +
-          `${ensure.detail ? ensure.detail.slice(0, 120) : "no detail"}). ` +
-          `Raise Storage → Bucket settings → File size limit in the ` +
-          `Supabase dashboard to at least ${sizeMb} (or 500 MB).`;
+          `is capped at ${capMb} and we couldn't raise it ` +
+          `automatically. Raise Storage → Bucket settings → File size ` +
+          `limit in the Supabase dashboard to at least ${sizeMb} ` +
+          `(or 500 MB).${detailSuffix}`;
       }
       return NextResponse.json({ error: message }, { status: 413 });
     }
