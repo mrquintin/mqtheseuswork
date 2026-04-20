@@ -298,53 +298,84 @@ export async function ensureAudioBucketCapacity(requiredBytes: number): Promise<
     };
   }
 
-  // We raise to max(requested, 500 MB) so we don't have to re-raise
-  // for every slightly-bigger upload. 500 MB matches the app-level
-  // MAX_UPLOAD_BYTES default in /api/upload/signed/prepare.
+  // Two-phase raise. On the free / low-tier Supabase plans, the
+  // project has a HARD per-file ceiling (e.g. 50 MB / 200 MB) that
+  // the PUT will reject — and Supabase reports this as a 413 with
+  // "The object exceeded the maximum allowed size" even though the
+  // request body is trivially small; the error is about the *value*
+  // we're trying to set, not the request body.
+  //
+  //   Phase 1: try the generous target max(required, 500 MB) so one
+  //            successful raise covers future uploads without a
+  //            re-raise per request.
+  //   Phase 2: if Phase 1 returned 413, fall back to exactly
+  //            `requiredBytes`. If the plan ceiling is ≥ requiredBytes
+  //            (which is the necessary precondition for this upload
+  //            to ever succeed), Phase 2 will be accepted.
+  //   Phase 3: if even Phase 2 fails, the plan ceiling is below the
+  //            requested file size and we can't help — surface that
+  //            explicitly so the caller can tell the user to upgrade
+  //            the Supabase plan.
   const DEFAULT_TARGET = 500 * 1024 * 1024;
-  const target = Math.max(requiredBytes, DEFAULT_TARGET);
+  const targets: number[] = [];
+  const generous = Math.max(requiredBytes, DEFAULT_TARGET);
+  targets.push(generous);
+  if (generous !== requiredBytes) {
+    targets.push(requiredBytes);
+  }
 
   const endpoint = `${cfg.url}/storage/v1/bucket/${encodeURIComponent(
     cfg.bucket,
   )}`;
 
-  // Supabase Storage exposes `PUT /bucket/:id` for bucket updates
-  // (PATCH is not a registered route — verified against prod with a
-  // 404 "Route PATCH:/bucket/audio not found"). The body is a
-  // partial-update: only the fields you send are changed; `public`,
-  // `name`, `allowed_mime_types` stay untouched. We send
-  // file_size_limit only.
-  const res = await fetch(endpoint, {
-    method: "PUT",
-    headers: {
-      Authorization: `Bearer ${cfg.key}`,
-      apikey: cfg.key,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({ file_size_limit: target }),
-  });
+  let lastErrBody = "";
+  let lastStatus = 0;
+  for (const target of targets) {
+    // Supabase Storage exposes `PUT /bucket/:id` for bucket updates
+    // (PATCH is not a registered route — verified with a 404
+    // "Route PATCH:/bucket/audio not found"). The body is a
+    // partial-update: only the fields you send are changed; `public`,
+    // `name`, `allowed_mime_types` stay untouched. We send
+    // file_size_limit only.
+    const res = await fetch(endpoint, {
+      method: "PUT",
+      headers: {
+        Authorization: `Bearer ${cfg.key}`,
+        apikey: cfg.key,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ file_size_limit: target }),
+    });
 
-  if (res.ok) {
-    return {
-      ok: true,
-      currentCapBytes: current,
-      raised: true,
-      targetCapBytes: target,
-    };
+    if (res.ok) {
+      return {
+        ok: true,
+        currentCapBytes: current,
+        raised: true,
+        targetCapBytes: target,
+      };
+    }
+
+    lastStatus = res.status;
+    lastErrBody = await res.text().catch(() => "");
+    // If this wasn't a "value-too-large" signal, don't bother
+    // retrying with a smaller value — the next phase would hit the
+    // same permission / malformed-request error.
+    const valueTooLarge =
+      res.status === 413 ||
+      /plan|limit|exceed/i.test(lastErrBody);
+    if (!valueTooLarge) break;
   }
 
-  // Read the error body for diagnostics. Supabase returns JSON
-  // `{ statusCode, error, message }`; anything else we capture as text.
-  const errBody = await res.text().catch(() => "");
-  // 413 on the PATCH itself means the target exceeds the project's
-  // plan-level ceiling. Other 4xx means permissions / misconfig.
+  // None of the targets was accepted. Classify by the final status —
+  // 413/plan-signal → plan ceiling; anything else → misc (permissions,
+  // network, etc.).
   const planCapped =
-    res.status === 413 ||
-    /plan|limit|exceed/i.test(errBody);
+    lastStatus === 413 || /plan|limit|exceed/i.test(lastErrBody);
   return {
     ok: false,
     reason: planCapped ? "plan_limit" : "other",
     currentCapBytes: current,
-    detail: errBody.slice(0, 400),
+    detail: lastErrBody.slice(0, 400),
   };
 }
