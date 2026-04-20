@@ -5,8 +5,9 @@ import {
   fetchDecayRecords,
   submitToRigorGate,
   toCSV,
-  downloadHref,
 } from "@/lib/api/round3";
+import DownloadButton from "@/components/DownloadButton";
+import { decayStatusColor } from "@/lib/colors";
 import { callNoosphereJson } from "@/lib/pythonRuntime";
 import { requireTenantContext } from "@/lib/tenant";
 
@@ -32,15 +33,6 @@ export default async function DecayPage({
       status: r.status,
     })),
   );
-
-  function statusColor(status: string): string {
-    switch (status) {
-      case "healthy": return "var(--gold)";
-      case "decaying": return "var(--parchment)";
-      case "expired": return "var(--ember)";
-      default: return "var(--parchment-dim)";
-    }
-  }
 
   return (
     <main style={{ maxWidth: "960px", margin: "0 auto", padding: "3rem 2rem" }}>
@@ -73,22 +65,22 @@ export default async function DecayPage({
       )}
 
       <div style={{ display: "flex", gap: "0.5rem", marginBottom: "1.5rem" }}>
-        <a
-          href={downloadHref(csvData, "text/csv")}
-          download="decay-records.csv"
+        <DownloadButton
+          data={csvData}
+          filename="decay-records.csv"
+          mime="text/csv"
+          label="Download CSV"
           className="btn"
-          style={{ fontSize: "0.65rem", textDecoration: "none" }}
-        >
-          Download CSV
-        </a>
-        <a
-          href={downloadHref(JSON.stringify(records, null, 2), "application/json")}
-          download="decay-records.json"
+          style={{ fontSize: "0.65rem" }}
+        />
+        <DownloadButton
+          data={JSON.stringify(records, null, 2)}
+          filename="decay-records.json"
+          mime="application/json"
+          label="Download JSON"
           className="btn"
-          style={{ fontSize: "0.65rem", textDecoration: "none" }}
-        >
-          Download JSON
-        </a>
+          style={{ fontSize: "0.65rem" }}
+        />
       </div>
 
       {records.length === 0 ? (
@@ -120,7 +112,7 @@ export default async function DecayPage({
           </thead>
           <tbody>
             {records.map((r) => (
-              <RevalidateRow key={r.id} record={r} statusColor={statusColor} />
+              <RevalidateRow key={r.id} record={r} />
             ))}
           </tbody>
         </table>
@@ -131,7 +123,6 @@ export default async function DecayPage({
 
 function RevalidateRow({
   record,
-  statusColor,
 }: {
   record: {
     id: string;
@@ -142,7 +133,6 @@ function RevalidateRow({
     lastValidated: string;
     status: string;
   };
-  statusColor: (s: string) => string;
 }) {
   async function revalidate() {
     "use server";
@@ -185,7 +175,7 @@ function RevalidateRow({
       <td style={{ padding: "0.6rem 0.75rem", color: "var(--parchment-dim)", fontSize: "0.75rem" }}>
         {record.lastValidated ? record.lastValidated.slice(0, 10) : "never"}
       </td>
-      <td style={{ padding: "0.6rem 0.75rem", color: statusColor(record.status), fontSize: "0.75rem", textTransform: "uppercase" }}>
+      <td style={{ padding: "0.6rem 0.75rem", color: decayStatusColor(record.status), fontSize: "0.75rem", textTransform: "uppercase" }}>
         {record.status}
       </td>
       <td style={{ padding: "0.6rem 0.75rem" }}>

@@ -18,11 +18,18 @@ import { requireTenantContext } from "@/lib/tenant";
  */
 
 const TIERS = ["firm", "founder", "open", "retired"] as const;
+const PAGE_SIZE = 40;
 
 export default async function ConclusionsPage({
   searchParams,
 }: {
-  searchParams: Promise<{ tier?: string; topic?: string; asOf?: string }>;
+  searchParams: Promise<{
+    tier?: string;
+    topic?: string;
+    asOf?: string;
+    q?: string;
+    page?: string;
+  }>;
 }) {
   const sp = await searchParams;
   const asOf = sp.asOf;
@@ -74,39 +81,57 @@ export default async function ConclusionsPage({
             <li
               key={c.id}
               className="portal-card"
-              style={{ padding: "1rem 1.25rem", display: "flex", gap: "0.9rem" }}
+              style={{ padding: "1rem 1.25rem" }}
             >
-              <ConfidenceTierSigil tier={c.confidence_tier || "open"} />
-              <div style={{ minWidth: 0, flex: 1 }}>
-                <div
-                  className="mono"
-                  style={{
-                    fontSize: "0.62rem",
-                    color: "var(--amber-dim)",
-                    textTransform: "uppercase",
-                    letterSpacing: "0.12em",
-                  }}
-                >
-                  {c.confidence_tier || ""}
-                  {c.created_at
-                    ? ` · recorded ${String(c.created_at).slice(0, 10)}`
-                    : ""}
-                </div>
-                <p style={{ marginTop: "0.45rem", color: "var(--parchment)" }}>
-                  {c.text}
-                </p>
-                {c.rationale ? (
-                  <p
+              <Link
+                href={`/conclusions/${c.id}`}
+                style={{
+                  textDecoration: "none",
+                  color: "inherit",
+                  display: "flex",
+                  gap: "0.9rem",
+                  alignItems: "flex-start",
+                }}
+              >
+                <ConfidenceTierSigil tier={c.confidence_tier || "open"} />
+                <div style={{ minWidth: 0, flex: 1 }}>
+                  <div
+                    className="mono"
                     style={{
-                      marginTop: "0.35rem",
-                      fontSize: "0.8rem",
-                      color: "var(--parchment-dim)",
+                      fontSize: "0.62rem",
+                      color: "var(--amber-dim)",
+                      textTransform: "uppercase",
+                      letterSpacing: "0.12em",
+                      display: "flex",
+                      gap: "0.5rem",
                     }}
                   >
-                    {c.rationale}
+                    <span>
+                      {c.confidence_tier || ""}
+                      {c.created_at
+                        ? ` · recorded ${String(c.created_at).slice(0, 10)}`
+                        : ""}
+                    </span>
+                    <span style={{ color: "var(--ember)", marginLeft: "auto" }}>
+                      exits replay →
+                    </span>
+                  </div>
+                  <p style={{ marginTop: "0.45rem", color: "var(--parchment)" }}>
+                    {c.text}
                   </p>
-                ) : null}
-              </div>
+                  {c.rationale ? (
+                    <p
+                      style={{
+                        marginTop: "0.35rem",
+                        fontSize: "0.8rem",
+                        color: "var(--parchment-dim)",
+                      }}
+                    >
+                      {c.rationale}
+                    </p>
+                  ) : null}
+                </div>
+              </Link>
             </li>
           ))}
         </ul>
@@ -119,20 +144,65 @@ export default async function ConclusionsPage({
     return null;
   }
 
+  const page = Math.max(1, parseInt(sp.page || "1", 10));
+  const q = sp.q?.trim() || "";
+
   const where: {
     organizationId: string;
     confidenceTier?: string;
     topicHint?: { contains: string };
+    OR?: Array<Record<string, { contains: string; mode: "insensitive" }>>;
   } = { organizationId: tenant.organizationId };
   if (sp.tier) where.confidenceTier = sp.tier;
   if (sp.topic) where.topicHint = { contains: sp.topic };
+  if (q) {
+    where.OR = [
+      { text: { contains: q, mode: "insensitive" } },
+      { rationale: { contains: q, mode: "insensitive" } },
+      { topicHint: { contains: q, mode: "insensitive" } },
+    ];
+  }
 
-  const rows = await db.conclusion.findMany({
-    where,
-    orderBy: { createdAt: "desc" },
-    take: 80,
-    include: { attributedFounder: { select: { name: true } } },
-  });
+  const [rows, total] = await Promise.all([
+    db.conclusion.findMany({
+      where,
+      orderBy: { createdAt: "desc" },
+      take: PAGE_SIZE + 1,
+      skip: (page - 1) * PAGE_SIZE,
+      include: { attributedFounder: { select: { name: true } } },
+    }),
+    db.conclusion.count({ where }),
+  ]);
+  const hasNext = rows.length > PAGE_SIZE;
+  const display = hasNext ? rows.slice(0, PAGE_SIZE) : rows;
+
+  // Page URLs preserve filter state; tier chips reset `page` so the
+  // new filter's first page is always what the user sees after clicking.
+  function buildPageUrl(p: number): string {
+    const params = new URLSearchParams();
+    if (sp.tier) params.set("tier", sp.tier);
+    if (sp.topic) params.set("topic", sp.topic);
+    if (q) params.set("q", q);
+    if (p > 1) params.set("page", String(p));
+    const qs = params.toString();
+    return `/conclusions${qs ? `?${qs}` : ""}`;
+  }
+
+  function buildTierUrl(tier: string | null): string {
+    const params = new URLSearchParams();
+    if (tier) params.set("tier", tier);
+    if (q) params.set("q", q);
+    const qs = params.toString();
+    return `/conclusions${qs ? `?${qs}` : ""}`;
+  }
+
+  function buildClearUrl(): string {
+    const params = new URLSearchParams();
+    if (sp.tier) params.set("tier", sp.tier);
+    if (sp.topic) params.set("topic", sp.topic);
+    const qs = params.toString();
+    return `/conclusions${qs ? `?${qs}` : ""}`;
+  }
 
   return (
     <div style={{ position: "relative", overflow: "hidden", minHeight: "80vh" }}>
@@ -198,6 +268,57 @@ export default async function ConclusionsPage({
           </p>
         </header>
 
+        <form
+          action="/conclusions"
+          method="get"
+          style={{ display: "flex", gap: "0.5rem", marginBottom: "1rem", flexWrap: "wrap" }}
+        >
+          <input
+            type="text"
+            name="q"
+            defaultValue={q}
+            placeholder="Search conclusions…"
+            style={{
+              flex: 1,
+              minWidth: "12rem",
+              maxWidth: "24rem",
+              padding: "0.4rem 0.75rem",
+              fontSize: "0.8rem",
+              fontFamily: "inherit",
+              background: "transparent",
+              border: "1px solid var(--border)",
+              color: "var(--parchment)",
+              borderRadius: 2,
+            }}
+          />
+          {sp.tier && <input type="hidden" name="tier" value={sp.tier} />}
+          {sp.topic && <input type="hidden" name="topic" value={sp.topic} />}
+          <button type="submit" className="btn" style={{ fontSize: "0.65rem" }}>
+            Search
+          </button>
+          {q && (
+            <Link
+              href={buildClearUrl()}
+              className="btn"
+              style={{ fontSize: "0.65rem", textDecoration: "none" }}
+            >
+              Clear
+            </Link>
+          )}
+        </form>
+
+        {q && (
+          <p
+            style={{
+              fontSize: "0.7rem",
+              color: "var(--parchment-dim)",
+              marginBottom: "0.75rem",
+            }}
+          >
+            {total} result{total !== 1 ? "s" : ""} for &ldquo;{q}&rdquo;
+          </p>
+        )}
+
         <p
           className="mono"
           style={{
@@ -220,7 +341,7 @@ export default async function ConclusionsPage({
           }}
         >
           <Link
-            href="/conclusions"
+            href={buildTierUrl(null)}
             className="btn"
             style={{ fontSize: "0.7rem", textDecoration: "none" }}
           >
@@ -229,7 +350,7 @@ export default async function ConclusionsPage({
           {TIERS.map((t) => (
             <Link
               key={t}
-              href={`/conclusions?tier=${t}`}
+              href={buildTierUrl(t)}
               className="btn"
               style={{
                 fontSize: "0.7rem",
@@ -237,7 +358,6 @@ export default async function ConclusionsPage({
                 display: "inline-flex",
                 alignItems: "center",
                 gap: "0.5rem",
-                // Slight emphasis on the active filter.
                 ...(sp.tier === t
                   ? {
                       borderColor: "var(--amber)",
@@ -259,7 +379,7 @@ export default async function ConclusionsPage({
           </Link>
         </div>
 
-        {rows.length === 0 ? (
+        {display.length === 0 ? (
           <div
             className="ascii-frame"
             data-label="VACUUM · EMPTY"
@@ -298,7 +418,7 @@ export default async function ConclusionsPage({
               gap: "0.75rem",
             }}
           >
-            {rows.map((c) => (
+            {display.map((c) => (
               <li
                 key={c.id}
                 className="portal-card"
@@ -355,6 +475,43 @@ export default async function ConclusionsPage({
               </li>
             ))}
           </ul>
+        )}
+
+        {display.length > 0 && (
+          <div
+            style={{
+              display: "flex",
+              justifyContent: "space-between",
+              alignItems: "center",
+              marginTop: "1.5rem",
+              padding: "0.75rem 0",
+              borderTop: "1px solid var(--border)",
+            }}
+          >
+            <span style={{ fontSize: "0.7rem", color: "var(--parchment-dim)" }}>
+              {total} conclusion{total !== 1 ? "s" : ""} · page {page}
+            </span>
+            <div style={{ display: "flex", gap: "0.5rem" }}>
+              {page > 1 && (
+                <Link
+                  href={buildPageUrl(page - 1)}
+                  className="btn"
+                  style={{ fontSize: "0.65rem", textDecoration: "none" }}
+                >
+                  ← Previous
+                </Link>
+              )}
+              {hasNext && (
+                <Link
+                  href={buildPageUrl(page + 1)}
+                  className="btn"
+                  style={{ fontSize: "0.65rem", textDecoration: "none" }}
+                >
+                  Next →
+                </Link>
+              )}
+            </div>
+          </div>
         )}
       </main>
     </div>

@@ -73,6 +73,14 @@ export interface PostMortem {
   founderName: string;
 }
 
+export interface Finding {
+  severity: "info" | "minor" | "major" | "blocker";
+  category: string;
+  detail: string;
+  evidence: string[];
+  suggestedAction: string;
+}
+
 export interface PeerReviewRecord {
   id: string;
   conclusionId: string;
@@ -80,6 +88,10 @@ export interface PeerReviewRecord {
   verdict: "endorse" | "challenge" | "abstain";
   commentary: string;
   createdAt: string;
+  // Structured findings from the Noosphere reviewer swarm. Present when
+  // the peer_review row carries a non-null findings_json column; empty
+  // array for rows predating that schema addition.
+  findings: Finding[];
 }
 
 export interface DecayRecord {
@@ -243,14 +255,45 @@ function parseJson<T>(raw: unknown, fallback: T): T {
 
 type RawRow = Record<string, unknown>;
 
+export interface QueryResult<T> {
+  rows: T[];
+  /** Present only when the raw SQL errored (e.g. missing table, bad column). */
+  error?: string;
+}
+
+async function safeQueryDiag<T extends RawRow>(
+  query: ReturnType<typeof Prisma.sql>,
+): Promise<QueryResult<T>> {
+  try {
+    const rows = await db.$queryRaw<T[]>(query);
+    return { rows };
+  } catch (err) {
+    // Production exposes the raw error message verbatim — the Codex
+    // is an internal tool and operators benefit from seeing e.g.
+    // "relation \"provenance\" does not exist" rather than a generic
+    // "Query failed". If this ever ships to an external audience the
+    // NODE_ENV branch below flips it back to a redacted message.
+    const rawMsg = err instanceof Error ? err.message : String(err);
+    const message =
+      process.env.NODE_ENV === "production" && process.env.CODEX_EXPOSE_SQL_ERRORS !== "1"
+        ? "Query failed — see server logs"
+        : rawMsg;
+    return { rows: [], error: message };
+  }
+}
+
+/**
+ * Array-returning variant. Kept so the majority of consumers that
+ * don't surface diagnostics (standalone list pages, exports, tests)
+ * stay on a single `const rows = await fetchX(...)` idiom. Callers
+ * who need the error channel use the `Diag` variants below or the
+ * explicit `safeQueryDiag` helper.
+ */
 async function safeQuery<T extends RawRow>(
   query: ReturnType<typeof Prisma.sql>,
 ): Promise<T[]> {
-  try {
-    return await db.$queryRaw<T[]>(query);
-  } catch {
-    return [];
-  }
+  const { rows } = await safeQueryDiag<T>(query);
+  return rows;
 }
 
 // ─── Claim-text resolver ─────────────────────────────────
@@ -330,11 +373,40 @@ export async function fetchProvenanceForConclusion(
   }));
 }
 
+export async function fetchProvenanceForConclusionDiag(
+  organizationId: string,
+  conclusionId: string,
+): Promise<{ records: ProvenanceRecord[]; error?: string }> {
+  const { rows, error } = await safeQueryDiag(
+    Prisma.sql`SELECT id, conclusion_id, source_upload_id, extraction_method, confidence, chain_json, created_at FROM provenance WHERE organization_id = ${organizationId} AND conclusion_id = ${conclusionId} ORDER BY created_at DESC`,
+  );
+  return {
+    records: rows.map((r) => ({
+      id: String(r.id),
+      conclusionId: String(r.conclusion_id),
+      sourceUploadId: String(r.source_upload_id ?? ""),
+      extractionMethod: String(r.extraction_method ?? ""),
+      confidence: Number(r.confidence ?? 0),
+      chain: parseJson<ProvenanceLink[]>(r.chain_json, []),
+      createdAt: String(r.created_at ?? ""),
+    })),
+    error,
+  };
+}
+
 export async function fetchCascade(
   organizationId: string,
   conclusionId: string,
 ): Promise<CascadeNode[]> {
-  const rows = await safeQuery(
+  const { roots } = await fetchCascadeDiag(organizationId, conclusionId);
+  return roots;
+}
+
+export async function fetchCascadeDiag(
+  organizationId: string,
+  conclusionId: string,
+): Promise<{ roots: CascadeNode[]; error?: string }> {
+  const { rows, error } = await safeQueryDiag(
     Prisma.sql`SELECT id, conclusion_id, parent_id, kind, label, confidence FROM cascade_node WHERE organization_id = ${organizationId} AND conclusion_id = ${conclusionId} ORDER BY id`,
   );
   const flat = rows.map((r) => ({
@@ -355,7 +427,7 @@ export async function fetchCascade(
       roots.push(node);
     }
   }
-  return roots;
+  return { roots, error };
 }
 
 export async function fetchEvalRuns(
@@ -432,17 +504,50 @@ export async function fetchPeerReviews(
   organizationId: string,
   conclusionId: string,
 ): Promise<PeerReviewRecord[]> {
-  const rows = await safeQuery(
+  const { records } = await fetchPeerReviewsDiag(organizationId, conclusionId);
+  return records;
+}
+
+export async function fetchPeerReviewsDiag(
+  organizationId: string,
+  conclusionId: string,
+): Promise<{ records: PeerReviewRecord[]; error?: string }> {
+  // Try the schema that includes findings_json first. If the column
+  // doesn't exist (older deployments), fall back to the base columns.
+  // Both paths surface the error verbatim via the diag channel if the
+  // fallback also fails.
+  const withFindings = await safeQueryDiag(
+    Prisma.sql`SELECT id, conclusion_id, reviewer_name, verdict, commentary, findings_json, created_at FROM peer_review WHERE organization_id = ${organizationId} AND conclusion_id = ${conclusionId} ORDER BY created_at DESC`,
+  );
+  if (!withFindings.error) {
+    return {
+      records: withFindings.rows.map((r) => ({
+        id: String(r.id),
+        conclusionId: String(r.conclusion_id),
+        reviewerName: String(r.reviewer_name ?? ""),
+        verdict: String(r.verdict ?? "abstain") as PeerReviewRecord["verdict"],
+        commentary: String(r.commentary ?? ""),
+        createdAt: String(r.created_at ?? ""),
+        findings: parseJson<Finding[]>(r.findings_json, []),
+      })),
+    };
+  }
+
+  const base = await safeQueryDiag(
     Prisma.sql`SELECT id, conclusion_id, reviewer_name, verdict, commentary, created_at FROM peer_review WHERE organization_id = ${organizationId} AND conclusion_id = ${conclusionId} ORDER BY created_at DESC`,
   );
-  return rows.map((r) => ({
-    id: String(r.id),
-    conclusionId: String(r.conclusion_id),
-    reviewerName: String(r.reviewer_name ?? ""),
-    verdict: (String(r.verdict ?? "abstain") as PeerReviewRecord["verdict"]),
-    commentary: String(r.commentary ?? ""),
-    createdAt: String(r.created_at ?? ""),
-  }));
+  return {
+    records: base.rows.map((r) => ({
+      id: String(r.id),
+      conclusionId: String(r.conclusion_id),
+      reviewerName: String(r.reviewer_name ?? ""),
+      verdict: String(r.verdict ?? "abstain") as PeerReviewRecord["verdict"],
+      commentary: String(r.commentary ?? ""),
+      createdAt: String(r.created_at ?? ""),
+      findings: [],
+    })),
+    error: base.error,
+  };
 }
 
 export async function fetchDecayRecords(

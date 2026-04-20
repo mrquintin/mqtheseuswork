@@ -50,8 +50,31 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     });
 
     if (!py.ok) {
+      // Log the failure persistently so it's discoverable in the
+      // AuditEvent table (queryable, joinable to the founder + org).
+      // The Codex resolution is already committed; only the Noosphere
+      // mirror is behind. Clients surface this via the `syncFailed`
+      // flag and can retry via /api/review/retry-sync.
+      await db.auditEvent.create({
+        data: {
+          organizationId: founder.organizationId,
+          founderId: founder.id,
+          action: "noosphere_sync_failed",
+          detail: JSON.stringify({
+            reviewItemId: id,
+            noosphereId: item.noosphereId,
+            verdict: body.verdict,
+            error: py.stderr,
+          }),
+        },
+      });
       return NextResponse.json(
-        { ok: true, warning: "Portal updated; Noosphere sync failed", detail: py.stderr },
+        {
+          ok: true,
+          syncFailed: true,
+          warning: "Portal updated; Noosphere sync failed",
+          detail: py.stderr,
+        },
         { status: 200 },
       );
     }

@@ -45,6 +45,7 @@ export default function ReviewQueue({
   claimTexts: Record<string, string>;
 }) {
   const [msg, setMsg] = useState("");
+  const [warn, setWarn] = useState("");
   // Per-item resolution note the founder can type before pressing a
   // verdict button. Keyed by review-item id so typing in one row doesn't
   // bleed into another.
@@ -55,6 +56,10 @@ export default function ReviewQueue({
   // which destroyed scroll position and ephemeral client state.
   const [resolved, setResolved] = useState<Set<string>>(new Set());
   const [lastAction, setLastAction] = useState<{ id: string; verdict: string } | null>(null);
+  // Batch mode state — toggleable checkbox-based selection + bulk
+  // verdict buttons.
+  const [batchMode, setBatchMode] = useState(false);
+  const [selected, setSelected] = useState<Set<string>>(new Set());
 
   async function resolve(
     id: string,
@@ -78,6 +83,13 @@ export default function ReviewQueue({
       setMsg(data.error || "Request failed");
       return;
     }
+    if (data.syncFailed || data.warning) {
+      setWarn(
+        `Resolved, but Noosphere sync failed: ${data.warning || data.detail || "unknown error"}. The verdict is saved locally and can be retried.`,
+      );
+    } else {
+      setWarn("");
+    }
     setResolved((prev) => {
       const next = new Set(prev);
       next.add(id);
@@ -89,6 +101,46 @@ export default function ReviewQueue({
     // own timer will handle the clearing.
     setTimeout(() => {
       setLastAction((curr) => (curr?.id === id && curr.verdict === verdict ? null : curr));
+    }, 3000);
+  }
+
+  async function batchResolve(
+    verdict: "cohere" | "contradict" | "unresolved",
+    overrule: boolean,
+  ) {
+    setMsg("");
+    setWarn("");
+    const ids = Array.from(selected);
+    if (ids.length === 0) return;
+    const res = await fetch("/api/review/batch", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        ids,
+        verdict,
+        overrule,
+        note: `Batch ${overrule ? "overrule" : "confirm"} via portal`,
+      }),
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      setMsg(data.error || "Batch resolution failed");
+      return;
+    }
+    if (data.syncFailures && data.syncFailures > 0) {
+      setWarn(
+        `Resolved ${data.count} items; ${data.syncFailures} Noosphere syncs failed. Failures are logged in audit events and can be retried.`,
+      );
+    }
+    setResolved((prev) => {
+      const next = new Set(prev);
+      for (const id of ids) next.add(id);
+      return next;
+    });
+    setSelected(new Set());
+    setLastAction({ id: "batch", verdict });
+    setTimeout(() => {
+      setLastAction((curr) => (curr?.id === "batch" && curr.verdict === verdict ? null : curr));
     }, 3000);
   }
 
@@ -148,7 +200,89 @@ export default function ReviewQueue({
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: "0.5rem", flexWrap: "wrap" }}>
+        <button
+          type="button"
+          className="btn"
+          style={{ fontSize: "0.65rem" }}
+          onClick={() => {
+            setBatchMode(!batchMode);
+            setSelected(new Set());
+          }}
+        >
+          {batchMode ? "Exit batch mode" : "Batch mode"}
+        </button>
+        {batchMode && (
+          <span style={{ fontSize: "0.7rem", color: "var(--parchment-dim)" }}>
+            {selected.size} selected
+          </span>
+        )}
+      </div>
+
+      {batchMode && (
+        <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap" }}>
+          <button
+            type="button"
+            className="btn"
+            style={{ fontSize: "0.6rem" }}
+            onClick={() => setSelected(new Set(visible.map((i) => i.id)))}
+          >
+            Select all
+          </button>
+          <button
+            type="button"
+            className="btn"
+            style={{ fontSize: "0.6rem" }}
+            onClick={() => setSelected(new Set())}
+          >
+            Select none
+          </button>
+          {selected.size > 0 && (
+            <>
+              <button
+                type="button"
+                className="btn"
+                style={{ fontSize: "0.6rem" }}
+                onClick={() => batchResolve("cohere", false)}
+              >
+                Confirm all as cohere
+              </button>
+              <button
+                type="button"
+                className="btn"
+                style={{ fontSize: "0.6rem" }}
+                onClick={() => batchResolve("contradict", false)}
+              >
+                Confirm all as contradict
+              </button>
+              <button
+                type="button"
+                className="btn-solid btn"
+                style={{ fontSize: "0.6rem" }}
+                onClick={() => batchResolve("cohere", true)}
+              >
+                Overrule all → cohere
+              </button>
+            </>
+          )}
+        </div>
+      )}
+
       {msg && <p style={{ color: "var(--ember)" }}>{msg}</p>}
+      {warn && (
+        <p
+          style={{
+            color: "var(--amber)",
+            fontSize: "0.8rem",
+            padding: "0.5rem 1rem",
+            border: "1px solid var(--amber-dim)",
+            borderRadius: 2,
+            margin: 0,
+          }}
+        >
+          {warn}
+        </p>
+      )}
       {lastAction && (
         <div
           style={{
@@ -202,10 +336,28 @@ export default function ReviewQueue({
                 textTransform: "uppercase",
                 letterSpacing: "0.12em",
                 marginBottom: "0.5rem",
+                display: "flex",
+                alignItems: "center",
+                gap: "0.5rem",
               }}
             >
-              severity {(it.severity * 100).toFixed(0)}% · aggregator{" "}
-              {it.aggregatorVerdict || "—"} · leaning {dominant}
+              {batchMode && (
+                <input
+                  type="checkbox"
+                  checked={selected.has(it.id)}
+                  onChange={(e) => {
+                    const next = new Set(selected);
+                    if (e.target.checked) next.add(it.id);
+                    else next.delete(it.id);
+                    setSelected(next);
+                  }}
+                  style={{ marginRight: "0.35rem" }}
+                />
+              )}
+              <span>
+                severity {(it.severity * 100).toFixed(0)}% · aggregator{" "}
+                {it.aggregatorVerdict || "—"} · leaning {dominant}
+              </span>
             </div>
 
             <ClaimBlock label="A" id={it.claimAId} text={claimAText} />

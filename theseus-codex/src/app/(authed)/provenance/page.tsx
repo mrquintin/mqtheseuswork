@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { redirect } from "next/navigation";
 import {
   fetchProvenanceRecords,
@@ -85,7 +86,15 @@ function ProvenanceCard({ record }: { record: ProvenanceRecord }) {
           conclusion {record.conclusionId.slice(0, 8)}…
         </span>
         <span style={{ fontSize: "0.65rem", color: "var(--parchment-dim)" }}>
-          {record.extractionMethod} · confidence {(record.confidence * 100).toFixed(0)}%
+          <Link
+            href={`/methods?name=${encodeURIComponent(record.extractionMethod)}`}
+            style={{ color: "var(--gold-dim)", textDecoration: "none" }}
+            title={`View "${record.extractionMethod}" in the method registry`}
+          >
+            {record.extractionMethod}
+          </Link>
+          {" · confidence "}
+          {(record.confidence * 100).toFixed(0)}%
         </span>
       </div>
       {record.chain.length > 0 && (

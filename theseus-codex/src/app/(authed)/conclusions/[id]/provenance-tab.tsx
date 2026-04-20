@@ -1,27 +1,27 @@
-import { fetchProvenanceForConclusion } from "@/lib/api/round3";
+import Link from "next/link";
+import { fetchProvenanceForConclusionDiag } from "@/lib/api/round3";
 import { requireTenantContext } from "@/lib/tenant";
 
 /**
  * Provenance tab on the conclusion-detail page.
  *
- * Resolves the tenant from the session context and passes the resulting
- * `organizationId` to `fetchProvenanceForConclusion`, which enforces a
- * tenant filter in its raw SQL. Without that filter a founder on
- * Org A could navigate to `/conclusions/<id-from-Org-B>` and see
- * Org B's provenance records (every row has an `organizationId`, but
- * the raw SELECT used to omit the WHERE clause). Resolving here means
- * every render of this tab re-checks the caller's org — no path leaks
- * even if the parent page-level check drifts out of date.
+ * Scoped to the caller's org. Uses the `Diag` variant of the fetch so
+ * a missing `provenance` table (common during staged rollouts) surfaces
+ * as a collapsible diagnostic rather than silently showing "no records".
  */
 export default async function ProvenanceTab({ conclusionId }: { conclusionId: string }) {
   const tenant = await requireTenantContext();
   if (!tenant) return null;
-  const records = await fetchProvenanceForConclusion(tenant.organizationId, conclusionId);
+  const { records, error } = await fetchProvenanceForConclusionDiag(
+    tenant.organizationId,
+    conclusionId,
+  );
 
   if (records.length === 0) {
     return (
       <div style={{ padding: "0.75rem 0", color: "var(--parchment-dim)", fontSize: "0.85rem" }}>
         No provenance records for this conclusion.
+        {error && <QueryDiagnostic error={error} />}
       </div>
     );
   }
@@ -30,8 +30,23 @@ export default async function ProvenanceTab({ conclusionId }: { conclusionId: st
     <div style={{ display: "flex", flexDirection: "column", gap: "0.5rem" }}>
       {records.map((r) => (
         <div key={r.id} style={{ padding: "0.75rem 1rem", borderLeft: "2px solid var(--gold-dim)" }}>
-          <div style={{ fontSize: "0.65rem", color: "var(--gold-dim)", textTransform: "uppercase" }}>
-            {r.extractionMethod} · confidence {(r.confidence * 100).toFixed(0)}%
+          <div style={{ display: "flex", gap: "0.5rem", alignItems: "baseline", flexWrap: "wrap" }}>
+            <Link
+              href={`/methods?name=${encodeURIComponent(r.extractionMethod)}`}
+              style={{
+                fontSize: "0.65rem",
+                color: "var(--gold-dim)",
+                textTransform: "uppercase",
+                textDecoration: "none",
+                letterSpacing: "0.05em",
+              }}
+              title={`View "${r.extractionMethod}" in the method registry`}
+            >
+              {r.extractionMethod}
+            </Link>
+            <span style={{ fontSize: "0.65rem", color: "var(--parchment-dim)" }}>
+              · confidence {(r.confidence * 100).toFixed(0)}%
+            </span>
           </div>
           {r.chain.length > 0 && (
             <div style={{ marginTop: "0.35rem", fontSize: "0.8rem" }}>
@@ -48,5 +63,25 @@ export default async function ProvenanceTab({ conclusionId }: { conclusionId: st
         </div>
       ))}
     </div>
+  );
+}
+
+function QueryDiagnostic({ error }: { error: string }) {
+  return (
+    <details style={{ marginTop: "0.5rem" }}>
+      <summary style={{ cursor: "pointer", fontSize: "0.7rem", color: "var(--ember)" }}>
+        Query diagnostic
+      </summary>
+      <pre
+        style={{
+          fontSize: "0.65rem",
+          color: "var(--parchment-dim)",
+          marginTop: "0.25rem",
+          whiteSpace: "pre-wrap",
+        }}
+      >
+        {error}
+      </pre>
+    </details>
   );
 }

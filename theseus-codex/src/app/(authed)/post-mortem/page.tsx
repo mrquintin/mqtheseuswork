@@ -1,5 +1,6 @@
 import { redirect } from "next/navigation";
-import { fetchPostMortems, toCSV, downloadHref } from "@/lib/api/round3";
+import { fetchPostMortems, toCSV } from "@/lib/api/round3";
+import DownloadButton from "@/components/DownloadButton";
 import { requireTenantContext } from "@/lib/tenant";
 
 export default async function PostMortemPage() {
@@ -34,22 +35,22 @@ export default async function PostMortemPage() {
       </p>
 
       <div style={{ display: "flex", gap: "0.5rem", marginBottom: "1.5rem" }}>
-        <a
-          href={downloadHref(csvData, "text/csv")}
-          download="post-mortems.csv"
+        <DownloadButton
+          data={csvData}
+          filename="post-mortems.csv"
+          mime="text/csv"
+          label="Download CSV"
           className="btn"
-          style={{ fontSize: "0.65rem", textDecoration: "none" }}
-        >
-          Download CSV
-        </a>
-        <a
-          href={downloadHref(JSON.stringify(records, null, 2), "application/json")}
-          download="post-mortems.json"
+          style={{ fontSize: "0.65rem" }}
+        />
+        <DownloadButton
+          data={JSON.stringify(records, null, 2)}
+          filename="post-mortems.json"
+          mime="application/json"
+          label="Download JSON"
           className="btn"
-          style={{ fontSize: "0.65rem", textDecoration: "none" }}
-        >
-          Download JSON
-        </a>
+          style={{ fontSize: "0.65rem" }}
+        />
       </div>
 
       {records.length === 0 ? (

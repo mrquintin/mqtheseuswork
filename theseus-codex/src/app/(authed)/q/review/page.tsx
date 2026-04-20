@@ -81,6 +81,36 @@ export default async function ReviewQueuePage() {
             pair as human-labelled for calibration, and syncs to Noosphere
             when <code>NOOSPHERE_DATABASE_URL</code> is configured.
           </p>
+          <div
+            style={{
+              fontSize: "0.75rem",
+              color: "var(--parchment-dim)",
+              marginTop: "0.75rem",
+              maxWidth: "44em",
+              lineHeight: 1.6,
+            }}
+          >
+            <p style={{ margin: 0 }}>
+              <strong style={{ color: "var(--amber)" }}>Cohere</strong> — the
+              two claims are consistent; no tension exists.
+            </p>
+            <p style={{ margin: "0.15rem 0" }}>
+              <strong style={{ color: "var(--ember)" }}>Contradict</strong> —
+              the two claims are in genuine conflict; one or both need
+              revision.
+            </p>
+            <p style={{ margin: "0.15rem 0" }}>
+              <strong style={{ color: "var(--parchment-dim)" }}>
+                Unresolved
+              </strong>{" "}
+              — the tension is real but cannot be resolved with available
+              evidence.
+            </p>
+            <p style={{ marginTop: "0.35rem", fontStyle: "italic", marginBottom: 0 }}>
+              Different from peer review, which evaluates individual
+              conclusions rather than claim pairs.
+            </p>
+          </div>
         </header>
         <ReviewQueue items={items} claimTexts={claimTexts} />
       </main>

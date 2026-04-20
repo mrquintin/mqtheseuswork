@@ -5,6 +5,7 @@ import RetryProcessingButton from "@/components/RetryProcessingButton";
 import AutoProcessStatusBanner from "@/components/AutoProcessStatusBanner";
 import PublishToggle from "@/components/PublishToggle";
 import { db } from "@/lib/db";
+import { fetchDecayRecords } from "@/lib/api/round3";
 import { requireTenantContext } from "@/lib/tenant";
 
 /**
@@ -71,6 +72,15 @@ export default async function DashboardPage() {
     orderBy: { observedAt: "desc" },
     take: 6,
   });
+
+  // Decay-aware alert: surface conclusions whose confidence has
+  // degraded past a threshold so a daily dashboard visitor sees them
+  // before clicking into anything. `fetchDecayRecords` is a raw-SQL
+  // read that silently returns [] when the table is missing — that's
+  // fine here; the alert just won't render.
+  const decayRecords = await fetchDecayRecords(tenant.organizationId);
+  const decaying = decayRecords.filter((r) => r.status === "decaying");
+  const expired = decayRecords.filter((r) => r.status === "expired");
 
   const activeUploads =
     uploads.filter((u) => u.status === "processing" || u.status === "pending").length +
@@ -145,6 +155,55 @@ export default async function DashboardPage() {
         </div>
 
         <AutoProcessStatusBanner />
+
+        {(expired.length > 0 || decaying.length > 0) && (
+          <div
+            style={{
+              padding: "1rem 1.25rem",
+              border: "1px solid var(--ember)",
+              borderRadius: 2,
+              marginBottom: "1.5rem",
+            }}
+          >
+            <div
+              style={{
+                fontFamily: "'Cinzel', serif",
+                fontSize: "0.65rem",
+                letterSpacing: "0.15em",
+                textTransform: "uppercase",
+                color: "var(--ember)",
+                marginBottom: "0.5rem",
+              }}
+            >
+              Conclusions requiring attention
+            </div>
+            {expired.length > 0 && (
+              <p style={{ fontSize: "0.85rem", color: "var(--ember)", margin: "0.25rem 0" }}>
+                {expired.length} expired conclusion
+                {expired.length > 1 ? "s" : ""} — confidence has decayed below
+                threshold.
+              </p>
+            )}
+            {decaying.length > 0 && (
+              <p style={{ fontSize: "0.85rem", color: "var(--parchment)", margin: "0.25rem 0" }}>
+                {decaying.length} decaying conclusion
+                {decaying.length > 1 ? "s" : ""} — confidence is declining.
+              </p>
+            )}
+            <Link
+              href="/decay"
+              style={{
+                display: "inline-block",
+                marginTop: "0.5rem",
+                fontSize: "0.7rem",
+                color: "var(--gold)",
+                textDecoration: "none",
+              }}
+            >
+              View decay dashboard →
+            </Link>
+          </div>
+        )}
 
         {pendingRequestCount > 0 ? (
           <Link
