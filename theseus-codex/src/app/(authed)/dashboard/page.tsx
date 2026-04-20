@@ -1,7 +1,7 @@
 import Link from "next/link";
+import { revalidatePath } from "next/cache";
 import ConfidenceTierSigil from "@/components/ConfidenceTierSigil";
 import SculptureBackdrop from "@/components/SculptureBackdrop";
-import RetryProcessingButton from "@/components/RetryProcessingButton";
 import AutoProcessStatusBanner from "@/components/AutoProcessStatusBanner";
 import PublishToggle from "@/components/PublishToggle";
 import { db } from "@/lib/db";
@@ -27,24 +27,46 @@ export default async function DashboardPage() {
     return null;
   }
 
-  const uploads = await db.upload.findMany({
-    where: {
-      organizationId: tenant.organizationId,
-      deletedAt: null,
-      // Same rule as the library: you always see your own rows, but
-      // peers' private rows are hidden from you. Without this filter
-      // the dashboard would happily show "12 recent contributions"
-      // including peers' private uploads that `/library` hides, which
-      // would be a leak.
-      OR: [
-        { visibility: { not: "private" } },
-        { founderId: tenant.founderId },
-      ],
-    },
-    orderBy: { createdAt: "desc" },
-    take: 12,
-    include: { founder: { select: { name: true } } },
-  });
+  // The main "Uploads" panel only shows uploads the pipeline finished
+  // processing successfully. Failed / pending / processing uploads are
+  // still useful — founders need to know they exist and can retry them
+  // — but they don't belong on the landing page alongside the firm's
+  // canon. We surface them via a compact count banner instead.
+  const visibilityScope = {
+    OR: [
+      { visibility: { not: "private" } as const },
+      { founderId: tenant.founderId },
+    ],
+  };
+  const [ingestedUploads, pendingUploads, failedUploads] = await Promise.all([
+    db.upload.findMany({
+      where: {
+        organizationId: tenant.organizationId,
+        deletedAt: null,
+        status: "ingested",
+        ...visibilityScope,
+      },
+      orderBy: { createdAt: "desc" },
+      take: 12,
+      include: { founder: { select: { name: true } } },
+    }),
+    db.upload.count({
+      where: {
+        organizationId: tenant.organizationId,
+        deletedAt: null,
+        status: { in: ["pending", "processing", "queued_offline"] },
+        ...visibilityScope,
+      },
+    }),
+    db.upload.count({
+      where: {
+        organizationId: tenant.organizationId,
+        deletedAt: null,
+        status: "failed",
+        ...visibilityScope,
+      },
+    }),
+  ]);
 
   // Inbox count for the current founder: how many pending deletion
   // requests are waiting on them to accept/decline. Drives the banner
@@ -62,10 +84,68 @@ export default async function DashboardPage() {
   });
 
   const conclusions = await db.conclusion.findMany({
-    where: { organizationId: tenant.organizationId },
+    where: {
+      organizationId: tenant.organizationId,
+      // Hide conclusions this founder has dismissed from their
+      // dashboard. Other founders' dashboards are unaffected.
+      dashboardDismissals: {
+        none: { founderId: tenant.founderId },
+      },
+    },
     orderBy: { createdAt: "desc" },
     take: 8,
   });
+
+  // Active contradiction counter + pending conclusion-deletion counter
+  // for the integration banners (prompt 12). Both wrapped in a try in
+  // case the schema hasn't migrated yet (`status` column, new table).
+  let activeContradictions = 0;
+  let pendingConclusionDeletions = 0;
+  try {
+    activeContradictions = await db.contradiction.count({
+      where: {
+        organizationId: tenant.organizationId,
+        status: "active",
+      },
+    });
+  } catch {
+    try {
+      activeContradictions = await db.contradiction.count({
+        where: { organizationId: tenant.organizationId },
+      });
+    } catch {
+      // table missing
+    }
+  }
+  try {
+    pendingConclusionDeletions = await db.conclusionDeletionRequest.count({
+      where: {
+        conclusion: { organizationId: tenant.organizationId },
+        status: "pending",
+      },
+    });
+  } catch {
+    // table not yet migrated
+  }
+
+  async function dismissConclusion(formData: FormData) {
+    "use server";
+    const cid = String(formData.get("conclusionId") || "");
+    if (!cid) return;
+    const t = await requireTenantContext();
+    if (!t) return;
+    await db.dashboardDismissal.upsert({
+      where: {
+        founderId_conclusionId: {
+          founderId: t.founderId,
+          conclusionId: cid,
+        },
+      },
+      update: {},
+      create: { founderId: t.founderId, conclusionId: cid },
+    });
+    revalidatePath("/dashboard");
+  }
 
   const drifts = await db.driftEvent.findMany({
     where: { organizationId: tenant.organizationId },
@@ -82,20 +162,7 @@ export default async function DashboardPage() {
   const decaying = decayRecords.filter((r) => r.status === "decaying");
   const expired = decayRecords.filter((r) => r.status === "expired");
 
-  const activeUploads =
-    uploads.filter((u) => u.status === "processing" || u.status === "pending").length +
-    uploads.filter((u) => u.status === "queued_offline").length * 0.5;
-
-  const statusBadge = (status: string) => {
-    const cls: Record<string, string> = {
-      pending: "badge-pending",
-      processing: "badge-processing",
-      queued_offline: "badge-pending",
-      ingested: "badge-ingested",
-      failed: "badge-failed",
-    };
-    return `badge ${cls[status] || "badge-pending"}`;
-  };
+  const activeUploads = pendingUploads;
 
   return (
     <div style={{ position: "relative", overflow: "hidden", minHeight: "80vh" }}>
@@ -205,6 +272,107 @@ export default async function DashboardPage() {
           </div>
         )}
 
+        {activeContradictions > 0 && (
+          <Link href="/contradictions" style={{ textDecoration: "none", display: "block" }}>
+            <div
+              className="portal-card"
+              style={{
+                padding: "0.7rem 1rem",
+                marginBottom: "1rem",
+                display: "flex",
+                justifyContent: "space-between",
+                alignItems: "center",
+                fontSize: "0.8rem",
+                borderLeft: "3px solid var(--ember)",
+              }}
+            >
+              <span style={{ color: "var(--ember)" }}>
+                {activeContradictions} active contradiction
+                {activeContradictions > 1 ? "s" : ""} detected
+              </span>
+              <span
+                className="mono"
+                style={{
+                  fontSize: "0.6rem",
+                  color: "var(--amber-dim)",
+                  textTransform: "uppercase",
+                }}
+              >
+                Review →
+              </span>
+            </div>
+          </Link>
+        )}
+
+        {pendingConclusionDeletions > 0 && (
+          <Link href="/conclusions" style={{ textDecoration: "none", display: "block" }}>
+            <div
+              className="portal-card"
+              style={{
+                padding: "0.7rem 1rem",
+                marginBottom: "1rem",
+                display: "flex",
+                justifyContent: "space-between",
+                alignItems: "center",
+                fontSize: "0.8rem",
+              }}
+            >
+              <span style={{ color: "var(--amber)" }}>
+                {pendingConclusionDeletions} pending conclusion deletion
+                {pendingConclusionDeletions > 1 ? " requests" : " request"}
+              </span>
+              <span
+                className="mono"
+                style={{
+                  fontSize: "0.6rem",
+                  color: "var(--amber-dim)",
+                  textTransform: "uppercase",
+                }}
+              >
+                Review →
+              </span>
+            </div>
+          </Link>
+        )}
+
+        {(failedUploads > 0 || pendingUploads > 0) && (
+          <Link href="/library" style={{ textDecoration: "none", display: "block" }}>
+            <div
+              className="portal-card"
+              style={{
+                padding: "0.7rem 1rem",
+                marginBottom: "1rem",
+                display: "flex",
+                justifyContent: "space-between",
+                alignItems: "center",
+                fontSize: "0.8rem",
+              }}
+            >
+              <span style={{ color: "var(--parchment-dim)" }}>
+                {failedUploads > 0 && (
+                  <span style={{ color: "var(--ember)" }}>
+                    {failedUploads} failed upload{failedUploads > 1 ? "s" : ""}
+                  </span>
+                )}
+                {failedUploads > 0 && pendingUploads > 0 && " · "}
+                {pendingUploads > 0 && (
+                  <span>{pendingUploads} processing</span>
+                )}
+              </span>
+              <span
+                className="mono"
+                style={{
+                  fontSize: "0.6rem",
+                  color: "var(--amber-dim)",
+                  textTransform: "uppercase",
+                }}
+              >
+                View in library →
+              </span>
+            </div>
+          </Link>
+        )}
+
         {pendingRequestCount > 0 ? (
           <Link
             href="/library#requests"
@@ -278,16 +446,16 @@ export default async function DashboardPage() {
         >
           <section
             className="ascii-frame"
-            data-label={`UPLOADS · ${toRoman(uploads.length) || "0"}`}
+            data-label={`UPLOADS · ${toRoman(ingestedUploads.length) || "0"}`}
           >
             <div style={{ display: "flex", flexDirection: "column", gap: "0.5rem" }}>
-              {uploads.length === 0 ? (
+              {ingestedUploads.length === 0 ? (
                 <LatinEmpty
                   latin="Scriba exspectat."
-                  english="The scribe awaits — nothing uploaded yet."
+                  english="The scribe awaits — nothing ingested yet."
                 />
               ) : (
-                uploads.map((u) => (
+                ingestedUploads.map((u) => (
                   <div key={u.id} className="portal-card" style={{ padding: "0.9rem 1rem" }}>
                     <div
                       style={{
@@ -384,13 +552,6 @@ export default async function DashboardPage() {
                           initialPublishedAt={u.publishedAt}
                           initialSlug={u.slug}
                         />
-                        <RetryProcessingButton
-                          uploadId={u.id}
-                          status={u.status}
-                        />
-                        <span className={statusBadge(u.status)}>
-                          {u.status.replace("_", " ")}
-                        </span>
                       </div>
                     </div>
                   </div>
@@ -444,6 +605,25 @@ export default async function DashboardPage() {
                           {c.text}
                         </p>
                       </div>
+                      <form action={dismissConclusion}>
+                        <input type="hidden" name="conclusionId" value={c.id} />
+                        <button
+                          type="submit"
+                          title="Dismiss from dashboard"
+                          style={{
+                            background: "none",
+                            border: "none",
+                            color: "var(--parchment-dim)",
+                            cursor: "pointer",
+                            fontSize: "0.9rem",
+                            padding: "0.1rem 0.4rem",
+                            opacity: 0.6,
+                            lineHeight: 1,
+                          }}
+                        >
+                          ×
+                        </button>
+                      </form>
                     </div>
                   </div>
                 ))

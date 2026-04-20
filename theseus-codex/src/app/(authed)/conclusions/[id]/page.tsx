@@ -1,5 +1,6 @@
 import Link from "next/link";
-import { notFound } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
+import { revalidatePath } from "next/cache";
 import { db } from "@/lib/db";
 import { resolveClaimTexts } from "@/lib/api/round3";
 import { requireTenantContext } from "@/lib/tenant";
@@ -59,7 +60,7 @@ export default async function ConclusionDetailPage({
   searchParams,
 }: {
   params: Promise<{ id: string }>;
-  searchParams: Promise<{ tab?: string; queued?: string }>;
+  searchParams: Promise<{ tab?: string; queued?: string; deletionRequested?: string }>;
 }) {
   const tenant = await requireTenantContext();
   if (!tenant) {
@@ -114,6 +115,38 @@ export default async function ConclusionDetailPage({
       title: cs.upload.title,
       sourceType: cs.upload.sourceType,
     }));
+
+  async function requestConclusionDeletion(formData: FormData) {
+    "use server";
+    const cid = String(formData.get("conclusionId") || "");
+    if (!cid) return;
+    const t = await requireTenantContext();
+    if (!t) redirect("/login");
+    // Prevent a dup pending request from the same founder.
+    const existing = await db.conclusionDeletionRequest.findFirst({
+      where: { conclusionId: cid, requesterId: t.founderId, status: "pending" },
+      select: { id: true },
+    });
+    if (!existing) {
+      await db.conclusionDeletionRequest.create({
+        data: {
+          conclusionId: cid,
+          requesterId: t.founderId,
+          reason: "Requested from conclusion detail page",
+        },
+      });
+      await db.auditEvent.create({
+        data: {
+          organizationId: t.organizationId,
+          founderId: t.founderId,
+          action: "conclusion_deletion_request",
+          detail: JSON.stringify({ conclusionId: cid, source: "detail-page" }),
+        },
+      });
+    }
+    revalidatePath(`/conclusions/${cid}`);
+    redirect(`/conclusions/${cid}?deletionRequested=1`);
+  }
 
   return (
     <main style={{ padding: "2rem 0" }}>
@@ -224,7 +257,15 @@ export default async function ConclusionDetailPage({
           )}
         </section>
 
-        <nav style={{ marginTop: "2rem" }}>
+        <nav
+          style={{
+            marginTop: "2rem",
+            display: "flex",
+            alignItems: "center",
+            gap: "1rem",
+            flexWrap: "wrap",
+          }}
+        >
           <Link
             href="/conclusions"
             style={{
@@ -237,6 +278,30 @@ export default async function ConclusionDetailPage({
           >
             ← All conclusions
           </Link>
+          <form action={requestConclusionDeletion}>
+            <input type="hidden" name="conclusionId" value={id} />
+            <button
+              type="submit"
+              className="btn"
+              style={{
+                fontSize: "0.65rem",
+                color: "var(--ember)",
+                borderColor: "var(--ember)",
+              }}
+            >
+              Request deletion
+            </button>
+          </form>
+          {sp.deletionRequested && (
+            <span
+              style={{
+                fontSize: "0.7rem",
+                color: "var(--amber)",
+              }}
+            >
+              Deletion request submitted.
+            </span>
+          )}
         </nav>
       </div>
     </main>

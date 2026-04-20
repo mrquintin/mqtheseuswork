@@ -66,15 +66,18 @@ model Founder {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  sessions              Session[]
-  uploads               Upload[]
-  auditEvents           AuditEvent[]
-  deletionRequests      DeletionRequest[]
-  attributedConclusions Conclusion[]         @relation("ConclusionFounder")
-  researchSuggestions   ResearchSuggestion[]
-  reviewResolutions     ReviewItem[]         @relation("ReviewResolver")
-  publicationReviews    PublicationReview[]  @relation("PublicationReviewer")
-  apiKeys               ApiKey[]
+  sessions                   Session[]
+  uploads                    Upload[]
+  auditEvents                AuditEvent[]
+  deletionRequests           DeletionRequest[]
+  attributedConclusions      Conclusion[]         @relation("ConclusionFounder")
+  researchSuggestions        ResearchSuggestion[]
+  reviewResolutions          ReviewItem[]         @relation("ReviewResolver")
+  publicationReviews         PublicationReview[]  @relation("PublicationReviewer")
+  apiKeys                    ApiKey[]
+  conclusionDeletionRequests ConclusionDeletionRequest[]
+  dashboardDismissals        DashboardDismissal[]
+  resolvedContradictions     Contradiction[]      @relation("ContradictionResolver")
 
   @@unique([organizationId, email])
   @@unique([organizationId, username])
@@ -292,11 +295,18 @@ model Conclusion {
   topicHint              String   @default("") // UI filter / display
   createdAt              DateTime @default(now())
 
+  /// JSON-serialized float[] embedding produced by Noosphere's sentence
+  /// encoder at ingest time. Null for conclusions ingested before this
+  /// column was added; the semantic explorer backfills on demand.
+  embeddingJson String?
+
   attributedFounderId String?
   attributedFounder   Founder?            @relation("ConclusionFounder", fields: [attributedFounderId], references: [id])
   organization        Organization        @relation(fields: [organizationId], references: [id], onDelete: Restrict)
   publicationReviews  PublicationReview[]
   sources             ConclusionSource[]
+  deletionRequests    ConclusionDeletionRequest[]
+  dashboardDismissals DashboardDismissal[]
 
   @@index([organizationId])
   @@index([organizationId, normalizedText])
@@ -451,10 +461,66 @@ model Contradiction {
   sourceUploadId String?
   sourceUpload   Upload? @relation("ContradictionSourceUpload", fields: [sourceUploadId], references: [id])
 
+  // ── Resolution tracking ────────────────────────────────────────────
+  // A contradiction starts "active". A founder can resolve it
+  // (acknowledged + addressed with a note) or dismiss it (false
+  // positive). Non-active rows are hidden from the main view by
+  // default but preserved for audit.
+  status       String    @default("active") // active | resolved | dismissed
+  resolution   String?
+  resolvedById String?
+  resolvedAt   DateTime?
+  resolvedBy   Founder?  @relation("ContradictionResolver", fields: [resolvedById], references: [id])
+
   organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
 
   @@index([organizationId])
   @@index([sourceUploadId])
+  @@index([status])
+}
+
+// ── ConclusionDeletionRequest ─────────────────────────────────────────
+// Peer-to-peer "please delete this conclusion" workflow, mirroring
+// DeletionRequest for uploads. A founder opens a request; the
+// conclusion's attributed founder (or an admin) accepts or declines.
+// On accept: hard-delete the Conclusion (and its ConclusionSource rows
+// via FK cascade) so it's purged from the model.
+
+model ConclusionDeletionRequest {
+  id           String    @id @default(cuid())
+  conclusionId String
+  requesterId  String
+  status       String    @default("pending") // pending | accepted | declined | cancelled
+  reason       String?
+  decision     String?
+  createdAt    DateTime  @default(now())
+  respondedAt  DateTime?
+
+  conclusion Conclusion @relation(fields: [conclusionId], references: [id], onDelete: Cascade)
+  requester  Founder    @relation(fields: [requesterId], references: [id])
+
+  @@index([conclusionId])
+  @@index([requesterId])
+  @@index([status])
+}
+
+// ── DashboardDismissal ─────────────────────────────────────────────────
+// Per-founder UI preference. Dismissing a conclusion from the dashboard
+// hides it from *this* founder's homepage only — other founders in the
+// same org still see it. Not a deletion.
+
+model DashboardDismissal {
+  id           String   @id @default(cuid())
+  founderId    String
+  conclusionId String
+  createdAt    DateTime @default(now())
+
+  founder    Founder    @relation(fields: [founderId], references: [id])
+  conclusion Conclusion @relation(fields: [conclusionId], references: [id], onDelete: Cascade)
+
+  @@unique([founderId, conclusionId])
+  @@index([founderId])
+  @@index([conclusionId])
 }
 
 // ── DriftEvent — mirrors noosphere.models.DriftEvent ───────────────────────

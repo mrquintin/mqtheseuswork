@@ -34,6 +34,10 @@ const TOP_NAV_LINKS: ReadonlyArray<{ href: string; label: string }> = [
   // grounded in the firm's recorded conclusions).
   { href: "/ask", label: "Ask" },
   { href: "/conclusions", label: "Conclusions" },
+  // Semantic explorer — interactive 2D projection of the conclusion
+  // embedding space. Sits next to Conclusions because it's the visual
+  // complement to the conclusion list.
+  { href: "/explorer", label: "Explorer" },
   // The three group entries below follow the SUB_NAV_GROUPS order;
   // clicking them lands on that group's default tab.
   { href: SUB_NAV_GROUPS[0].defaultHref, label: SUB_NAV_GROUPS[0].topLabel },
