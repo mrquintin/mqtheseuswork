@@ -82,15 +82,18 @@ export async function POST(req: Request) {
         { status: 410 },
       );
     }
-    // Private uploads can't be blog-published (they're private). If
-    // the owner wants to publish, they need to flip visibility to
-    // "org" first — we don't silently override it here because it's
-    // a meaningful intent change.
-    if (body.publish && existing.visibility === "private") {
+    // Blog-publication is gated to "org"-visibility uploads. Private
+    // and semi-private both promise "not on the public blog" — the
+    // former "only I see it", the latter "only the firm sees it" —
+    // and flipping that promise is a meaningful intent change, not
+    // something we silently override. The owner can change visibility
+    // first and re-submit if they genuinely mean to publish.
+    if (body.publish && existing.visibility !== "org") {
+      const label =
+        existing.visibility === "private" ? "private" : "semi-private";
       return NextResponse.json(
         {
-          error:
-            "This upload is marked private. Set visibility to \"org\" before publishing it to the blog.",
+          error: `This upload is marked ${label}. Set visibility to "org" before publishing it to the blog.`,
         },
         { status: 400 },
       );

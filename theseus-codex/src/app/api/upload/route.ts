@@ -91,21 +91,30 @@ export async function POST(req: Request) {
     );
     const blogExcerptInput = (formData.get("blogExcerpt") as string) || "";
     const authorBioInput = (formData.get("authorBio") as string) || "";
-    // Visibility ("org" | "private"). Anything not "private" falls
-    // through to the default "org" → shared with the whole firm.
+    // Visibility ladder — three levels; see Upload.visibility in
+    // schema.prisma. Anything not in the allow-list falls through to
+    // the default "org" (firm-shared, publishable).
     const rawVisibility = (
       (formData.get("visibility") as string) || "org"
     ).toLowerCase();
-    const visibility: "org" | "private" =
-      rawVisibility === "private" ? "private" : "org";
-    // Private + blog-publish are mutually exclusive: you can't
-    // publish a file nobody else can see. Fail fast with a clear
-    // message before we do the expensive extraction + write.
-    if (visibility === "private" && publishAsPost) {
+    const visibility: "org" | "semi-private" | "private" =
+      rawVisibility === "private"
+        ? "private"
+        : rawVisibility === "semi-private"
+          ? "semi-private"
+          : "org";
+    // Blog-publishing is only allowed for "org" uploads. Private =
+    // nobody else sees it → publishing is nonsense. Semi-private =
+    // firm-only by construction → publishing is a hard violation of
+    // the level's promise. Fail fast with a clear message before we
+    // do the expensive extraction + write.
+    if (visibility !== "org" && publishAsPost) {
       return NextResponse.json(
         {
           error:
-            "An upload can't be both private and published as a blog post. Choose one.",
+            visibility === "private"
+              ? "An upload can't be both private and published as a blog post. Choose one."
+              : "An upload can't be both semi-private and published as a blog post. Choose one.",
         },
         { status: 400 },
       );

@@ -44,12 +44,15 @@ export default async function PublicBlogIndex() {
       // Soft-deleted posts disappear from the public surface the same
       // moment the owner (or an accepted DeletionRequest) flips the flag.
       deletedAt: null,
-      // Belt-and-suspenders: the /api/upload and /api/publish endpoints
-      // already reject private+published combinations, but filtering
-      // here means a direct DB write (migration back-fill, admin tool)
-      // that left a private row flagged as published still wouldn't
-      // leak it onto the public index.
-      visibility: { not: "private" },
+      // Only "org"-visibility uploads can appear on the public blog.
+      // /api/upload + /api/publish both enforce this at write time, but
+      // this filter is belt-and-suspenders: a direct DB write (migration
+      // back-fill, admin tool) that left a private or semi-private row
+      // flagged as published would still be hidden here. Intentionally
+      // restrictive — the predicate is "is explicitly firm-shareable"
+      // rather than "is not private", so any future privacy level
+      // defaults to "not on the public blog" without a code change.
+      visibility: "org",
     },
     orderBy: { publishedAt: "desc" },
     take: 50,

@@ -40,7 +40,9 @@ export async function generateMetadata({
       slug,
       publishedAt: { not: null },
       deletedAt: null,
-      visibility: { not: "private" },
+      // Only "org"-visibility uploads appear on the public blog. See
+      // app/page.tsx for the symmetric rule on the index.
+      visibility: "org",
     },
     select: { title: true, blogExcerpt: true, description: true, textContent: true },
   });
@@ -63,14 +65,17 @@ export default async function PostPage({ params }: PageProps) {
 
   const post = await db.upload.findFirst({
     // Soft-deleted posts 404 rather than render, so a shared link for
-    // a retracted post behaves the same as an unknown slug. Private
-    // rows 404 too — visibility=private can't coexist with a publish
-    // state in the normal code path, but we enforce it here anyway.
+    // a retracted post behaves the same as an unknown slug. The
+    // `visibility: "org"` filter excludes both "private" (uploader-
+    // only) and "semi-private" (firm-only) rows; by construction
+    // these shouldn't coexist with a publish state, but enforcing it
+    // here guarantees that even a stale slug cached in a post's URL
+    // history can't pull the content back onto the public blog.
     where: {
       slug,
       publishedAt: { not: null },
       deletedAt: null,
-      visibility: { not: "private" },
+      visibility: "org",
     },
     select: {
       id: true,

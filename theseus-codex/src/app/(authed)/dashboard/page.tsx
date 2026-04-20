@@ -334,6 +334,28 @@ export default async function DashboardPage() {
                             >
                               Private
                             </span>
+                          ) : u.visibility === "semi-private" ? (
+                            // Matches the /library badge — semi-private
+                            // uploads are firm-readable but blocked
+                            // from the public blog. Same visual weight
+                            // as Private so the constraint is obvious
+                            // at a glance.
+                            <span
+                              className="mono"
+                              title="Semi-private — firm sees this; public blog never does. Noosphere still analyses it."
+                              style={{
+                                fontSize: "0.5rem",
+                                letterSpacing: "0.22em",
+                                textTransform: "uppercase",
+                                color: "var(--amber)",
+                                border: "1px solid var(--amber-dim)",
+                                padding: "0.08rem 0.38rem",
+                                borderRadius: "2px",
+                                flexShrink: 0,
+                              }}
+                            >
+                              Semi-private
+                            </span>
                           ) : null}
                         </div>
                         <div

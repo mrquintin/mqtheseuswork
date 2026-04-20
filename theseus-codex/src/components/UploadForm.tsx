@@ -181,7 +181,21 @@ export default function UploadForm() {
   const [publishAsPost, setPublishAsPost] = useState(false);
   const [blogExcerpt, setBlogExcerpt] = useState("");
   const [authorBio, setAuthorBio] = useState("");
+  // Three-way visibility ladder. At most one of the two flags below
+  // is `true` at any moment (the mutual-exclusion is enforced in the
+  // render block, by disabling whichever pair is incompatible with
+  // the flag just flipped on). The *unchecked* default maps to
+  // visibility="org" (firm-shared, publishable).
   const [privateUpload, setPrivateUpload] = useState(false);
+  const [semiPrivateUpload, setSemiPrivateUpload] = useState(false);
+
+  // Single source of truth that the submit-side payload construction
+  // reads. Keeps the two flags and the server string in lockstep.
+  const visibility: "org" | "semi-private" | "private" = privateUpload
+    ? "private"
+    : semiPrivateUpload
+      ? "semi-private"
+      : "org";
 
   // ── Top-level form state ───────────────────────────────────────
   const [uploading, setUploading] = useState(false);
@@ -264,7 +278,7 @@ export default function UploadForm() {
       fd.append("blogExcerpt", blogExcerpt.trim());
       fd.append("authorBio", authorBio.trim());
     }
-    fd.append("visibility", privateUpload ? "private" : "org");
+    fd.append("visibility", visibility);
 
     const res = await fetch("/api/upload", { method: "POST", body: fd });
     const data = await res.json();
@@ -295,7 +309,7 @@ export default function UploadForm() {
       description,
       sourceType:
         item.sourceType || (opts.isAudio ? "audio" : "written"),
-      visibility: privateUpload ? "private" : "org",
+      visibility,
       publishAsPost,
       blogExcerpt: publishAsPost ? blogExcerpt.trim() : "",
       authorBio: publishAsPost ? authorBio.trim() : "",
@@ -1041,23 +1055,43 @@ export default function UploadForm() {
             gap: "0.8rem",
           }}
         >
+          {/*
+            Three-way visibility ladder. Each checkbox below represents
+            a different visibility level:
+
+              (unchecked)         → visibility="org" · publishable
+              Private             → visibility="private" · only you
+              Semi-private        → visibility="semi-private" · firm
+              Publish as blog post → visibility="org" · publishable AND
+                                     already published at /post/<slug>
+
+            At most one of the three can be set at a time; the disable
+            + opacity logic below enforces that visually and the
+            onChange handlers clear any incompatible sibling flags
+            that were already set (defence against a stale React state
+            snapshot putting two flags into the `true` state).
+          */}
           <label
             style={{
               display: "flex",
               gap: "0.65rem",
               alignItems: "flex-start",
-              cursor: publishAsPost ? "not-allowed" : "pointer",
-              opacity: publishAsPost ? 0.55 : 1,
+              cursor:
+                publishAsPost || semiPrivateUpload ? "not-allowed" : "pointer",
+              opacity: publishAsPost || semiPrivateUpload ? 0.55 : 1,
             }}
           >
             <input
               type="checkbox"
               checked={privateUpload}
-              disabled={publishAsPost}
+              disabled={publishAsPost || semiPrivateUpload}
               onChange={(e) => {
                 const checked = e.target.checked;
                 setPrivateUpload(checked);
-                if (checked && publishAsPost) setPublishAsPost(false);
+                if (checked) {
+                  if (publishAsPost) setPublishAsPost(false);
+                  if (semiPrivateUpload) setSemiPrivateUpload(false);
+                }
               }}
               style={{
                 marginTop: "0.22rem",
@@ -1107,18 +1141,100 @@ export default function UploadForm() {
               display: "flex",
               gap: "0.65rem",
               alignItems: "flex-start",
-              cursor: privateUpload ? "not-allowed" : "pointer",
-              opacity: privateUpload ? 0.55 : 1,
+              cursor:
+                privateUpload || publishAsPost ? "not-allowed" : "pointer",
+              opacity: privateUpload || publishAsPost ? 0.55 : 1,
+            }}
+          >
+            <input
+              type="checkbox"
+              checked={semiPrivateUpload}
+              disabled={privateUpload || publishAsPost}
+              onChange={(e) => {
+                const checked = e.target.checked;
+                setSemiPrivateUpload(checked);
+                if (checked) {
+                  if (privateUpload) setPrivateUpload(false);
+                  if (publishAsPost) setPublishAsPost(false);
+                }
+              }}
+              style={{
+                marginTop: "0.22rem",
+                accentColor: "var(--amber)",
+                width: "1rem",
+                height: "1rem",
+              }}
+            />
+            <span style={{ display: "block" }}>
+              <span
+                className="mono"
+                style={{
+                  fontSize: "0.66rem",
+                  letterSpacing: "0.24em",
+                  textTransform: "uppercase",
+                  color: "var(--amber)",
+                  display: "block",
+                  marginBottom: "0.2rem",
+                }}
+              >
+                {isBulk
+                  ? "Semi-private (all files · firm-only)"
+                  : "Semi-private (firm-only)"}
+              </span>
+              <span
+                style={{
+                  fontFamily: "'EB Garamond', serif",
+                  fontSize: "0.92rem",
+                  color: "var(--parchment-dim)",
+                  lineHeight: 1.5,
+                }}
+              >
+                {`Every founder in the firm sees ${
+                  isBulk ? "these files" : "this file"
+                } in `}
+                <code
+                  className="mono"
+                  style={{ fontSize: "0.78rem", color: "var(--amber-dim)" }}
+                >
+                  /library
+                </code>
+                {` and Noosphere still analyses ${
+                  isBulk ? "them" : "it"
+                } for the firm\u2019s conclusions, contradictions, and open questions. But the public blog at `}
+                <code
+                  className="mono"
+                  style={{ fontSize: "0.78rem", color: "var(--amber-dim)" }}
+                >
+                  /
+                </code>
+                {` never sees ${
+                  isBulk ? "them" : "it"
+                } — the \u201cPublish as blog post\u201d path is blocked for semi-private uploads until visibility is flipped back. Use this for internal notes you want the firm to discuss but never to externalise.`}
+              </span>
+            </span>
+          </label>
+
+          <label
+            style={{
+              display: "flex",
+              gap: "0.65rem",
+              alignItems: "flex-start",
+              cursor:
+                privateUpload || semiPrivateUpload ? "not-allowed" : "pointer",
+              opacity: privateUpload || semiPrivateUpload ? 0.55 : 1,
             }}
           >
             <input
               type="checkbox"
               checked={publishAsPost}
-              disabled={privateUpload}
+              disabled={privateUpload || semiPrivateUpload}
               onChange={(e) => {
                 const checked = e.target.checked;
                 setPublishAsPost(checked);
-                if (checked && privateUpload) setPrivateUpload(false);
+                if (checked) {
+                  if (privateUpload) setPrivateUpload(false);
+                  if (semiPrivateUpload) setSemiPrivateUpload(false);
+                }
               }}
               style={{
                 marginTop: "0.22rem",

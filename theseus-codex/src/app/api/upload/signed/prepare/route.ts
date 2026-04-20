@@ -190,17 +190,24 @@ export async function POST(req: Request) {
       );
     }
 
-    // Visibility / publish parsing — same contract as /api/upload.
-    const visibility: "org" | "private" =
-      (body.visibility || "org").toLowerCase() === "private"
+    // Visibility / publish parsing — same three-level contract as
+    // /api/upload. See Upload.visibility in schema.prisma for the full
+    // semantics of each level.
+    const rawVisibility = (body.visibility || "org").toLowerCase();
+    const visibility: "org" | "semi-private" | "private" =
+      rawVisibility === "private"
         ? "private"
-        : "org";
+        : rawVisibility === "semi-private"
+          ? "semi-private"
+          : "org";
     const publishAsPost = Boolean(body.publishAsPost);
-    if (visibility === "private" && publishAsPost) {
+    if (visibility !== "org" && publishAsPost) {
       return NextResponse.json(
         {
           error:
-            "An upload can't be both private and published as a blog post. Choose one.",
+            visibility === "private"
+              ? "An upload can't be both private and published as a blog post. Choose one."
+              : "An upload can't be both semi-private and published as a blog post. Choose one.",
         },
         { status: 400 },
       );

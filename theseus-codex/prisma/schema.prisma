@@ -150,15 +150,37 @@ model Upload {
   deletedAt DateTime?
 
   // ── Visibility inside the firm ─────────────────────────────────────
-  // "org"     → visible to every founder in the organization (default,
-  //              previous behaviour — library, dashboard, peer deletion
-  //              requests, the full public-to-the-firm surface).
-  // "private" → only the uploader can see the row anywhere in the UI;
-  //              Noosphere still ingests it so the owner gets their
-  //              own conclusions/contradictions, but nobody else can
-  //              see the file, read it, or open a deletion request
-  //              against it. Blog-publishing a private upload is
-  //              rejected at the API layer — flip visibility first.
+  // Three-level visibility ladder. Every value still lets Noosphere
+  // run ingestion — conclusions, contradictions, open questions, and
+  // research suggestions are always extracted. The levels only
+  // control *who reads the upload's metadata and contents*.
+  //
+  // "org"          → visible to every founder in the organization AND
+  //                   eligible for blog publication. The default;
+  //                   library, dashboard, peer deletion requests, and
+  //                   the blog's publishAsPost toggle all apply.
+  //
+  // "semi-private" → visible to every founder in the organization,
+  //                   but never publishable to the public blog. The
+  //                   intermediate level, for material the firm wants
+  //                   to discuss internally but that must never leak
+  //                   outside. /api/publish rejects the flip; the
+  //                   public blog index + /post/[slug] both filter
+  //                   it out; /library and /dashboard render it with
+  //                   a "semi-private" badge so peers know the
+  //                   constraint.
+  //
+  // "private"      → only the uploader can see the row anywhere in
+  //                   the UI; Noosphere still ingests it so the owner
+  //                   gets their own conclusions/contradictions, but
+  //                   nobody else can see the file, read it, or open
+  //                   a deletion request against it. Blog-publishing
+  //                   a private upload is rejected at the API layer
+  //                   — flip visibility first.
+  //
+  // Column stays TEXT with default "org" so no migration is needed
+  // when new levels are introduced; validation happens at the API
+  // layer.
   visibility String @default("org")
 
   // ── Podcast / audio playback ───────────────────────────────────────

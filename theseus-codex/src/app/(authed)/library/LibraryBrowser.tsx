@@ -465,6 +465,31 @@ export default function LibraryBrowser() {
                       >
                         Private
                       </span>
+                    ) : row.visibility === "semi-private" ? (
+                      // Semi-private: visible here so the whole firm
+                      // can read it, but the "Publish as blog post"
+                      // toggle is blocked and the public blog + any
+                      // /post/<slug> route filter this row out. Same
+                      // badge visual as Private so the eye catches
+                      // "this is constrained" at a glance, but the
+                      // title hover spells out the firm-level
+                      // difference.
+                      <span
+                        className="mono"
+                        title="Semi-private — every founder sees this in /library, but the public blog never does. Noosphere still analyses it for firm conclusions. Publishing is blocked until visibility is flipped back."
+                        style={{
+                          fontSize: "0.54rem",
+                          letterSpacing: "0.22em",
+                          textTransform: "uppercase",
+                          color: "var(--amber)",
+                          border: "1px solid var(--amber-dim)",
+                          padding: "0.12rem 0.45rem",
+                          borderRadius: "2px",
+                          flexShrink: 0,
+                        }}
+                      >
+                        Semi-private
+                      </span>
                     ) : null}
                   </div>
                   <div
