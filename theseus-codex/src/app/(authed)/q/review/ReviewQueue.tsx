@@ -37,8 +37,24 @@ function tallyVerdicts(layers: Record<string, string>): {
   return { cohere, contradict, unresolved };
 }
 
-export default function ReviewQueue({ items }: { items: Row[] }) {
+export default function ReviewQueue({
+  items,
+  claimTexts,
+}: {
+  items: Row[];
+  claimTexts: Record<string, string>;
+}) {
   const [msg, setMsg] = useState("");
+  // Per-item resolution note the founder can type before pressing a
+  // verdict button. Keyed by review-item id so typing in one row doesn't
+  // bleed into another.
+  const [notes, setNotes] = useState<Record<string, string>>({});
+  // Optimistic-resolution state: IDs already resolved in this session
+  // get filtered from the visible list, and the most recent verdict
+  // surfaces as a brief toast. Replaces a full `window.location.reload()`
+  // which destroyed scroll position and ephemeral client state.
+  const [resolved, setResolved] = useState<Set<string>>(new Set());
+  const [lastAction, setLastAction] = useState<{ id: string; verdict: string } | null>(null);
 
   async function resolve(
     id: string,
@@ -46,13 +62,15 @@ export default function ReviewQueue({ items }: { items: Row[] }) {
     overrule: boolean,
   ) {
     setMsg("");
+    const userNote = notes[id]?.trim();
+    const defaultNote = overrule ? "Founder overrule via portal" : "Founder confirm";
     const res = await fetch(`/api/review/${id}`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         verdict,
         overrule,
-        note: overrule ? "Founder overrule via portal" : "Founder confirm",
+        note: userNote || defaultNote,
       }),
     });
     const data = await res.json();
@@ -60,45 +78,95 @@ export default function ReviewQueue({ items }: { items: Row[] }) {
       setMsg(data.error || "Request failed");
       return;
     }
-    window.location.reload();
+    setResolved((prev) => {
+      const next = new Set(prev);
+      next.add(id);
+      return next;
+    });
+    setLastAction({ id, verdict });
+    // Auto-clear the toast after 3s, but only if the same action is
+    // still current — otherwise a second verdict clobbered it and its
+    // own timer will handle the clearing.
+    setTimeout(() => {
+      setLastAction((curr) => (curr?.id === id && curr.verdict === verdict ? null : curr));
+    }, 3000);
   }
 
-  if (!items.length) {
+  const visible = items.filter((it) => !resolved.has(it.id));
+
+  if (!visible.length) {
     return (
-      <div
-        className="ascii-frame"
-        data-label="IUDICIUM · NO ITEMS"
-        style={{ padding: "2rem 1rem", textAlign: "center" }}
-      >
-        <p
-          style={{
-            fontFamily: "'EB Garamond', serif",
-            fontStyle: "italic",
-            fontSize: "1.1rem",
-            color: "var(--parchment)",
-            margin: 0,
-          }}
+      <>
+        {lastAction && (
+          <div
+            style={{
+              padding: "0.5rem 1rem",
+              borderLeft: "3px solid var(--gold)",
+              fontSize: "0.8rem",
+              color: "var(--gold)",
+              marginBottom: "0.75rem",
+            }}
+          >
+            Resolved as {lastAction.verdict}
+          </div>
+        )}
+        {resolved.size > 0 && (
+          <p style={{ fontSize: "0.7rem", color: "var(--parchment-dim)", marginBottom: "0.75rem" }}>
+            {resolved.size} item{resolved.size > 1 ? "s" : ""} resolved this session
+          </p>
+        )}
+        <div
+          className="ascii-frame"
+          data-label="IUDICIUM · NO ITEMS"
+          style={{ padding: "2rem 1rem", textAlign: "center" }}
         >
-          Nihil in trutina.
-        </p>
-        <p
-          className="mono"
-          style={{
-            fontSize: "0.7rem",
-            color: "var(--parchment-dim)",
-            marginTop: "0.4rem",
-          }}
-        >
-          No open review items. Nothing on the scales.
-        </p>
-      </div>
+          <p
+            style={{
+              fontFamily: "'EB Garamond', serif",
+              fontStyle: "italic",
+              fontSize: "1.1rem",
+              color: "var(--parchment)",
+              margin: 0,
+            }}
+          >
+            Nihil in trutina.
+          </p>
+          <p
+            className="mono"
+            style={{
+              fontSize: "0.7rem",
+              color: "var(--parchment-dim)",
+              marginTop: "0.4rem",
+            }}
+          >
+            No open review items. Nothing on the scales.
+          </p>
+        </div>
+      </>
     );
   }
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
       {msg && <p style={{ color: "var(--ember)" }}>{msg}</p>}
-      {items.map((it) => {
+      {lastAction && (
+        <div
+          style={{
+            padding: "0.5rem 1rem",
+            borderLeft: "3px solid var(--gold)",
+            fontSize: "0.8rem",
+            color: "var(--gold)",
+          }}
+        >
+          Resolved as {lastAction.verdict}
+        </div>
+      )}
+      {resolved.size > 0 && (
+        <p style={{ fontSize: "0.7rem", color: "var(--parchment-dim)", margin: 0 }}>
+          {resolved.size} item{resolved.size > 1 ? "s" : ""} resolved this session
+        </p>
+      )}
+      {visible.map((it) => {
         let layers: Record<string, string> = {};
         let scores: Record<string, number> | null = null;
         try {
@@ -121,6 +189,9 @@ export default function ReviewQueue({ items }: { items: Row[] }) {
         if (tally.contradict > tally.cohere) dominant = "contradict";
         else if (tally.cohere > tally.contradict) dominant = "cohere";
 
+        const claimAText = claimTexts[it.claimAId];
+        const claimBText = claimTexts[it.claimBId];
+
         return (
           <div key={it.id} className="portal-card" style={{ padding: "1.25rem" }}>
             <div
@@ -137,9 +208,12 @@ export default function ReviewQueue({ items }: { items: Row[] }) {
               {it.aggregatorVerdict || "—"} · leaning {dominant}
             </div>
 
+            <ClaimBlock label="A" id={it.claimAId} text={claimAText} />
+            <ClaimBlock label="B" id={it.claimBId} text={claimBText} />
+
             <p
               style={{
-                margin: 0,
+                margin: "0.9rem 0 0",
                 color: "var(--parchment)",
                 fontFamily: "'EB Garamond', serif",
                 fontSize: "1rem",
@@ -208,6 +282,27 @@ export default function ReviewQueue({ items }: { items: Row[] }) {
               )}
             </details>
 
+            <textarea
+              placeholder="Resolution notes (optional) — explain your reasoning"
+              value={notes[it.id] || ""}
+              onChange={(e) =>
+                setNotes((prev) => ({ ...prev, [it.id]: e.target.value }))
+              }
+              rows={2}
+              style={{
+                width: "100%",
+                marginTop: "0.75rem",
+                padding: "0.5rem 0.75rem",
+                fontSize: "0.8rem",
+                fontFamily: "inherit",
+                background: "transparent",
+                border: "1px solid var(--border)",
+                color: "var(--parchment)",
+                borderRadius: 2,
+                resize: "vertical",
+              }}
+            />
+
             <div
               style={{
                 display: "flex",
@@ -255,6 +350,64 @@ export default function ReviewQueue({ items }: { items: Row[] }) {
           </div>
         );
       })}
+    </div>
+  );
+}
+
+function ClaimBlock({
+  label,
+  id,
+  text,
+}: {
+  label: "A" | "B";
+  id: string;
+  text: string | undefined;
+}) {
+  return (
+    <div
+      style={{
+        marginTop: "0.6rem",
+        padding: "0.6rem 0.85rem",
+        borderLeft: "2px solid var(--gold-dim)",
+        background: "var(--stone-light)",
+      }}
+    >
+      <div
+        className="mono"
+        style={{
+          fontSize: "0.6rem",
+          letterSpacing: "0.15em",
+          textTransform: "uppercase",
+          color: "var(--gold-dim)",
+          marginBottom: "0.3rem",
+        }}
+      >
+        Claim {label} · {id.slice(0, 8)}…
+      </div>
+      {text ? (
+        <p
+          style={{
+            margin: 0,
+            fontFamily: "'EB Garamond', serif",
+            fontSize: "0.95rem",
+            color: "var(--parchment)",
+            lineHeight: 1.5,
+          }}
+        >
+          {text}
+        </p>
+      ) : (
+        <p
+          style={{
+            margin: 0,
+            fontSize: "0.75rem",
+            color: "var(--parchment-dim)",
+            fontStyle: "italic",
+          }}
+        >
+          Claim text unavailable — may require Noosphere connection.
+        </p>
+      )}
     </div>
   );
 }

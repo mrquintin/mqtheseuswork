@@ -1,0 +1,127 @@
+# Claude Code Prompt 25 of 25 — Bug fix: audit-log and retry Noosphere sync failures on review resolution
+
+**Sequence:** prompt 25 of 25 (Wave 6 — independent of prompts 22–24). When you finish, report back with: files you created/modified, any notable choices, any blockers.
+
+**Before you start — read current state:**
+1. Read `theseus-codex/src/app/api/review/[id]/route.ts` — note that when `pushReviewResolutionToNoosphere` fails, the API returns `{ ok: true, warning: "Portal updated; Noosphere sync failed" }`. The caller has no way to retry, and the failure is not recorded anywhere persistent.
+2. Read `theseus-codex/src/lib/pushReviewToNoosphere.ts` — understand the sync mechanism.
+3. Read `theseus-codex/prisma/schema.prisma` — note the `AuditEvent` model.
+4. Read `theseus-codex/src/app/api/review/batch/route.ts` (if it exists from prompt 23) — note that batch resolution does fire-and-forget Noosphere sync with `.catch(() => {})`.
+
+## The problem
+
+When a founder resolves a review item, the Codex DB is always updated. But the Noosphere sync (via `pushReviewResolutionToNoosphere`) can fail silently:
+- The API returns a 200 with a `warning` field, but the client-side `ReviewQueue` doesn't display warnings (it only checks `res.ok`).
+- The failure is not recorded in the `AuditEvent` table or anywhere else persistent.
+- There is no retry mechanism — if the sync fails, the Noosphere store permanently diverges.
+- The batch resolution route (if it exists) does fire-and-forget with `.catch(() => {})`.
+
+This means the Noosphere and Codex databases can silently drift apart on review resolutions with no audit trail.
+
+## Your task
+
+1. Log Noosphere sync failures as `AuditEvent` records so they're visible and queryable.
+2. Surface sync warnings in the client UI.
+3. Add a retry mechanism for failed syncs.
+
+## SCOPE (files you may create or modify — stay within this list)
+- `theseus-codex/src/app/api/review/[id]/route.ts`              MODIFY
+- `theseus-codex/src/app/api/review/batch/route.ts`             MODIFY (if it exists)
+- `theseus-codex/src/app/(authed)/q/review/ReviewQueue.tsx`     MODIFY
+- `theseus-codex/src/lib/pushReviewToNoosphere.ts`               MODIFY
+- `theseus-codex/src/app/api/review/retry-sync/route.ts`        CREATE
+
+## Step-by-step
+
+1. **In the review resolution API** (`review/[id]/route.ts`), when Noosphere sync fails:
+   - Write an `AuditEvent` recording the failure:
+     ```typescript
+     await db.auditEvent.create({
+       data: {
+         organizationId: founder.organizationId,
+         founderId: founder.id,
+         action: "noosphere_sync_failed",
+         detail: JSON.stringify({
+           reviewItemId: id,
+           noosphereId: item.noosphereId,
+           verdict: body.verdict,
+           error: py.stderr,
+         }),
+       },
+     });
+     ```
+   - Include a `syncFailed: true` flag in the response so the client can display it.
+
+2. **In ReviewQueue.tsx**, handle the `syncFailed` flag in the response:
+   ```typescript
+   const data = await res.json();
+   if (!res.ok) { setMsg(data.error); return; }
+   if (data.warning || data.syncFailed) {
+     setMsg(`Resolved, but Noosphere sync failed: ${data.warning || "unknown error"}. The verdict is saved locally. You can retry sync later.`);
+   }
+   ```
+   Use a different color for warnings vs errors (amber for warnings, ember for errors).
+
+3. **In the batch route** (if it exists), replace the fire-and-forget `.catch(() => {})` with proper error tracking:
+   ```typescript
+   const syncFailures: string[] = [];
+   for (const item of items) {
+     if (item.noosphereId) {
+       const result = await pushReviewResolutionToNoosphere({ ... });
+       if (!result.ok) syncFailures.push(item.id);
+     }
+   }
+   if (syncFailures.length > 0) {
+     await db.auditEvent.create({
+       data: {
+         organizationId: founder.organizationId,
+         founderId: founder.id,
+         action: "noosphere_batch_sync_failed",
+         detail: JSON.stringify({ failedIds: syncFailures }),
+       },
+     });
+   }
+   return NextResponse.json({ ok: true, count: ids.length, syncFailures: syncFailures.length });
+   ```
+
+4. **Create a retry endpoint** at `api/review/retry-sync/route.ts`:
+   ```typescript
+   export async function POST(req: Request) {
+     const founder = await getFounder();
+     if (!founder) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+
+     const { reviewItemId } = await req.json() as { reviewItemId: string };
+     const item = await db.reviewItem.findUnique({ where: { id: reviewItemId } });
+     if (!item || !item.noosphereId || item.status !== "done" || !item.humanVerdict) {
+       return NextResponse.json({ error: "Item not eligible for retry" }, { status: 400 });
+     }
+
+     const result = await pushReviewResolutionToNoosphere({
+       reviewId: item.noosphereId,
+       verdict: item.humanVerdict as "cohere" | "contradict" | "unresolved",
+       overrule: item.humanOverrule,
+       aggregatorVerdict: item.aggregatorVerdict,
+       founderId: founder.noosphereId || founder.id,
+       note: item.resolutionNote,
+     });
+
+     if (result.ok) {
+       // Log successful retry
+       await db.auditEvent.create({
+         data: {
+           organizationId: founder.organizationId,
+           founderId: founder.id,
+           action: "noosphere_sync_retried",
+           detail: JSON.stringify({ reviewItemId, success: true }),
+         },
+       });
+       return NextResponse.json({ ok: true });
+     }
+
+     return NextResponse.json({ ok: false, error: result.stderr }, { status: 500 });
+   }
+   ```
+
+5. **Do NOT change** the core review resolution logic, the Prisma update, or the `pushReviewResolutionToNoosphere` function's implementation. Only add logging, surface warnings, and provide retry capability.
+
+Do not proceed to any other work. Do not edit anything outside SCOPE.

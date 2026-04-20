@@ -1,7 +1,14 @@
-import { redirect, notFound } from "next/navigation";
+import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { getFounder } from "@/lib/auth";
-import { fetchPeerReviews, toCSV, downloadHref } from "@/lib/api/round3";
+import {
+  fetchPeerReviews,
+  submitToRigorGate,
+  toCSV,
+  downloadHref,
+} from "@/lib/api/round3";
+import { callNoosphereJson } from "@/lib/pythonRuntime";
+import { requireTenantContext } from "@/lib/tenant";
 
 export default async function PeerReviewPage({
   params,
@@ -10,12 +17,18 @@ export default async function PeerReviewPage({
   params: Promise<{ conclusionId: string }>;
   searchParams: Promise<{ ledger?: string }>;
 }) {
-  const founder = await getFounder();
-  if (!founder) redirect("/login");
+  // Tenant context is required here for two reasons: it verifies the
+  // caller is still authenticated (same effect as the previous
+  // `getFounder()` call), AND it hands us the `organizationId` we need
+  // to forward into the tenant-scoped SQL below. `requireTenantContext`
+  // calls `getFounder()` under the hood, so this is one round-trip, not
+  // two.
+  const tenant = await requireTenantContext();
+  if (!tenant) redirect("/login");
 
   const { conclusionId } = await params;
   const sp = await searchParams;
-  const reviews = await fetchPeerReviews(conclusionId);
+  const reviews = await fetchPeerReviews(tenant.organizationId, conclusionId);
 
   const csvData = toCSV(
     reviews.map((r) => ({
@@ -29,15 +42,29 @@ export default async function PeerReviewPage({
 
   async function runReview() {
     "use server";
-    const base = process.env.PORTAL_API_BASE || "http://localhost:3000";
-    const res = await fetch(`${base}/api/round3/review/run`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ conclusionId }),
-    });
-    const data = await res.json();
+    // Server action runs on the server; calling underlying helpers
+    // directly avoids (a) a pointless HTTP round-trip to ourselves,
+    // (b) the cookie-forwarding problem that broke auth on the old
+    // self-fetch path, and (c) the PORTAL_API_BASE env dependency
+    // that only worked on localhost.
+    const founder = await getFounder();
+    if (!founder) redirect("/login");
+
+    const gate = await submitToRigorGate("peer_review.run", founder.name);
+    if (!gate.approved) {
+      redirect(
+        `/peer-review/${conclusionId}?ledger=${encodeURIComponent(
+          `rejected:${gate.reason || "rigor gate"}`,
+        )}`,
+      );
+    }
+
+    await callNoosphereJson(
+      ["peer-review", "--conclusion-id", conclusionId],
+      "Peer review run failed",
+    );
     revalidatePath(`/peer-review/${conclusionId}`);
-    redirect(`/peer-review/${conclusionId}?ledger=${data.ledgerEntryId || "done"}`);
+    redirect(`/peer-review/${conclusionId}?ledger=${gate.ledgerEntryId || "done"}`);
   }
 
   function verdictColor(verdict: string): string {

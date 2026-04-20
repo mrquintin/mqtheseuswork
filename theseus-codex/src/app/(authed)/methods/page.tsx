@@ -1,13 +1,13 @@
 import { redirect } from "next/navigation";
 import Link from "next/link";
-import { getFounder } from "@/lib/auth";
 import { fetchMethods, toCSV, downloadHref } from "@/lib/api/round3";
+import { requireTenantContext } from "@/lib/tenant";
 
 export default async function MethodsPage() {
-  const founder = await getFounder();
-  if (!founder) redirect("/login");
+  const tenant = await requireTenantContext();
+  if (!tenant) redirect("/login");
 
-  const methods = await fetchMethods();
+  const methods = await fetchMethods(tenant.organizationId);
   const csvData = toCSV(
     methods.map((m) => ({
       name: m.name,

@@ -1,0 +1,84 @@
+# Claude Code Prompt 13 of 25 — Feature: add free-text search to the conclusions list
+
+**Sequence:** prompt 13 of 25 (Wave 4 — independent of prompts 12, 14–16). When you finish, report back with: files you created/modified, any notable choices, any blockers.
+
+**Before you start — read current state:**
+1. Read `theseus-codex/src/app/(authed)/conclusions/page.tsx` — note the existing filter system (tier chips and one hardcoded topic filter).
+2. Read `theseus-codex/prisma/schema.prisma` — note the `Conclusion` model's `text`, `rationale`, and `topicHint` fields.
+
+## The problem
+
+The conclusions list has tier filter chips and one hardcoded topic filter ("method"). There is no free-text search. For a system that could accumulate hundreds of conclusions, finding a specific one requires scrolling through up to 80 items.
+
+## Your task
+
+Add a search input to the conclusions list that filters conclusions by text content. The search should filter across `text`, `rationale`, and `topicHint` fields using case-insensitive substring matching.
+
+## SCOPE (files you may create or modify — stay within this list)
+- `theseus-codex/src/app/(authed)/conclusions/page.tsx`    MODIFY
+
+## Step-by-step
+
+1. **Add a `q` search parameter** to the existing `searchParams`. The URL pattern becomes `/conclusions?q=uncertainty&tier=firm`.
+
+2. **Add the search input** in the filter area, above or alongside the tier chips. Since this is a server component (no useState), use a standard `<form>` that submits via GET:
+   ```tsx
+   <form action="/conclusions" method="get" style={{ display: "flex", gap: "0.5rem", marginBottom: "1rem" }}>
+     <input
+       type="text"
+       name="q"
+       defaultValue={sp.q || ""}
+       placeholder="Search conclusions…"
+       style={{
+         flex: 1,
+         maxWidth: "24rem",
+         padding: "0.4rem 0.75rem",
+         fontSize: "0.8rem",
+         fontFamily: "inherit",
+         background: "transparent",
+         border: "1px solid var(--border)",
+         color: "var(--parchment)",
+         borderRadius: 2,
+       }}
+     />
+     {sp.tier && <input type="hidden" name="tier" value={sp.tier} />}
+     <button type="submit" className="btn" style={{ fontSize: "0.65rem" }}>
+       Search
+     </button>
+     {sp.q && (
+       <a href="/conclusions" className="btn" style={{ fontSize: "0.65rem", textDecoration: "none" }}>
+         Clear
+       </a>
+     )}
+   </form>
+   ```
+
+3. **Update the Prisma query** to include text search when `sp.q` is present:
+   ```typescript
+   if (sp.q) {
+     where.OR = [
+       { text: { contains: sp.q, mode: "insensitive" } },
+       { rationale: { contains: sp.q, mode: "insensitive" } },
+       { topicHint: { contains: sp.q, mode: "insensitive" } },
+     ];
+   }
+   ```
+   Note: Prisma's `mode: "insensitive"` works with PostgreSQL. Adjust the `where` type to accommodate the `OR` field.
+
+4. **Show a results count** when searching:
+   ```tsx
+   {sp.q && (
+     <p style={{ fontSize: "0.7rem", color: "var(--parchment-dim)", marginBottom: "0.75rem" }}>
+       {rows.length} result{rows.length !== 1 ? "s" : ""} for "{sp.q}"
+     </p>
+   )}
+   ```
+
+5. **Preserve existing filter behavior.** The search should compose with tier and topic filters — they should AND together. The tier chips should include the `q` parameter when present:
+   ```tsx
+   <Link href={`/conclusions?tier=${t}${sp.q ? `&q=${encodeURIComponent(sp.q)}` : ""}`} ...>
+   ```
+
+6. **Do NOT change** the replay mode branch, the sculpture backdrop, or the empty state. Only add search to the normal (non-replay) rendering path.
+
+Do not proceed to any other work. Do not edit anything outside SCOPE.

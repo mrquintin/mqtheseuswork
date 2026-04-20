@@ -1,8 +1,8 @@
 import { redirect, notFound } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import Link from "next/link";
-import { getFounder } from "@/lib/auth";
 import { fetchMethodVersion, downloadHref } from "@/lib/api/round3";
+import { requireTenantContext } from "@/lib/tenant";
 
 export default async function MethodVersionPage({
   params,
@@ -11,15 +11,22 @@ export default async function MethodVersionPage({
   params: Promise<{ name: string; version: string }>;
   searchParams: Promise<{ ledger?: string }>;
 }) {
-  const founder = await getFounder();
-  if (!founder) redirect("/login");
+  const tenant = await requireTenantContext();
+  if (!tenant) redirect("/login");
 
   const { name, version } = await params;
   const decodedName = decodeURIComponent(name);
   const decodedVersion = decodeURIComponent(version);
   const sp = await searchParams;
 
-  const method = await fetchMethodVersion(decodedName, decodedVersion);
+  // Scoped: a method name registered in another org won't leak
+  // through this URL — notFound() instead of returning that org's
+  // version row.
+  const method = await fetchMethodVersion(
+    tenant.organizationId,
+    decodedName,
+    decodedVersion,
+  );
   if (!method) notFound();
 
   async function packageMethod() {

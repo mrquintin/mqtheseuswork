@@ -1,19 +1,19 @@
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import Link from "next/link";
-import { getFounder } from "@/lib/auth";
 import { fetchGateSubmissions, toCSV, downloadHref } from "@/lib/api/round3";
+import { requireTenantContext } from "@/lib/tenant";
 
 export default async function RigorGatePage({
   searchParams,
 }: {
   searchParams: Promise<{ ledger?: string }>;
 }) {
-  const founder = await getFounder();
-  if (!founder) redirect("/login");
+  const tenant = await requireTenantContext();
+  if (!tenant) redirect("/login");
 
   const sp = await searchParams;
-  const submissions = await fetchGateSubmissions();
+  const submissions = await fetchGateSubmissions(tenant.organizationId);
 
   const csvData = toCSV(
     submissions.map((s) => ({

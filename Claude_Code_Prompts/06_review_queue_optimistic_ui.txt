@@ -1,0 +1,72 @@
+# Claude Code Prompt 6 of 25 — UX: replace window.location.reload() with optimistic UI updates
+
+**Sequence:** prompt 6 of 25 (Wave 2 — independent of prompts 04 and 05). When you finish, report back with: files you created/modified, any notable choices, any blockers.
+
+**Before you start — read current state:**
+1. Read `theseus-codex/src/app/(authed)/q/review/ReviewQueue.tsx` — note the `window.location.reload()` call after each successful resolution.
+2. Read `theseus-codex/src/app/(authed)/q/review/page.tsx` — understand how items are fetched and passed to the client component.
+
+## The problem
+
+After resolving a review item, the ReviewQueue component calls `window.location.reload()`. This:
+- Destroys the user's scroll position (they may have been halfway through a long queue)
+- Triggers a full server re-render (slow)
+- Loses any ephemeral client state (expanded details sections, typed-but-not-submitted notes)
+- Provides no visual feedback about what just happened
+
+## Your task
+
+Replace `window.location.reload()` with optimistic UI updates that remove the resolved item from the list immediately, show a brief success indicator, and preserve scroll position.
+
+## SCOPE (files you may modify — stay within this list)
+- `theseus-codex/src/app/(authed)/q/review/ReviewQueue.tsx`    MODIFY
+
+## Step-by-step
+
+1. **Track resolved items in state.** Add a state set for resolved item IDs and a state for the last resolved verdict:
+   ```typescript
+   const [resolved, setResolved] = useState<Set<string>>(new Set());
+   const [lastAction, setLastAction] = useState<{ id: string; verdict: string } | null>(null);
+   ```
+
+2. **On successful resolution**, instead of `window.location.reload()`:
+   - Add the item ID to the `resolved` set.
+   - Set `lastAction` to show a toast/banner.
+   - Optionally auto-clear the toast after 3 seconds via `setTimeout`.
+
+3. **Filter resolved items from the render.** When mapping over `items`, skip any whose ID is in `resolved`:
+   ```typescript
+   const visible = items.filter((it) => !resolved.has(it.id));
+   ```
+
+4. **Show a success indicator.** After the `{msg && ...}` error display, add a brief toast when `lastAction` is set:
+   ```tsx
+   {lastAction && (
+     <div style={{
+       padding: "0.5rem 1rem",
+       borderLeft: "3px solid var(--gold)",
+       fontSize: "0.8rem",
+       color: "var(--gold)",
+       marginBottom: "0.5rem",
+     }}>
+       Resolved as {lastAction.verdict}
+     </div>
+   )}
+   ```
+
+5. **Show the resolved count.** If any items have been resolved in this session, show a summary line:
+   ```tsx
+   {resolved.size > 0 && (
+     <p style={{ fontSize: "0.7rem", color: "var(--parchment-dim)" }}>
+       {resolved.size} item{resolved.size > 1 ? "s" : ""} resolved this session
+     </p>
+   )}
+   ```
+
+6. **When all items are resolved**, show the empty state (the existing "Nihil in trutina" block).
+
+7. **Handle errors** the same way as before — set `msg` and do NOT add to `resolved`. The item stays visible so the user can retry.
+
+8. **Do NOT change** the `resolve` function's fetch logic, URL, or body. Only change what happens after a successful response.
+
+Do not proceed to any other work. Do not edit anything outside SCOPE.

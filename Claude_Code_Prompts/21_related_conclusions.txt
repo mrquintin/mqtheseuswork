@@ -1,0 +1,91 @@
+# Claude Code Prompt 21 of 25 — Feature: show related conclusions on the detail page
+
+**Sequence:** prompt 21 of 25 (Wave 5 — independent of prompts 17–20). When you finish, report back with: files you created/modified, any notable choices, any blockers.
+
+**Before you start — read current state:**
+1. Read `theseus-codex/src/app/(authed)/conclusions/[id]/page.tsx` — the conclusion detail page.
+2. Read `theseus-codex/prisma/schema.prisma` — note `ConclusionSource` (bridge table), `supportingPrincipleIds`, `evidenceChainClaimIds`, and `dissentClaimIds` fields.
+3. Understand how conclusions relate to each other: two conclusions are related if they share source uploads (via `ConclusionSource`), share supporting principles (via `supportingPrincipleIds` JSON overlap), or if one's claims appear in another's evidence chain or dissent list.
+
+## The problem
+
+Each conclusion exists in isolation on its detail page. There is no way to see other conclusions that are epistemically connected — conclusions drawn from the same source material, conclusions that share supporting principles, or conclusions whose claims appear in this conclusion's evidence chain or dissent list. Understanding the network of belief is impossible one conclusion at a time.
+
+## Your task
+
+Add a "Related conclusions" section to the conclusion detail page that shows other conclusions connected to the current one via shared sources or shared principle/claim IDs.
+
+## SCOPE (files you may create or modify — stay within this list)
+- `theseus-codex/src/app/(authed)/conclusions/[id]/page.tsx`         MODIFY
+- `theseus-codex/src/app/(authed)/conclusions/[id]/related-tab.tsx`  CREATE
+
+## Step-by-step
+
+1. **Add a fifth tab** to the conclusion detail page: "Related". Update the `TABS` array:
+   ```typescript
+   const TABS = [
+     { id: "overview", label: "Overview" },
+     { id: "provenance", label: "Provenance" },
+     { id: "cascade", label: "Cascade" },
+     { id: "peer", label: "Peer review" },
+     { id: "related", label: "Related" },
+   ] as const;
+   ```
+
+2. **Create `related-tab.tsx`** as a server component. It should find related conclusions through two methods:
+
+   **Method A — shared source uploads:** Query `ConclusionSource` to find other conclusions that share at least one source upload with this conclusion:
+   ```typescript
+   // Get this conclusion's source upload IDs
+   const sources = await db.conclusionSource.findMany({
+     where: { conclusionId },
+     select: { uploadId: true },
+   });
+   const uploadIds = sources.map((s) => s.uploadId);
+
+   // Find other conclusions from the same uploads
+   const relatedSources = await db.conclusionSource.findMany({
+     where: {
+       uploadId: { in: uploadIds },
+       conclusionId: { not: conclusionId },
+     },
+     include: {
+       conclusion: { select: { id: true, text: true, confidenceTier: true, confidence: true } },
+     },
+     distinct: ["conclusionId"],
+     take: 20,
+   });
+   ```
+
+   **Method B — shared principle/claim IDs:** Parse the JSON arrays for `supportingPrincipleIds` and `evidenceChainClaimIds`. Search for other conclusions that contain any of the same IDs in their respective arrays. This is harder with JSON-in-string storage — you may need a raw SQL query with `LIKE` or JSON operators, or simply accept that this only works at application level by fetching a batch of conclusions and filtering in TypeScript.
+
+3. **Render the related conclusions** grouped by relationship type:
+   ```tsx
+   <div>
+     {sharedSourceConclusions.length > 0 && (
+       <div>
+         <h4 style={{ ... }}>From the same sources</h4>
+         {sharedSourceConclusions.map((c) => (
+           <Link href={`/conclusions/${c.id}`} style={{ ... }}>
+             <ConfidenceTierSigil tier={c.confidenceTier} size="0.5rem" />
+             {c.text.slice(0, 120)}{c.text.length > 120 ? "…" : ""}
+           </Link>
+         ))}
+       </div>
+     )}
+     {sharedPrincipleConclusions.length > 0 && (
+       <div>
+         <h4 style={{ ... }}>Sharing supporting principles</h4>
+         {/* similar rendering */}
+       </div>
+     )}
+   </div>
+   ```
+
+4. **If no related conclusions are found**, show a "No related conclusions found" message.
+
+5. **Wire the tab into the detail page** — add the import and the conditional render alongside the other tabs.
+
+6. **Do NOT change** existing tabs or their content. Only add the new tab.
+
+Do not proceed to any other work. Do not edit anything outside SCOPE.

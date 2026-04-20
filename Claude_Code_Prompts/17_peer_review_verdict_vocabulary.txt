@@ -1,0 +1,57 @@
+# Claude Code Prompt 17 of 25 — UX: clarify the two different review verdict vocabularies
+
+**Sequence:** prompt 17 of 25 (Wave 5 — independent of prompts 18–21). When you finish, report back with: files you created/modified, any notable choices, any blockers.
+
+**Before you start — read current state:**
+1. Read `theseus-codex/src/app/(authed)/q/review/ReviewQueue.tsx` — coherence review uses cohere / contradict / unresolved.
+2. Read `theseus-codex/src/app/(authed)/conclusions/[id]/peer-review-tab.tsx` — peer review uses endorse / challenge / abstain.
+3. Read `theseus-codex/src/app/(authed)/q/review/page.tsx` — the header text explains the coherence queue.
+4. Read `theseus-codex/src/app/(authed)/peer-review/[conclusionId]/page.tsx` — the peer review page.
+
+## The problem
+
+The Theseus Codex has two distinct review systems with different vocabularies:
+1. **Coherence review** (`/q/review`): human-in-the-loop judgment on whether two claims cohere, contradict, or are unresolved. Verdicts: `cohere` / `contradict` / `unresolved`.
+2. **Peer review** (`/peer-review/[id]`, tab on conclusion detail): automated reviewer swarm assessment of a conclusion. Verdicts: `endorse` / `challenge` / `abstain`.
+
+These are fundamentally different processes serving different purposes, but neither system explains what it is, how it differs from the other, or what its verdicts mean. A user encountering both for the first time has no way to understand the distinction.
+
+## Your task
+
+Add clear contextual explanations to both review interfaces that explain what the system does, what the verdicts mean, and how it differs from the other review system.
+
+## SCOPE (files you may modify — stay within this list)
+- `theseus-codex/src/app/(authed)/q/review/page.tsx`                            MODIFY
+- `theseus-codex/src/app/(authed)/conclusions/[id]/peer-review-tab.tsx`          MODIFY
+- `theseus-codex/src/app/(authed)/peer-review/[conclusionId]/page.tsx`           MODIFY
+
+## Step-by-step
+
+1. **In the coherence review queue page** (`q/review/page.tsx`), enhance the existing header description. The current text mentions "disputed-layer items" but doesn't explain the vocabulary. Add a brief explanation section below the existing italic description:
+   ```tsx
+   <div style={{ fontSize: "0.75rem", color: "var(--parchment-dim)", marginTop: "0.5rem", maxWidth: "44em", lineHeight: 1.6 }}>
+     <p><strong style={{ color: "var(--gold-dim)" }}>Cohere</strong> — the two claims are consistent; no tension exists.</p>
+     <p><strong style={{ color: "var(--ember)" }}>Contradict</strong> — the two claims are in genuine conflict; one or both need revision.</p>
+     <p><strong style={{ color: "var(--parchment-dim)" }}>Unresolved</strong> — the tension is real but cannot be resolved with available evidence.</p>
+     <p style={{ marginTop: "0.35rem", fontStyle: "italic" }}>
+       This is different from <a href="/peer-review" style={{ color: "var(--gold-dim)" }}>peer review</a>,
+       which evaluates individual conclusions rather than claim pairs.
+     </p>
+   </div>
+   ```
+
+2. **In the peer review tab** (`peer-review-tab.tsx`), add a brief legend above the reviews:
+   ```tsx
+   <div style={{ fontSize: "0.7rem", color: "var(--parchment-dim)", marginBottom: "0.75rem", lineHeight: 1.5 }}>
+     Automated reviewers assess this conclusion across methodological, evidential, and rhetorical dimensions.
+     <span style={{ color: "var(--gold)" }}> Endorse</span> = conclusion stands,
+     <span style={{ color: "var(--ember)" }}> Challenge</span> = issues found,
+     <span style={{ color: "var(--parchment-dim)" }}> Abstain</span> = insufficient data to judge.
+   </div>
+   ```
+
+3. **In the standalone peer review page** (`peer-review/[conclusionId]/page.tsx`), add a similar explanation below the page title.
+
+4. **Do NOT change** the verdict buttons, the color logic, the data model, or the rendering of individual review items. Only add explanatory text.
+
+Do not proceed to any other work. Do not edit anything outside SCOPE.

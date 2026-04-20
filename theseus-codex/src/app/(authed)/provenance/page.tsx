@@ -1,18 +1,22 @@
 import { redirect } from "next/navigation";
-import Link from "next/link";
-import { getFounder } from "@/lib/auth";
 import {
   fetchProvenanceRecords,
   toCSV,
   downloadHref,
   type ProvenanceRecord,
 } from "@/lib/api/round3";
+import { requireTenantContext } from "@/lib/tenant";
 
 export default async function ProvenancePage() {
-  const founder = await getFounder();
-  if (!founder) redirect("/login");
+  // `requireTenantContext()` enforces authentication + hands us the
+  // org id in a single step. Before: `getFounder()` checked auth but
+  // the downstream `fetchProvenanceRecords()` ran unscoped, so a
+  // caller in Org A saw every org's provenance on this page. Now the
+  // `organizationId` is required and the WHERE clause filters on it.
+  const tenant = await requireTenantContext();
+  if (!tenant) redirect("/login");
 
-  const records = await fetchProvenanceRecords();
+  const records = await fetchProvenanceRecords(tenant.organizationId);
   const csvData = toCSV(
     records.map((r) => ({
       id: r.id,

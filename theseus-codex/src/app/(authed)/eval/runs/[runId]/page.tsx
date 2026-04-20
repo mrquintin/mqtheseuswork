@@ -1,18 +1,18 @@
 import { redirect, notFound } from "next/navigation";
 import Link from "next/link";
-import { getFounder } from "@/lib/auth";
 import { fetchEvalRunDetail, toCSV, downloadHref } from "@/lib/api/round3";
+import { requireTenantContext } from "@/lib/tenant";
 
 export default async function EvalRunDetailPage({
   params,
 }: {
   params: Promise<{ runId: string }>;
 }) {
-  const founder = await getFounder();
-  if (!founder) redirect("/login");
+  const tenant = await requireTenantContext();
+  if (!tenant) redirect("/login");
 
   const { runId } = await params;
-  const run = await fetchEvalRunDetail(runId);
+  const run = await fetchEvalRunDetail(tenant.organizationId, runId);
   if (!run) notFound();
 
   const csvData = toCSV(

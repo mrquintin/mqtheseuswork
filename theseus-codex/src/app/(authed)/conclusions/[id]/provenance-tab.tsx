@@ -1,7 +1,22 @@
-import { fetchProvenanceForConclusion, type ProvenanceRecord } from "@/lib/api/round3";
+import { fetchProvenanceForConclusion } from "@/lib/api/round3";
+import { requireTenantContext } from "@/lib/tenant";
 
+/**
+ * Provenance tab on the conclusion-detail page.
+ *
+ * Resolves the tenant from the session context and passes the resulting
+ * `organizationId` to `fetchProvenanceForConclusion`, which enforces a
+ * tenant filter in its raw SQL. Without that filter a founder on
+ * Org A could navigate to `/conclusions/<id-from-Org-B>` and see
+ * Org B's provenance records (every row has an `organizationId`, but
+ * the raw SELECT used to omit the WHERE clause). Resolving here means
+ * every render of this tab re-checks the caller's org — no path leaks
+ * even if the parent page-level check drifts out of date.
+ */
 export default async function ProvenanceTab({ conclusionId }: { conclusionId: string }) {
-  const records = await fetchProvenanceForConclusion(conclusionId);
+  const tenant = await requireTenantContext();
+  if (!tenant) return null;
+  const records = await fetchProvenanceForConclusion(tenant.organizationId, conclusionId);
 
   if (records.length === 0) {
     return (

@@ -1,5 +1,4 @@
 import { redirect } from "next/navigation";
-import { getFounder } from "@/lib/auth";
 import CascadeTree3D from "@/components/CascadeTree3DClient";
 import {
   fetchCascade,
@@ -7,17 +6,20 @@ import {
   downloadHref,
   type CascadeNode,
 } from "@/lib/api/round3";
+import { requireTenantContext } from "@/lib/tenant";
 
 export default async function CascadeExplorerPage({
   params,
 }: {
   params: Promise<{ conclusionId: string }>;
 }) {
-  const founder = await getFounder();
-  if (!founder) redirect("/login");
+  const tenant = await requireTenantContext();
+  if (!tenant) redirect("/login");
 
   const { conclusionId } = await params;
-  const roots = await fetchCascade(conclusionId);
+  // Scoped so a cross-tenant conclusion id resolves to "no cascade
+  // nodes found" rather than leaking another firm's inference tree.
+  const roots = await fetchCascade(tenant.organizationId, conclusionId);
 
   function flattenNodes(nodes: CascadeNode[], depth = 0): Array<CascadeNode & { depth: number }> {
     const result: Array<CascadeNode & { depth: number }> = [];

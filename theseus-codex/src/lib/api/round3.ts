@@ -253,11 +253,53 @@ async function safeQuery<T extends RawRow>(
   }
 }
 
-// ─── Read Functions ──────────────────────────────────────
+// ─── Claim-text resolver ─────────────────────────────────
+//
+// ReviewItem / Contradiction / OpenQuestion store `claimAId` + `claimBId`
+// as raw strings. In production these always reference Conclusion.id
+// (see scripts/reconcile-deleted-upload-artifacts.sql — the cascade
+// helper treats them as FKs into "Conclusion"). Seed data uses
+// placeholder strings like "claim_alpha" that don't resolve.
+// This helper batches the lookup so consumers don't do N+1 queries.
 
-export async function fetchProvenanceRecords(): Promise<ProvenanceRecord[]> {
+export async function resolveClaimTexts(
+  organizationId: string,
+  claimIds: string[],
+): Promise<Record<string, string>> {
+  const unique = Array.from(new Set(claimIds.filter(Boolean)));
+  if (unique.length === 0) return {};
+  const rows = await db.conclusion.findMany({
+    where: { organizationId, id: { in: unique } },
+    select: { id: true, text: true },
+  });
+  const out: Record<string, string> = {};
+  for (const r of rows) out[r.id] = r.text;
+  return out;
+}
+
+// ─── Read Functions ──────────────────────────────────────
+//
+// Every function below takes `organizationId` as its FIRST parameter
+// and pipes it into the raw SQL's WHERE clause. These are the Round-3
+// provenance / cascade / peer-review / decay / post-mortem / eval /
+// rigor-gate / methods tables; every one is a tenant-scoped resource
+// whose rows carry an `organization_id` column (snake_case on the raw
+// side, `organizationId` on the Prisma side — identical storage).
+//
+// Historical bug these signatures address: earlier versions of these
+// helpers ran unscoped SELECTs. Any authenticated founder could see
+// rows from any org by navigating to the corresponding portal page.
+// The Prisma-backed queries (e.g. conclusions/page.tsx's
+// db.conclusion.findMany) were correctly scoped; only these raw SQL
+// reads leaked. Scoping is now enforced at the query layer so there's
+// no "forgot to filter" path — every caller has to name the tenant it
+// intends to read.
+
+export async function fetchProvenanceRecords(
+  organizationId: string,
+): Promise<ProvenanceRecord[]> {
   const rows = await safeQuery(
-    Prisma.sql`SELECT id, conclusion_id, source_upload_id, extraction_method, confidence, chain_json, created_at FROM provenance ORDER BY created_at DESC LIMIT 200`,
+    Prisma.sql`SELECT id, conclusion_id, source_upload_id, extraction_method, confidence, chain_json, created_at FROM provenance WHERE organization_id = ${organizationId} ORDER BY created_at DESC LIMIT 200`,
   );
   return rows.map((r) => ({
     id: String(r.id),
@@ -271,10 +313,11 @@ export async function fetchProvenanceRecords(): Promise<ProvenanceRecord[]> {
 }
 
 export async function fetchProvenanceForConclusion(
+  organizationId: string,
   conclusionId: string,
 ): Promise<ProvenanceRecord[]> {
   const rows = await safeQuery(
-    Prisma.sql`SELECT id, conclusion_id, source_upload_id, extraction_method, confidence, chain_json, created_at FROM provenance WHERE conclusion_id = ${conclusionId} ORDER BY created_at DESC`,
+    Prisma.sql`SELECT id, conclusion_id, source_upload_id, extraction_method, confidence, chain_json, created_at FROM provenance WHERE organization_id = ${organizationId} AND conclusion_id = ${conclusionId} ORDER BY created_at DESC`,
   );
   return rows.map((r) => ({
     id: String(r.id),
@@ -288,10 +331,11 @@ export async function fetchProvenanceForConclusion(
 }
 
 export async function fetchCascade(
+  organizationId: string,
   conclusionId: string,
 ): Promise<CascadeNode[]> {
   const rows = await safeQuery(
-    Prisma.sql`SELECT id, conclusion_id, parent_id, kind, label, confidence FROM cascade_node WHERE conclusion_id = ${conclusionId} ORDER BY id`,
+    Prisma.sql`SELECT id, conclusion_id, parent_id, kind, label, confidence FROM cascade_node WHERE organization_id = ${organizationId} AND conclusion_id = ${conclusionId} ORDER BY id`,
   );
   const flat = rows.map((r) => ({
     id: String(r.id),
@@ -314,9 +358,11 @@ export async function fetchCascade(
   return roots;
 }
 
-export async function fetchEvalRuns(): Promise<EvalRun[]> {
+export async function fetchEvalRuns(
+  organizationId: string,
+): Promise<EvalRun[]> {
   const rows = await safeQuery(
-    Prisma.sql`SELECT id, name, status, started_at, completed_at, summary, pass_rate FROM eval_run ORDER BY started_at DESC LIMIT 100`,
+    Prisma.sql`SELECT id, name, status, started_at, completed_at, summary, pass_rate FROM eval_run WHERE organization_id = ${organizationId} ORDER BY started_at DESC LIMIT 100`,
   );
   return rows.map((r) => ({
     id: String(r.id),
@@ -330,15 +376,20 @@ export async function fetchEvalRuns(): Promise<EvalRun[]> {
 }
 
 export async function fetchEvalRunDetail(
+  organizationId: string,
   runId: string,
 ): Promise<EvalRunDetail | null> {
   const runs = await safeQuery(
-    Prisma.sql`SELECT id, name, status, started_at, completed_at, summary, pass_rate FROM eval_run WHERE id = ${runId} LIMIT 1`,
+    Prisma.sql`SELECT id, name, status, started_at, completed_at, summary, pass_rate FROM eval_run WHERE organization_id = ${organizationId} AND id = ${runId} LIMIT 1`,
   );
   if (runs.length === 0) return null;
   const r = runs[0];
+  // Second query is redundant-but-defense-in-depth scoped: the parent
+  // run was already filtered by organization_id above, but we keep
+  // the child-level filter so a cross-tenant `eval_case` row with a
+  // re-used run_id can never leak through.
   const cases = await safeQuery(
-    Prisma.sql`SELECT id, input, expected, actual, passed, notes FROM eval_case WHERE run_id = ${runId} ORDER BY id`,
+    Prisma.sql`SELECT id, input, expected, actual, passed, notes FROM eval_case WHERE organization_id = ${organizationId} AND run_id = ${runId} ORDER BY id`,
   );
   return {
     id: String(r.id),
@@ -359,9 +410,11 @@ export async function fetchEvalRunDetail(
   };
 }
 
-export async function fetchPostMortems(): Promise<PostMortem[]> {
+export async function fetchPostMortems(
+  organizationId: string,
+): Promise<PostMortem[]> {
   const rows = await safeQuery(
-    Prisma.sql`SELECT id, conclusion_id, conclusion_text, retracted_at, reason, root_cause, prevention_notes, founder_name FROM post_mortem ORDER BY retracted_at DESC LIMIT 100`,
+    Prisma.sql`SELECT id, conclusion_id, conclusion_text, retracted_at, reason, root_cause, prevention_notes, founder_name FROM post_mortem WHERE organization_id = ${organizationId} ORDER BY retracted_at DESC LIMIT 100`,
   );
   return rows.map((r) => ({
     id: String(r.id),
@@ -376,10 +429,11 @@ export async function fetchPostMortems(): Promise<PostMortem[]> {
 }
 
 export async function fetchPeerReviews(
+  organizationId: string,
   conclusionId: string,
 ): Promise<PeerReviewRecord[]> {
   const rows = await safeQuery(
-    Prisma.sql`SELECT id, conclusion_id, reviewer_name, verdict, commentary, created_at FROM peer_review WHERE conclusion_id = ${conclusionId} ORDER BY created_at DESC`,
+    Prisma.sql`SELECT id, conclusion_id, reviewer_name, verdict, commentary, created_at FROM peer_review WHERE organization_id = ${organizationId} AND conclusion_id = ${conclusionId} ORDER BY created_at DESC`,
   );
   return rows.map((r) => ({
     id: String(r.id),
@@ -391,9 +445,11 @@ export async function fetchPeerReviews(
   }));
 }
 
-export async function fetchDecayRecords(): Promise<DecayRecord[]> {
+export async function fetchDecayRecords(
+  organizationId: string,
+): Promise<DecayRecord[]> {
   const rows = await safeQuery(
-    Prisma.sql`SELECT id, conclusion_id, conclusion_text, current_confidence, decay_rate, last_validated, projected_expiry, status FROM decay_record ORDER BY last_validated DESC LIMIT 200`,
+    Prisma.sql`SELECT id, conclusion_id, conclusion_text, current_confidence, decay_rate, last_validated, projected_expiry, status FROM decay_record WHERE organization_id = ${organizationId} ORDER BY last_validated DESC LIMIT 200`,
   );
   return rows.map((r) => ({
     id: String(r.id),
@@ -407,9 +463,11 @@ export async function fetchDecayRecords(): Promise<DecayRecord[]> {
   }));
 }
 
-export async function fetchGateSubmissions(): Promise<RigorGateSubmission[]> {
+export async function fetchGateSubmissions(
+  organizationId: string,
+): Promise<RigorGateSubmission[]> {
   const rows = await safeQuery(
-    Prisma.sql`SELECT id, kind, status, submitted_by, submitted_at, resolved_at, ledger_entry_id FROM rigor_gate_submission ORDER BY submitted_at DESC LIMIT 200`,
+    Prisma.sql`SELECT id, kind, status, submitted_by, submitted_at, resolved_at, ledger_entry_id FROM rigor_gate_submission WHERE organization_id = ${organizationId} ORDER BY submitted_at DESC LIMIT 200`,
   );
   return rows.map((r) => ({
     id: String(r.id),
@@ -423,10 +481,11 @@ export async function fetchGateSubmissions(): Promise<RigorGateSubmission[]> {
 }
 
 export async function fetchGateDetail(
+  organizationId: string,
   submissionId: string,
 ): Promise<RigorGateDetail | null> {
   const rows = await safeQuery(
-    Prisma.sql`SELECT id, kind, status, submitted_by, submitted_at, resolved_at, ledger_entry_id, payload_json, review_notes, override_reason FROM rigor_gate_submission WHERE id = ${submissionId} LIMIT 1`,
+    Prisma.sql`SELECT id, kind, status, submitted_by, submitted_at, resolved_at, ledger_entry_id, payload_json, review_notes, override_reason FROM rigor_gate_submission WHERE organization_id = ${organizationId} AND id = ${submissionId} LIMIT 1`,
   );
   if (rows.length === 0) return null;
   const r = rows[0];
@@ -444,9 +503,11 @@ export async function fetchGateDetail(
   };
 }
 
-export async function fetchMethods(): Promise<MethodEntry[]> {
+export async function fetchMethods(
+  organizationId: string,
+): Promise<MethodEntry[]> {
   const rows = await safeQuery(
-    Prisma.sql`SELECT name, latest_version, description, status, usage_count FROM method_registry ORDER BY name LIMIT 200`,
+    Prisma.sql`SELECT name, latest_version, description, status, usage_count FROM method_registry WHERE organization_id = ${organizationId} ORDER BY name LIMIT 200`,
   );
   return rows.map((r) => ({
     name: String(r.name ?? ""),
@@ -458,11 +519,12 @@ export async function fetchMethods(): Promise<MethodEntry[]> {
 }
 
 export async function fetchMethodVersion(
+  organizationId: string,
   name: string,
   version: string,
 ): Promise<MethodVersion | null> {
   const rows = await safeQuery(
-    Prisma.sql`SELECT name, version, description, parameters_json, changelog, published_at, published_by FROM method_version WHERE name = ${name} AND version = ${version} LIMIT 1`,
+    Prisma.sql`SELECT name, version, description, parameters_json, changelog, published_at, published_by FROM method_version WHERE organization_id = ${organizationId} AND name = ${name} AND version = ${version} LIMIT 1`,
   );
   if (rows.length === 0) return null;
   const r = rows[0];
@@ -477,9 +539,11 @@ export async function fetchMethodVersion(
   };
 }
 
-export async function fetchMethodCandidates(): Promise<MethodCandidate[]> {
+export async function fetchMethodCandidates(
+  organizationId: string,
+): Promise<MethodCandidate[]> {
   const rows = await safeQuery(
-    Prisma.sql`SELECT id, name, proposed_by, description, status, created_at FROM method_candidate ORDER BY created_at DESC LIMIT 100`,
+    Prisma.sql`SELECT id, name, proposed_by, description, status, created_at FROM method_candidate WHERE organization_id = ${organizationId} ORDER BY created_at DESC LIMIT 100`,
   );
   return rows.map((r) => ({
     id: String(r.id),

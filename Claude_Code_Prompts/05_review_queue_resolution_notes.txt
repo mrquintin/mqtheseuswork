@@ -1,0 +1,66 @@
+# Claude Code Prompt 5 of 25 — UX: add resolution notes text field to review queue
+
+**Sequence:** prompt 5 of 25 (Wave 2 — independent of prompts 04 and 06). When you finish, report back with: files you created/modified, any notable choices, any blockers.
+
+**Before you start — read current state:**
+1. Read `theseus-codex/src/app/(authed)/q/review/ReviewQueue.tsx` — note how the `resolve` function hardcodes the note as `"Founder overrule via portal"` or `"Founder confirm"`.
+2. Read `theseus-codex/src/app/api/review/[id]/route.ts` — note that the API accepts a `note` field and stores it in `resolutionNote`.
+3. Read `theseus-codex/prisma/schema.prisma` — note the `ReviewItem` model has `resolutionNote` (String).
+
+## The problem
+
+When a founder resolves a review item, the verdict buttons hardcode the resolution note:
+
+```typescript
+note: overrule ? "Founder overrule via portal" : "Founder confirm",
+```
+
+There is no text field for the human to explain WHY they're making this judgment. The entire purpose of human-in-the-loop review is to capture human reasoning — but the system discards it. The `resolutionNote` field exists in the schema and the API accepts it, but the UI never lets the user write one.
+
+## Your task
+
+Add an optional text area to each review item where the founder can type resolution notes before clicking a verdict button. The note should be sent with the verdict.
+
+## SCOPE (files you may modify — stay within this list)
+- `theseus-codex/src/app/(authed)/q/review/ReviewQueue.tsx`    MODIFY
+
+## Step-by-step
+
+1. **Add per-item note state.** Use a `Record<string, string>` in the component state, keyed by review item ID, to track the note text for each item:
+   ```typescript
+   const [notes, setNotes] = useState<Record<string, string>>({});
+   ```
+
+2. **Render a text area** in each review item card, between the layer-verdicts details and the verdict buttons. Style it to match the existing aesthetic (var(--parchment), var(--border), monospace font for the input, etc.):
+   ```tsx
+   <textarea
+     placeholder="Resolution notes (optional) — explain your reasoning"
+     value={notes[it.id] || ""}
+     onChange={(e) => setNotes((prev) => ({ ...prev, [it.id]: e.target.value }))}
+     rows={2}
+     style={{
+       width: "100%",
+       marginTop: "0.75rem",
+       padding: "0.5rem 0.75rem",
+       fontSize: "0.8rem",
+       fontFamily: "inherit",
+       background: "transparent",
+       border: "1px solid var(--border)",
+       color: "var(--parchment)",
+       borderRadius: 2,
+       resize: "vertical",
+     }}
+   />
+   ```
+
+3. **Update the `resolve` function** to use the user's note instead of the hardcoded string. If the user left the field empty, fall back to a sensible default:
+   ```typescript
+   const userNote = notes[id]?.trim();
+   const defaultNote = overrule ? "Founder overrule via portal" : "Founder confirm";
+   // In the fetch body:
+   note: userNote || defaultNote,
+   ```
+
+4. **Do NOT change** the verdict buttons themselves, the fetch URL, the response handling, or the `window.location.reload()` (that's addressed in prompt 06). Only add the notes field and wire it to the existing `note` parameter.
+
+Do not proceed to any other work. Do not edit anything outside SCOPE.

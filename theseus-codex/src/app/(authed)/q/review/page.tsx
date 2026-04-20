@@ -1,12 +1,26 @@
 import SculptureBackdrop from "@/components/SculptureBackdrop";
 import { db } from "@/lib/db";
+import { resolveClaimTexts } from "@/lib/api/round3";
+import { requireTenantContext } from "@/lib/tenant";
+import { redirect } from "next/navigation";
 import ReviewQueue from "./ReviewQueue";
 
 export default async function ReviewQueuePage() {
+  const tenant = await requireTenantContext();
+  if (!tenant) redirect("/login");
+
   const items = await db.reviewItem.findMany({
-    where: { status: "open" },
+    where: { organizationId: tenant.organizationId, status: "open" },
     orderBy: { severity: "desc" },
   });
+
+  // Batch-resolve claimA/claimB → conclusion text in one query so the
+  // client component can show the actual statements rather than the
+  // truncated UUIDs that made the queue unusable.
+  const claimTexts = await resolveClaimTexts(
+    tenant.organizationId,
+    items.flatMap((it) => [it.claimAId, it.claimBId]),
+  );
 
   return (
     <div style={{ position: "relative", overflow: "hidden", minHeight: "80vh" }}>
@@ -68,7 +82,7 @@ export default async function ReviewQueuePage() {
             when <code>NOOSPHERE_DATABASE_URL</code> is configured.
           </p>
         </header>
-        <ReviewQueue items={items} />
+        <ReviewQueue items={items} claimTexts={claimTexts} />
       </main>
     </div>
   );

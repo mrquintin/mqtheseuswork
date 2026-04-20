@@ -1,7 +1,7 @@
 import { redirect } from "next/navigation";
 import Link from "next/link";
-import { getFounder } from "@/lib/auth";
 import { fetchEvalRuns, toCSV, downloadHref } from "@/lib/api/round3";
+import { requireTenantContext } from "@/lib/tenant";
 
 function statusColor(status: string): string {
   switch (status) {
@@ -13,10 +13,10 @@ function statusColor(status: string): string {
 }
 
 export default async function EvalPage() {
-  const founder = await getFounder();
-  if (!founder) redirect("/login");
+  const tenant = await requireTenantContext();
+  if (!tenant) redirect("/login");
 
-  const runs = await fetchEvalRuns();
+  const runs = await fetchEvalRuns(tenant.organizationId);
   const csvData = toCSV(
     runs.map((r) => ({
       id: r.id,

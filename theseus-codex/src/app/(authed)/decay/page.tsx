@@ -1,18 +1,25 @@
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { getFounder } from "@/lib/auth";
-import { fetchDecayRecords, toCSV, downloadHref } from "@/lib/api/round3";
+import {
+  fetchDecayRecords,
+  submitToRigorGate,
+  toCSV,
+  downloadHref,
+} from "@/lib/api/round3";
+import { callNoosphereJson } from "@/lib/pythonRuntime";
+import { requireTenantContext } from "@/lib/tenant";
 
 export default async function DecayPage({
   searchParams,
 }: {
   searchParams: Promise<{ ledger?: string }>;
 }) {
-  const founder = await getFounder();
-  if (!founder) redirect("/login");
+  const tenant = await requireTenantContext();
+  if (!tenant) redirect("/login");
 
   const sp = await searchParams;
-  const records = await fetchDecayRecords();
+  const records = await fetchDecayRecords(tenant.organizationId);
 
   const csvData = toCSV(
     records.map((r) => ({
@@ -139,15 +146,28 @@ function RevalidateRow({
 }) {
   async function revalidate() {
     "use server";
-    const base = process.env.PORTAL_API_BASE || "http://localhost:3000";
-    const res = await fetch(`${base}/api/round3/decay/revalidate`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ conclusionId: record.conclusionId }),
-    });
-    const data = await res.json();
+    // Direct helper calls instead of fetching our own /api/round3/...
+    // route: the server action already runs on the server, so the
+    // HTTP round-trip was pure overhead *and* lost the session cookie,
+    // which broke `getFounder()` inside `withGated`.
+    const founder = await getFounder();
+    if (!founder) redirect("/login");
+
+    const gate = await submitToRigorGate("decay.revalidate", founder.name);
+    if (!gate.approved) {
+      redirect(
+        `/decay?ledger=${encodeURIComponent(
+          `rejected:${gate.reason || "rigor gate"}`,
+        )}`,
+      );
+    }
+
+    await callNoosphereJson(
+      ["decay", "revalidate", "--conclusion-id", record.conclusionId],
+      "Decay revalidation failed",
+    );
     revalidatePath("/decay");
-    redirect(`/decay?ledger=${data.ledgerEntryId || "done"}`);
+    redirect(`/decay?ledger=${gate.ledgerEntryId || "done"}`);
   }
 
   return (

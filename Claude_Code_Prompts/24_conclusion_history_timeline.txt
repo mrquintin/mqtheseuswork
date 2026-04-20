@@ -1,0 +1,140 @@
+# Claude Code Prompt 24 of 25 — Feature: add conclusion history timeline
+
+**Sequence:** prompt 24 of 25 (Wave 6 — independent of prompts 22, 23, 25). When you finish, report back with: files you created/modified, any notable choices, any blockers.
+
+**Before you start — read current state:**
+1. Read `theseus-codex/src/app/(authed)/conclusions/[id]/page.tsx` — the conclusion detail page with its tab system.
+2. Read `theseus-codex/prisma/schema.prisma` — note `AuditEvent` (action log with timestamps), `ReviewItem` (with `resolvedAt`), `PublicationReview`, `DriftEvent`.
+3. Read `theseus-codex/src/lib/api/round3.ts` — note `fetchDecayRecords` and `fetchPeerReviews`.
+4. Check the database for any existing history or event tables that track conclusion state changes.
+
+## The problem
+
+Conclusions evolve over time — their confidence changes, they receive peer reviews, they go through decay cycles, they may be challenged or retracted. But the detail page shows only the current state. There is no timeline showing when the conclusion was created, when reviews happened, when confidence changed, or what events led to the current state.
+
+## Your task
+
+Add a "History" tab to the conclusion detail page that shows a chronological timeline of events related to this conclusion.
+
+## SCOPE (files you may create or modify — stay within this list)
+- `theseus-codex/src/app/(authed)/conclusions/[id]/page.tsx`          MODIFY
+- `theseus-codex/src/app/(authed)/conclusions/[id]/history-tab.tsx`   CREATE
+
+## Step-by-step
+
+1. **Add the History tab** to the TABS array:
+   ```typescript
+   const TABS = [
+     { id: "overview", label: "Overview" },
+     { id: "provenance", label: "Provenance" },
+     { id: "cascade", label: "Cascade" },
+     { id: "peer", label: "Peer review" },
+     { id: "related", label: "Related" },   // if prompt 21 has been applied
+     { id: "history", label: "History" },
+   ] as const;
+   ```
+
+2. **Create `history-tab.tsx`** as a server component. It should aggregate events from multiple sources into a unified, chronologically-sorted timeline:
+
+   **Event sources to query:**
+   - `AuditEvent` records where the action relates to this conclusion (check `detail` field for conclusion ID, or check if there's a `conclusionId` field)
+   - `ReviewItem` records where `claimAId` or `claimBId` match this conclusion's claims (if applicable)
+   - Peer review records for this conclusion (from `fetchPeerReviews`)
+   - `PublicationReview` records for this conclusion
+   - The conclusion's own `createdAt` as the first event
+
+3. **Define a unified event type:**
+   ```typescript
+   interface TimelineEvent {
+     timestamp: Date;
+     kind: "created" | "peer_review" | "coherence_review" | "publication" | "decay" | "audit";
+     summary: string;
+     detail?: string;
+     actor?: string;
+   }
+   ```
+
+4. **Collect events from each source:**
+   ```typescript
+   const events: TimelineEvent[] = [];
+
+   // Creation
+   events.push({
+     timestamp: conclusion.createdAt,
+     kind: "created",
+     summary: "Conclusion created",
+     detail: conclusion.attributedFounder ? `Attributed to ${conclusion.attributedFounder.name}` : undefined,
+   });
+
+   // Peer reviews
+   const peerReviews = await fetchPeerReviews(conclusionId);
+   for (const r of peerReviews) {
+     events.push({
+       timestamp: new Date(r.createdAt),
+       kind: "peer_review",
+       summary: `${r.reviewerName}: ${r.verdict}`,
+       detail: r.commentary.slice(0, 200),
+     });
+   }
+
+   // Publication reviews
+   const pubReviews = await db.publicationReview.findMany({
+     where: { conclusionId },
+     orderBy: { createdAt: "desc" },
+   });
+   for (const pr of pubReviews) {
+     events.push({
+       timestamp: pr.createdAt,
+       kind: "publication",
+       summary: `Publication review: ${pr.status}`,
+       detail: pr.reviewerNotes || undefined,
+     });
+   }
+
+   // Sort chronologically (newest first)
+   events.sort((a, b) => b.timestamp.getTime() - a.timestamp.getTime());
+   ```
+
+5. **Render the timeline:**
+   ```tsx
+   <div style={{ display: "flex", flexDirection: "column" }}>
+     {events.map((e, i) => (
+       <div key={i} style={{
+         display: "flex",
+         gap: "1rem",
+         padding: "0.6rem 0",
+         borderLeft: "2px solid var(--border)",
+         marginLeft: "0.5rem",
+         paddingLeft: "1rem",
+       }}>
+         <div style={{ minWidth: "5rem", fontSize: "0.65rem", color: "var(--parchment-dim)" }}>
+           {e.timestamp.toISOString().slice(0, 10)}
+         </div>
+         <div>
+           <div style={{
+             fontSize: "0.65rem",
+             textTransform: "uppercase",
+             color: kindColor(e.kind),
+             letterSpacing: "0.1em",
+           }}>
+             {e.kind.replace("_", " ")}
+           </div>
+           <div style={{ fontSize: "0.85rem", color: "var(--parchment)", marginTop: "0.15rem" }}>
+             {e.summary}
+           </div>
+           {e.detail && (
+             <div style={{ fontSize: "0.75rem", color: "var(--parchment-dim)", marginTop: "0.15rem" }}>
+               {e.detail}
+             </div>
+           )}
+         </div>
+       </div>
+     ))}
+   </div>
+   ```
+
+6. **Wire the tab into the detail page** — import `HistoryTab`, add to conditional rendering.
+
+7. **Do NOT change** existing tabs or their content. Only add the new tab.
+
+Do not proceed to any other work. Do not edit anything outside SCOPE.

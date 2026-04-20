@@ -1,12 +1,12 @@
 import { redirect } from "next/navigation";
-import { getFounder } from "@/lib/auth";
 import { fetchPostMortems, toCSV, downloadHref } from "@/lib/api/round3";
+import { requireTenantContext } from "@/lib/tenant";
 
 export default async function PostMortemPage() {
-  const founder = await getFounder();
-  if (!founder) redirect("/login");
+  const tenant = await requireTenantContext();
+  if (!tenant) redirect("/login");
 
-  const records = await fetchPostMortems();
+  const records = await fetchPostMortems(tenant.organizationId);
   const csvData = toCSV(
     records.map((r) => ({
       id: r.id,

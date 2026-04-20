@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { db } from "@/lib/db";
+import { requireTenantContext } from "@/lib/tenant";
 import PageHelp from "@/components/PageHelp";
 import TabNav from "@/components/TabNav";
 import ConclusionSigil from "./conclusion-sigil";
@@ -48,12 +49,35 @@ export default async function ConclusionDetailPage({
   params: Promise<{ id: string }>;
   searchParams: Promise<{ tab?: string }>;
 }) {
+  // Multi-tenant scope: resolve the caller's org up front and use it to
+  // constrain the detail lookup. Before this scoping the page used a
+  // findUnique(where:{id}) that had no org filter, so any authenticated
+  // founder in Org A could navigate to /conclusions/<id-from-Org-B>
+  // and read Org B's conclusion text, rationale, and attribution.
+  // Returning null on missing tenant matches the pattern the list page
+  // (conclusions/page.tsx) uses; Next.js will fall through to the
+  // group-level (authed) auth redirect for unauthenticated requests.
+  const tenant = await requireTenantContext();
+  if (!tenant) {
+    return null;
+  }
+
   const { id } = await params;
   const sp = await searchParams;
   const activeTab: TabId = isTabId(sp.tab) ? sp.tab : "overview";
 
-  const conclusion = await db.conclusion.findUnique({
-    where: { id },
+  // Swapped findUnique → findFirst because `where` now contains a
+  // non-unique compound (id + organizationId). Prisma's findUnique
+  // rejects any where clause whose keys aren't all part of a unique
+  // index; findFirst accepts the scoped filter and still returns at
+  // most one row since `id` itself is unique.
+  //
+  // When a conclusion exists but belongs to another org, findFirst
+  // returns null and we call notFound(). That matches the path for a
+  // truly non-existent id, so the response doesn't leak the existence
+  // of cross-tenant rows.
+  const conclusion = await db.conclusion.findFirst({
+    where: { id, organizationId: tenant.organizationId },
     include: { attributedFounder: true, organization: true },
   });
   if (!conclusion) notFound();

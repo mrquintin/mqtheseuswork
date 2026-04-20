@@ -1,0 +1,112 @@
+# Claude Code Prompt 22 of 25 — Feature: show structured findings in peer review displays
+
+**Sequence:** prompt 22 of 25 (Wave 6 — independent of prompts 23–25). When you finish, report back with: files you created/modified, any notable choices, any blockers.
+
+**Before you start — read current state:**
+1. Read `theseus-codex/src/app/(authed)/conclusions/[id]/peer-review-tab.tsx` — note it shows `reviewerName`, `verdict`, and `commentary`.
+2. Read `theseus-codex/src/app/(authed)/peer-review/[conclusionId]/page.tsx` — same data, different layout.
+3. Read `theseus-codex/src/lib/api/round3.ts` — note the `PeerReviewRecord` type: `{ id, conclusionId, reviewerName, verdict, commentary, createdAt }`. There are no structured findings.
+4. Read `noosphere/noosphere/models.py` — note the `ReviewReport` model which includes a `findings` list with `severity`, `category`, `detail`, `evidence`, and `suggested_action` per finding.
+5. Read `noosphere/noosphere/peer_review/swarm.py` — understand how findings are generated and stored.
+6. Check if the `peer_review` table in the database has a column for findings (e.g., `findings_json`).
+
+## The problem
+
+The Noosphere peer review system generates rich structured findings — each reviewer produces findings with severity levels (info, minor, major, blocker), categories, detailed explanations, evidence, and suggested actions. But the Codex UI only shows the reviewer's overall verdict and a free-text commentary. The structured findings, which are the most actionable part of a peer review, are invisible.
+
+## Your task
+
+Surface the structured findings from peer reviews in the Codex UI. This may require:
+- Adding a `findings_json` column to the `peer_review` table (or checking if it already exists)
+- Updating the Noosphere CLI output to include findings
+- Updating the Codex fetch function and UI to display them
+
+## SCOPE (files you may create or modify — stay within this list)
+- `theseus-codex/src/lib/api/round3.ts`                                          MODIFY
+- `theseus-codex/src/app/(authed)/conclusions/[id]/peer-review-tab.tsx`          MODIFY
+- `theseus-codex/src/app/(authed)/peer-review/[conclusionId]/page.tsx`           MODIFY
+- `noosphere/noosphere/cli_commands/review.py`                                    MODIFY (if needed to include findings in output)
+
+## Step-by-step
+
+1. **Check the database schema.** Look at what columns the `peer_review` table actually has. It's queried via raw SQL in `fetchPeerReviews`:
+   ```sql
+   SELECT id, conclusion_id, reviewer_name, verdict, commentary, created_at FROM peer_review
+   ```
+   Check if additional columns exist (like `findings_json`, `severity`, etc.) that are simply not being selected.
+
+2. **If findings are stored in the DB**, update the SQL query to include them:
+   ```sql
+   SELECT id, conclusion_id, reviewer_name, verdict, commentary, findings_json, created_at FROM peer_review
+   ```
+   Update the `PeerReviewRecord` type to include:
+   ```typescript
+   findings: Finding[];
+   ```
+   Where `Finding` is:
+   ```typescript
+   interface Finding {
+     severity: "info" | "minor" | "major" | "blocker";
+     category: string;
+     detail: string;
+     evidence: string[];
+     suggestedAction: string;
+   }
+   ```
+
+3. **If findings are NOT in the DB**, you have two options:
+   - **Option A (preferred):** Add `findings_json` to the raw SQL table. Add it to the Noosphere CLI output so future reviews include it. Existing reviews will have null findings.
+   - **Option B:** Keep it as-is and note in the UI that structured findings are available in Noosphere but not yet synced to the Codex.
+
+4. **Update the peer review tab** to render findings when available:
+   ```tsx
+   {r.findings && r.findings.length > 0 && (
+     <details style={{ marginTop: "0.5rem" }}>
+       <summary style={{ cursor: "pointer", fontSize: "0.7rem", color: "var(--parchment-dim)" }}>
+         {r.findings.length} finding{r.findings.length > 1 ? "s" : ""}
+         {r.findings.some(f => f.severity === "blocker") && " (includes blockers)"}
+       </summary>
+       <div style={{ marginTop: "0.35rem" }}>
+         {r.findings.map((f, i) => (
+           <div key={i} style={{
+             padding: "0.4rem 0.75rem",
+             marginBottom: "0.25rem",
+             borderLeft: `2px solid ${severityColor(f.severity)}`,
+             fontSize: "0.75rem",
+           }}>
+             <div style={{ display: "flex", gap: "0.5rem", alignItems: "center" }}>
+               <span style={{ color: severityColor(f.severity), textTransform: "uppercase", fontSize: "0.6rem" }}>
+                 {f.severity}
+               </span>
+               <span style={{ color: "var(--parchment-dim)", fontSize: "0.6rem" }}>
+                 {f.category}
+               </span>
+             </div>
+             <p style={{ color: "var(--parchment)", margin: "0.2rem 0" }}>{f.detail}</p>
+             {f.suggestedAction && (
+               <p style={{ color: "var(--gold-dim)", fontSize: "0.7rem", fontStyle: "italic" }}>
+                 Suggested: {f.suggestedAction}
+               </p>
+             )}
+           </div>
+         ))}
+       </div>
+     </details>
+   )}
+   ```
+
+5. **Add a severity color helper** (or import from `@/lib/colors` if prompt 18 has been applied):
+   ```typescript
+   function severityColor(s: string): string {
+     switch (s) {
+       case "blocker": return "var(--ember)";
+       case "major": return "var(--amber)";
+       case "minor": return "var(--parchment)";
+       default: return "var(--parchment-dim)";
+     }
+   }
+   ```
+
+6. **Do NOT change** the verdict display, the reviewer name, or the commentary. Findings should appear BELOW the existing content as an expandable section.
+
+Do not proceed to any other work. Do not edit anything outside SCOPE.

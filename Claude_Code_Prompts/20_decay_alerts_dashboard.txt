@@ -1,0 +1,83 @@
+# Claude Code Prompt 20 of 25 — Feature: add decay alerts to the dashboard
+
+**Sequence:** prompt 20 of 25 (Wave 5 — independent of prompts 17–19, 21). When you finish, report back with: files you created/modified, any notable choices, any blockers.
+
+**Before you start — read current state:**
+1. Read `theseus-codex/src/app/(authed)/dashboard/page.tsx` — understand the main dashboard layout and what sections it currently shows.
+2. Read `theseus-codex/src/app/(authed)/decay/page.tsx` — understand the decay dashboard.
+3. Read `theseus-codex/src/lib/api/round3.ts` — note `fetchDecayRecords` and the `DecayRecord` type.
+
+## The problem
+
+Decaying and expired conclusions require attention — they represent knowledge that is losing confidence over time and may need revalidation or retirement. Currently, the user must manually navigate to `/decay` to check whether any conclusions need attention. There are no alerts, badges, or summary indicators elsewhere in the UI.
+
+## Your task
+
+Add a decay alert section to the main dashboard that surfaces conclusions requiring attention (status "decaying" or "expired"), with direct links to the decay dashboard.
+
+## SCOPE (files you may create or modify — stay within this list)
+- `theseus-codex/src/app/(authed)/dashboard/page.tsx`           MODIFY
+- `theseus-codex/src/components/DecayAlertBanner.tsx`            CREATE (if a separate component is cleaner)
+
+## Step-by-step
+
+1. **Fetch decay records** in the dashboard page. Import `fetchDecayRecords` and call it alongside whatever other data the dashboard fetches:
+   ```typescript
+   const decayRecords = await fetchDecayRecords();
+   const decaying = decayRecords.filter((r) => r.status === "decaying");
+   const expired = decayRecords.filter((r) => r.status === "expired");
+   ```
+   Note: if prompt 01 has already been applied, `fetchDecayRecords` may require `organizationId`. Pass it from the tenant context.
+
+2. **Render an alert banner** if there are any decaying or expired records. Place it prominently near the top of the dashboard:
+   ```tsx
+   {(expired.length > 0 || decaying.length > 0) && (
+     <div style={{
+       padding: "1rem 1.25rem",
+       border: "1px solid var(--ember)",
+       borderRadius: 2,
+       marginBottom: "1.5rem",
+     }}>
+       <div style={{
+         fontFamily: "'Cinzel', serif",
+         fontSize: "0.65rem",
+         letterSpacing: "0.15em",
+         textTransform: "uppercase",
+         color: "var(--ember)",
+         marginBottom: "0.5rem",
+       }}>
+         Conclusions requiring attention
+       </div>
+       {expired.length > 0 && (
+         <p style={{ fontSize: "0.85rem", color: "var(--ember)", margin: "0.25rem 0" }}>
+           {expired.length} expired conclusion{expired.length > 1 ? "s" : ""} — confidence has decayed below threshold.
+         </p>
+       )}
+       {decaying.length > 0 && (
+         <p style={{ fontSize: "0.85rem", color: "var(--parchment)", margin: "0.25rem 0" }}>
+           {decaying.length} decaying conclusion{decaying.length > 1 ? "s" : ""} — confidence is declining.
+         </p>
+       )}
+       <Link
+         href="/decay"
+         style={{
+           display: "inline-block",
+           marginTop: "0.5rem",
+           fontSize: "0.7rem",
+           color: "var(--gold)",
+           textDecoration: "none",
+         }}
+       >
+         View decay dashboard →
+       </Link>
+     </div>
+   )}
+   ```
+
+3. **If the dashboard doesn't exist yet** or has a minimal structure, create the alert as a standalone banner component and render it. Adapt to whatever structure the dashboard currently has.
+
+4. **Handle the case where decay records are unavailable** (table doesn't exist, empty results). Use the error-aware fetch pattern if prompt 09 has been applied; otherwise gracefully show nothing.
+
+5. **Do NOT modify** the decay page itself, the data model, or any other dashboard sections. Only add the alert.
+
+Do not proceed to any other work. Do not edit anything outside SCOPE.

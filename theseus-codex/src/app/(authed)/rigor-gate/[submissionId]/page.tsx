@@ -1,8 +1,8 @@
 import { redirect, notFound } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import Link from "next/link";
-import { getFounder } from "@/lib/auth";
 import { fetchGateDetail, downloadHref } from "@/lib/api/round3";
+import { requireTenantContext } from "@/lib/tenant";
 
 export default async function RigorGateDetailPage({
   params,
@@ -11,12 +11,12 @@ export default async function RigorGateDetailPage({
   params: Promise<{ submissionId: string }>;
   searchParams: Promise<{ ledger?: string }>;
 }) {
-  const founder = await getFounder();
-  if (!founder) redirect("/login");
+  const tenant = await requireTenantContext();
+  if (!tenant) redirect("/login");
 
   const { submissionId } = await params;
   const sp = await searchParams;
-  const detail = await fetchGateDetail(submissionId);
+  const detail = await fetchGateDetail(tenant.organizationId, submissionId);
   if (!detail) notFound();
 
   function statusColor(status: string): string {

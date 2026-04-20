@@ -1,8 +1,19 @@
 import Link from "next/link";
 import { fetchPeerReviews } from "@/lib/api/round3";
+import { requireTenantContext } from "@/lib/tenant";
 
+/**
+ * Peer-review tab on the conclusion-detail page.
+ *
+ * Scoped to the caller's organizationId so reviews stay private to
+ * the firm. Without this filter, navigating to any conclusion id
+ * would surface every firm's reviews of that id (the `peer_review`
+ * table is tenant-partitioned).
+ */
 export default async function PeerReviewTab({ conclusionId }: { conclusionId: string }) {
-  const reviews = await fetchPeerReviews(conclusionId);
+  const tenant = await requireTenantContext();
+  if (!tenant) return null;
+  const reviews = await fetchPeerReviews(tenant.organizationId, conclusionId);
 
   function verdictColor(verdict: string): string {
     switch (verdict) {

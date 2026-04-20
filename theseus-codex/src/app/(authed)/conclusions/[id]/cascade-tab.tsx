@@ -1,7 +1,17 @@
 import { fetchCascade, type CascadeNode } from "@/lib/api/round3";
+import { requireTenantContext } from "@/lib/tenant";
 
+/**
+ * Cascade tab on the conclusion-detail page.
+ *
+ * The raw-SQL `cascade_node` fetch is tenant-scoped at the query
+ * layer; we resolve the founder's org here and forward the id so
+ * cross-tenant conclusion ids can't leak a downstream tree.
+ */
 export default async function CascadeTab({ conclusionId }: { conclusionId: string }) {
-  const roots = await fetchCascade(conclusionId);
+  const tenant = await requireTenantContext();
+  if (!tenant) return null;
+  const roots = await fetchCascade(tenant.organizationId, conclusionId);
 
   if (roots.length === 0) {
     return (

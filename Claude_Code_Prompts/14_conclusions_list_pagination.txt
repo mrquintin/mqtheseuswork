@@ -1,0 +1,90 @@
+# Claude Code Prompt 14 of 25 — Feature: add pagination to the conclusions list
+
+**Sequence:** prompt 14 of 25 (Wave 4 — independent of prompts 12, 13, 15, 16). When you finish, report back with: files you created/modified, any notable choices, any blockers.
+
+**Before you start — read current state:**
+1. Read `theseus-codex/src/app/(authed)/conclusions/page.tsx` — note the hard-coded `take: 80` with no pagination.
+
+## The problem
+
+The conclusions list hard-codes `take: 80` — there are no "next page" or "previous page" controls, no total count, and no way to browse beyond the first 80 results. A firm with extensive analysis will quickly exceed this limit and have no access to older conclusions.
+
+## Your task
+
+Add cursor-based pagination to the conclusions list. Use URL query parameters (`?page=2` or `?cursor=<id>`) so pages are bookmarkable and the browser back button works.
+
+## SCOPE (files you may modify — stay within this list)
+- `theseus-codex/src/app/(authed)/conclusions/page.tsx`    MODIFY
+
+## Step-by-step
+
+1. **Add page parameter.** Accept `page` from `searchParams`. Default to 1. Define a page size constant:
+   ```typescript
+   const PAGE_SIZE = 40;
+   const page = Math.max(1, parseInt(sp.page || "1", 10));
+   ```
+
+2. **Fetch one extra row** to determine if there's a next page:
+   ```typescript
+   const rows = await db.conclusion.findMany({
+     where,
+     orderBy: { createdAt: "desc" },
+     take: PAGE_SIZE + 1,
+     skip: (page - 1) * PAGE_SIZE,
+     include: { attributedFounder: { select: { name: true } } },
+   });
+   const hasNext = rows.length > PAGE_SIZE;
+   const display = hasNext ? rows.slice(0, PAGE_SIZE) : rows;
+   ```
+
+3. **Get total count** for a results summary:
+   ```typescript
+   const total = await db.conclusion.count({ where });
+   ```
+
+4. **Add pagination controls** below the conclusions list:
+   ```tsx
+   <div style={{
+     display: "flex",
+     justifyContent: "space-between",
+     alignItems: "center",
+     marginTop: "1.5rem",
+     padding: "0.75rem 0",
+     borderTop: "1px solid var(--border)",
+   }}>
+     <span style={{ fontSize: "0.7rem", color: "var(--parchment-dim)" }}>
+       {total} conclusion{total !== 1 ? "s" : ""} · page {page}
+     </span>
+     <div style={{ display: "flex", gap: "0.5rem" }}>
+       {page > 1 && (
+         <Link href={buildPageUrl(page - 1)} className="btn" style={{ fontSize: "0.65rem", textDecoration: "none" }}>
+           ← Previous
+         </Link>
+       )}
+       {hasNext && (
+         <Link href={buildPageUrl(page + 1)} className="btn" style={{ fontSize: "0.65rem", textDecoration: "none" }}>
+           Next →
+         </Link>
+       )}
+     </div>
+   </div>
+   ```
+
+5. **Build page URLs that preserve other params.** Write a helper that keeps `tier`, `topic`, and `q` (if search was added by prompt 13) while changing the page:
+   ```typescript
+   function buildPageUrl(p: number): string {
+     const params = new URLSearchParams();
+     if (sp.tier) params.set("tier", sp.tier);
+     if (sp.topic) params.set("topic", sp.topic);
+     if (sp.q) params.set("q", sp.q);
+     if (p > 1) params.set("page", String(p));
+     const qs = params.toString();
+     return `/conclusions${qs ? `?${qs}` : ""}`;
+   }
+   ```
+
+6. **Reset to page 1** when filters change. The tier chip links should NOT include a `page` parameter — clicking a filter should always go to page 1 of that filter.
+
+7. **Do NOT change** the replay mode branch. Pagination only applies to the normal (database-backed) view.
+
+Do not proceed to any other work. Do not edit anything outside SCOPE.

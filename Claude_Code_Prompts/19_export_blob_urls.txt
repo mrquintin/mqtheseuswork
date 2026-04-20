@@ -1,0 +1,84 @@
+# Claude Code Prompt 19 of 25 — Bug fix: replace data: URI exports with Blob URLs
+
+**Sequence:** prompt 19 of 25 (Wave 5 — independent of prompts 17, 18, 20, 21). When you finish, report back with: files you created/modified, any notable choices, any blockers.
+
+**Before you start — read current state:**
+1. Read `theseus-codex/src/lib/api/round3.ts` — note the `downloadHref` function: `return \`data:${mime};charset=utf-8,${encodeURIComponent(data)}\``.
+2. Search for all usages of `downloadHref` across the codebase: `grep -r "downloadHref" theseus-codex/src/`.
+3. Note that `downloadHref` is called in server components and the result is passed as an `href` attribute to `<a>` elements.
+
+## The problem
+
+The `downloadHref` function creates data: URIs by encoding the entire dataset into the URL. For large datasets (hundreds of peer reviews, decay records, etc.), this creates URLs that are megabytes long. This has multiple failure modes:
+- Browsers have URL length limits (2MB in Chrome, varying in others)
+- The URL is embedded in the server-rendered HTML, bloating page size
+- `encodeURIComponent` on a large string is CPU-intensive and blocks the event loop
+
+## Your task
+
+Replace the data: URI approach with a client-side Blob URL approach, or with a server-side download endpoint. Since the pages are server components, the cleanest solution is a thin client component that generates Blob URLs on the client side.
+
+## SCOPE (files you may create or modify — stay within this list)
+- `theseus-codex/src/components/DownloadButton.tsx`                     CREATE
+- `theseus-codex/src/lib/api/round3.ts`                                 MODIFY (remove or deprecate downloadHref)
+- `theseus-codex/src/app/(authed)/peer-review/[conclusionId]/page.tsx`  MODIFY
+- `theseus-codex/src/app/(authed)/decay/page.tsx`                        MODIFY
+- `theseus-codex/src/app/(authed)/post-mortem/page.tsx`                  MODIFY
+- Any other files that use `downloadHref`                                MODIFY
+
+## Step-by-step
+
+1. **Create `DownloadButton.tsx`** — a client component that generates a Blob URL on click:
+   ```tsx
+   "use client";
+   import { useCallback } from "react";
+
+   export default function DownloadButton({
+     data,
+     filename,
+     mime,
+     label,
+     className,
+     style,
+   }: {
+     data: string;
+     filename: string;
+     mime: string;
+     label: string;
+     className?: string;
+     style?: React.CSSProperties;
+   }) {
+     const handleClick = useCallback(() => {
+       const blob = new Blob([data], { type: `${mime};charset=utf-8` });
+       const url = URL.createObjectURL(blob);
+       const a = document.createElement("a");
+       a.href = url;
+       a.download = filename;
+       a.click();
+       URL.revokeObjectURL(url);
+     }, [data, filename, mime]);
+
+     return (
+       <button type="button" onClick={handleClick} className={className} style={style}>
+         {label}
+       </button>
+     );
+   }
+   ```
+
+2. **Replace all `<a href={downloadHref(...)}>` patterns** with `<DownloadButton>`. For example, in the peer review page:
+   ```tsx
+   // Before:
+   <a href={downloadHref(csvData, "text/csv")} download="peer-review.csv" className="btn">Download CSV</a>
+
+   // After:
+   <DownloadButton data={csvData} filename="peer-review.csv" mime="text/csv" label="Download CSV" className="btn" style={{ fontSize: "0.65rem" }} />
+   ```
+
+3. **Update every page that uses `downloadHref`.** Search results from step 2 of "Before you start" will tell you which files.
+
+4. **Keep `toCSV` in round3.ts** — it's still useful. You may keep `downloadHref` for backwards compatibility or remove it and its imports if all usages are replaced.
+
+5. **Do NOT change** any data formatting, CSV generation logic, or page layout. Only replace the download mechanism.
+
+Do not proceed to any other work. Do not edit anything outside SCOPE.
