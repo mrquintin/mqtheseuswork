@@ -195,23 +195,30 @@ function parseRgb(color: string): [number, number, number] {
  * number of bands is (we pick 16, well below any visible banding
  * threshold at the glyph scales we render at).
  *
- * `minBrightness` caps the low end so the farthest bands don't fade
- * completely to black — a glyph at 0 % brightness is indistinguishable
- * from page background and the figure's back surfaces would just
- * disappear. 0.35 keeps the dimmest glyph roughly one-third as bright
- * as the brightest, which reads as a strong volumetric gradient
- * without dropping the back of the figure below the contrast floor.
+ * `minBrightness` is the floor for the dimmest band. See the
+ * `DEPTH_MIN_BRIGHTNESS` constant below for the rationale behind the
+ * specific value — the gist is that too low a floor reads as "the
+ * figure is transparent", too high a floor flattens the depth cue.
+ *
+ * `gamma` bends the linear depth→brightness mapping toward the bright
+ * end. With `gamma < 1`, mid-depth cells land noticeably closer to
+ * the max than to the min — i.e. "most of the figure reads as solid
+ * amber, only the deepest recesses pull back to the floor". That
+ * matches what a viewer expects from a 3D lit object: the front half
+ * is fully illuminated, the back quarter is visibly shaded, the
+ * middle is mostly still lit. `gamma = 1` is plain linear.
  */
 function buildDepthLUT(
   rgb: readonly [number, number, number],
   bands: number,
   minBrightness: number,
+  gamma: number,
 ): string[] {
   const lut: string[] = [];
   const span = 1 - minBrightness;
   for (let b = 0; b < bands; b++) {
     const t = bands <= 1 ? 1 : b / (bands - 1);
-    const brightness = minBrightness + t * span;
+    const brightness = minBrightness + Math.pow(t, gamma) * span;
     const r = Math.round(rgb[0] * brightness);
     const g = Math.round(rgb[1] * brightness);
     const bl = Math.round(rgb[2] * brightness);
@@ -224,9 +231,48 @@ function buildDepthLUT(
  *  continuous gradient at our glyph sizes and keeps the per-frame
  *  fillStyle assignment count low. */
 const DEPTH_BANDS = 16;
-/** Floor for the dimmest band — 35 % of full amber. Below this the
- *  glyph starts to blend into the page background on the dark theme. */
-const DEPTH_MIN_BRIGHTNESS = 0.35;
+/**
+ * Floor for the dimmest depth band, expressed as a fraction of the
+ * resolved amber colour.
+ *
+ * The early version of this rendering used 0.35 — a 3× near-to-far
+ * contrast ratio that read as "the front of the figure is amber, the
+ * back is almost black". Reported effect: the figure looked
+ * transparent, as if you could see through it to the page behind —
+ * because the dimmed back glyphs had so little contrast against the
+ * dark background that they read as absent rather than as shaded
+ * surface.
+ *
+ * Raised to 0.70 with `DEPTH_GAMMA = 0.55`. New behaviour:
+ *
+ *   - The near:far brightness ratio is still ~1.43× in the LUT, but
+ *     the gamma curve pushes MOST cells close to full amber. The
+ *     figure reads as a solid, opaque object.
+ *   - Lambert-shaded grooves and shadows remain legible because they
+ *     come from the source canvas's ALPHA channel (density), not from
+ *     depth colour: a groove with low Lambert produces a sparser
+ *     glyph cluster (or a "—" instead of a "█"), which now sits
+ *     against a solid surround of brighter glyphs and reads clearly
+ *     as a dark line.
+ *   - Only cells whose NEAREST VISIBLE TRIANGLE is deeply behind the
+ *     figure's average depth drop toward the floor — back-corner
+ *     edges, back-facing surfaces visible through hollows. Enough to
+ *     give the figure 3D weight without making the rest ghostly.
+ */
+const DEPTH_MIN_BRIGHTNESS = 0.7;
+/**
+ * Exponent applied to the normalised depth before mapping onto the
+ * `[minBrightness, 1]` range. Values < 1 pull mid-depth cells UP
+ * toward the bright end (more of the figure reads as solid); values
+ * > 1 pull them down (more of the figure reads as shadowed).
+ *
+ * 0.55 tested as the sweet spot: a 0.5-depth cell lands at brightness
+ * 0.91 (i.e. 91 % of full amber) rather than the 0.85 a linear mapping
+ * would produce. That puts the perceptual break between "solid body"
+ * and "shaded recess" at roughly the back 30 % of the depth range
+ * instead of splitting the figure down the middle.
+ */
+const DEPTH_GAMMA = 0.55;
 
 export default function AsciiCanvas({
   cols,
@@ -393,7 +439,12 @@ export default function AsciiCanvas({
       }
       const hasDepthSignal = depthPeak >= 12; // ≥ ~5 % of full scale
       if (hasDepthSignal) {
-        depthLUT = buildDepthLUT(rgb, DEPTH_BANDS, DEPTH_MIN_BRIGHTNESS);
+        depthLUT = buildDepthLUT(
+          rgb,
+          DEPTH_BANDS,
+          DEPTH_MIN_BRIGHTNESS,
+          DEPTH_GAMMA,
+        );
       }
       let lastBand = -1;
 
