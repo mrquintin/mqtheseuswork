@@ -308,11 +308,14 @@ export async function ensureAudioBucketCapacity(requiredBytes: number): Promise<
     cfg.bucket,
   )}`;
 
-  // Supabase Storage accepts PATCH on `/bucket/:id` with a partial
-  // body; only the fields you pass are updated. We send file_size_limit
-  // only — `public`, `name`, `allowed_mime_types` stay untouched.
+  // Supabase Storage exposes `PUT /bucket/:id` for bucket updates
+  // (PATCH is not a registered route — verified against prod with a
+  // 404 "Route PATCH:/bucket/audio not found"). The body is a
+  // partial-update: only the fields you send are changed; `public`,
+  // `name`, `allowed_mime_types` stay untouched. We send
+  // file_size_limit only.
   const res = await fetch(endpoint, {
-    method: "PATCH",
+    method: "PUT",
     headers: {
       Authorization: `Bearer ${cfg.key}`,
       apikey: cfg.key,
