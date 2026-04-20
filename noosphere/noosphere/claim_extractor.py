@@ -25,6 +25,12 @@ class ClaimExtractionItem(BaseModel):
     type: ClaimType
     confidence_hedges: list[str] = Field(default_factory=list)
     evidence_pointers: list[str] = Field(default_factory=list)
+    # True when the text is an assertion the AUTHOR of the chunk is
+    # actually endorsing. False for interview prompts, counter-positions
+    # the author is arguing against, quoted/paraphrased opposing views,
+    # rhetorical questions, etc. Default True so cached responses from
+    # earlier schema versions don't flip every existing claim to external.
+    is_author_assertion: bool = True
 
 
 class ClaimExtractionResponse(BaseModel):
@@ -60,9 +66,22 @@ class ClaimExtractor:
 
         system = (
             "You extract atomic truth-apt claims from a text chunk. "
+            "CRITICAL: You must distinguish between claims the AUTHOR is asserting "
+            "and claims from external sources (interview questions, debate prompts, "
+            "quoted opposing views, paraphrased challenges, rhetorical questions). "
+            "Only extract claims the author is genuinely endorsing or asserting as "
+            "their own position. "
+            "Do NOT extract: (1) questions asked TO the author, (2) positions the "
+            "author is arguing AGAINST, (3) prompts or challenges the author is "
+            "responding to, (4) hypothetical positions the author raises only to refute. "
+            "If the text is a response to a prompt or question, focus ONLY on the "
+            "author's response, not the prompt itself. "
+            "Set is_author_assertion=false for any claim that originated from an "
+            "external source the author is engaging with but not endorsing. "
             "Reply with JSON only matching schema: "
             '{"claims":[{"text":str,"type":"empirical|normative|methodological|'
-            'predictive|definitional","confidence_hedges":[str],"evidence_pointers":[str]}]}'
+            'predictive|definitional","confidence_hedges":[str],"evidence_pointers":[str],'
+            '"is_author_assertion":bool}]}'
         )
         meta = json.dumps(chunk.metadata, ensure_ascii=False)
         user = f"Chunk metadata: {meta}\n\nChunk text:\n{chunk.text}\n"
@@ -98,6 +117,13 @@ class ClaimExtractor:
         for item in resp.claims:
             if not item.text.strip():
                 continue
+            # Flip to EXTERNAL when the LLM flagged the claim as not the
+            # author's own assertion — downstream filters (codex_bridge,
+            # coherence engine) drop these or tag them separately so
+            # founder beliefs aren't polluted with prompts / counter-
+            # positions / rhetorical questions the author was only
+            # engaging with.
+            origin = claim_origin if item.is_author_assertion else ClaimOrigin.EXTERNAL
             out.append(
                 Claim(
                     text=item.text.strip(),
@@ -109,7 +135,7 @@ class ClaimExtractor:
                     confidence_hedges=list(item.confidence_hedges),
                     evidence_pointers=list(item.evidence_pointers),
                     segment_context=chunk.text[:500],
-                    claim_origin=claim_origin,
+                    claim_origin=origin,
                 )
             )
         return out

@@ -279,8 +279,16 @@ def llm_extract_claims(
             )
         )
         for c in result.claims:
-            if c.text.strip():
-                out.append(NaiveClaim(text=c.text.strip(), claim_type=c.claim_type))
+            if not c.text.strip():
+                continue
+            # Drop claims the LLM flagged as external (interview prompts,
+            # counter-positions, quoted views) so they never land in the
+            # founder's Conclusion canon. This is defense-in-depth: the
+            # extractor already labels them, the bridge refuses to
+            # propagate them.
+            if getattr(c, "is_author_assertion", True) is False:
+                continue
+            out.append(NaiveClaim(text=c.text.strip(), claim_type=c.claim_type))
     return out
 
 
@@ -575,6 +583,22 @@ def ingest_from_codex(
                 ("processing", upload_id),
             )
             conn.commit()
+
+        # ── Strip interview prompts / external quotes BEFORE extraction ─
+        # Defense-in-depth against misattributing external text as
+        # founder claims. Failures here log & fall through to raw text.
+        try:
+            from noosphere.mitigations.prompt_separator import PromptSeparator
+            separated = PromptSeparator().separate(text, source_type="written")
+            print(
+                f"prompt_separator founder_sections={len(separated.founder_sections)} "
+                f"prompt_sections={len(separated.prompt_sections)} "
+                f"confidence={separated.confidence:.2f}"
+            )
+            if separated.founder_sections:
+                text = separated.founder_text
+        except Exception as sep_err:
+            print(f"prompt_separator_failed: {sep_err}")
 
         # ── Extract claims ───────────────────────────────────────────────
         if use_llm:

@@ -282,6 +282,12 @@ class ClaimOrigin(str, Enum):
     codebase (see adversarial.py, voices.py, literature.py, retrieval.py).
     """
     FOUNDER = "founder"
+    # Text in the upload that isn't the founder's own assertion —
+    # interview prompts, debate positions being argued against, quoted
+    # opposing views, rhetorical challenges. Surfaced so downstream
+    # systems (coherence, contradictions, codex sync) can drop or tag
+    # them rather than treat them as founder beliefs.
+    EXTERNAL = "external"
     LITERATURE = "literature"
     ADVERSARIAL = "adversarial"
     VOICE = "voice"

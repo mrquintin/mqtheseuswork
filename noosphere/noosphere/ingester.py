@@ -362,8 +362,17 @@ Each claim should be:
 - Free of meta-discourse, social niceties, and questions
 - Substantive and propositional
 
+CRITICAL: For each claim, set `is_author_assertion` to true only if the
+segment's speaker is actually endorsing the claim as their own position.
+Set it to false when the claim is:
+  (1) a question asked TO the speaker (interview prompt, debate challenge),
+  (2) a position the speaker is arguing AGAINST,
+  (3) a hypothetical the speaker raises only to refute,
+  (4) a quoted or paraphrased external view.
+Do not extract the prompt itself — only the speaker's own response.
+
 For each segment, output claims in JSON format:
-{{"segment_index": N, "claims": ["claim 1", "claim 2", ...]}}
+{{"segment_index": N, "claims": [{{"text": "claim 1", "is_author_assertion": true}}, ...]}}
 
 Output a JSON array of these objects. If a segment has no valid claims, use empty array.
 
@@ -406,8 +415,28 @@ Transcript segments:
                     segment_idx = result.get('segment_index', 0)
                     if 0 <= segment_idx < len(segments):
                         segment = segments[segment_idx]
-                        for claim_text in result.get('claims', []):
+                        for claim_entry in result.get('claims', []):
+                            # Back-compat: older cached responses / older
+                            # prompts emitted plain strings. Normalise to
+                            # the dict shape with is_author_assertion=True
+                            # so nothing silently loses text.
+                            if isinstance(claim_entry, str):
+                                claim_text = claim_entry
+                                is_author = True
+                            elif isinstance(claim_entry, dict):
+                                claim_text = claim_entry.get("text", "")
+                                is_author = bool(claim_entry.get("is_author_assertion", True))
+                            else:
+                                continue
+                            if not claim_text:
+                                continue
                             if self._is_valid_claim(claim_text):
+                                from noosphere.models import ClaimOrigin
+                                origin = (
+                                    ClaimOrigin.FOUNDER
+                                    if is_author
+                                    else ClaimOrigin.EXTERNAL
+                                )
                                 claim = Claim(
                                     text=claim_text.strip(),
                                     speaker=segment.speaker,
@@ -415,7 +444,8 @@ Transcript segments:
                                     episode_date=date.today(),  # Will be set by ingester
                                     segment_context=segment.text,
                                     timestamp_seconds=segment.start_time,
-                                    confidence=0.9
+                                    confidence=0.9,
+                                    claim_origin=origin,
                                 )
                                 claims.append(claim)
 
@@ -762,7 +792,35 @@ class TranscriptIngester:
             self.logger.error(f"Failed to read transcript: {e}")
             raise
 
-        # 2. Parse into segments
+        # 2a. Strip interview prompts / external quotes from the text
+        #     BEFORE segmenting. Defense-in-depth with the per-claim
+        #     is_author_assertion check the extractor does downstream:
+        #     removing prompts at the raw-text stage means the extractor
+        #     never sees them, eliminating the chance of a prompt being
+        #     misclassified as a founder assertion by the LLM.
+        try:
+            from noosphere.mitigations.prompt_separator import PromptSeparator
+            founder_names: list[str] = []
+            if speaker_list:
+                founder_names = [sp.name for sp in speaker_list if getattr(sp, "name", "")]
+            separated = PromptSeparator(founder_names=founder_names).separate(
+                transcript_text, source_type="transcript"
+            )
+            self.logger.info(
+                "prompt_separator "
+                f"founder_sections={len(separated.founder_sections)} "
+                f"prompt_sections={len(separated.prompt_sections)} "
+                f"confidence={separated.confidence:.2f}"
+            )
+            if separated.founder_sections:
+                transcript_text = separated.founder_text
+        except Exception as sep_err:
+            # Any failure in the guard is logged and bypassed — we'd
+            # rather ingest the raw text than block a whole upload on a
+            # pre-processing issue.
+            self.logger.warning(f"prompt_separator_failed: {sep_err}")
+
+        # 2b. Parse into segments
         default_speaker = speaker_list[0] if speaker_list else None
         segments = self.parser.parse(
             transcript_text,

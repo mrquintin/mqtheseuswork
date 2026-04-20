@@ -1,0 +1,17 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "theseus-codex (Next.js dev)",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "dev", "--prefix", "theseus-codex"],
+      "port": 3000
+    },
+    {
+      "name": "theseus-codex ingest worker",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "worker:ingest", "--prefix", "theseus-codex"],
+      "port": 0
+    }
+  ]
+}
