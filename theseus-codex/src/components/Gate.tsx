@@ -48,17 +48,71 @@ const AsciiHero = dynamic(() => import("./AsciiHero"), {
  */
 
 type Phase = "idle" | "submitting" | "entering";
+/**
+ * The Gate has two modes:
+ *
+ *   "login"  — the classic sign-in form. Default.
+ *   "rotate" — unauthenticated password rotation. Lets a founder
+ *              change their passphrase without being logged in first
+ *              (useful when they've stopped trusting their current
+ *              passphrase for any reason — leaked, shared, or just
+ *              time for a refresh). On success the server rotates
+ *              the hash AND mints a session with the new passphrase,
+ *              so the same "entering → /dashboard" ignition ritual
+ *              plays immediately afterwards. No admin involvement.
+ *
+ * Both modes share the entering/submitting phase machine and the
+ * same post-auth navigation path so the success flow feels
+ * identical.
+ */
+type Mode = "login" | "rotate";
 
 function GateInner() {
   const router = useRouter();
   const searchParams = useSearchParams();
+  const [mode, setMode] = useState<Mode>("login");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [organizationSlug, setOrganizationSlug] = useState("theseus-local");
+  // Rotate-mode-only fields. Kept in state even when mode="login"
+  // so toggling back and forth doesn't drop user input mid-flight.
+  const [newPassword, setNewPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
   const [error, setError] = useState("");
   const [phase, setPhase] = useState<Phase>("idle");
 
-  async function handleSubmit(e: React.FormEvent) {
+  function toggleMode() {
+    if (phase !== "idle") return;
+    setError("");
+    setMode((m) => (m === "login" ? "rotate" : "login"));
+  }
+
+  /**
+   * Shared post-success choreography: play the ignition animation
+   * for ~720ms, then push to the resolved next URL. Used by BOTH
+   * the login submit and the rotate submit so the two paths share
+   * the same cinematic arrival.
+   */
+  function enterCodex() {
+    setPhase("entering");
+    try {
+      window.sessionStorage.setItem("codex:just-entered", "1");
+    } catch {
+      /* private-mode / disabled storage is non-fatal. */
+    }
+    const holdMs =
+      typeof window !== "undefined" &&
+      window.matchMedia("(prefers-reduced-motion: reduce)").matches
+        ? 200
+        : 720;
+    window.setTimeout(() => {
+      const next = searchParams.get("next") || "/dashboard";
+      router.push(next.startsWith("/") ? next : "/dashboard");
+      router.refresh();
+    }, holdMs);
+  }
+
+  async function handleLoginSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError("");
     setPhase("submitting");
@@ -77,35 +131,55 @@ function GateInner() {
         return;
       }
 
-      // Auth succeeded. Play the ignition animation before navigating so
-      // the user arrives inside the Codex rather than cutting to it. The
-      // dashboard side reads the session flag on first mount and plays
-      // the arrival half of the animation (fade-in from amber + Latin
-      // welcome tag) — see EntranceWelcome in the (authed) layout.
-      setPhase("entering");
-      try {
-        // sessionStorage is fine: it survives the navigation but is
-        // scoped to this tab, so a subsequent manual refresh doesn't
-        // replay the animation.
-        window.sessionStorage.setItem("codex:just-entered", "1");
-      } catch {
-        /* private-mode / disabled storage is non-fatal; arrival just won't animate. */
+      enterCodex();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Network error");
+      setPhase("idle");
+    }
+  }
+
+  async function handleRotateSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    setError("");
+    // Client-side mirrors of the server's rules so the user gets
+    // instant feedback without a round-trip. Server re-validates.
+    if (newPassword.length < 8) {
+      setError("New passphrase must be at least 8 characters.");
+      return;
+    }
+    if (newPassword !== confirmPassword) {
+      setError("New passphrase and confirmation don't match.");
+      return;
+    }
+    if (newPassword === password) {
+      setError("New passphrase must differ from the current one.");
+      return;
+    }
+    setPhase("submitting");
+
+    try {
+      const res = await fetch("/api/auth/rotate-password", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          email,
+          organizationSlug,
+          currentPassword: password,
+          newPassword,
+        }),
+      });
+
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        setError(data.error || "Passphrase rotation failed");
+        setPhase("idle");
+        return;
       }
 
-      // Match the CSS keyframe duration. The gate-leave animation
-      // (hairline sweep + fade-down) runs ~700ms; hold a hair past
-      // that so the sweep completes before the navigation resolves.
-      const holdMs =
-        typeof window !== "undefined" &&
-        window.matchMedia("(prefers-reduced-motion: reduce)").matches
-          ? 200
-          : 720;
-
-      window.setTimeout(() => {
-        const next = searchParams.get("next") || "/dashboard";
-        router.push(next.startsWith("/") ? next : "/dashboard");
-        router.refresh();
-      }, holdMs);
+      // The rotate-password route mints a session on success, so the
+      // caller is logged in with the new credential — we can play the
+      // same ignition animation and drop them into /dashboard.
+      enterCodex();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Network error");
       setPhase("idle");
@@ -222,12 +296,27 @@ function GateInner() {
       {/* The form. Hidden on `entering`; pointer-events off on `submitting`
           so the user can't double-fire the request. The ascii-frame class
           gives it the labeled bordered look that matches the Dashboard
-          sections so the gate feels like part of the same vocabulary. */}
+          sections so the gate feels like part of the same vocabulary.
+
+          Two modes share the same frame — the toggle at the bottom
+          flips between login and passphrase-rotation. Rotation needs
+          two extra fields (new passphrase + confirmation) and swaps
+          the action, but every other affordance (organization, email,
+          current passphrase, submit button, error line) stays the same
+          between modes so there's no visual discontinuity. */}
       <form
-        onSubmit={handleSubmit}
-        aria-label="Sign in to the Theseus Codex"
+        onSubmit={mode === "login" ? handleLoginSubmit : handleRotateSubmit}
+        aria-label={
+          mode === "login"
+            ? "Sign in to the Theseus Codex"
+            : "Rotate passphrase from the Theseus Codex gate"
+        }
         className={`ascii-frame${phase === "entering" ? " gate-leave" : ""}`}
-        data-label="INTROITUS · ENTER"
+        data-label={
+          mode === "login"
+            ? "INTROITUS · ENTER"
+            : "CLAVIS · ROTATE PASSPHRASE"
+        }
         style={{
           width: "min(420px, 100%)",
           display: "flex",
@@ -267,7 +356,9 @@ function GateInner() {
           />
         </FormField>
 
-        <FormField label="Passphrase">
+        <FormField
+          label={mode === "login" ? "Passphrase" : "Current passphrase"}
+        >
           <input
             type="password"
             value={password}
@@ -278,6 +369,39 @@ function GateInner() {
             disabled={isLocked}
           />
         </FormField>
+
+        {mode === "rotate" ? (
+          <>
+            <FormField
+              label="New passphrase"
+              hint={<>At least 8 characters. Must differ from current.</>}
+            >
+              <input
+                type="password"
+                value={newPassword}
+                onChange={(e) => setNewPassword(e.target.value)}
+                placeholder="••••••••"
+                autoComplete="new-password"
+                minLength={8}
+                required
+                disabled={isLocked}
+              />
+            </FormField>
+
+            <FormField label="Confirm new passphrase">
+              <input
+                type="password"
+                value={confirmPassword}
+                onChange={(e) => setConfirmPassword(e.target.value)}
+                placeholder="••••••••"
+                autoComplete="new-password"
+                minLength={8}
+                required
+                disabled={isLocked}
+              />
+            </FormField>
+          </>
+        ) : null}
 
         {error ? (
           <p
@@ -305,22 +429,57 @@ function GateInner() {
             position: "relative",
           }}
         >
-          {phase === "idle" && "Enter the Codex"}
-          {phase === "submitting" && "Opening the gate…"}
+          {phase === "idle" &&
+            (mode === "login"
+              ? "Enter the Codex"
+              : "Rotate passphrase & enter")}
+          {phase === "submitting" &&
+            (mode === "login"
+              ? "Opening the gate…"
+              : "Rotating passphrase…")}
           {phase === "entering" && "Crossing the threshold…"}
+        </button>
+
+        {/* Mode toggle. A single text button swaps the form between
+            login and rotation. Disabled while the form is mid-flight
+            so the user can't change modes after submit. */}
+        <button
+          type="button"
+          onClick={toggleMode}
+          disabled={isLocked}
+          className="mono"
+          style={{
+            background: "none",
+            border: "none",
+            color: "var(--amber-dim)",
+            cursor: isLocked ? "not-allowed" : "pointer",
+            fontSize: "0.7rem",
+            letterSpacing: "0.18em",
+            textTransform: "uppercase",
+            textAlign: "center",
+            padding: "0.25rem",
+            marginTop: "0.1rem",
+            opacity: isLocked ? 0.55 : 1,
+          }}
+        >
+          {mode === "login"
+            ? "Change passphrase instead →"
+            : "← Back to sign in"}
         </button>
 
         <p
           className="mono"
           style={{
             textAlign: "center",
-            marginTop: "0.5rem",
+            marginTop: "0.25rem",
             fontSize: "0.7rem",
             letterSpacing: "0.1em",
             color: "var(--parchment-dim)",
           }}
         >
-          Contact an admin for credentials.
+          {mode === "login"
+            ? "Contact an admin for credentials."
+            : "Rotation needs your current passphrase; if you've lost it, an admin must reset the account."}
         </p>
       </form>
     </main>
