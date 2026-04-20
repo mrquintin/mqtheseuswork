@@ -56,7 +56,7 @@ model Founder {
   username     String
   email        String
   passwordHash String
-  role         String @default("founder") // founder | admin
+  role         String  @default("founder") // founder | admin
   bio          String?
   avatar       String?
 
@@ -70,11 +70,11 @@ model Founder {
   uploads               Upload[]
   auditEvents           AuditEvent[]
   deletionRequests      DeletionRequest[]
-  attributedConclusions Conclusion[] @relation("ConclusionFounder")
+  attributedConclusions Conclusion[]         @relation("ConclusionFounder")
   researchSuggestions   ResearchSuggestion[]
-  reviewResolutions     ReviewItem[] @relation("ReviewResolver")
-  publicationReviews  PublicationReview[] @relation("PublicationReviewer")
-  apiKeys             ApiKey[]
+  reviewResolutions     ReviewItem[]         @relation("ReviewResolver")
+  publicationReviews    PublicationReview[]  @relation("PublicationReviewer")
+  apiKeys               ApiKey[]
 
   @@unique([organizationId, email])
   @@unique([organizationId, username])
@@ -83,10 +83,10 @@ model Founder {
 
 /// Browser session (server-side row; cookie carries signed opaque token)
 model Session {
-  id             String @id @default(cuid())
+  id             String   @id @default(cuid())
   organizationId String
   founderId      String
-  token          String @unique
+  token          String   @unique
   expiresAt      DateTime
   createdAt      DateTime @default(now())
 
@@ -104,23 +104,23 @@ model Upload {
   organizationId String
   founderId      String
 
-  title            String
-  description      String?
-  sourceType       String @default("written") // written | annotation | external | transcript
-  originalName     String
-  mimeType         String
-  filePath         String
-  fileSize         Int
-  textContent      String?
-  status           String @default("pending") // pending | processing | ingested | failed
-  processLog       String @default("") // streamed CLI stdout/stderr
-  claimsCount      Int?
-  methodCount      Int?
-  substCount       Int?
-  principleCount   Int?
-  errorMessage     String?
-  createdAt        DateTime @default(now())
-  updatedAt        DateTime @updatedAt
+  title          String
+  description    String?
+  sourceType     String   @default("written") // written | annotation | external | transcript
+  originalName   String
+  mimeType       String
+  filePath       String
+  fileSize       Int
+  textContent    String?
+  status         String   @default("pending") // pending | processing | ingested | failed
+  processLog     String   @default("") // streamed CLI stdout/stderr
+  claimsCount    Int?
+  methodCount    Int?
+  substCount     Int?
+  principleCount Int?
+  errorMessage   String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
 
   // ── Public blog fields ─────────────────────────────────────────────
   // An Upload becomes a public blog post when `publishedAt IS NOT NULL`.
@@ -133,10 +133,10 @@ model Upload {
   // `authorBio` lets the founder override the displayed byline (e.g.
   // for guest posts or co-authored work); otherwise we show
   // Founder.name.
-  publishedAt      DateTime?
-  slug             String?   @unique
-  blogExcerpt      String?
-  authorBio        String?
+  publishedAt DateTime?
+  slug        String?   @unique
+  blogExcerpt String?
+  authorBio   String?
 
   // ── Soft delete ────────────────────────────────────────────────────
   // `deletedAt` is the single source of truth for "this upload has
@@ -147,7 +147,7 @@ model Upload {
   // mistake. Only the uploader can set this directly; peers must go
   // through a DeletionRequest, which the owner accepts (setting
   // `deletedAt=now`) or declines.
-  deletedAt        DateTime?
+  deletedAt DateTime?
 
   // ── Visibility inside the firm ─────────────────────────────────────
   // "org"     → visible to every founder in the organization (default,
@@ -159,7 +159,7 @@ model Upload {
   //              see the file, read it, or open a deletion request
   //              against it. Blog-publishing a private upload is
   //              rejected at the API layer — flip visibility first.
-  visibility       String @default("org")
+  visibility String @default("org")
 
   // ── Podcast / audio playback ───────────────────────────────────────
   // When an audio upload is stored in a public CDN-addressable
@@ -174,10 +174,25 @@ model Upload {
   audioUrl         String?
   audioDurationSec Int?
 
-  founder          Founder           @relation(fields: [founderId], references: [id])
-  organization     Organization      @relation(fields: [organizationId], references: [id], onDelete: Restrict)
-  auditEvents      AuditEvent[]
-  deletionRequests DeletionRequest[]
+  founder             Founder              @relation(fields: [founderId], references: [id])
+  organization        Organization         @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  auditEvents         AuditEvent[]
+  deletionRequests    DeletionRequest[]
+  // ── Provenance back-refs ─────────────────────────────────────────
+  // Derived entities (Conclusions via the M:N join, Contradictions,
+  // OpenQuestions, ResearchSuggestions directly) point back here so
+  // the delete path can cascade-clean any artifact whose source has
+  // been removed. `conclusionSources` is the many-to-many bridge —
+  // the same text can be extracted from multiple uploads, and each
+  // upload holds its own row in the bridge. The direct sourceUpload
+  // relations on the other three entities are one-per-row: a
+  // contradiction / open-question / research suggestion is an output
+  // of exactly one ingestion run, even when it references claims from
+  // multiple uploads.
+  conclusionSources   ConclusionSource[]
+  contradictions      Contradiction[]      @relation("ContradictionSourceUpload")
+  openQuestions       OpenQuestion[]       @relation("OpenQuestionSourceUpload")
+  researchSuggestions ResearchSuggestion[] @relation("ResearchSuggestionSourceUpload")
 
   @@index([organizationId])
   @@index([founderId])
@@ -204,13 +219,13 @@ model Upload {
 //     pair — the unique partial-index is added in the migration SQL.
 
 model DeletionRequest {
-  id          String   @id @default(cuid())
+  id          String    @id @default(cuid())
   uploadId    String
   requesterId String
-  status      String   @default("pending") // pending | accepted | declined | cancelled
+  status      String    @default("pending") // pending | accepted | declined | cancelled
   reason      String?
-  decision    String?  // optional note from the owner when accepting/declining
-  createdAt   DateTime @default(now())
+  decision    String? // optional note from the owner when accepting/declining
+  createdAt   DateTime  @default(now())
   respondedAt DateTime?
 
   upload    Upload  @relation(fields: [uploadId], references: [id], onDelete: Cascade)
@@ -230,21 +245,74 @@ model Conclusion {
   /// Stable id if synced from / produced for Noosphere
   noosphereId String? @unique
   text        String
-  confidenceTier String // firm | founder | open (ConfidenceTier)
-  rationale      String @default("")
-  supportingPrincipleIds String @default("[]") // JSON string[]
-  evidenceChainClaimIds   String @default("[]")
-  dissentClaimIds         String @default("[]")
-  confidence              Float  @default(0)
-  topicHint               String @default("") // UI filter / display
-  createdAt               DateTime @default(now())
+
+  // ── Dedup key ──────────────────────────────────────────────────────
+  // `normalizedText` is `LOWER(TRIM(REGEXP_REPLACE(text, '\s+', ' ')))`
+  // computed once at ingest time. The ingest pipeline checks for an
+  // existing Conclusion in the same org with a matching normalizedText;
+  // if one exists, it adds the current upload as an ADDITIONAL source
+  // via ConclusionSource rather than inserting a duplicate row. That's
+  // what makes deletion correct: when two uploads produced the same
+  // claim and we delete one, the conclusion stays — it's still
+  // supported by the other source.
+  //
+  // Nullable so the column can be added to an existing DB without a
+  // rewrite; the migration back-fills every existing row. Indexed
+  // `(organizationId, normalizedText)` because every lookup is scoped
+  // to a single org.
+  normalizedText         String?
+  confidenceTier         String // firm | founder | open (ConfidenceTier)
+  rationale              String   @default("")
+  supportingPrincipleIds String   @default("[]") // JSON string[]
+  evidenceChainClaimIds  String   @default("[]")
+  dissentClaimIds        String   @default("[]")
+  confidence             Float    @default(0)
+  topicHint              String   @default("") // UI filter / display
+  createdAt              DateTime @default(now())
 
   attributedFounderId String?
-  attributedFounder   Founder? @relation("ConclusionFounder", fields: [attributedFounderId], references: [id])
-  organization        Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  attributedFounder   Founder?            @relation("ConclusionFounder", fields: [attributedFounderId], references: [id])
+  organization        Organization        @relation(fields: [organizationId], references: [id], onDelete: Restrict)
   publicationReviews  PublicationReview[]
+  sources             ConclusionSource[]
 
   @@index([organizationId])
+  @@index([organizationId, normalizedText])
+}
+
+/// Many-to-many bridge Conclusion ↔ Upload.
+///
+/// Every conclusion that came out of the ingest pipeline has at least
+/// one row here tying it back to the upload it was extracted from.
+/// When the SAME normalized text appears in multiple uploads, the
+/// ingest pipeline reuses the existing Conclusion row and adds a new
+/// ConclusionSource row per additional upload, so the upstream count
+/// can drop from 2 → 1 → 0 as uploads are deleted.
+///
+/// Delete semantics (enforced by the app-side delete handlers, NOT by
+/// FK cascade — we soft-delete uploads, so the FK's ON DELETE CASCADE
+/// would not fire anyway):
+///
+///   * When an upload is soft-deleted, every ConclusionSource row
+///     with that uploadId is hard-deleted.
+///   * After that, any Conclusion with zero remaining rows is
+///     hard-deleted too (the claim's last source is gone).
+///   * Conclusions with sources from other uploads remain, just
+///     with one fewer row.
+///
+/// The FK cascade below still serves as a safety net for the rare
+/// case of a hard-delete (org takedown, privacy-law purge).
+model ConclusionSource {
+  conclusionId String
+  uploadId     String
+  createdAt    DateTime @default(now())
+
+  conclusion Conclusion @relation(fields: [conclusionId], references: [id], onDelete: Cascade)
+  upload     Upload     @relation(fields: [uploadId], references: [id], onDelete: Cascade)
+
+  @@id([conclusionId, uploadId])
+  @@index([conclusionId])
+  @@index([uploadId])
 }
 
 // ── Publication (SP10) — review queue + versioned public snapshots ───────────
@@ -256,20 +324,20 @@ model PublicationReview {
   conclusionId   String
 
   /// queued | in_review | needs_revision | declined | published
-  status           String @default("queued")
+  status        String @default("queued")
   /// JSON: { metaAnalysisOk, adversarialEngagedOk, clarityOk, noLeakageOk }
-  checklistJson    String @default("{}")
-  reviewerNotes    String @default("")
-  declineReason    String @default("")
-  revisionAsk      String @default("")
+  checklistJson String @default("{}")
+  reviewerNotes String @default("")
+  declineReason String @default("")
+  revisionAsk   String @default("")
 
   reviewerFounderId String?
   createdAt         DateTime @default(now())
   updatedAt         DateTime @updatedAt
 
   organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
-  target         Conclusion   @relation(fields: [conclusionId], references: [id], onDelete: Cascade)
-  reviewer       Founder?     @relation("PublicationReviewer", fields: [reviewerFounderId], references: [id])
+  target       Conclusion   @relation(fields: [conclusionId], references: [id], onDelete: Cascade)
+  reviewer     Founder?     @relation("PublicationReviewer", fields: [reviewerFounderId], references: [id])
 
   @@index([organizationId])
   @@index([conclusionId])
@@ -278,16 +346,16 @@ model PublicationReview {
 
 /// Immutable-ish public snapshot (new row per material revision).
 model PublishedConclusion {
-  id             String @id @default(cuid())
-  organizationId String
+  id                 String @id @default(cuid())
+  organizationId     String
   sourceConclusionId String
 
   slug    String
-  version Int @default(1)
+  version Int    @default(1)
 
   /// Headline discounted confidence (SP05); stated founder/model confidence alongside in JSON.
-  discountedConfidence Float
-  statedConfidence     Float @default(0)
+  discountedConfidence      Float
+  statedConfidence          Float  @default(0)
   calibrationDiscountReason String @default("")
 
   /// Full page payload: evidence, exit conditions, adversarial, voice map, timeline, citations.
@@ -299,7 +367,7 @@ model PublishedConclusion {
 
   publishedAt DateTime @default(now())
 
-  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  organization Organization     @relation(fields: [organizationId], references: [id], onDelete: Restrict)
   responses    PublicResponse[]
 
   @@unique([slug, version])
@@ -315,20 +383,20 @@ model PublicResponse {
   publishedConclusionId String
 
   /// counter_evidence | counter_argument | clarification | agreement_extension
-  kind    String
-  body    String
-  citationUrl String @default("")
-  submitterEmail String @default("")
-  orcid          String @default("")
+  kind           String
+  body           String
+  citationUrl    String  @default("")
+  submitterEmail String  @default("")
+  orcid          String  @default("")
   pseudonymous   Boolean @default(false)
 
   /// pending | approved | rejected | engaged
-  status       String @default("pending")
+  status        String @default("pending")
   moderatorNote String @default("")
 
   createdAt DateTime @default(now())
 
-  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  organization Organization        @relation(fields: [organizationId], references: [id], onDelete: Restrict)
   published    PublishedConclusion @relation(fields: [publishedConclusionId], references: [id], onDelete: Cascade)
 
   @@index([organizationId])
@@ -349,9 +417,22 @@ model Contradiction {
   narrative    String   @default("")
   createdAt    DateTime @default(now())
 
+  // ── Source tracking ───────────────────────────────────────────────
+  // The upload whose ingestion run produced this contradiction row.
+  // Nullable so the column can be backfilled from `noosphereId` patterns
+  // on existing rows; the ingest pipeline sets it on every new row.
+  // When the source upload is deleted the contradiction is hard-deleted
+  // in the same transaction (see src/app/api/upload/[id]/delete/route.ts);
+  // cross-upload contradictions (where claimA and claimB come from
+  // different uploads) additionally die if EITHER of their referenced
+  // Conclusions has already been orphan-deleted.
+  sourceUploadId String?
+  sourceUpload   Upload? @relation("ContradictionSourceUpload", fields: [sourceUploadId], references: [id])
+
   organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
 
   @@index([organizationId])
+  @@index([sourceUploadId])
 }
 
 // ── DriftEvent — mirrors noosphere.models.DriftEvent ───────────────────────
@@ -360,18 +441,18 @@ model DriftEvent {
   id             String @id @default(cuid())
   organizationId String
 
-  noosphereId String? @unique
-  targetId    String
-  targetKind  String  @default("principle")
-  episodeId   String  @default("")
-  observedAt  DateTime
-  driftScore  Float   @default(0)
-  notes       String  @default("")
-  claimSequenceIdsJson        String @default("[]")
-  naturalLanguageSummary      String @default("")
-  earliestInconsistentClaimId String @default("")
-  authorTopicKey              String @default("")
-  topicId                     String @default("")
+  noosphereId                 String?  @unique
+  targetId                    String
+  targetKind                  String   @default("principle")
+  episodeId                   String   @default("")
+  observedAt                  DateTime
+  driftScore                  Float    @default(0)
+  notes                       String   @default("")
+  claimSequenceIdsJson        String   @default("[]")
+  naturalLanguageSummary      String   @default("")
+  earliestInconsistentClaimId String   @default("")
+  authorTopicKey              String   @default("")
+  topicId                     String   @default("")
 
   organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
 
@@ -384,19 +465,29 @@ model ResearchSuggestion {
   id             String @id @default(cuid())
   organizationId String
 
-  noosphereId  String? @unique
+  noosphereId  String?  @unique
   title        String
-  summary      String  @default("")
-  rationale    String  @default("")
-  readingUris  String  @default("[]") // JSON string[]
-  sessionLabel String  @default("")
+  summary      String   @default("")
+  rationale    String   @default("")
+  readingUris  String   @default("[]") // JSON string[]
+  sessionLabel String   @default("")
   createdAt    DateTime @default(now())
 
+  // ── Source tracking ───────────────────────────────────────────────
+  // The upload whose ingestion run generated this suggestion. Unlike
+  // Conclusion, ResearchSuggestion is NOT deduplicated across uploads
+  // — if two uploads both happen to prompt the same "read X" suggestion
+  // they each get their own row. When the source upload is deleted
+  // the suggestion goes with it.
+  sourceUploadId String?
+  sourceUpload   Upload? @relation("ResearchSuggestionSourceUpload", fields: [sourceUploadId], references: [id])
+
   suggestedForFounderId String?
-  suggestedForFounder   Founder? @relation(fields: [suggestedForFounderId], references: [id])
+  suggestedForFounder   Founder?     @relation(fields: [suggestedForFounderId], references: [id])
   organization          Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
 
   @@index([organizationId])
+  @@index([sourceUploadId])
 }
 
 // ── ReviewItem — mirrors noosphere.models.ReviewItem (+ portal resolution) ─
@@ -405,23 +496,23 @@ model ReviewItem {
   id             String @id @default(cuid())
   organizationId String
 
-  noosphereId String? @unique
-  claimAId    String
-  claimBId    String
-  reason      String  @default("")
-  layerVerdictsJson String @default("{}") // dict str -> str
-  severity    Float   @default(0)
-  status      String  @default("open") // open | done | dismissed
+  noosphereId       String?   @unique
+  claimAId          String
+  claimBId          String
+  reason            String    @default("")
+  layerVerdictsJson String    @default("{}") // dict str -> str
+  severity          Float     @default(0)
+  status            String    @default("open") // open | done | dismissed
   aggregatorVerdict String?
-  priorScoresJson     String?
-  humanVerdict        String?
-  humanOverrule       Boolean @default(false)
-  resolutionNote      String  @default("")
-  createdAt           DateTime @default(now())
-  resolvedAt          DateTime?
+  priorScoresJson   String?
+  humanVerdict      String?
+  humanOverrule     Boolean   @default(false)
+  resolutionNote    String    @default("")
+  createdAt         DateTime  @default(now())
+  resolvedAt        DateTime?
 
   resolvedByFounderId String?
-  resolvedByFounder   Founder? @relation("ReviewResolver", fields: [resolvedByFounderId], references: [id])
+  resolvedByFounder   Founder?     @relation("ReviewResolver", fields: [resolvedByFounderId], references: [id])
   organization        Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
 
   @@index([organizationId])
@@ -433,21 +524,30 @@ model OpenQuestion {
   id             String @id @default(cuid())
   organizationId String
 
-  noosphereId              String? @unique
+  noosphereId              String?  @unique
   summary                  String
   claimAId                 String
   claimBId                 String
-  unresolvedReason         String  @default("")
-  layerDisagreementSummary String  @default("")
+  unresolvedReason         String   @default("")
+  layerDisagreementSummary String   @default("")
   createdAt                DateTime @default(now())
+
+  // ── Source tracking ───────────────────────────────────────────────
+  // The upload whose ingestion produced this open question. Cascaded
+  // with the upload's soft-delete; also disappears if either of its
+  // referenced Conclusions has been orphan-deleted (a question about
+  // a claim that no longer exists in the Codex has no meaning).
+  sourceUploadId String?
+  sourceUpload   Upload? @relation("OpenQuestionSourceUpload", fields: [sourceUploadId], references: [id])
 
   organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
 
   @@index([organizationId])
+  @@index([sourceUploadId])
 }
 
 model AuditEvent {
-  id             String @id @default(cuid())
+  id             String   @id @default(cuid())
   organizationId String
   founderId      String
   uploadId       String?
@@ -477,17 +577,17 @@ model ApiKey {
   founderId      String
 
   /// Human label shown in the management UI (e.g. "Dialectic on laptop").
-  label          String
+  label   String
   /// Short prefix of the plaintext (first 12 chars) — shown in UI for identification.
-  prefix         String
+  prefix  String
   /// bcrypt hash of the full plaintext key. Never store plaintext.
-  keyHash        String
+  keyHash String
   /// Comma-separated scopes (e.g. "upload:write"). Empty = full founder scope.
-  scopes         String @default("")
+  scopes  String @default("")
 
-  createdAt      DateTime  @default(now())
-  lastUsedAt     DateTime?
-  revokedAt      DateTime?
+  createdAt  DateTime  @default(now())
+  lastUsedAt DateTime?
+  revokedAt  DateTime?
 
   founder      Founder      @relation(fields: [founderId], references: [id], onDelete: Cascade)
   organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)

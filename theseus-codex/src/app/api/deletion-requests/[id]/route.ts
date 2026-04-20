@@ -14,6 +14,10 @@ import { NextResponse } from "next/server";
 import { getFounderFromAuth } from "@/lib/apiKeyAuth";
 import { db } from "@/lib/db";
 import { sanitizeAndCap } from "@/lib/sanitizeText";
+import {
+  cascadeDeleteUploadArtifacts,
+  formatCascadeCounts,
+} from "@/lib/uploadDeleteCascade";
 
 export async function PATCH(
   req: Request,
@@ -94,24 +98,28 @@ export async function PATCH(
     if (action === "accept") {
       // Accept = soft-delete the upload AND mark this request accepted
       // AND cancel any OTHER pending requests on the same upload (they
-      // all asked for the same outcome; no reason to keep them live).
-      await db.$transaction([
-        db.upload.update({
+      // all asked for the same outcome; no reason to keep them live)
+      // AND cascade-delete any derived artifacts (ConclusionSource
+      // links, orphaned Conclusions, Contradictions/OpenQuestions whose
+      // claim references now dangle, ResearchSuggestions sourced by
+      // this upload). All atomic.
+      const cascade = await db.$transaction(async (tx) => {
+        await tx.upload.update({
           where: { id: request_.uploadId },
           data: {
             deletedAt: now,
             publishedAt: null,
           },
-        }),
-        db.deletionRequest.update({
+        });
+        await tx.deletionRequest.update({
           where: { id },
           data: {
             status: "accepted",
             decision,
             respondedAt: now,
           },
-        }),
-        db.deletionRequest.updateMany({
+        });
+        await tx.deletionRequest.updateMany({
           where: {
             uploadId: request_.uploadId,
             status: "pending",
@@ -122,8 +130,13 @@ export async function PATCH(
             decision: "Superseded by owner's acceptance of another request.",
             respondedAt: now,
           },
-        }),
-        db.auditEvent.create({
+        });
+        const counts = await cascadeDeleteUploadArtifacts(
+          tx,
+          request_.uploadId,
+        );
+        const cascadeDetail = formatCascadeCounts(counts);
+        await tx.auditEvent.create({
           data: {
             organizationId: founder.organizationId,
             founderId: founder.id,
@@ -131,17 +144,19 @@ export async function PATCH(
             action: "deletion_request_accept",
             detail: sanitizeAndCap(
               decision
-                ? `Accepted deletion request for "${request_.upload.title}" — ${decision}`
-                : `Accepted deletion request for "${request_.upload.title}"`,
+                ? `Accepted deletion request for "${request_.upload.title}" — ${decision} · ${cascadeDetail}`
+                : `Accepted deletion request for "${request_.upload.title}" · ${cascadeDetail}`,
               2000,
             ),
           },
-        }),
-      ]);
+        });
+        return counts;
+      });
       return NextResponse.json({
         ok: true,
         status: "accepted",
         uploadDeletedAt: now.toISOString(),
+        cascade,
       });
     }
 

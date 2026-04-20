@@ -22,6 +22,10 @@ import { NextResponse } from "next/server";
 import { getFounderFromAuth } from "@/lib/apiKeyAuth";
 import { db } from "@/lib/db";
 import { sanitizeAndCap } from "@/lib/sanitizeText";
+import {
+  cascadeDeleteUploadArtifacts,
+  formatCascadeCounts,
+} from "@/lib/uploadDeleteCascade";
 
 export async function POST(
   req: Request,
@@ -79,25 +83,31 @@ export async function POST(
     }
 
     // Soft-delete in a single transaction so the "cancel pending
-    // requests" side-effect stays consistent with the deletion itself.
+    // requests" side-effect stays consistent with the deletion itself,
+    // AND the derived-artifact cascade (ConclusionSource links →
+    // orphaned Conclusions → dangling Contradictions / OpenQuestions /
+    // ResearchSuggestions) all happen atomically. Either everything
+    // drops or nothing does.
     const now = new Date();
-    await db.$transaction([
-      db.upload.update({
+    const cascade = await db.$transaction(async (tx) => {
+      await tx.upload.update({
         where: { id },
         data: {
           deletedAt: now,
           publishedAt: null, // yank from the public blog too
         },
-      }),
-      db.deletionRequest.updateMany({
+      });
+      await tx.deletionRequest.updateMany({
         where: { uploadId: id, status: "pending" },
         data: {
           status: "cancelled",
           decision: "Owner deleted the upload directly.",
           respondedAt: now,
         },
-      }),
-      db.auditEvent.create({
+      });
+      const counts = await cascadeDeleteUploadArtifacts(tx, id);
+      const cascadeDetail = formatCascadeCounts(counts);
+      await tx.auditEvent.create({
         data: {
           organizationId: founder.organizationId,
           founderId: founder.id,
@@ -105,18 +115,20 @@ export async function POST(
           action: "delete",
           detail: sanitizeAndCap(
             reason
-              ? `Owner soft-deleted upload "${upload.title}" — reason: ${reason}`
-              : `Owner soft-deleted upload "${upload.title}"`,
+              ? `Owner soft-deleted upload "${upload.title}" — reason: ${reason} · ${cascadeDetail}`
+              : `Owner soft-deleted upload "${upload.title}" · ${cascadeDetail}`,
             2000,
           ),
         },
-      }),
-    ]);
+      });
+      return counts;
+    });
 
     return NextResponse.json({
       ok: true,
       id,
       deletedAt: now.toISOString(),
+      cascade,
     });
   } catch (error) {
     console.error("upload/delete error:", error);

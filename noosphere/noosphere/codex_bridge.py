@@ -101,6 +101,35 @@ def _db_safe(s: Optional[str], *, cap: Optional[int] = None) -> str:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# Conclusion dedup — normalised text form.
+#
+# The Codex DB has a `Conclusion.normalizedText` column populated by this
+# helper and matched by a `(organizationId, normalizedText)` index. Any
+# time this pipeline is about to write a new Conclusion we first look up
+# an existing row with the same normalised key in the same org; if one
+# exists we skip the INSERT and add this upload as an extra source via
+# `ConclusionSource`. That's what makes deletion work correctly — a
+# Conclusion whose one-and-only source is removed gets orphan-deleted,
+# while a Conclusion supported by several uploads stays in place with
+# the surviving uploads as its remaining sources.
+#
+# The formula (lower + strip + collapse whitespace) matches the SQL
+# backfill in
+# `prisma/migrations/20260420000000_conclusion_sources_and_derived_cascade`,
+# so pre-existing rows and freshly-inserted rows share the same key.
+# ─────────────────────────────────────────────────────────────────────────────
+
+_WS_COLLAPSE_RE = re.compile(r"\s+")
+
+
+def _normalize_claim_text(text: str) -> str:
+    """Return the dedup key for a claim. Empty input → empty key."""
+    if not text:
+        return ""
+    return _WS_COLLAPSE_RE.sub(" ", text).strip().lower()
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # Naive claim extraction — works without an LLM. Conservative: keeps only
 # sentences that look like first-person / declarative assertions, filters
 # questions and fragments. Good enough for a first-pass Codex display.
@@ -568,13 +597,22 @@ def ingest_from_codex(
                 mode=mode,
             )
 
-        # ── Insert conclusions ───────────────────────────────────────────
+        # ── Insert conclusions (with dedup + source linking) ─────────────
         # We also track a parallel list of (claim_index → conclusion_id)
         # so we can cite the right Conclusion rows from contradictions
         # and open questions below. Claims that are too short to insert
         # won't appear in this map (their index maps to None).
+        #
+        # Dedup pass: before inserting a Conclusion we look for an
+        # existing row in this org with the same normalised text. If one
+        # exists, we DON'T duplicate — we just add this upload as an
+        # additional source via ConclusionSource. That's the mechanic
+        # that lets a Conclusion survive when one of its two sources is
+        # later deleted. A fresh insert writes both the Conclusion AND a
+        # ConclusionSource row.
         now = datetime.now(timezone.utc)
-        written = 0
+        written = 0  # NEW conclusions inserted
+        deduped = 0  # claims that matched an existing conclusion
         claim_idx_to_conclusion_id: list[str | None] = [None] * len(claims)
         # Pre-compute a sanitized source label we'll reuse in every row's
         # rationale/sessionLabel. Cap at 300 so a giant filename can't blow
@@ -587,20 +625,51 @@ def ingest_from_codex(
             claim_text = _db_safe(claim.text, cap=4_000).strip()
             if len(claim_text) < 20:
                 continue
+            normalized = _normalize_claim_text(claim_text)
+            if not normalized:
+                continue
+
+            # Dedup lookup — matching is scoped to the same org.
+            cur.execute(
+                '''SELECT id FROM "Conclusion"
+                   WHERE "organizationId" = %s AND "normalizedText" = %s
+                   LIMIT 1''',
+                (row["organizationId"], normalized),
+            )
+            existing = cur.fetchone()
+
+            if existing:
+                cid = existing["id"]
+                # Attach this upload as another source. ON CONFLICT is
+                # a defensive no-op in case the user is re-running the
+                # ingest for the same upload.
+                cur.execute(
+                    '''INSERT INTO "ConclusionSource"
+                       ("conclusionId", "uploadId", "createdAt")
+                       VALUES (%s, %s, %s)
+                       ON CONFLICT ("conclusionId", "uploadId") DO NOTHING''',
+                    (cid, upload_id, now),
+                )
+                claim_idx_to_conclusion_id[idx] = cid
+                deduped += 1
+                continue
+
             cid = _short_cuid_like()
             noosphere_id = f"ing_{upload_id}_{idx}"
             cur.execute(
                 '''INSERT INTO "Conclusion"
-                   (id, "organizationId", "noosphereId", text, "confidenceTier",
-                    rationale, "supportingPrincipleIds", "evidenceChainClaimIds",
-                    "dissentClaimIds", confidence, "topicHint", "createdAt")
-                   VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                   (id, "organizationId", "noosphereId", text, "normalizedText",
+                    "confidenceTier", rationale, "supportingPrincipleIds",
+                    "evidenceChainClaimIds", "dissentClaimIds",
+                    confidence, "topicHint", "createdAt")
+                   VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                    ON CONFLICT ("noosphereId") DO NOTHING''',
                 (
                     cid,
                     row["organizationId"],
                     noosphere_id,
                     claim_text,
+                    normalized,
                     "open",
                     _db_safe(f"Extracted from upload: {source_label}", cap=500),
                     json.dumps([]),
@@ -614,6 +683,13 @@ def ingest_from_codex(
             if cur.rowcount == 1:
                 written += 1
                 claim_idx_to_conclusion_id[idx] = cid
+                cur.execute(
+                    '''INSERT INTO "ConclusionSource"
+                       ("conclusionId", "uploadId", "createdAt")
+                       VALUES (%s, %s, %s)
+                       ON CONFLICT ("conclusionId", "uploadId") DO NOTHING''',
+                    (cid, upload_id, now),
+                )
 
         # ── Contradiction detection ─────────────────────────────────────
         # Always run the heuristic pass (cheap, no deps). If LLM is
@@ -650,7 +726,14 @@ def ingest_from_codex(
                 llm_error = f"{type(exc).__name__}: {exc}"
 
         # ── Write contradictions (both sources merged) ──────────────────
-        # Heuristic pairs first.
+        # Every contradiction carries `sourceUploadId = upload_id` — it's
+        # the product of THIS ingestion run. Cross-upload contradictions
+        # (where claim B is an existing firm Conclusion from a DIFFERENT
+        # upload) also get the current upload as their source, since that
+        # upload is the one that surfaced the conflict. Deleting either
+        # upload will remove the contradiction — the current upload via
+        # its `sourceUploadId`, the other upload via claimBId being
+        # orphan-deleted when ITS source Conclusion loses all sources.
         for pair in heuristic_pairs:
             a_cid = claim_idx_to_conclusion_id[pair.a_idx]
             b_cid = (
@@ -663,8 +746,8 @@ def ingest_from_codex(
             cur.execute(
                 '''INSERT INTO "Contradiction"
                    (id, "organizationId", "claimAId", "claimBId", severity,
-                    "sixLayerJson", narrative, "createdAt")
-                   VALUES (%s, %s, %s, %s, %s, %s, %s, %s)''',
+                    "sixLayerJson", narrative, "sourceUploadId", "createdAt")
+                   VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)''',
                 (
                     "x_" + uuid.uuid4().hex[:24],
                     row["organizationId"],
@@ -673,6 +756,7 @@ def ingest_from_codex(
                     float(pair.severity),
                     json.dumps({"source": "heuristic"}),
                     _db_safe(pair.narrative, cap=2_000),
+                    upload_id,
                     now,
                 ),
             )
@@ -695,8 +779,8 @@ def ingest_from_codex(
                 cur.execute(
                     '''INSERT INTO "Contradiction"
                        (id, "organizationId", "claimAId", "claimBId", severity,
-                        "sixLayerJson", narrative, "createdAt")
-                       VALUES (%s, %s, %s, %s, %s, %s, %s, %s)''',
+                        "sixLayerJson", narrative, "sourceUploadId", "createdAt")
+                       VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)''',
                     (
                         "x_" + uuid.uuid4().hex[:24],
                         row["organizationId"],
@@ -705,6 +789,7 @@ def ingest_from_codex(
                         sev,
                         json.dumps({"source": "llm"}),
                         _db_safe(narrative or "LLM flagged as contradictory", cap=2_000),
+                        upload_id,
                         now,
                     ),
                 )
@@ -729,8 +814,8 @@ def ingest_from_codex(
                 cur.execute(
                     '''INSERT INTO "Contradiction"
                        (id, "organizationId", "claimAId", "claimBId", severity,
-                        "sixLayerJson", narrative, "createdAt")
-                       VALUES (%s, %s, %s, %s, %s, %s, %s, %s)''',
+                        "sixLayerJson", narrative, "sourceUploadId", "createdAt")
+                       VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)''',
                     (
                         "x_" + uuid.uuid4().hex[:24],
                         row["organizationId"],
@@ -739,6 +824,7 @@ def ingest_from_codex(
                         sev,
                         json.dumps({"source": "llm", "cross_upload": True}),
                         _db_safe(narrative or "LLM cross-upload contradiction", cap=2_000),
+                        upload_id,
                         now,
                     ),
                 )
@@ -782,8 +868,9 @@ def ingest_from_codex(
                     '''INSERT INTO "OpenQuestion"
                        (id, "organizationId", "noosphereId", summary,
                         "claimAId", "claimBId", "unresolvedReason",
-                        "layerDisagreementSummary", "createdAt")
-                       VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)''',
+                        "layerDisagreementSummary", "sourceUploadId",
+                        "createdAt")
+                       VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)''',
                     (
                         "q_" + uuid.uuid4().hex[:24],
                         row["organizationId"],
@@ -793,6 +880,7 @@ def ingest_from_codex(
                         b_cid,
                         _db_safe(reason or "Surfaced during ingest LLM pass", cap=2_000),
                         "LLM-flagged",
+                        upload_id,
                         now,
                     ),
                 )
@@ -813,8 +901,8 @@ def ingest_from_codex(
                     '''INSERT INTO "ResearchSuggestion"
                        (id, "organizationId", "noosphereId", title, summary,
                         rationale, "readingUris", "sessionLabel",
-                        "suggestedForFounderId", "createdAt")
-                       VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)''',
+                        "suggestedForFounderId", "sourceUploadId", "createdAt")
+                       VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)''',
                     (
                         "rs_" + uuid.uuid4().hex[:24],
                         row["organizationId"],
@@ -825,23 +913,30 @@ def ingest_from_codex(
                         json.dumps([]),
                         source_label,
                         row["founderId"],
+                        upload_id,
                         now,
                     ),
                 )
                 research_suggestions_written += cur.rowcount
 
         # ── Update upload row ────────────────────────────────────────────
+        # claimsCount reflects BOTH newly-inserted conclusions AND ones
+        # this upload re-sourced (via dedup) — the number of distinct
+        # claims this upload anchors, not just the fresh inserts. That
+        # matches the user-facing "N claims extracted" semantics better
+        # than a raw INSERT count would.
         cur.execute(
             '''UPDATE "Upload"
                SET status = %s, "claimsCount" = %s, "errorMessage" = NULL
                WHERE id = %s''',
-            ("ingested", written, upload_id),
+            ("ingested", written + deduped, upload_id),
         )
 
         # ── Audit event ──────────────────────────────────────────────────
         audit_detail = (
             f"Noosphere {mode} ingest · "
-            f"{written} conclusions · "
+            f"{written} new conclusions · "
+            f"{deduped} re-sourced · "
             f"{contradictions_written} contradictions · "
             f"{open_questions_written} open questions · "
             f"{research_suggestions_written} research suggestions"
