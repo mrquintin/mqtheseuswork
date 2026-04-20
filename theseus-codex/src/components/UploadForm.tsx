@@ -1095,10 +1095,11 @@ export default function UploadForm() {
                 >
                   /library
                 </code>
-                . Noosphere still analyses {isBulk ? "them" : "it"} for your
-                conclusions, contradictions, and open questions, but other
-                founders in the firm can&rsquo;t read, view, or request
-                deletion. You can lift the veil later from the dashboard.
+                . Noosphere still analyses{" "}
+                {isBulk ? "them" : "it"} for your conclusions,
+                contradictions, and open questions, but other founders in
+                the firm can&rsquo;t read, view, or request deletion. You
+                can lift the veil later from the dashboard.
               </span>
             </span>
           </label>
