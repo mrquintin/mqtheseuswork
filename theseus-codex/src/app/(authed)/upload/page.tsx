@@ -3,14 +3,16 @@ import SculptureBackdrop from "@/components/SculptureBackdrop";
 
 /**
  * Upload page. Wrap the form in a relative-positioned container so the
- * Atlas backdrop can sit behind it on the left. See SculptureBackdrop
+ * Augustus backdrop can sit behind it on the left. See SculptureBackdrop
  * for the half-page backdrop pattern.
  *
- * Patron sculpture: **Sisyphus**. The repeated act of uploading —
- * committing another session, another essay, another transcript — is
- * Sisyphus's boulder at firm-memory scale. Each upload adds a small
- * increment to the weight the Codex rolls uphill; the point isn't
- * that the hill ends, it's that the climb is the work.
+ * Patron sculpture: **Augustus Prima Porta (SMK)**. An emperor in his
+ * commanding pose — right arm raised in address, left hand on the
+ * scroll — stands over the upload column as a figure of the firm's
+ * public self-representation. Each commit to the Codex is a small
+ * state-of-the-firm address: "this is what we are saying, this is
+ * what we will stand behind." The imperial pose is more earned than
+ * Sisyphus's eternal grind for work that's meant to be read.
  *
  * Positioning notes
  * -----------------
@@ -38,7 +40,7 @@ export default function UploadPage() {
   return (
     <div style={{ position: "relative", overflow: "hidden", minHeight: "80vh" }}>
       <SculptureBackdrop
-        src="/sculptures/sisyphus.mesh.bin"
+        src="/sculptures/augustus.mesh.bin"
         side="left"
         yawSpeed={0.018}
         verticalAnchor="top"

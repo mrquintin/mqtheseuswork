@@ -10,8 +10,14 @@ import { requireTenantContext } from "@/lib/tenant";
 /**
  * Dashboard — landing page after login.
  *
- * Patron sculpture: **Augustus Prima Porta (SMK)**, rendered huge and dim
- * on the right side of the page.
+ * Patron sculpture: **Sisyphus**, rendered huge and dim on the right
+ * side of the page. The daily act of returning to the Codex — scanning
+ * newly-synthesized conclusions, picking up where yesterday's
+ * deliberation left off, discovering the contradictions that drifted
+ * overnight — is the boulder at firm-memory scale. The reward for a
+ * round of work well done is another round of work: the dashboard is
+ * the summit the figure never quite reaches, and the page is the
+ * fresh slope they return to.
  */
 
 export default async function DashboardPage() {
@@ -83,7 +89,7 @@ export default async function DashboardPage() {
 
   return (
     <div style={{ position: "relative", overflow: "hidden", minHeight: "80vh" }}>
-      <SculptureBackdrop src="/sculptures/augustus.mesh.bin" side="right" />
+      <SculptureBackdrop src="/sculptures/sisyphus.mesh.bin" side="right" />
 
       <main
         style={{
@@ -118,7 +124,7 @@ export default async function DashboardPage() {
               marginBottom: 0,
             }}
           >
-            Augustus Prima Porta, SMK · Imperium rationis
+            Sisyphus · Labor redivivus
           </p>
           <p
             style={{

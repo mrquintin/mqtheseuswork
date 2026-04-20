@@ -140,7 +140,7 @@ const PHASE_COLOR: Record<ItemPhase, string> = {
  *
  * Visual
  * ------
- * The Sisyphus sculpture now lives as a half-page backdrop (see
+ * The Augustus Prima Porta sculpture now lives as a half-page backdrop (see
  * UploadPage in app/(authed)/upload/page.tsx + SculptureBackdrop). This
  * component is just the form itself; the patron sculpture is the room
  * it sits in.
@@ -544,7 +544,7 @@ export default function UploadForm() {
     <main
       style={{
         maxWidth: "680px",
-        // Offset the form to the right so it doesn't overlap the Sisyphus
+        // Offset the form to the right so it doesn't overlap the Augustus
         // backdrop sitting on the left. `marginLeft: auto` keeps it
         // right-aligned within the page's centred column; on smaller
         // viewports the `max-width: 900px` media query in
@@ -577,7 +577,7 @@ export default function UploadForm() {
             marginBottom: 0,
           }}
         >
-          Upload Contribution · Sisyphus
+          Upload Contribution · Augustus Prima Porta
         </p>
         <p
           style={{
