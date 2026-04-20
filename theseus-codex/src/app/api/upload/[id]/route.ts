@@ -42,6 +42,8 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
       substCount: true,
       principleCount: true,
       errorMessage: true,
+      slug: true,
+      publishedAt: true,
       createdAt: true,
       updatedAt: true,
     },
@@ -59,5 +61,13 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
-  return NextResponse.json(upload);
+  // Derive a publicUrl when the upload has been published. The slug is
+  // stable (we never rewrite it once assigned), so the public URL can
+  // be constructed deterministically without another DB lookup. The
+  // client uses this to render a "view post" link on successfully
+  // ingested rows in the upload queue.
+  const publicUrl =
+    upload.publishedAt && upload.slug ? `/post/${upload.slug}` : null;
+
+  return NextResponse.json({ ...upload, publicUrl });
 }
