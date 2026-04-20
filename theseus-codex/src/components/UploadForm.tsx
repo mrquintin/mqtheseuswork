@@ -209,24 +209,14 @@ export default function UploadForm() {
         (putHeaders && putHeaders["Content-Type"]) ||
         f.type ||
         "application/octet-stream";
+      // Keep the PUT a "simple" CORS request: only `Content-Type`.
+      // Authorization/x-upsert would trigger a preflight OPTIONS;
+      // the signed URL already carries the token as `?token=<jwt>`
+      // in its query string, so Supabase authorizes the request
+      // without any custom headers.
       xhr.setRequestHeader("Content-Type", ct);
-      // Supabase signed-upload endpoints may require Bearer token auth
-      // (older API variants), while newer ones encode auth in the URL.
-      // We support both by adding Authorization when token is present.
-      if (token) {
-        xhr.setRequestHeader("Authorization", `Bearer ${token}`);
-      }
-      if (putHeaders) {
-        for (const [name, value] of Object.entries(putHeaders)) {
-          // Keep the signed PUT as lean as possible: avoid extra headers
-          // that can trigger stricter CORS/preflight behavior in some
-          // browser+storage combinations (notably x-upsert).
-          const lower = name.toLowerCase();
-          if (lower !== "content-type" && lower !== "x-upsert") {
-            xhr.setRequestHeader(name, value);
-          }
-        }
-      }
+      void token; // token is URL-embedded; no header needed
+      void putHeaders;
       xhr.upload.onprogress = (ev) => {
         if (ev.lengthComputable) {
           lastLoadedBytes = ev.loaded;

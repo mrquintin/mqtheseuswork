@@ -100,11 +100,29 @@ export async function createSignedAudioUploadUrl(
   if (!data.url) {
     throw new Error("Supabase Storage sign returned no URL in response.");
   }
-  // Supabase's response `url` is relative (e.g. /storage/v1/upload/sign/…);
-  // we turn it into an absolute URL so the browser can PUT to it directly.
-  const signedUrl = data.url.startsWith("http")
-    ? data.url
-    : `${cfg.url}${data.url}`;
+  // Supabase's sign endpoint returns a URL *relative to the Storage
+  // service*, i.e. "/object/upload/sign/<bucket>/<path>?token=<jwt>".
+  // SUPABASE_URL is the project origin ("https://xxx.supabase.co"),
+  // NOT the Storage service root ("…/storage/v1"). Naively doing
+  // `${cfg.url}${data.url}` produces
+  //   https://xxx.supabase.co/object/upload/sign/…
+  // which isn't routed to Storage at all — the browser PUT fails
+  // as an opaque "Failed to fetch" / CORS error after a long wait.
+  //
+  // Fix: inject "/storage/v1" when the response is relative. Handle
+  // all three shapes defensively in case Supabase changes the API:
+  //   - absolute URL                    → use as-is
+  //   - starts with "/storage/v1/…"     → prepend origin only
+  //   - starts with "/object/…"         → prepend origin + "/storage/v1"
+  let signedUrl: string;
+  if (data.url.startsWith("http://") || data.url.startsWith("https://")) {
+    signedUrl = data.url;
+  } else {
+    const leading = data.url.startsWith("/") ? data.url : `/${data.url}`;
+    signedUrl = leading.startsWith("/storage/v1/")
+      ? `${cfg.url}${leading}`
+      : `${cfg.url}/storage/v1${leading}`;
+  }
 
   return {
     signedUrl,
