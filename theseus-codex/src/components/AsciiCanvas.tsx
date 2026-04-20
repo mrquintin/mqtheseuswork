@@ -150,6 +150,84 @@ function resolveCssColor(value: string, anchor: Element | null): string {
   }
 }
 
+/**
+ * Pull the numeric R, G, B components out of a resolved color string.
+ *
+ * Accepts the formats `resolveCssColor` can return: `rgb(…)`, `rgba(…)`,
+ * `#RRGGBB`, and 3-char `#RGB`. Returns a sensible amber fallback when
+ * given anything unexpected so the depth-colour path never produces a
+ * black or transparent glyph.
+ */
+function parseRgb(color: string): [number, number, number] {
+  const rgb = color.match(
+    /rgba?\(\s*(\d+(?:\.\d+)?)[\s,]+(\d+(?:\.\d+)?)[\s,]+(\d+(?:\.\d+)?)/i,
+  );
+  if (rgb) {
+    return [Number(rgb[1]), Number(rgb[2]), Number(rgb[3])];
+  }
+  const hex = color.match(/^#([0-9a-f]{3}|[0-9a-f]{6})$/i);
+  if (hex) {
+    const h = hex[1]!;
+    if (h.length === 3) {
+      return [
+        parseInt(h[0]! + h[0]!, 16),
+        parseInt(h[1]! + h[1]!, 16),
+        parseInt(h[2]! + h[2]!, 16),
+      ];
+    }
+    return [
+      parseInt(h.slice(0, 2), 16),
+      parseInt(h.slice(2, 4), 16),
+      parseInt(h.slice(4, 6), 16),
+    ];
+  }
+  return [233, 163, 56];
+}
+
+/**
+ * Build a lookup table of quantised fill-style strings for the depth-
+ * colour path.
+ *
+ * Why a LUT instead of computing a per-cell colour: setting `fillStyle`
+ * to a new string makes Canvas re-parse + re-resolve the colour each
+ * time, which adds up at ~2,000 cells/frame × 60fps. Quantising depth
+ * to a handful of bands keeps the assignment count to whatever the
+ * number of bands is (we pick 16, well below any visible banding
+ * threshold at the glyph scales we render at).
+ *
+ * `minBrightness` caps the low end so the farthest bands don't fade
+ * completely to black — a glyph at 0 % brightness is indistinguishable
+ * from page background and the figure's back surfaces would just
+ * disappear. 0.35 keeps the dimmest glyph roughly one-third as bright
+ * as the brightest, which reads as a strong volumetric gradient
+ * without dropping the back of the figure below the contrast floor.
+ */
+function buildDepthLUT(
+  rgb: readonly [number, number, number],
+  bands: number,
+  minBrightness: number,
+): string[] {
+  const lut: string[] = [];
+  const span = 1 - minBrightness;
+  for (let b = 0; b < bands; b++) {
+    const t = bands <= 1 ? 1 : b / (bands - 1);
+    const brightness = minBrightness + t * span;
+    const r = Math.round(rgb[0] * brightness);
+    const g = Math.round(rgb[1] * brightness);
+    const bl = Math.round(rgb[2] * brightness);
+    lut.push(`rgb(${r}, ${g}, ${bl})`);
+  }
+  return lut;
+}
+
+/** Number of depth brightness bands. 16 is indistinguishable from a
+ *  continuous gradient at our glyph sizes and keeps the per-frame
+ *  fillStyle assignment count low. */
+const DEPTH_BANDS = 16;
+/** Floor for the dimmest band — 35 % of full amber. Below this the
+ *  glyph starts to blend into the page background on the dark theme. */
+const DEPTH_MIN_BRIGHTNESS = 0.35;
+
 export default function AsciiCanvas({
   cols,
   rows,
@@ -286,6 +364,39 @@ export default function AsciiCanvas({
       outCtx.textBaseline = "middle";
       outCtx.textAlign = "center";
 
+      // ── DEPTH-COLOURED GLYPHS ────────────────────────────────────
+      // Callers (e.g. SculptureAscii) can pack a per-pixel depth signal
+      // into the G channel of the source canvas: R stays at 255 so the
+      // shape-vector sampler reads alpha-as-brightness unchanged, G
+      // encodes normalised depth (0 = far, 255 = near), B stays at 0.
+      // Per cell we read the G at its centre, convert to a brightness
+      // band index, and fillText with the LUT entry for that band —
+      // so near surfaces render at full amber and far surfaces fade
+      // into a dimmer amber. Figures gain visible depth-as-colour on
+      // top of the density-based depth the picker already provides.
+      //
+      // When no depth signal is present (callers that still use the
+      // legacy single-colour fill), G is effectively zero across the
+      // image, every cell lands in the darkest band, and everything
+      // would render unreadably dim. Detect that case with a
+      // once-per-frame G-channel peak check and fall back to the
+      // flat-colour path when the signal is missing.
+      const rgb = parseRgb(fillRef.current);
+      let depthLUT: string[] | null = null;
+      let depthPeak = 0;
+      // Sampling every 64 bytes (every 16th pixel) is plenty to detect
+      // "is the G channel carrying anything?" without walking the full
+      // ImageData buffer on each frame.
+      for (let p = 1; p < imageData.length; p += 64) {
+        const g = imageData[p]!;
+        if (g > depthPeak) depthPeak = g;
+      }
+      const hasDepthSignal = depthPeak >= 12; // ≥ ~5 % of full scale
+      if (hasDepthSignal) {
+        depthLUT = buildDepthLUT(rgb, DEPTH_BANDS, DEPTH_MIN_BRIGHTNESS);
+      }
+      let lastBand = -1;
+
       // Sampling loop. Hot path — allocate nothing inside.
       const vec: [number, number, number, number, number, number] = [
         0, 0, 0, 0, 0, 0,
@@ -324,6 +435,28 @@ export default function AsciiCanvas({
           const picked = pickChar(enhanced, table);
 
           if (picked !== " ") {
+            if (depthLUT) {
+              // Sample G at the cell centre for depth. Clamp the index
+              // and only set fillStyle when it actually changes — most
+              // neighbouring cells share a band, so this keeps the
+              // fillStyle assignment count well below the cell count.
+              const cxPx = Math.min(
+                width - 1,
+                Math.max(0, Math.floor(x0 + cw / 2)),
+              );
+              const cyPx = Math.min(
+                height - 1,
+                Math.max(0, Math.floor(y0 + ch / 2)),
+              );
+              const gByte = imageData[(cyPx * width + cxPx) * 4 + 1]!;
+              let band = Math.floor((gByte / 256) * DEPTH_BANDS);
+              if (band < 0) band = 0;
+              else if (band > DEPTH_BANDS - 1) band = DEPTH_BANDS - 1;
+              if (band !== lastBand) {
+                outCtx.fillStyle = depthLUT[band]!;
+                lastBand = band;
+              }
+            }
             outCtx.fillText(picked, x0 + cw / 2, y0 + ch / 2);
           }
         }

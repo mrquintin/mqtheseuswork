@@ -750,7 +750,36 @@ export default function SculptureAscii({
         const depthNorm = (depth[i]! - minDepth) / depthRange;
         const fog = fogFar + fogSpan * depthNorm;
         const a = Math.min(1, shade[i]! * fog);
-        ctx.fillStyle = `rgba(255, 210, 140, ${a})`;
+
+        // Three-channel pack so AsciiCanvas can read two independent
+        // signals off the same source canvas with zero added passes:
+        //
+        //   R = 255 (constant)
+        //     The shape-vector picker samples R/255 = alpha when R is
+        //     held constant, which is exactly the intensity gradient
+        //     it needs to choose denser glyphs for brighter cells.
+        //     Keeping R at 255 preserves the density-based depth cue
+        //     the system already had.
+        //
+        //   G = depthNorm * 255
+        //     The new signal: AsciiCanvas samples the G channel at
+        //     each cell's centre and uses it to darken the rendered
+        //     glyph's color proportionally to the triangle's distance
+        //     from the viewer. Because the painter's algorithm draws
+        //     back-to-front, overlapping triangles' G values composite
+        //     toward the NEAREST visible triangle's depth at each
+        //     pixel — so the sample reads the depth of the surface
+        //     the viewer would actually see there. Un-premultiplied
+        //     imageData keeps G close to the originally-drawn value
+        //     across draw order, so edge cells with low alpha still
+        //     report their depth correctly (not diluted toward 0).
+        //
+        //   B = 0
+        //     Unused — kept at zero so any future code that samples
+        //     B gets a clean "no signal" rather than stale amber hue
+        //     noise from the prior "rgba(255, 210, 140, …)" fill.
+        const gDepth = Math.round(depthNorm * 255);
+        ctx.fillStyle = `rgba(255, ${gDepth}, 0, ${a})`;
         ctx.beginPath();
         ctx.moveTo(pax, pay);
         ctx.lineTo(pbx, pby);
