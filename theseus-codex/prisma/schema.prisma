@@ -56,7 +56,18 @@ model Founder {
   username     String
   email        String
   passwordHash String
-  role         String  @default("founder") // founder | admin
+  // Role ladder — see src/lib/roles.ts for the predicate helpers and
+  // the full description of each tier:
+  //   admin   → full read + write + can change other founders' roles
+  //   founder → full read + write
+  //   viewer  → read-only; every write API returns 403 and every UI
+  //              affordance for writes is hidden
+  // Default "founder" preserves prior behaviour: anyone added via
+  // scripts/add-founder.ts is read+write unless explicitly seeded
+  // with ADD_FOUNDER_ROLE=viewer or =admin. Validation lives at the
+  // application layer; the column stays TEXT so adding a future tier
+  // is a docstring + helper change, not a migration.
+  role         String  @default("founder") // admin | founder | viewer
   bio          String?
   avatar       String?
 

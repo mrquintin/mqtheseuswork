@@ -18,6 +18,7 @@
 import { NextResponse } from "next/server";
 import { getFounderFromAuth } from "@/lib/apiKeyAuth";
 import { db } from "@/lib/db";
+import { canWrite, WRITE_FORBIDDEN_RESPONSE } from "@/lib/roles";
 import { sanitizeAndCap } from "@/lib/sanitizeText";
 import { triggerNoosphereProcessing } from "@/lib/triggerNoosphereProcessing";
 
@@ -29,6 +30,14 @@ export async function POST(req: Request) {
         { error: "Not authenticated" },
         { status: 401 },
       );
+    }
+    // Re-triggering processing re-runs Noosphere extraction, which
+    // writes Conclusion / Contradiction / OpenQuestion rows. Treating
+    // it as a write keeps the rule simple — if you can't upload, you
+    // can't re-process. Admins can re-trigger on behalf of viewers
+    // if needed.
+    if (!canWrite(founder.role)) {
+      return NextResponse.json(WRITE_FORBIDDEN_RESPONSE, { status: 403 });
     }
 
     const body = (await req.json().catch(() => ({}))) as {

@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { getFounder } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { pushReviewResolutionToNoosphere } from "@/lib/pushReviewToNoosphere";
+import { canWrite, WRITE_FORBIDDEN_RESPONSE } from "@/lib/roles";
 
 type Verdict = "cohere" | "contradict" | "unresolved";
 
@@ -17,6 +18,10 @@ export async function POST(req: Request) {
   const founder = await getFounder();
   if (!founder) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+  // Same gate as the per-item review endpoint: viewers don't vote.
+  if (!canWrite(founder.role)) {
+    return NextResponse.json(WRITE_FORBIDDEN_RESPONSE, { status: 403 });
   }
 
   const body = (await req.json()) as {

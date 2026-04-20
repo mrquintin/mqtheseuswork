@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { getFounder } from "@/lib/auth";
 import { updateReadingQueueStatus } from "@/lib/noosphereLiteratureBridge";
+import { canWrite, WRITE_FORBIDDEN_RESPONSE } from "@/lib/roles";
 
 const ALLOWED = new Set(["queued", "reading", "engaged", "not_relevant", "skipped"]);
 
@@ -11,6 +12,12 @@ export async function PATCH(
   const founder = await getFounder();
   if (!founder) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+  // Reading-queue status (queued / reading / engaged / not_relevant /
+  // skipped) is shared org state — viewers see it but don't change
+  // the shared collective workflow.
+  if (!canWrite(founder.role)) {
+    return NextResponse.json(WRITE_FORBIDDEN_RESPONSE, { status: 403 });
   }
   const { id } = await params;
   let body: { status?: string; notes?: string };

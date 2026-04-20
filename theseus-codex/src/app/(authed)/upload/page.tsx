@@ -1,5 +1,7 @@
 import UploadForm from "@/components/UploadForm";
 import SculptureBackdrop from "@/components/SculptureBackdrop";
+import { canWrite } from "@/lib/roles";
+import { requireTenantContext } from "@/lib/tenant";
 
 /**
  * Upload page. Wrap the form in a relative-positioned container so the
@@ -36,7 +38,66 @@ import SculptureBackdrop from "@/components/SculptureBackdrop";
  * The numbers were tuned against a 1440-wide viewport; on anything
  * narrower the SculptureBackdrop hides itself via its 768 px breakpoint.
  */
-export default function UploadPage() {
+export default async function UploadPage() {
+  const tenant = await requireTenantContext();
+  if (!tenant) return null;
+  // Viewers reach this page if they bookmark it (the nav link is
+  // hidden for them, but the URL is open). Render an explanatory
+  // notice instead of the form so a wandering viewer understands
+  // why the page is empty rather than blaming a broken form. The
+  // /api/upload* endpoints also reject viewers, so even if the form
+  // somehow got rendered, no upload would land.
+  if (!canWrite(tenant.role)) {
+    return (
+      <main
+        style={{
+          maxWidth: "640px",
+          margin: "0 auto",
+          padding: "4rem 2rem",
+          textAlign: "center",
+        }}
+      >
+        <h1
+          style={{
+            fontFamily: "'Cinzel Decorative', 'Cinzel', serif",
+            fontSize: "1.6rem",
+            letterSpacing: "0.18em",
+            color: "var(--amber)",
+            textShadow: "var(--glow-md)",
+            margin: 0,
+          }}
+        >
+          Dedicatio
+        </h1>
+        <p
+          className="mono"
+          style={{
+            fontSize: "0.62rem",
+            letterSpacing: "0.28em",
+            textTransform: "uppercase",
+            color: "var(--amber-dim)",
+            marginTop: "0.5rem",
+          }}
+        >
+          Read-only account
+        </p>
+        <p
+          style={{
+            fontFamily: "'EB Garamond', serif",
+            fontSize: "1.05rem",
+            color: "var(--parchment-dim)",
+            marginTop: "2rem",
+            lineHeight: 1.65,
+          }}
+        >
+          Your account can read everything in the firm&apos;s Codex but
+          cannot upload new material. Ask an admin in your organisation
+          to upgrade you to <strong>founder</strong> if you need to
+          contribute transcripts, sessions, or essays.
+        </p>
+      </main>
+    );
+  }
   return (
     <div style={{ position: "relative", overflow: "hidden", minHeight: "80vh" }}>
       <SculptureBackdrop

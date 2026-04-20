@@ -13,6 +13,7 @@
 import { NextResponse } from "next/server";
 import { getFounderFromAuth } from "@/lib/apiKeyAuth";
 import { db } from "@/lib/db";
+import { canWrite, WRITE_FORBIDDEN_RESPONSE } from "@/lib/roles";
 import { sanitizeAndCap } from "@/lib/sanitizeText";
 import {
   cascadeDeleteUploadArtifacts,
@@ -30,6 +31,12 @@ export async function PATCH(
         { error: "Not authenticated" },
         { status: 401 },
       );
+    }
+    // Accepting a deletion request triggers the full cascade-delete;
+    // declining writes a permanent decision note. Either way it's a
+    // mutation of org state — viewers don't get to do either.
+    if (!canWrite(founder.role)) {
+      return NextResponse.json(WRITE_FORBIDDEN_RESPONSE, { status: 403 });
     }
 
     const { id } = await params;
@@ -208,6 +215,12 @@ export async function DELETE(
         { error: "Not authenticated" },
         { status: 401 },
       );
+    }
+    // Cancelling a deletion request mutates state too. Viewers can't
+    // open requests in the first place (POST is gated), so they
+    // shouldn't be able to cancel them either.
+    if (!canWrite(founder.role)) {
+      return NextResponse.json(WRITE_FORBIDDEN_RESPONSE, { status: 403 });
     }
     const { id } = await params;
 

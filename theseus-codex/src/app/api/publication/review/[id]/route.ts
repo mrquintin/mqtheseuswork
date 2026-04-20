@@ -2,11 +2,19 @@ import { NextResponse } from "next/server";
 
 import { getFounder } from "@/lib/auth";
 import { applyPublicationReviewAction, type PublicationReviewAction } from "@/lib/publicationService";
+import { canWrite, WRITE_FORBIDDEN_RESPONSE } from "@/lib/roles";
 
 export async function POST(req: Request, ctx: { params: Promise<{ id: string }> }) {
   const founder = await getFounder();
   if (!founder) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+  // Approving / rejecting / requesting revision on a publication
+  // review is a corpus mutation — viewers can read the queue but
+  // can't move items through it. (publicationService also gates on
+  // role for the publish step itself; this is the outer gate.)
+  if (!canWrite(founder.role)) {
+    return NextResponse.json(WRITE_FORBIDDEN_RESPONSE, { status: 403 });
   }
 
   const { id } = await ctx.params;

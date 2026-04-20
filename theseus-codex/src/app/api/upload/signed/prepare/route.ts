@@ -30,6 +30,7 @@
 import { NextResponse } from "next/server";
 import { getFounderFromAuth } from "@/lib/apiKeyAuth";
 import { db } from "@/lib/db";
+import { canWrite, WRITE_FORBIDDEN_RESPONSE } from "@/lib/roles";
 import { sanitizeText, sanitizeAndCap } from "@/lib/sanitizeText";
 import { pickAvailableSlug } from "@/lib/slugify";
 import {
@@ -96,6 +97,13 @@ export async function POST(req: Request) {
         { error: "Not authenticated" },
         { status: 401 },
       );
+    }
+    // Role gate: viewers don't get to mint signed URLs either. Without
+    // this check the bucket would happily accept a viewer's PUT once
+    // we'd handed them the signed URL, since the URL itself carries
+    // the auth.
+    if (!canWrite(founder.role)) {
+      return NextResponse.json(WRITE_FORBIDDEN_RESPONSE, { status: 403 });
     }
 
     if (!isAudioStorageConfigured()) {

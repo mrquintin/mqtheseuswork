@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import fs from "fs/promises";
 import path from "path";
 import { getFounder } from "@/lib/auth";
+import { canWrite, WRITE_FORBIDDEN_RESPONSE } from "@/lib/roles";
 
 function reflectionsRoot(): string | null {
   const raw = process.env.DIALECTIC_REFLECTIONS_DIR?.trim();
@@ -50,6 +51,11 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
   const founder = await getFounder();
   if (!founder) {
     return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
+  }
+  // Reflection ratings mutate the on-disk Dialectic session file —
+  // viewers can read reflections (GET above) but not edit them.
+  if (!canWrite(founder.role)) {
+    return NextResponse.json(WRITE_FORBIDDEN_RESPONSE, { status: 403 });
   }
   const root = reflectionsRoot();
   if (!root) {

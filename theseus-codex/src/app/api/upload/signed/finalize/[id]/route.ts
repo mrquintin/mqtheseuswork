@@ -26,6 +26,7 @@ import { NextResponse } from "next/server";
 import { getFounderFromAuth } from "@/lib/apiKeyAuth";
 import { db } from "@/lib/db";
 import { extractText } from "@/lib/extractText";
+import { canWrite, WRITE_FORBIDDEN_RESPONSE } from "@/lib/roles";
 import { sanitizeAndCap } from "@/lib/sanitizeText";
 import {
   audioObjectExists,
@@ -117,6 +118,12 @@ export async function POST(
         { error: "Not authenticated" },
         { status: 401 },
       );
+    }
+    // Defence-in-depth: viewers shouldn't reach here (prepare gates
+    // them at step 1) but if they did via a stale URL or by replaying
+    // an old request, finalize must also reject.
+    if (!canWrite(founder.role)) {
+      return NextResponse.json(WRITE_FORBIDDEN_RESPONSE, { status: 403 });
     }
     if (!isAudioStorageConfigured()) {
       return NextResponse.json(

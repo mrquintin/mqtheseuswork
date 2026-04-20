@@ -6,6 +6,7 @@ import { usePathname, useRouter } from "next/navigation";
 import LabyrinthIcon from "./LabyrinthIcon";
 import { SUB_NAV_GROUPS, findGroupForPath } from "./SubNav";
 import ThemeToggle from "./ThemeToggle";
+import { canWrite, canManageFounders } from "@/lib/roles";
 
 /**
  * Top-level navigation.
@@ -20,10 +21,23 @@ import ThemeToggle from "./ThemeToggle";
  *
  * Clicking a group label (e.g. "Review") takes you to the group's default
  * tab ("/contradictions"), from which the sub-nav lets you jump to peers.
+ *
+ * Each entry can declare a `requires` predicate; if present, the link
+ * is omitted for callers whose role doesn't satisfy it. Today the only
+ * gated link is `/upload` (write-only) and `/founders/manage` (admin-
+ * only). The rest are read-accessible to every signed-in role.
  */
-const TOP_NAV_LINKS: ReadonlyArray<{ href: string; label: string }> = [
+type RoleGate = (role: string) => boolean;
+
+const TOP_NAV_LINKS: ReadonlyArray<{
+  href: string;
+  label: string;
+  requires?: RoleGate;
+}> = [
   { href: "/dashboard", label: "Dashboard" },
-  { href: "/upload", label: "Upload" },
+  // Hidden for viewers — the upload page itself also rejects them, but
+  // hiding the link keeps the nav honest about what they can do.
+  { href: "/upload", label: "Upload", requires: canWrite },
   // "Library" is the org-wide transparency surface: everyone sees every
   // upload + who put it there, with owner-only delete + peer-request
   // delete flows. It sits next to Upload because the two are a pair
@@ -44,12 +58,21 @@ const TOP_NAV_LINKS: ReadonlyArray<{ href: string; label: string }> = [
   { href: SUB_NAV_GROUPS[1].defaultHref, label: SUB_NAV_GROUPS[1].topLabel },
   { href: "/publication", label: "Publication" },
   { href: SUB_NAV_GROUPS[2].defaultHref, label: SUB_NAV_GROUPS[2].topLabel },
+  // Admin-only: the founder-role management page. Slotted at the
+  // end so non-admins (the common case) see no shift in the bar's
+  // layout when the link is absent.
+  { href: "/founders/manage", label: "Manage", requires: canManageFounders },
 ];
 
 export default function Nav({
   founder,
 }: {
-  founder: { name: string; username: string; organizationSlug?: string } | null;
+  founder: {
+    name: string;
+    username: string;
+    organizationSlug?: string;
+    role?: string;
+  } | null;
 }) {
   const pathname = usePathname();
   const router = useRouter();
@@ -63,6 +86,14 @@ export default function Nav({
     if (activeGroup && href === activeGroup.defaultHref) return true;
     return false;
   }
+
+  // Filter the link list against the caller's role. Unauthenticated
+  // callers (founder === null) never reach this component — the
+  // (authed) layout redirects to /login first — but be defensive.
+  const role = founder?.role ?? "viewer";
+  const visibleLinks = TOP_NAV_LINKS.filter(
+    (link) => !link.requires || link.requires(role),
+  );
 
   async function handleLogout() {
     await fetch("/api/auth/logout", { method: "POST" });
@@ -129,7 +160,7 @@ export default function Nav({
             justifyContent: "center",
           }}
         >
-          {TOP_NAV_LINKS.map((link) => (
+          {visibleLinks.map((link) => (
             <Link
               key={link.label}
               href={link.href}

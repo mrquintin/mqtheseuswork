@@ -5,6 +5,7 @@ import { enqueueIngestJob } from "@/lib/jobQueue";
 import { extractText } from "@/lib/extractText";
 import { sanitizeText, sanitizeAndCap } from "@/lib/sanitizeText";
 import { pickAvailableSlug } from "@/lib/slugify";
+import { canWrite, WRITE_FORBIDDEN_RESPONSE } from "@/lib/roles";
 import {
   isAudioStorageConfigured,
   uploadAudioBuffer,
@@ -75,6 +76,14 @@ export async function POST(req: Request) {
     const founder = await getFounderFromAuth(req);
     if (!founder) {
       return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
+    }
+    // Role gate: viewers can read every artifact in their org but cannot
+    // upload new material. The check happens AFTER auth (so an
+    // unauthenticated caller still sees 401, not 403) and BEFORE any
+    // file parsing, so a giant payload doesn't get streamed in for a
+    // request we'll reject anyway.
+    if (!canWrite(founder.role)) {
+      return NextResponse.json(WRITE_FORBIDDEN_RESPONSE, { status: 403 });
     }
 
     const formData = await req.formData();

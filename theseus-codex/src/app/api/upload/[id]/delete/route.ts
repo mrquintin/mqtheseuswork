@@ -21,6 +21,7 @@
 import { NextResponse } from "next/server";
 import { getFounderFromAuth } from "@/lib/apiKeyAuth";
 import { db } from "@/lib/db";
+import { canWrite, WRITE_FORBIDDEN_RESPONSE } from "@/lib/roles";
 import { sanitizeAndCap } from "@/lib/sanitizeText";
 import {
   cascadeDeleteUploadArtifacts,
@@ -38,6 +39,12 @@ export async function POST(
         { error: "Not authenticated" },
         { status: 401 },
       );
+    }
+    // Viewers can read but not delete — even their own uploads (if
+    // any survive from before they were demoted to viewer, an admin
+    // can delete on their behalf via a peer DeletionRequest).
+    if (!canWrite(founder.role)) {
+      return NextResponse.json(WRITE_FORBIDDEN_RESPONSE, { status: 403 });
     }
 
     const { id } = await params;

@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
+import { canWrite, WRITE_FORBIDDEN_RESPONSE } from "@/lib/roles";
 import { requireTenantContext } from "@/lib/tenant";
 
 type PatchBody = {
@@ -28,6 +29,13 @@ export async function PATCH(
   const tenant = await requireTenantContext();
   if (!tenant) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+  // Accept / decline / cancel are all corpus-state mutations.
+  // (The next layer down still enforces fine-grained authorisation —
+  // only the attributed founder or an admin can accept; only the
+  // requester can cancel — see body of the handler.)
+  if (!canWrite(tenant.role)) {
+    return NextResponse.json(WRITE_FORBIDDEN_RESPONSE, { status: 403 });
   }
   const { id } = await ctx.params;
   const body = (await req.json()) as PatchBody;

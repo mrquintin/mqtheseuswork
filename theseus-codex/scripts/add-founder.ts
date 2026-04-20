@@ -68,8 +68,10 @@ async function main(): Promise<void> {
   if (!email.includes("@")) {
     throw new Error(`Email doesn't look valid: ${email}`);
   }
-  if (role !== "founder" && role !== "admin") {
-    throw new Error(`Role must be 'founder' or 'admin' (got '${role}')`);
+  if (role !== "founder" && role !== "admin" && role !== "viewer") {
+    throw new Error(
+      `Role must be 'admin', 'founder', or 'viewer' (got '${role}')`,
+    );
   }
 
   const db = new PrismaClient({ adapter: createSqlAdapter() });

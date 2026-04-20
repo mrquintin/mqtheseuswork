@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
+import { canWrite, WRITE_FORBIDDEN_RESPONSE } from "@/lib/roles";
 import { requireTenantContext } from "@/lib/tenant";
 
 export async function PATCH(
@@ -9,6 +10,11 @@ export async function PATCH(
   const tenant = await requireTenantContext();
   if (!tenant) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+  // Resolve / dismiss / write resolution text → all writes; viewers
+  // can read contradictions but can't act on them.
+  if (!canWrite(tenant.role)) {
+    return NextResponse.json(WRITE_FORBIDDEN_RESPONSE, { status: 403 });
   }
   const { id } = await ctx.params;
   const body = (await req.json()) as {

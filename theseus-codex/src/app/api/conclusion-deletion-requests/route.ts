@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
+import { canWrite, WRITE_FORBIDDEN_RESPONSE } from "@/lib/roles";
 import { requireTenantContext } from "@/lib/tenant";
 
 /**
@@ -12,6 +13,9 @@ export async function POST(req: Request) {
   const tenant = await requireTenantContext();
   if (!tenant) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+  if (!canWrite(tenant.role)) {
+    return NextResponse.json(WRITE_FORBIDDEN_RESPONSE, { status: 403 });
   }
 
   const body = (await req.json()) as { conclusionId?: string; reason?: string };

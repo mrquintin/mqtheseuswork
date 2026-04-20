@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { getFounder } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { pushReviewResolutionToNoosphere } from "@/lib/pushReviewToNoosphere";
+import { canWrite, WRITE_FORBIDDEN_RESPONSE } from "@/lib/roles";
 
 type Verdict = "cohere" | "contradict" | "unresolved";
 
@@ -9,6 +10,12 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
   const founder = await getFounder();
   if (!founder) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+  // Casting a coherence verdict permanently marks the review item
+  // and (when configured) pushes the resolution to Noosphere — write
+  // action; viewers can read the queue but not vote.
+  if (!canWrite(founder.role)) {
+    return NextResponse.json(WRITE_FORBIDDEN_RESPONSE, { status: 403 });
   }
 
   const { id } = await params;

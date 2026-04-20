@@ -35,6 +35,7 @@ export default async function AuthedLayout({
           name: founder.name,
           username: founder.username,
           organizationSlug: founder.organization.slug,
+          role: founder.role,
         }}
       />
       <SubNav />

@@ -19,6 +19,7 @@
 import { NextResponse } from "next/server";
 import { getFounderFromAuth } from "@/lib/apiKeyAuth";
 import { db } from "@/lib/db";
+import { canWrite, WRITE_FORBIDDEN_RESPONSE } from "@/lib/roles";
 import { sanitizeAndCap } from "@/lib/sanitizeText";
 
 export async function GET(req: Request) {
@@ -89,6 +90,12 @@ export async function POST(req: Request) {
   const founder = await getFounderFromAuth(req);
   if (!founder) {
     return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
+  }
+  // Opening a peer-deletion request is a write — viewers can see
+  // every upload (per the org-visibility rules) but can't ask peers
+  // to remove them.
+  if (!canWrite(founder.role)) {
+    return NextResponse.json(WRITE_FORBIDDEN_RESPONSE, { status: 403 });
   }
 
   const body = (await req.json().catch(() => ({}))) as {

@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { getFounder } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { pushReviewResolutionToNoosphere } from "@/lib/pushReviewToNoosphere";
+import { canWrite, WRITE_FORBIDDEN_RESPONSE } from "@/lib/roles";
 
 /**
  * Retry endpoint for a review item whose initial Noosphere sync failed.
@@ -17,6 +18,12 @@ export async function POST(req: Request) {
   const founder = await getFounder();
   if (!founder) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+  // Same gate as the rest of /api/review — viewers can read the
+  // queue but can't push verdicts (or retries of verdicts) to
+  // Noosphere.
+  if (!canWrite(founder.role)) {
+    return NextResponse.json(WRITE_FORBIDDEN_RESPONSE, { status: 403 });
   }
 
   const { reviewItemId } = (await req.json()) as { reviewItemId?: string };

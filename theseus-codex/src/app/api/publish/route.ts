@@ -21,6 +21,7 @@
 import { NextResponse } from "next/server";
 import { getFounderFromAuth } from "@/lib/apiKeyAuth";
 import { db } from "@/lib/db";
+import { canWrite, WRITE_FORBIDDEN_RESPONSE } from "@/lib/roles";
 import { sanitizeAndCap } from "@/lib/sanitizeText";
 import { pickAvailableSlug } from "@/lib/slugify";
 
@@ -32,6 +33,10 @@ export async function POST(req: Request) {
         { error: "Not authenticated" },
         { status: 401 },
       );
+    }
+    // Publishing to the public blog is a write action; viewers can't.
+    if (!canWrite(founder.role)) {
+      return NextResponse.json(WRITE_FORBIDDEN_RESPONSE, { status: 403 });
     }
 
     const body = (await req.json().catch(() => ({}))) as {

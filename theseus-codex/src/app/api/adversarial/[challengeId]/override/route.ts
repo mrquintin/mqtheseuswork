@@ -2,6 +2,7 @@ import { Prisma } from "@prisma/client";
 import { NextResponse } from "next/server";
 import { getFounder } from "@/lib/auth";
 import { db } from "@/lib/db";
+import { canWrite, WRITE_FORBIDDEN_RESPONSE } from "@/lib/roles";
 
 type AdvRow = { payload_json: string; conclusion_id: string };
 
@@ -12,6 +13,12 @@ export async function POST(
   const founder = await getFounder();
   if (!founder) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+  // Human override on an adversarial challenge can demote a
+  // conclusion to "open" tier — clear corpus mutation that viewers
+  // shouldn't have access to.
+  if (!canWrite(founder.role)) {
+    return NextResponse.json(WRITE_FORBIDDEN_RESPONSE, { status: 403 });
   }
 
   const { challengeId } = await params;
