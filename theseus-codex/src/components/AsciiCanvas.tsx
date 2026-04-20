@@ -235,44 +235,37 @@ const DEPTH_BANDS = 16;
  * Floor for the dimmest depth band, expressed as a fraction of the
  * resolved amber colour.
  *
- * The early version of this rendering used 0.35 — a 3× near-to-far
- * contrast ratio that read as "the front of the figure is amber, the
- * back is almost black". Reported effect: the figure looked
- * transparent, as if you could see through it to the page behind —
- * because the dimmed back glyphs had so little contrast against the
- * dark background that they read as absent rather than as shaded
- * surface.
+ * History of tuning on this value:
  *
- * Raised to 0.70 with `DEPTH_GAMMA = 0.55`. New behaviour:
- *
- *   - The near:far brightness ratio is still ~1.43× in the LUT, but
- *     the gamma curve pushes MOST cells close to full amber. The
- *     figure reads as a solid, opaque object.
- *   - Lambert-shaded grooves and shadows remain legible because they
- *     come from the source canvas's ALPHA channel (density), not from
- *     depth colour: a groove with low Lambert produces a sparser
- *     glyph cluster (or a "—" instead of a "█"), which now sits
- *     against a solid surround of brighter glyphs and reads clearly
- *     as a dark line.
- *   - Only cells whose NEAREST VISIBLE TRIANGLE is deeply behind the
- *     figure's average depth drop toward the floor — back-corner
- *     edges, back-facing surfaces visible through hollows. Enough to
- *     give the figure 3D weight without making the rest ghostly.
+ *   0.35  — Original. Strong 2.86× near:far contrast; produced a
+ *           "transparent" look because the dimmed back glyphs lost
+ *           contrast against the dark page and read as absent.
+ *   0.70  — Over-corrected. Solid everywhere but the depth gradient
+ *           was too subtle; the figure read as flat.
+ *   0.55  — Current. A 1.82× contrast ratio — dim cells are clearly
+ *           duller than bright cells, but still solid amber, not
+ *           ghostly. Combined with `DEPTH_GAMMA = 0.50` which pushes
+ *           mid-depth cells up toward the bright end, the resulting
+ *           figure has a solid lit body with visibly shadowed
+ *           recesses — 3D object under directional light, rather
+ *           than silhouette cutout.
  */
-const DEPTH_MIN_BRIGHTNESS = 0.7;
+const DEPTH_MIN_BRIGHTNESS = 0.55;
 /**
  * Exponent applied to the normalised depth before mapping onto the
  * `[minBrightness, 1]` range. Values < 1 pull mid-depth cells UP
  * toward the bright end (more of the figure reads as solid); values
  * > 1 pull them down (more of the figure reads as shadowed).
  *
- * 0.55 tested as the sweet spot: a 0.5-depth cell lands at brightness
- * 0.91 (i.e. 91 % of full amber) rather than the 0.85 a linear mapping
- * would produce. That puts the perceptual break between "solid body"
- * and "shaded recess" at roughly the back 30 % of the depth range
- * instead of splitting the figure down the middle.
+ * 0.50 is the companion to `DEPTH_MIN_BRIGHTNESS = 0.55`: a 0.5-depth
+ * cell lands at brightness 0.87, keeping most of the figure's surface
+ * in the bright third of the range while letting the back cells dive
+ * to the 0.55 floor. The sharper gamma (vs the previous 0.55) more
+ * than compensates for the lowered min when it comes to "does the
+ * body of the figure still look solid?" — the answer is yes, because
+ * only genuinely deep-in-the-figure cells ever see the floor.
  */
-const DEPTH_GAMMA = 0.55;
+const DEPTH_GAMMA = 0.5;
 
 export default function AsciiCanvas({
   cols,

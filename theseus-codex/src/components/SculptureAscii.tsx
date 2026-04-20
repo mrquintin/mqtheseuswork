@@ -539,11 +539,20 @@ export default function SculptureAscii({
       const sinP = Math.sin(pitch);
 
       // Light direction (pre-rotated, so the highlit side of the figure
-      // doesn't itself rotate as the figure spins). Roughly over the
-      // viewer's right shoulder.
-      const Lx = 0.45;
-      const Ly = 0.75;
-      const Lz = 0.5;
+      // doesn't itself rotate as the figure spins).
+      //
+      // Moved from over-the-shoulder (0.45, 0.75, 0.50) to a more
+      // side-lit angle (0.62, 0.55, 0.45) so the rake across the
+      // figure is longer — one side of the body catches light at a
+      // near-perpendicular angle, the other side sees it at a very
+      // grazing angle, which deepens the chiaroscuro. Still weighted
+      // slightly downward from the viewer's position so faces and
+      // chests stay readable rather than being lit from below like a
+      // horror film. Values renormalised below so magnitude doesn't
+      // matter.
+      const Lx = 0.62;
+      const Ly = 0.55;
+      const Lz = 0.45;
       const Llen = Math.hypot(Lx, Ly, Lz);
       const lx = Lx / Llen;
       const ly = Ly / Llen;
@@ -680,16 +689,31 @@ export default function SculptureAscii({
 
         // Lambertian + rim light. Rim keeps silhouette edges legible
         // when the normal is close to perpendicular to the viewer.
-        // The weights below are tuned together: the low ambient floor
-        // (0.04) means dark sides really are dark (good for 3D feel on
-        // solid figures like Atlas's globe), the full-weight Lambert
-        // (1.0) pushes lit sides to peak brightness, and the strong
-        // rim (0.45 with a cubic falloff) highlights silhouette edges
-        // so the figure's contour stays crisp even on low-poly meshes.
+        //
+        // Tuning (pushed harder in favour of chiaroscuro):
+        //
+        //   Lambert: `dot^1.3` instead of `dot`. The gamma > 1 exponent
+        //     deepens shadows — a surface tilted 60° off the light
+        //     (dot=0.5) now produces shade ~0.40 instead of 0.50, and
+        //     anything past 75° off drops sharply. Perpendicular
+        //     surfaces still saturate at 1.0.
+        //
+        //   Rim: `pow(1 - nzn, 2.5) * 0.6` instead of `pow(..., 3) *
+        //     0.45`. A less-steep falloff means MORE cells get a rim
+        //     contribution, and a higher peak (0.6 vs 0.45) makes
+        //     silhouette edges glow brighter than the flat-lit body.
+        //     Together: the figure's outline stays crisp even when
+        //     the core body is deep in shadow.
+        //
+        //   Ambient: 0.02 instead of 0.04. Halves the baseline glow a
+        //     wholly unlit surface receives. Combined with the fog
+        //     term below this means surfaces in the deepest shadow
+        //     produce nearly-empty cells in the glyph grid — readable
+        //     as "shadow" rather than "faint greyish nothing".
         const dot = nxn * lx + nyn * ly + nzn * lz;
-        const lambert = Math.max(0, dot);
-        const rim = Math.pow(1 - Math.max(0, nzn), 3) * 0.45;
-        let brightness = Math.min(1, lambert * 1.0 + rim + 0.04);
+        const lambert = Math.pow(Math.max(0, dot), 1.3);
+        const rim = Math.pow(1 - Math.max(0, nzn), 2.5) * 0.6;
+        let brightness = Math.min(1, lambert + rim + 0.02);
         if (isBackFacing) {
           brightness *= 0.3;
         }
@@ -720,11 +744,15 @@ export default function SculptureAscii({
       // near = brighter) gives the picker a second gradient to sample,
       // and a low-poly sphere stops looking like a circle.
       //
-      // The fog range below (0.62 at the back, 1.00 at the front) was
-      // chosen conservatively so solid figures still read clearly —
-      // any farther and dark sides of the figure would stop producing
-      // a visible ASCII glyph at all given the outer opacity/mask stack
-      // that most pages apply on top.
+      // The fog range below (0.40 at the back, 1.00 at the front) is
+      // intentionally wide — a far triangle renders at 40 % alpha, a
+      // near triangle at 100 %. Combined with the chiaroscuro tuning
+      // above and the depth-colour gradient AsciiCanvas applies on
+      // top, the figure gains a strong sense of volume: near surfaces
+      // are crisp and amber-bright, mid surfaces flatten slightly,
+      // far surfaces fade markedly in both density and colour. Earlier
+      // versions used a conservative 0.62–1.00 range that preserved
+      // silhouette at the cost of looking like a paper cutout.
       let minDepth = Infinity;
       let maxDepth = -Infinity;
       for (let k = 0; k < visibleCount; k++) {
@@ -734,8 +762,8 @@ export default function SculptureAscii({
       }
       const depthRange = maxDepth - minDepth || 1;
       const fogNear = 1.0;
-      const fogFar = 0.62;
-      const fogSpan = fogNear - fogFar; // 0.38
+      const fogFar = 0.4;
+      const fogSpan = fogNear - fogFar; // 0.60
 
       for (let k = 0; k < visibleCount; k++) {
         const i = orderView[k]!;
