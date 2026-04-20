@@ -172,12 +172,7 @@ export async function POST(req: Request) {
     // check, and the user hit the same Supabase-side 413 anyway.
     const ensure = await ensureAudioBucketCapacity(size);
     if (!ensure.ok) {
-      const sizeMb = `${(size / 1024 / 1024).toFixed(1)} MB`;
-      const capMb = ensure.currentCapBytes
-        ? `${(ensure.currentCapBytes / 1024 / 1024).toFixed(1)} MB`
-        : "unset";
-      const detail = ensure.detail ? ensure.detail.slice(0, 240) : "";
-      const detailSuffix = detail ? ` Supabase response: ${detail}` : "";
+      const sizeMb = (size / 1024 / 1024).toFixed(1);
       let message: string;
       if (ensure.reason === "unconfigured") {
         message =
@@ -185,20 +180,37 @@ export async function POST(req: Request) {
           "SUPABASE_URL + SUPABASE_SERVICE_ROLE_KEY on Vercel and " +
           "redeploy, then retry the upload.";
       } else if (ensure.reason === "plan_limit") {
+        // The plan-level ceiling is the usual culprit here. On the
+        // free tier it's 50 MB; on Pro it's 5 GB. The Storage API
+        // refuses to let us raise the bucket's `file_size_limit`
+        // above the plan ceiling even as a service-role request —
+        // so if both the generous 500 MB target AND the exact file
+        // size get rejected, the file genuinely exceeds what the
+        // plan permits. We can't fix this in code; the user needs
+        // to change one of: the file's size, the Supabase plan,
+        // or (eventually) the storage backend itself.
         message =
-          `File is ${sizeMb}. Supabase bucket "${getAudioBucket()}" ` +
-          `is capped at ${capMb}, and the attempt to raise the cap ` +
-          `was rejected — almost certainly because your Supabase ` +
-          `plan has a hard per-file ceiling below ${sizeMb}. ` +
-          `Upgrade the Supabase plan, or trim the file below the ` +
-          `ceiling.${detailSuffix}`;
+          `Upload is ${sizeMb} MB, but your Supabase plan refuses ` +
+          `to accept files that big. On the free tier the per-file ` +
+          `ceiling is 50 MB; on Pro it rises to 5 GB. Three ways out:\n` +
+          `  • Upgrade Supabase (Pro is $25/mo, ceiling becomes 5 GB): ` +
+          `https://supabase.com/dashboard/project/_/settings/billing\n` +
+          `  • Compress the audio below 50 MB — for an ~2 hour podcast, ` +
+          `\`ffmpeg -i input.m4a -b:a 32k -ac 1 output.m4a\` usually ` +
+          `lands around 30 MB.\n` +
+          `  • Split into parts: ` +
+          `\`ffmpeg -i input.m4a -f segment -segment_time 3600 -c copy part%d.m4a\` ` +
+          `and upload each piece separately.`;
       } else {
+        const detailSuffix = ensure.detail
+          ? ` Supabase response: ${ensure.detail.slice(0, 200)}`
+          : "";
         message =
-          `File is ${sizeMb}. Supabase bucket "${getAudioBucket()}" ` +
-          `is capped at ${capMb} and we couldn't raise it ` +
-          `automatically. Raise Storage → Bucket settings → File size ` +
-          `limit in the Supabase dashboard to at least ${sizeMb} ` +
-          `(or 500 MB).${detailSuffix}`;
+          `Couldn't raise the Supabase bucket size limit to accept ` +
+          `this ${sizeMb} MB file, and the failure isn't the usual ` +
+          `plan-ceiling signal. Raise Storage → Bucket settings → ` +
+          `File size limit manually, or check the SUPABASE_SERVICE_ROLE_KEY ` +
+          `scope.${detailSuffix}`;
       }
       return NextResponse.json({ error: message }, { status: 413 });
     }

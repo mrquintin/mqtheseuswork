@@ -909,11 +909,18 @@ export default function UploadForm() {
                   )}
 
                   {it.phase === "failed" && (
+                    // Server-side errors may be multi-line (e.g. the
+                    // Supabase-plan-ceiling error includes a bullet
+                    // list of remedies). `white-space: pre-wrap`
+                    // preserves the newlines so the whole remedy list
+                    // is visible; otherwise the browser would collapse
+                    // it into a single unreadable sentence.
                     <p
                       style={{
                         margin: 0,
                         fontSize: "0.8rem",
                         color: "var(--ember)",
+                        whiteSpace: "pre-wrap",
                       }}
                     >
                       {it.errorMessage || "Unknown error"}
