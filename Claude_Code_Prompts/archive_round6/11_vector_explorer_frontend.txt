@@ -1,0 +1,182 @@
+# Claude Code Prompt 11 of 12 — Vector space explorer: interactive frontend visualization
+
+**Sequence:** prompt 11 of 12 (Wave 4 — vector explorer; depends on prompt 10 for the API). When you finish, report back with: files you created/modified, any notable choices, any blockers.
+
+**Before you start — read current state:**
+1. Read the API route created by prompt 10 at `theseus-codex/src/app/api/conclusions/embeddings/route.ts` — understand the response shape (`EmbeddingProjection` with `conclusions[]` and `axes[]`).
+2. Read `theseus-codex/src/lib/embeddingAxes.ts` — understand the `ProjectedConclusion` and `SemanticAxis` types.
+3. Read `theseus-codex/src/app/(authed)/` — note the existing page structure, layout conventions, and navigation patterns.
+4. Read `theseus-codex/package.json` — check what visualization libraries are already installed (look for d3, three.js, recharts, etc.).
+
+## The problem
+
+The founder wants to "visualize the conclusions themselves" by plotting them in the vector embedding space on semantic axes. This requires an interactive 2D scatter plot where:
+
+1. Each dot represents a conclusion.
+2. The axes represent the principal semantic dimensions computed by the backend (prompt 10).
+3. Founders can hover over or click dots to see the conclusion text.
+4. Visual encoding communicates metadata: confidence tier (color), topic (shape or color), etc.
+
+## SCOPE (files you may create or modify — stay within this list)
+- `theseus-codex/src/app/(authed)/explorer/page.tsx`                            CREATE
+- `theseus-codex/src/app/(authed)/explorer/scatter-plot.tsx`                    CREATE (client component)
+- `theseus-codex/src/components/` — any small shared components if needed       CREATE
+
+## Step-by-step
+
+1. **Create the explorer page** at `theseus-codex/src/app/(authed)/explorer/page.tsx`:
+   ```tsx
+   import { requireTenantContext } from "@/lib/tenant";
+   import ExplorerScatterPlot from "./scatter-plot";
+
+   export default async function ExplorerPage() {
+     const tenant = await requireTenantContext();
+     if (!tenant) return null;
+
+     return (
+       <main style={{ maxWidth: "1200px", margin: "0 auto", padding: "2rem" }}>
+         <h1 style={{
+           fontFamily: "'Cinzel', serif",
+           color: "var(--gold)",
+           letterSpacing: "0.08em",
+         }}>
+           Semantic Explorer
+         </h1>
+         <p style={{
+           fontFamily: "'EB Garamond', serif",
+           fontStyle: "italic",
+           fontSize: "1rem",
+           color: "var(--parchment-dim)",
+           maxWidth: "44em",
+           lineHeight: 1.55,
+           marginBottom: "1.5rem",
+         }}>
+           Your conclusions plotted in semantic space. Each point is a conclusion;
+           proximity means semantic similarity. The axes represent the principal
+           dimensions of variation across your entire belief model.
+         </p>
+         <ExplorerScatterPlot />
+       </main>
+     );
+   }
+   ```
+
+2. **Create the scatter plot client component** at `theseus-codex/src/app/(authed)/explorer/scatter-plot.tsx`:
+   ```tsx
+   "use client";
+   ```
+
+   This component should:
+   - Fetch `/api/conclusions/embeddings` on mount.
+   - Render a 2D scatter plot using SVG (no heavy library dependency needed — the dataset is small enough for raw SVG).
+   - Show a loading state while fetching.
+   - Handle the error case (< 3 conclusions) with a message.
+
+3. **Scatter plot implementation details:**
+
+   **Layout:**
+   - The plot area should be responsive, roughly 800×600px with margins for axis labels.
+   - Use SVG `<circle>` elements for each conclusion.
+   - Scale x/y coordinates to fit the SVG viewBox using linear scaling from the min/max of each projected dimension.
+
+   **Visual encoding:**
+   - Circle color by confidence tier:
+     - `firm` → `var(--gold)` or `#d4a017`
+     - `founder` → `var(--amber)` or `#c9944a`
+     - `open` → `var(--parchment)` or `#c8b89a`
+     - `speculative` → `var(--parchment-dim)` or `#8a7e6b`
+   - Circle radius: 5px default, 8px on hover.
+   - Circle opacity: 0.7 default, 1.0 on hover.
+
+   **Interactivity:**
+   - **Hover:** Show a tooltip with the conclusion text (truncated to ~200 chars), confidence tier, and topic hint.
+   - **Click:** Navigate to `/conclusions/{id}` for the full detail page.
+   - **Tooltip positioning:** Position near the cursor, clamped to the SVG bounds.
+
+   **Axes:**
+   - Draw axis lines through the center of the plot.
+   - Label each axis with the `SemanticAxis.label` from the API response.
+   - Show the `varianceExplained` percentage next to each axis label.
+
+4. **Implement the tooltip as a React state-managed overlay:**
+   ```tsx
+   const [hovered, setHovered] = useState<ProjectedConclusion | null>(null);
+   const [tooltipPos, setTooltipPos] = useState({ x: 0, y: 0 });
+
+   // On each circle:
+   onMouseEnter={(e) => {
+     setHovered(conclusion);
+     setTooltipPos({ x: e.clientX, y: e.clientY });
+   }}
+   onMouseLeave={() => setHovered(null)}
+   onClick={() => router.push(`/conclusions/${conclusion.id}`)}
+   style={{ cursor: "pointer" }}
+   ```
+
+   Tooltip element:
+   ```tsx
+   {hovered && (
+     <div style={{
+       position: "fixed",
+       left: tooltipPos.x + 12,
+       top: tooltipPos.y - 8,
+       background: "var(--stone)",
+       border: "1px solid var(--border)",
+       borderRadius: 2,
+       padding: "0.5rem 0.75rem",
+       maxWidth: "300px",
+       fontSize: "0.8rem",
+       color: "var(--parchment)",
+       zIndex: 100,
+       pointerEvents: "none",
+       boxShadow: "0 2px 8px rgba(0,0,0,0.3)",
+     }}>
+       <div className="mono" style={{
+         fontSize: "0.6rem",
+         color: "var(--amber-dim)",
+         textTransform: "uppercase",
+         marginBottom: "0.25rem",
+       }}>
+         {hovered.confidenceTier} · {hovered.topicHint || "general"}
+       </div>
+       <p style={{ margin: 0, lineHeight: 1.4 }}>
+         {hovered.text.slice(0, 200)}{hovered.text.length > 200 ? "…" : ""}
+       </p>
+     </div>
+   )}
+   ```
+
+5. **Add a legend** showing the confidence tier color mapping and a brief explanation of the axes:
+   ```tsx
+   <div style={{
+     display: "flex",
+     gap: "1.5rem",
+     marginTop: "1rem",
+     fontSize: "0.75rem",
+     color: "var(--parchment-dim)",
+   }}>
+     {[
+       { tier: "firm", color: "#d4a017" },
+       { tier: "founder", color: "#c9944a" },
+       { tier: "open", color: "#c8b89a" },
+       { tier: "speculative", color: "#8a7e6b" },
+     ].map(({ tier, color }) => (
+       <span key={tier} style={{ display: "flex", alignItems: "center", gap: "0.3rem" }}>
+         <span style={{
+           display: "inline-block",
+           width: 8,
+           height: 8,
+           borderRadius: "50%",
+           background: color,
+         }} />
+         {tier}
+       </span>
+     ))}
+   </div>
+   ```
+
+6. **Add navigation** to the explorer page. Add a link to `/explorer` from the sidebar or navigation if one exists, or at minimum add a link from the conclusions list page and the dashboard.
+
+7. **Do NOT change** the API endpoint (prompt 10), the contradictions page, the dashboard layout (beyond adding a nav link), or any Noosphere code. This prompt is purely frontend.
+
+Do not proceed to any other work. Do not edit anything outside SCOPE.

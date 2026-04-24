@@ -1,0 +1,158 @@
+# Claude Code Prompt 1 of 8 — Dialectic: PyInstaller config and frozen-mode resource handling
+
+**Sequence:** prompt 1 of 8 (Wave 1 — independent of other Wave 1 prompts). When you finish, report back with: files you created/modified, any notable choices, any blockers.
+
+**Before you start — read current state:**
+1. Run `git status` and `git branch` to see the current branch state.
+2. Read `dialectic/run.py`, `dialectic/dialectic/__main__.py`, `dialectic/dialectic/config.py`, and `dialectic/dialectic/dashboard.py` to understand the existing entry point and how resources are loaded.
+3. Read `dialectic/requirements.txt` for the full dependency list.
+4. For every file listed under SCOPE below, check whether it already exists. If parts of this work are already done, INSPECT what is there and only add missing pieces. Do NOT overwrite existing correct work.
+
+## Your task
+
+You are an implementation agent. Your job is to make Dialectic packageable as a standalone desktop application via PyInstaller. This means: creating a PyInstaller spec file, adding a resource-path resolver so the app finds its assets whether running from source or from a frozen bundle, creating a `pyproject.toml` with proper metadata, and ensuring the entry point works in frozen mode.
+
+When you finish, verify the spec file parses without error. Do not proceed to any other work. Do not edit anything outside FILES TOUCHED below.
+
+## Prerequisites
+- The existing Theseus repo is at the root of your worktree.
+- `dialectic/` contains a working PyQt6 application launched via `python run.py`.
+- Python 3.11+ is available. PyInstaller is installable via pip.
+
+SCOPE (files you may create or modify — stay within this list)
+- `dialectic/pyproject.toml`                          CREATE
+- `dialectic/dialectic.spec`                           CREATE
+- `dialectic/dialectic/resources.py`                   CREATE
+- `dialectic/dialectic/config.py`                      MODIFY
+- `dialectic/dialectic/__main__.py`                    MODIFY (minimal — frozen-mode guard)
+- `dialectic/run.py`                                   MODIFY (minimal — frozen-mode guard)
+- `dialectic/assets/icon.png`                          CREATE (placeholder 512×512 PNG)
+- `dialectic/assets/splash.png`                        CREATE (placeholder 800×400 PNG)
+- `dialectic/tests/test_resources.py`                  CREATE
+
+## Step-by-step
+
+1. **Create `dialectic/dialectic/resources.py`** — a module that resolves asset paths correctly in both development and frozen (PyInstaller) modes:
+   ```python
+   import sys
+   from pathlib import Path
+
+   def is_frozen() -> bool:
+       return getattr(sys, 'frozen', False) and hasattr(sys, '_MEIPASS')
+
+   def base_path() -> Path:
+       if is_frozen():
+           return Path(sys._MEIPASS)
+       return Path(__file__).resolve().parent.parent
+
+   def asset_path(relative: str) -> Path:
+       return base_path() / "assets" / relative
+
+   def data_dir() -> Path:
+       """User-writable data directory for sessions, logs, config."""
+       if sys.platform == "darwin":
+           d = Path.home() / "Library" / "Application Support" / "Dialectic"
+       elif sys.platform == "win32":
+           d = Path(os.environ.get("APPDATA", Path.home())) / "Dialectic"
+       else:
+           d = Path.home() / ".dialectic"
+       d.mkdir(parents=True, exist_ok=True)
+       return d
+   ```
+   Add the missing `import os` at the top. Ensure `data_dir()` handles all three platforms.
+
+2. **Update `dialectic/dialectic/config.py`** — wherever file paths are resolved (model paths, device configs, session save directories), import from `resources.py` so they work in frozen mode. If `config.py` currently uses `Path(__file__)` or relative paths for assets, replace those with calls to `asset_path()` or `data_dir()`. Do NOT change any configuration values, thresholds, or device settings — only path resolution.
+
+3. **Update `dialectic/dialectic/__main__.py`** and `dialectic/run.py`** — add a frozen-mode guard at the very top (before Qt or audio imports):
+   ```python
+   import multiprocessing
+   import sys
+   if getattr(sys, 'frozen', False):
+       multiprocessing.freeze_support()
+   ```
+   This is required for PyInstaller on Windows where multiprocessing spawns subprocesses.
+
+4. **Create `dialectic/assets/icon.png`** — generate a simple 512×512 placeholder PNG programmatically using Python (a colored square with "D" text, or use PIL to draw a simple logo). This will be replaced with real artwork later but must exist for the spec file to reference.
+
+5. **Create `dialectic/assets/splash.png`** — generate a simple 800×400 placeholder PNG. Same approach.
+
+6. **Create `dialectic/pyproject.toml`** with proper metadata:
+   ```toml
+   [project]
+   name = "dialectic"
+   version = "0.1.0"
+   description = "Live conversation analyzer — real-time transcription, claim extraction, and contradiction detection"
+   requires-python = ">=3.11"
+   license = {text = "Proprietary"}
+
+   [project.scripts]
+   dialectic = "dialectic.__main__:main"
+
+   [build-system]
+   requires = ["setuptools>=68.0"]
+   build-backend = "setuptools.backends._legacy:_Backend"
+   ```
+
+7. **Create `dialectic/dialectic.spec`** — the PyInstaller spec file. This is the critical deliverable. Key requirements:
+   - `Analysis` must collect all hidden imports: `PyQt6`, `pyqtgraph`, `qasync`, `sounddevice`, `faster_whisper`, `ctranslate2`, `sentence_transformers`, `torch`, `numpy`, `scipy`, `sklearn`, `anthropic`.
+   - Bundle the `assets/` directory as data: `datas=[('assets', 'assets')]`.
+   - On macOS, produce a `.app` bundle (`BUNDLE` target with `bundle_identifier='com.theseus.dialectic'`).
+   - On Windows, produce a single-directory distribution (NOT `--onefile` — torch is too large for single-file extraction).
+   - Set the icon: `icon='assets/icon.png'` (will be converted to .icns/.ico by build scripts in prompt 05).
+   - Exclude unnecessary packages to reduce bundle size: `tensorflow`, `tensorboard`, `jupyter`, `IPython`, `matplotlib`, `pytest`.
+   - Set `name='Dialectic'`.
+   - Use `console=False` (GUI app, no terminal window).
+   - Add runtime hooks if needed for `sounddevice` (PortAudio library) and `faster_whisper` (CTranslate2 shared libraries).
+
+   The spec file should be structured as:
+   ```python
+   # -*- mode: python ; coding: utf-8 -*-
+   import sys
+   from pathlib import Path
+
+   block_cipher = None
+   ROOT = Path(SPECPATH)
+
+   a = Analysis(
+       [str(ROOT / 'run.py')],
+       pathex=[str(ROOT)],
+       binaries=[],
+       datas=[(str(ROOT / 'assets'), 'assets')],
+       hiddenimports=[...],
+       hookspath=[],
+       hooksconfig={},
+       runtime_hooks=[],
+       excludes=[...],
+       win_no_prefer_redirects=False,
+       win_private_assemblies=False,
+       cipher=block_cipher,
+       noarchive=False,
+   )
+   # ... PYZ, EXE, COLLECT, and platform-conditional BUNDLE
+   ```
+
+8. **Create `dialectic/tests/test_resources.py`**:
+   - Test `is_frozen()` returns `False` in normal Python.
+   - Test `base_path()` returns the dialectic root directory.
+   - Test `asset_path('icon.png')` points to `dialectic/assets/icon.png`.
+   - Test `data_dir()` returns a writable directory.
+   - Mock `sys.frozen = True` and `sys._MEIPASS = '/tmp/fake_meipass'` and verify `is_frozen()` returns `True` and `base_path()` returns the MEIPASS path.
+
+9. **Run tests:**
+   ```bash
+   cd dialectic && python -m pytest tests/test_resources.py -v
+   ```
+
+## Verification
+- `python -c "from dialectic.dialectic.resources import is_frozen, base_path, asset_path, data_dir; print(base_path()); print(data_dir())"` succeeds.
+- `python -c "import PyInstaller; PyInstaller.__main__.run(['--help'])"` confirms PyInstaller is available (install it first if not).
+- `python -c "exec(open('dialectic/dialectic.spec').read())"` does NOT crash (basic syntax check — full spec validation requires PyInstaller internals, but syntax must be clean).
+- `dialectic/assets/icon.png` and `dialectic/assets/splash.png` exist and are valid PNGs.
+- All tests pass.
+
+## Prohibitions
+- Do NOT run the full PyInstaller build (that is prompt 05's job).
+- Do NOT modify `dashboard.py`, `audio.py`, `transcriber.py`, `analyzer.py`, or `interlocutor.py`.
+- Do NOT add new Python dependencies to `requirements.txt` (PyInstaller is a build-time tool, not a runtime dependency).
+- Do NOT change any ML model names, thresholds, or audio device configuration.
+- Do NOT create macOS .icns or Windows .ico files (prompt 05 handles platform-specific icon conversion).

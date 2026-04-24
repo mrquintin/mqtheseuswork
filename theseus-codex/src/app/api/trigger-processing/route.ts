@@ -1,0 +1,172 @@
+/**
+ * Manual "Process now" endpoint.
+ *
+ * Given an `upload_id`, fires the same GitHub Actions webhook that
+ * `/api/upload` fires automatically. Useful when:
+ *
+ *   * the auto-dispatch failed silently and the user wants to retry
+ *     without waiting for the 10-minute cron;
+ *   * the upload came in via API before the dispatch wiring existed
+ *     (legacy rows in `queued_offline` state);
+ *   * the user wants to re-run an upload in `--with-llm` mode after
+ *     the naive pass already marked it `ingested`.
+ *
+ * Authentication follows the same pattern as the rest of the API:
+ * session cookie OR `Authorization: Bearer tcx_...` API key. The
+ * caller must belong to the same organization as the upload.
+ */
+import { NextResponse } from "next/server";
+import { getFounderFromAuth } from "@/lib/apiKeyAuth";
+import { db } from "@/lib/db";
+import { canWrite, WRITE_FORBIDDEN_RESPONSE } from "@/lib/roles";
+import { sanitizeAndCap } from "@/lib/sanitizeText";
+import { triggerNoosphereProcessing } from "@/lib/triggerNoosphereProcessing";
+
+export async function POST(req: Request) {
+  try {
+    const founder = await getFounderFromAuth(req);
+    if (!founder) {
+      return NextResponse.json(
+        { error: "Not authenticated" },
+        { status: 401 },
+      );
+    }
+    // Re-triggering processing re-runs Noosphere extraction, which
+    // writes Conclusion / Contradiction / OpenQuestion rows. Treating
+    // it as a write keeps the rule simple — if you can't upload, you
+    // can't re-process. Admins can re-trigger on behalf of viewers
+    // if needed.
+    if (!canWrite(founder.role)) {
+      return NextResponse.json(WRITE_FORBIDDEN_RESPONSE, { status: 403 });
+    }
+
+    const body = (await req.json().catch(() => ({}))) as {
+      upload_id?: string;
+      uploadId?: string;
+      with_llm?: boolean;
+      withLlm?: boolean;
+    };
+    const uploadId = body.upload_id || body.uploadId;
+    if (!uploadId) {
+      return NextResponse.json(
+        { error: "upload_id is required" },
+        { status: 400 },
+      );
+    }
+
+    // Confirm the upload belongs to the caller's org before triggering.
+    // Otherwise this would let any authed user re-run any org's
+    // uploads — cheap, but it'd mess up other firms' ingest logs.
+    const upload = await db.upload.findUnique({
+      where: { id: uploadId },
+      select: {
+        id: true,
+        organizationId: true,
+        founderId: true,
+        status: true,
+        title: true,
+        textContent: true,
+        deletedAt: true,
+        visibility: true,
+      },
+    });
+    if (!upload) {
+      return NextResponse.json({ error: "Upload not found" }, { status: 404 });
+    }
+    if (upload.organizationId !== founder.organizationId) {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    }
+    // Private uploads: only the owner can retrigger processing. A peer
+    // getting the id (say, via a leaked process log) shouldn't be able
+    // to poke the pipeline and leak timing/status information. 404
+    // rather than 403 so existence isn't confirmed.
+    if (upload.visibility === "private" && upload.founderId !== founder.id) {
+      return NextResponse.json({ error: "Upload not found" }, { status: 404 });
+    }
+    if (upload.deletedAt) {
+      return NextResponse.json(
+        {
+          error:
+            "This upload has been deleted. Processing cannot be re-triggered.",
+        },
+        { status: 410 },
+      );
+    }
+
+    // A bare upload with no extracted text has nothing Noosphere can do
+    // with it. Signal this explicitly rather than silently queuing.
+    if (!upload.textContent || upload.textContent.trim().length < 40) {
+      return NextResponse.json(
+        {
+          error:
+            "Upload has no extractable text content. Re-upload a text/PDF/DOCX " +
+            "version, or set OPENAI_API_KEY so audio can be transcribed.",
+        },
+        { status: 422 },
+      );
+    }
+
+    const withLlm = Boolean(body.with_llm ?? body.withLlm ?? true);
+    const result = await triggerNoosphereProcessing(uploadId, {
+      organizationId: founder.organizationId,
+      withLlm,
+    });
+
+    // Annotate the upload row so the UI can show progress. Every
+    // string headed to Postgres is scrubbed of NUL bytes and capped
+    // so an unexpected note payload can't blow the insert.
+    try {
+      await db.upload.update({
+        where: { id: uploadId },
+        data: {
+          status: result.dispatched ? "processing" : upload.status,
+          processLog: {
+            set: sanitizeAndCap(
+              [
+                `— Manual re-trigger by ${founder.email} at ${new Date().toISOString()} —`,
+                `— Auto-process: ${result.note} —`,
+              ].join("\n"),
+              8_000,
+            ),
+          },
+        },
+      });
+    } catch {
+      /* non-fatal */
+    }
+
+    await db.auditEvent
+      .create({
+        data: {
+          organizationId: founder.organizationId,
+          founderId: founder.id,
+          uploadId,
+          action: "trigger_processing",
+          detail: sanitizeAndCap(
+            `manual retrigger: dispatched=${result.dispatched} status=${result.status ?? "none"}`,
+            2_000,
+          ),
+        },
+      })
+      .catch(() => {
+        /* non-fatal */
+      });
+
+    return NextResponse.json({
+      upload_id: uploadId,
+      dispatched: result.dispatched,
+      http_status: result.status,
+      note: result.note,
+      with_llm: withLlm,
+    });
+  } catch (error) {
+    console.error("trigger-processing error:", error);
+    return NextResponse.json(
+      {
+        error:
+          `Failed to trigger processing: ${error instanceof Error ? error.message : "unknown error"}`,
+      },
+      { status: 500 },
+    );
+  }
+}

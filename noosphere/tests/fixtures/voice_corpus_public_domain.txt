@@ -1,0 +1,8 @@
+The following sentences are synthetic placeholder prose for automated tests only.
+They are not quotations from any historical philosopher; they exist so the Voice
+ingestion stub can split on sentence boundaries and emit anchored claims.
+
+A serious inquiry into the limits of language must acknowledge that what can be said
+at all can be said clearly, and whereof one cannot speak thereof one must be silent.
+The point of such a discipline is not mysticism but clarity about what counts as a
+well-formed claim within a given practice of justification.

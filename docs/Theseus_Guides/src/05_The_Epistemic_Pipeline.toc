@@ -1,0 +1,15 @@
+\contentsline {section}{\numberline {1}Why trace this particular flow}{2}{section.1}%
+\contentsline {section}{\numberline {2}Stage 1 --- Capture}{2}{section.2}%
+\contentsline {section}{\numberline {3}Stage 2 --- Ingest}{2}{section.3}%
+\contentsline {section}{\numberline {4}Stage 3 --- Claim extraction}{3}{section.4}%
+\contentsline {section}{\numberline {5}Stage 4 --- Embedding and ontology update}{3}{section.5}%
+\contentsline {section}{\numberline {6}Stage 5 --- Coherence scoring}{3}{section.6}%
+\contentsline {section}{\numberline {7}Stage 6 --- Cascade emission and ledger write}{4}{section.7}%
+\contentsline {section}{\numberline {8}Stage 7 --- Synthesis}{5}{section.8}%
+\contentsline {section}{\numberline {9}Stage 8 --- Adversarial challenge}{5}{section.9}%
+\contentsline {section}{\numberline {10}Stage 9 --- Peer-review swarm}{6}{section.10}%
+\contentsline {section}{\numberline {11}Stage 10 --- Decay binding}{6}{section.11}%
+\contentsline {section}{\numberline {12}Stage 11 --- Rigor gate}{7}{section.12}%
+\contentsline {section}{\numberline {13}Stage 12 --- Publication}{8}{section.13}%
+\contentsline {section}{\numberline {14}Stage 13 --- Re-ingestion}{8}{section.14}%
+\contentsline {section}{\numberline {15}What the pipeline guarantees, and what it does not}{9}{section.15}%

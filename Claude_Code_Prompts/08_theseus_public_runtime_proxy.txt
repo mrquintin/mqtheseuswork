@@ -1,0 +1,232 @@
+# Claude Code Prompt 08 of 17 — theseus-public: shift to hybrid runtime + proxy routes to the FastAPI service
+
+**Sequence:** prompt 08 of 17 (Wave 5). Depends on 07. Report back with: which pages remain static vs. runtime, the proxy origin env var name, and any Next config changes.
+
+**Before you start — read current state:**
+1. Read `theseus-public/next.config.ts` — note whether `output: "export"` is set (it likely is — the site is currently statically exported).
+2. Read `theseus-public/package.json` — note the Next.js version (16.x expected).
+3. Read `theseus-public/netlify.toml` and `vercel.json` — note deploy conventions.
+4. Read `theseus-public/scripts/write-feeds.mjs` — feeds are built at build time and must keep working.
+5. Read `theseus-public/src/app/layout.tsx` — note the existing nav bar; currents will get a new nav entry in prompt 14.
+
+## Your task
+
+Shift `theseus-public` from pure static export to **hybrid runtime**: the existing pages (`/`, `/c/...`, `/open-questions`, `/methodology`, `/responses`, `/interop`, `/methods`) keep their static behavior via Next.js partial prerendering or by remaining in-tree as static route segments; the new `/currents*` segment runs at runtime so it can proxy SSE streams and runtime fetches to the FastAPI service built in prompt 07.
+
+Add Next.js route handlers under `/api/currents/*` that forward to the FastAPI service. The browser never talks to FastAPI directly — this keeps CORS simple, lets us add edge caching later, and means we can deploy the FastAPI service on its own private domain.
+
+## Prerequisites
+
+- Prompt 07 deployed (or at least running locally at `http://127.0.0.1:8088`).
+
+## SCOPE
+
+- `theseus-public/next.config.ts`                                                  MODIFY (drop `output: "export"` if set; add runtime config)
+- `theseus-public/src/lib/currentsApi.ts`                                          CREATE (typed fetch helpers)
+- `theseus-public/src/lib/currentsTypes.ts`                                        CREATE (mirror of API schemas)
+- `theseus-public/src/app/api/currents/route.ts`                                   CREATE
+- `theseus-public/src/app/api/currents/[id]/route.ts`                              CREATE
+- `theseus-public/src/app/api/currents/[id]/sources/route.ts`                      CREATE
+- `theseus-public/src/app/api/currents/[id]/follow-up/route.ts`                    CREATE (POST — SSE pass-through)
+- `theseus-public/src/app/api/currents/[id]/follow-up/[session]/messages/route.ts` CREATE
+- `theseus-public/src/app/api/currents/stream/route.ts`                            CREATE (SSE pass-through)
+- `theseus-public/.env.example`                                                    CREATE or MODIFY (document `CURRENTS_API_URL`)
+- `theseus-public/src/__tests__/currentsApi.test.ts`                               CREATE
+
+Do NOT modify existing pages in this prompt. Do NOT touch the FastAPI service. Do NOT delete the feeds script.
+
+## Step-by-step
+
+### 1. Next config — go hybrid
+
+Remove `output: "export"` if present. Keep the rest. Add:
+
+```ts
+import type { NextConfig } from "next";
+
+const config: NextConfig = {
+  experimental: {
+    // nothing fancy required; route handlers and static segments coexist.
+  },
+  async rewrites() {
+    // We proxy explicitly via route handlers for SSE control. No rewrites.
+    return [];
+  },
+};
+
+export default config;
+```
+
+The existing static pages (index, conclusion pages) become statically-rendered route segments (no `export const dynamic`) — Next 16 will prerender them at build time. Only pages under `/currents` and routes under `/api/currents` are runtime-dynamic (they add `export const dynamic = "force-dynamic"` when you build them in later prompts).
+
+If Netlify/Vercel deploys currently assume `out/` directory output, note this in your report-back so prompt 16 can update deploy configs.
+
+### 2. `currentsTypes.ts` — mirror the API shape exactly
+
+```ts
+export type Stance = "agrees" | "disagrees" | "complicates" | "insufficient";
+
+export interface PublicCitation {
+  source_kind: "conclusion" | "claim";
+  source_id: string;
+  quoted_span: string;
+  relevance_score: number;
+}
+
+export interface PublicOpinion {
+  id: string;
+  event_id: string;
+  event_source_url: string;
+  event_author_handle: string;
+  event_captured_at: string;  // ISO
+  topic_hint: string | null;
+  stance: Stance;
+  confidence: number;
+  headline: string;
+  body_markdown: string;
+  uncertainty_notes: string[];
+  generated_at: string;
+  citations: PublicCitation[];
+  revoked: boolean;
+}
+
+export interface PublicSource {
+  source_kind: "conclusion" | "claim";
+  source_id: string;
+  full_text: string;
+  topic_hint: string | null;
+  origin: string | null;
+  permalink: string | null;
+}
+
+export interface PublicFollowupMessage {
+  id: string;
+  role: "user" | "assistant" | "system";
+  created_at: string;
+  content: string;
+  citations: PublicCitation[];
+  refused: boolean;
+  refusal_reason: string | null;
+}
+
+export interface PaginatedOpinions {
+  items: PublicOpinion[];
+  next_cursor: string | null;
+}
+```
+
+Keep field names snake_case to match the wire; front-end components will destructure them as-is. Trying to camelCase on the way in complicates streaming accumulation for no real UX benefit.
+
+### 3. `currentsApi.ts` — client fetchers
+
+```ts
+const API = process.env.NEXT_PUBLIC_CURRENTS_PROXY_BASE ?? "/api/currents";
+
+export async function listCurrents(params: {
+  cursor?: string; limit?: number; topic?: string; stance?: string; since?: string;
+}): Promise<PaginatedOpinions> { ... }
+
+export async function getCurrent(id: string): Promise<PublicOpinion> { ... }
+
+export async function getSources(id: string): Promise<PublicSource[]> { ... }
+
+export async function listFollowupMessages(id: string, session: string): Promise<PublicFollowupMessage[]> { ... }
+
+/** Open an SSE connection to the live feed. Returns an EventSource wrapper. */
+export function openCurrentsStream(onOpinion: (op: PublicOpinion) => void,
+                                   onError: (err: unknown) => void): () => void { ... }
+
+/** POST a follow-up; streams back events. */
+export async function* streamFollowup(id: string, body: { question: string; session_id?: string }):
+  AsyncGenerator<{ kind: "meta" | "token" | "citation" | "done" | "error"; data: any }> { ... }
+```
+
+Rules:
+- SSE uses the native `EventSource` for `GET /api/currents/stream`.
+- Follow-up is `POST` with SSE body — use `fetch` with `ReadableStream`, parse frame-by-frame. (Native `EventSource` can't POST; write a minimal SSE parser.)
+- All errors surface with parsed JSON when possible; fall back to `{ error: resp.statusText }`.
+
+### 4. Route handlers — proxies
+
+All handlers live in `theseus-public/src/app/api/currents/...`.
+
+```ts
+// route.ts (list)
+export const dynamic = "force-dynamic";
+const BACKEND = process.env.CURRENTS_API_URL!; // e.g., http://current_events_api:8088
+
+export async function GET(req: Request) {
+  const url = new URL(req.url);
+  const backend = new URL("/v1/currents" + url.search, BACKEND);
+  const resp = await fetch(backend, { headers: forwardHeaders(req) });
+  return new Response(await resp.text(), { status: resp.status, headers: jsonHeaders() });
+}
+```
+
+`forwardHeaders` copies only `x-forwarded-for`, `user-agent`, `x-client-id` (no cookies — this is an anonymous surface).
+
+SSE handlers use a pass-through ReadableStream:
+
+```ts
+// stream/route.ts
+export const dynamic = "force-dynamic";
+export const runtime = "nodejs";
+
+export async function GET(req: Request) {
+  const backend = new URL("/v1/currents/stream", BACKEND);
+  const upstream = await fetch(backend, { headers: { Accept: "text/event-stream", ...forwardHeaders(req) } });
+  if (!upstream.body) return new Response("upstream closed", { status: 502 });
+  return new Response(upstream.body, {
+    headers: {
+      "Content-Type": "text/event-stream",
+      "Cache-Control": "no-cache, no-transform",
+      "Connection": "keep-alive",
+      "X-Accel-Buffering": "no",
+    },
+  });
+}
+```
+
+Same pattern for POST follow-up; forward the JSON body and pipe the SSE response back.
+
+### 5. `.env.example`
+
+```
+# URL of the FastAPI current_events_api service (server-side only).
+CURRENTS_API_URL=http://127.0.0.1:8088
+
+# Optional: client-side base for SSE fetches (defaults to /api/currents if unset).
+NEXT_PUBLIC_CURRENTS_PROXY_BASE=/api/currents
+```
+
+### 6. Tests
+
+`__tests__/currentsApi.test.ts` (vitest is already configured):
+
+- `parses paginated response` — mock `fetch`; assert shape.
+- `SSE parser handles chunked token events` — feed canned SSE frames via a mocked ReadableStream; assert `streamFollowup` yields the expected sequence.
+- `SSE parser handles partial frames across chunks` — split a single event across two chunks; parser must buffer.
+- `routes error JSON on upstream 5xx` — mock fetch to return 502; handler returns 502 with text.
+
+Do NOT write integration tests that hit the FastAPI service — prompt 17 handles e2e.
+
+## Verification
+
+```bash
+cd theseus-public
+npm install
+npm run build           # Must succeed. Note which pages prerender vs run dynamic.
+npx vitest run          # __tests__/currentsApi.test.ts must pass
+```
+
+If `npm run build` still attempts static export and errors on the runtime routes, fix `next.config.ts` and try again before reporting back. In your report, include the build log line that enumerates each route's rendering mode.
+
+## Prohibitions
+
+- Do NOT bypass the proxy by having the browser talk to `CURRENTS_API_URL` directly. The proxy is there to let us put the FastAPI service on a private network.
+- Do NOT add Redis, auth, or session cookies. The surface stays anonymous.
+- Do NOT touch existing static pages' code. New behavior lives behind `/currents` and `/api/currents`.
+- Do NOT forward `cookie`, `authorization`, or any sensitive headers upstream — curated allowlist only.
+- Do NOT cache SSE responses (`Cache-Control: no-cache, no-transform`, plus `X-Accel-Buffering: no` so nginx/Netlify don't buffer).
+
+Do not proceed to any other work. Do not edit anything outside SCOPE.

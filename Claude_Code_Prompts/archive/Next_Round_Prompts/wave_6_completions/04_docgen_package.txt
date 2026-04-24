@@ -1,0 +1,86 @@
+WAVE 6 / PROMPT 4 — Build docgen/ package (compile signed MethodDocs)
+
+═══════════════════════════════════════════════════════════════════════════════
+YOUR TASK
+═══════════════════════════════════════════════════════════════════════════════
+You are an implementation agent. Your job is to create `noosphere/noosphere/docgen/`: a compiler that takes a registered method's spec + rationale + impl + eval data + transfer studies + ledger stats and emits a versioned, signed, publishable MethodDoc bundle. Also a changelog generator that produces AST-diff summaries on version bumps, and a CI lint that rejects manual drift between committed docs and what the compiler would produce.
+
+Three sibling agents in wave 6 are on adapters, reviewer roles, and gate checks. Stay inside your manifest.
+
+═══════════════════════════════════════════════════════════════════════════════
+PREREQUISITES
+═══════════════════════════════════════════════════════════════════════════════
+- Wave 5 is done: `transfer` package is importable; `ledger.keys.KeyRing` available for signing.
+- `MethodDoc` type exists.
+- Jinja2 is available.
+
+═══════════════════════════════════════════════════════════════════════════════
+FILES TOUCHED
+═══════════════════════════════════════════════════════════════════════════════
+- `noosphere/noosphere/docgen/__init__.py`                 CREATE
+- `noosphere/noosphere/docgen/compiler.py`                 CREATE
+- `noosphere/noosphere/docgen/examples.py`                 CREATE
+- `noosphere/noosphere/docgen/changelog.py`                CREATE
+- `noosphere/noosphere/docgen/ast_diff.py`                 CREATE
+- `noosphere/noosphere/docgen/templates/spec.md.j2`        CREATE
+- `noosphere/noosphere/docgen/templates/rationale.md.j2`   CREATE
+- `noosphere/noosphere/docgen/templates/examples.md.j2`    CREATE
+- `noosphere/noosphere/docgen/templates/calibration.md.j2` CREATE
+- `noosphere/noosphere/docgen/templates/transfer.md.j2`    CREATE
+- `noosphere/noosphere/docgen/templates/operations.md.j2`  CREATE
+- `noosphere/noosphere/docgen/templates/index.md.j2`       CREATE
+- `scripts/check_doc_drift.py`                             CREATE
+- `docs/methods/.gitkeep`                                  CREATE
+- `noosphere/tests/test_docgen_roundtrip.py`               CREATE
+- `noosphere/tests/test_docgen_drift.py`                   CREATE
+- `noosphere/tests/test_docgen_changelog.py`               CREATE
+- `noosphere/tests/test_docgen_examples_review.py`         CREATE
+
+═══════════════════════════════════════════════════════════════════════════════
+STEP-BY-STEP
+═══════════════════════════════════════════════════════════════════════════════
+1. Write each Jinja template with a strict variable list. Any missing variable raises at render time (`StrictUndefined`).
+2. Build `compiler.py` with `compile_method_doc(method_ref: MethodRef, out_dir: Path) -> MethodDoc`. It reads:
+   - Method spec via `REGISTRY.get(method_ref.name, method_ref.version)`.
+   - RATIONALE.md from `methods/<name>.RATIONALE.md`.
+   - Impl source at the declared `git_sha` (via `git show <sha>:<path>`).
+   - Pytest cases from `tests/fixtures/port_parity/<name>/`.
+   - CounterfactualEvalRun rows from Store filtered to this method.
+   - BatteryRunResult rows from Store.
+   - TransferStudy rows from Store.
+   - Ledger stats (invocation counts, failure rates) aggregated from method_invocations.
+   Writes to `docs/methods/<name>/<version>/` and signs via `ledger.keys.KeyRing`.
+3. Build `examples.py`. Use a strict LLM template to narrate chosen test cases and ledger invocations (de-identified). Owner must set `reviewed_by` field before publication (a `--require-review` flag on compile enforces this).
+4. Build `ast_diff.py` with a lightweight Python AST comparator producing human-readable change summaries.
+5. Build `changelog.py`:
+   - On version bump, compute semantic summary + AST diff.
+   - If AST diff shows behavior change without corresponding release note, FAIL.
+   - Re-run calibration + transfer studies at the new version (if rows exist) and report deltas.
+6. Build `scripts/check_doc_drift.py`:
+   - Recompile every method doc to a temp dir; diff against committed `docs/methods/`.
+   - Fail if any diff.
+   - Also register a pre-commit hook that rejects manual edits to `spec.md`/`examples.md`/etc. (only `RATIONALE.md` is hand-authored).
+7. Write tests.
+8. `pytest noosphere/tests/test_docgen_*.py -v`.
+
+═══════════════════════════════════════════════════════════════════════════════
+TESTS
+═══════════════════════════════════════════════════════════════════════════════
+test_docgen_roundtrip.py — compile for a seeded method; assert every required file present, signature valid, content deterministic across two runs with identical inputs.
+test_docgen_drift.py — edit a generated `spec.md` by hand; pre-commit hook rejects.
+test_docgen_changelog.py — bump a method version; changelog is generated; AST diff without release note fails build.
+test_docgen_examples_review.py — examples without a `reviewed_by` field fail `--require-review`.
+
+═══════════════════════════════════════════════════════════════════════════════
+HOW TO VERIFY YOU ARE DONE
+═══════════════════════════════════════════════════════════════════════════════
+1. `pytest noosphere/tests/test_docgen_*.py -v` — green.
+2. `python -c "import noosphere.noosphere.docgen"` — imports.
+3. Compiling `nli_scorer` produces a full MethodDoc directory with signed CHECKSUMS.
+
+═══════════════════════════════════════════════════════════════════════════════
+DO NOT
+═══════════════════════════════════════════════════════════════════════════════
+- Hand-author anything except `RATIONALE.md`. Everything else is derived.
+- Let LLM-generated narration slip through without `reviewed_by`.
+- Touch any file outside FILES TOUCHED.

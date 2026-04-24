@@ -1,0 +1,15 @@
+{
+  "stance": "agrees",
+  "confidence": 0.6,
+  "headline": "The firm's prior conclusions suggest the announcement extends an existing AI capex narrative.",
+  "body_markdown": "Existing Noosphere material implies this event reinforces a known cycle.",
+  "uncertainty_notes": [],
+  "citations": [
+    {
+      "source_kind": "conclusion",
+      "source_id": "conc-TOTALLY-MADE-UP",
+      "quoted_span": "AI compute demand drives chip capex",
+      "relevance_score": 0.9
+    }
+  ]
+}

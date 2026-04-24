@@ -1,0 +1,20 @@
+[project]
+name = "noosphere"
+version = "0.1.0"
+description = "The Brain of the Firm — epistemological engine for Theseus"
+requires-python = ">=3.11"
+license = {text = "Proprietary"}
+dependencies = [
+    "httpx>=0.27",
+]
+
+[project.scripts]
+noosphere = "noosphere.__main__:main"
+
+[build-system]
+requires = ["setuptools>=68.0"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["noosphere*"]
+exclude = ["tests*", "scripts*", "alembic*"]

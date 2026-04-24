@@ -1,0 +1,3 @@
+The firm's knowledge base supports the event framing. Chipmakers are operating at a multi-year demand cycle, and we expect the capex numbers to feed forward into second-order suppliers. There is no inside view here beyond what the cited sources say.
+
+[[CITE: source_kind=conclusion source_id=conc-capex quoted="AI compute demand drives chip capex"]]

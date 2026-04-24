@@ -1,0 +1,37 @@
+[
+  {
+    "study_id": "RPP-001",
+    "original_effect": 0.45,
+    "replication_effect": 0.32,
+    "replication_source": "Reproducibility Project: Psychology",
+    "replication_date": "2024-01-15T00:00:00+00:00"
+  },
+  {
+    "study_id": "RPP-002",
+    "original_effect": 0.78,
+    "replication_effect": 0.12,
+    "replication_source": "Reproducibility Project: Psychology",
+    "replication_date": "2024-02-20T00:00:00+00:00"
+  },
+  {
+    "study_id": "SSRP-001",
+    "original_effect": 0.55,
+    "replication_effect": 0.48,
+    "replication_source": "Social Sciences Replication Project",
+    "replication_date": "2024-03-10T00:00:00+00:00"
+  },
+  {
+    "study_id": "ML2-001",
+    "original_effect": 0.33,
+    "replication_effect": 0.35,
+    "replication_source": "ManyLabs 2",
+    "replication_date": "2024-04-05T00:00:00+00:00"
+  },
+  {
+    "study_id": "SCORE-001",
+    "original_effect": 0.62,
+    "replication_effect": 0.15,
+    "replication_source": "SCORE Project",
+    "replication_date": "2024-05-18T00:00:00+00:00"
+  }
+]

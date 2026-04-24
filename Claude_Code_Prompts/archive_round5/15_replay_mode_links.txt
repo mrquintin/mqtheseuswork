@@ -1,0 +1,47 @@
+# Claude Code Prompt 15 of 25 — Bug fix: make replay-mode conclusions clickable
+
+**Sequence:** prompt 15 of 25 (Wave 4 — independent of prompts 12–14, 16). When you finish, report back with: files you created/modified, any notable choices, any blockers.
+
+**Before you start — read current state:**
+1. Read `theseus-codex/src/app/(authed)/conclusions/page.tsx` — note the replay-mode branch (when `asOf` is present). Compare it to the normal-mode branch.
+2. Note that in normal mode, each conclusion is wrapped in a `<Link href={/conclusions/${c.id}}>`. In replay mode, conclusions are plain `<li>` elements with no link.
+
+## The problem
+
+In temporal replay mode (`/conclusions?asOf=2025-01-15`), conclusions render without `<Link>` wrappers. The user can see the replay-consistent conclusions but cannot click into any of them to view details, provenance, or peer reviews. The normal-mode list links each conclusion to `/conclusions/[id]`; the replay-mode list does not.
+
+## Your task
+
+Wrap replay-mode conclusion items in clickable links, the same way the normal mode does. The detail page itself is not replay-aware (it always shows current state), so add a visual indicator that the user is leaving replay mode when they click through.
+
+## SCOPE (files you may modify — stay within this list)
+- `theseus-codex/src/app/(authed)/conclusions/page.tsx`    MODIFY
+
+## Step-by-step
+
+1. **In the replay-mode branch**, check whether the replay conclusion objects have an `id` field. Read `theseus-codex/src/lib/noosphereReplayBridge.ts` to see the shape of the replay data. The replay results likely have `id` or `noosphere_id` fields.
+
+2. **Wrap each replay conclusion in a Link.** Use whatever ID field is available:
+   ```tsx
+   <Link
+     href={`/conclusions/${c.id}`}
+     style={{ textDecoration: "none", color: "inherit", display: "flex", gap: "0.9rem" }}
+   >
+     {/* existing content */}
+   </Link>
+   ```
+
+3. **If the replay data only has `noosphere_id`** (not the Codex `id`), you'll need to either:
+   - Query the Codex DB to find the Conclusion row with matching `noosphereId`, or
+   - Add a note that the conclusion can't be linked because it only exists in the Noosphere replay store.
+
+4. **Add a subtle indicator** that clicking will exit replay mode, since the detail page shows current (not replayed) state:
+   ```tsx
+   <span style={{ fontSize: "0.6rem", color: "var(--ember)", marginLeft: "auto" }}>
+     exits replay →
+   </span>
+   ```
+
+5. **Do NOT change** the normal-mode rendering, the replay date parsing, the `TemporalReplayBar`, or the error handling.
+
+Do not proceed to any other work. Do not edit anything outside SCOPE.

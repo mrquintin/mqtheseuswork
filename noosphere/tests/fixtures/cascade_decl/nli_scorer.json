@@ -1,0 +1,13 @@
+{
+  "method_name": "nli_scorer",
+  "version": "1.0",
+  "emits_edges": ["supports", "refutes"],
+  "output_fields": [
+    "supports_targets",
+    "refutes_targets",
+    "confidence",
+    "label",
+    "scores"
+  ],
+  "description": "NLI scorer emits supports/refutes edges based on entailment analysis."
+}

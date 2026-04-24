@@ -1,0 +1,168 @@
+# Claude Code Prompt 1 of 26 — Extend models.py with the round-3 bedrock types
+
+**Sequence:** prompt 1 of 26. When you finish, report back with: files you created/modified, any notable choices, any blockers. I'll then paste the next prompt.
+
+**Before you start — read current state:**
+1. Run `git status` and `git branch` to see the current branch state.
+2. If you see stray branches matching `round3/*` or a `.orchestrator/` directory from a prior automated run, tell me and stop; we'll clean them up before continuing.
+3. For every file listed under SCOPE below, check whether it already exists and what it contains. If parts of the work described here are already done (from a previous attempt), INSPECT what is there and only add the missing pieces. Do NOT overwrite existing, correct work. Do NOT duplicate types or tests that already exist.
+4. If you find partial work that is clearly broken or half-finished, ask me whether to complete it or discard and restart that piece.
+## Your task
+You are an implementation agent. Your job is to edit `noosphere/noosphere/models.py` — and ONLY that file plus its test file — so that it contains every pydantic type consumed by any later round-3 prompt. You are the sole agent touching this file in round 3; no later agent will modify it.
+
+When you finish, run the test file you create and ensure it passes. Do not proceed to any other work. Do not edit anything outside FILES TOUCHED below.
+
+## Prerequisites
+- The existing Theseus repo is at the root of your worktree.
+- `noosphere/noosphere/models.py` already exists with round-1/round-2 models (Artifact, Chunk, Claim, Principle, Conclusion, etc.).
+- Pydantic v2 is installed.
+
+SCOPE (files you may create or modify — stay within this list)
+- `noosphere/noosphere/models.py`                      MODIFY
+- `noosphere/tests/test_models_round3.py`              CREATE
+
+## Step-by-step
+1. Open `noosphere/noosphere/models.py` and read its existing imports, conventions, and the structure of existing models. Match its style.
+2. At the bottom of the file, under a new comment banner `# === Round 3 additions ===`, add the pydantic types listed in TYPES TO ADD below.
+3. For each type, use `model_config = ConfigDict(strict=True, extra='forbid', frozen=True)` UNLESS the type is explicitly marked `(NOT frozen)` — only `CascadeEdge` is not frozen in this set.
+4. For enum-valued fields, define the enum class above the model that uses it.
+5. Modify the three existing models `Conclusion`, `Claim`, `Topic` by adding two new fields each (see MODIFY EXISTING MODELS below). Do not rename or remove any existing fields.
+6. Create `noosphere/tests/test_models_round3.py` with the tests described in TESTS.
+7. Run `pytest noosphere/tests/test_models_round3.py -v` and ensure every test passes.
+8. Run `python -c "from noosphere.noosphere.models import *"` and ensure it imports without error.
+
+## Types to add
+For each group below, define the enum first (if any), then the models. Field types in parentheses indicate the pydantic field type.
+
+Methods and registry:
+  MethodType enum: extraction | judgment | aggregation | transformation | calibration
+  MethodImplRef { module: str, fn_name: str, git_sha: str, image_digest: str | None }
+  Method { method_id, name, version, method_type: MethodType, input_schema: dict,
+           output_schema: dict, description, rationale, preconditions: list[str],
+           postconditions: list[str], dependencies: list[tuple[str,str]], implementation: MethodImplRef,
+           owner, status: Literal["experimental","active","deprecated","retired"],
+           nondeterministic: bool, created_at: datetime }
+  MethodRef { name: str, version: str }
+  MethodInvocation { id, method_id, input_hash, output_hash, started_at, ended_at: datetime | None,
+                     succeeded: bool, error_kind: str | None, correlation_id, tenant_id }
+
+Ledger:
+  Actor { kind: Literal["human","method","agent"], id: str, display_name: str }
+  ContextMeta { tenant_id, correlation_id, orchestrator_run_id: str | None }
+  LedgerEntry { entry_id, prev_hash, timestamp: datetime, actor: Actor, method_id: str | None,
+                inputs_hash: str, outputs_hash: str, inputs_ref: str, outputs_ref: str,
+                context: ContextMeta, signature: str, signer_key_id: str }
+
+Cascade — NOTE: CascadeEdge is NOT frozen because retracted_at mutates:
+  CascadeNodeKind enum: artifact | chunk | claim | principle | cluster | conclusion | external_source
+  CascadeNode { node_id, kind: CascadeNodeKind, ref: str, attrs: dict }
+  CascadeEdgeRelation enum: extracted_from | coheres_with | contradicts | aggregates |
+                            reformulates | generalizes | specializes | predicts | supports |
+                            refutes | depends_on
+  CascadeEdge (NOT frozen) { edge_id, src, dst, relation: CascadeEdgeRelation,
+                             method_invocation_id: str, confidence: float, unresolved: bool,
+                             established_at: datetime, retracted_at: datetime | None }
+
+Evaluation:
+  OutcomeKind enum: binary | interval | preference
+  Outcome { outcome_id, kind: OutcomeKind, event_ref, resolution_source, resolved_at, value: Any }
+  CorpusSelector { as_of: datetime, tenant_id_filter: list[str] | None, artifact_kind_filter: list[str] | None }
+  TemporalCut { cut_id, as_of: datetime, corpus_slice: CorpusSelector, embargoed: CorpusSelector,
+                embedding_version_pin: str, outcomes: list[Outcome] }
+  CalibrationMetrics { brier: float, log_loss: float, ece: float, reliability_bins: list[dict],
+                       resolution: float, coverage: float }
+  CounterfactualEvalRun { run_id, method_ref: MethodRef, cut_id, metrics: CalibrationMetrics,
+                          prediction_refs: list[str], created_at: datetime }
+
+External battery:
+  LicenseTag enum — add values `gjp_public`, `metaculus_public`, `claim_review`, `replication_public`, `custom`.
+  CorpusBundle { source, content_hash, local_path: str, license: LicenseTag, fetched_at: datetime }
+  ExternalItem { source, source_id, question_text: str, as_of: datetime, resolved_at: datetime | None,
+                 outcome_type: OutcomeKind, metadata: dict }
+  BatteryRunResult { run_id, corpus_name: str, method_ref: MethodRef,
+                     per_item_results: list[dict], metrics: CalibrationMetrics, failures: dict }
+
+Inverse:
+  ResolvedEvent { event_id, description: str, resolved_at: datetime, evidence_refs: list[str] }
+  InverseQuery { event: ResolvedEvent, as_of: datetime, methods: list[MethodRef], k: int = 50 }
+  Implication { corpus_ref: str, entailment_score: float, refutation_score: float,
+                relevance_weight: float, severity: Literal["mild","moderate","severe"] }
+  BlindspotReport { missing_entities: list[str], missing_mechanisms: list[str],
+                    adjacent_empty_topics: list[str] }
+  InverseResult { supporting: list[Implication], refuted: list[Implication],
+                  irrelevant: list[str], blindspot: BlindspotReport }
+
+Peer review:
+  Finding { severity: Literal["info","minor","major","blocker"], category: str,
+            detail: str, evidence: list[str], suggested_action: str }
+  ReviewReport { report_id, reviewer: str, conclusion_id, findings: list[Finding],
+                 overall_verdict: Literal["accept","revise","reject"], confidence: float,
+                 completed_at: datetime, method_invocation_ids: list[str] }
+  Rebuttal { finding_id, form: Literal["accept_and_revise","reject_with_reason","defer_as_open_question"],
+             rationale: str, attached_edit_ref: str | None, by_actor: Actor }
+  SwarmReport { conclusion_id, reviews: list[ReviewReport], rebuttals: list[Rebuttal] }
+
+Transfer / docs / interop:
+  DomainTag = NewType("DomainTag", str)   # validated against docs registry at use sites, not here
+  DatasetRef { content_hash: str, path: str }
+  TransferStudy { study_id, method_ref: MethodRef, source_domain: DomainTag, target_domain: DomainTag,
+                  dataset: DatasetRef, baseline_on_source: CalibrationMetrics,
+                  result_on_target: CalibrationMetrics, delta: dict, qualitative_notes: str }
+  MethodDoc { method_ref: MethodRef, spec_md_path, rationale_md_path, examples_md_path,
+              calibration_md_path, transfer_md_path, operations_md_path,
+              doi: str | None, template_version: str, signed_by: str }
+  MIPManifest { name: str, version: str, methods: list[MethodRef], cascade_edge_schema: dict,
+                gate_check_schema: dict, license: str, content_hash: str, signature: str }
+
+Decay:
+  Freshness enum: fresh | aging | stale | retired
+  DecayPolicyKind enum: fixed_interval | evidence_changed | method_version_bump |
+                        embedding_drift | outcome_observed | calibration_regression | any | all
+  DecayPolicy { policy_kind: DecayPolicyKind, params: dict, composition_children: list["DecayPolicy"] }
+  RevalidationResult { object_id, outcome: Literal["confirmed","disagreement","refuted","noop"],
+                       prior_tier: str, new_tier: str, ledger_entry_id }
+
+Rigor gate:
+  AuthorAttestation { author_id, conflict_disclosures: list[str], acknowledgments: list[str] }
+  CheckResult { check_name: str, pass_: bool, detail: str, ledger_entry_id: str | None }
+  RigorSubmission { submission_id, kind: Literal["conclusion","method_doc","eval_report","dialectic_summary","press_statement"],
+                    payload_ref, author: Actor,
+                    intended_venue: Literal["public_site","rss","social","press_release","api"],
+                    author_attestation: AuthorAttestation }
+  RigorVerdict { verdict: Literal["pass","fail","pass_with_conditions"], checks_run: list[CheckResult],
+                 conditions: list[str], reviewed_by: list[Actor], ledger_entry_id }
+  FounderOverride { override_id, submission_id, founder_id, overridden_checks: list[str],
+                    justification: str, ledger_entry_id }
+
+## Modify existing models
+In the existing `Conclusion`, `Claim`, `Topic` models, add two new fields to each:
+- `freshness: Freshness = Freshness.fresh`
+- `last_validated_at: datetime | None = None`
+
+Do not rename or remove existing fields. If the existing model has `frozen=True` config, you must leave the new fields as mutable or drop `frozen=True` on that specific model — choose the minimum change and flag it in the test file's module docstring.
+
+## Tests
+Write pytest tests covering:
+1. Round-trip each new model: construct with valid fields, `.model_dump_json()`, `.model_validate_json()`, assert equality.
+2. For each enum, assert that an invalid string raises `ValidationError`.
+3. For each frozen model, assert that `model.field = new_value` raises (pydantic v2 raises `ValidationError` on frozen).
+4. `CascadeEdge.retracted_at = some_datetime` must succeed (it is not frozen).
+5. Mismatched discriminated-union payloads on `CascadeNode.attrs` should be rejected if you implement `attrs` as a discriminated union (use `Annotated[Union[...], Field(discriminator="kind")]` if the existing conventions support it; otherwise keep `attrs: dict` and write a round-trip test only).
+
+## How to verify
+1. `pytest noosphere/tests/test_models_round3.py -v` — all tests pass.
+2. `python -c "from noosphere.noosphere.models import *"` — exits 0.
+3. The pre-existing round-1/round-2 test suite still passes: `pytest noosphere/tests/ -v --ignore=noosphere/tests/test_models_round3.py` — no regressions.
+
+## Do not
+- Edit any file outside FILES TOUCHED.
+- Rename existing models or existing fields.
+- Add database / storage logic — that is wave 2.
+- Add CLI or UI code — later waves.
+- Silently "improve" existing model conventions.
+
+If you find you need to edit something outside your manifest, STOP and emit a message explaining the conflict. Do not proceed.
+
+---
+
+**When you're finished:** report back with (a) files you created/modified, (b) any non-obvious choices you made, (c) any blockers. I'll paste the next prompt after I've reviewed your summary.

@@ -1,0 +1,112 @@
+# Claude Code Prompt 6 of 12 — Contradictions: show actual claim text instead of truncated IDs
+
+**Sequence:** prompt 6 of 12 (Wave 3 — contradictions overhaul, independent of Wave 1–2). When you finish, report back with: files you created/modified, any notable choices, any blockers.
+
+**Before you start — read current state:**
+1. Read `theseus-codex/src/app/(authed)/contradictions/page.tsx` — the full 135-line file. Note line 90: `{(c.severity * 100).toFixed(0)}% · {c.claimAId.slice(0, 8)}… ↔ {c.claimBId.slice(0, 8)}…` — this displays truncated UUIDs, not the actual claim text.
+2. Read `theseus-codex/prisma/schema.prisma` — note the `Contradiction` model (lines 431–458). It stores `claimAId` and `claimBId` as strings, but these are Conclusion IDs, not raw text.
+3. Read `theseus-codex/src/lib/api/round3.ts` — note `resolveClaimTexts()` which takes an array of Conclusion IDs and returns a `Record<id, text>` map. This is exactly the utility you need.
+
+## The problem
+
+The contradictions page displays each contradiction as:
+```
+87% · cm3abc12… ↔ cm3def34…
+```
+These truncated CUIDs are meaningless to the founder. The page is unusable for understanding what actually contradicts what. The founder described the contradictions tab as "extremely messy" and said "it's not actually working properly" — this is the most visible symptom.
+
+Each contradiction row has `claimAId` and `claimBId` that reference Conclusion records. The actual claim text is stored on those Conclusion rows. The page needs to resolve these IDs to their text and display the actual claims.
+
+## SCOPE (files you may modify — stay within this list)
+- `theseus-codex/src/app/(authed)/contradictions/page.tsx`    MODIFY
+
+## Step-by-step
+
+1. **Collect all claim IDs from the fetched rows** and resolve them to text using `resolveClaimTexts`:
+   ```typescript
+   import { resolveClaimTexts } from "@/lib/api/round3";
+   import { requireTenantContext } from "@/lib/tenant";
+
+   // Inside the component, after fetching rows:
+   const tenant = await requireTenantContext();
+   if (!tenant) return null;
+
+   const allClaimIds = [...new Set(rows.flatMap((r) => [r.claimAId, r.claimBId]))];
+   const claimTexts = await resolveClaimTexts(tenant.organizationId, allClaimIds);
+   ```
+
+2. **Add tenant scoping to the contradictions query.** The current query has NO `organizationId` filter — it fetches contradictions across all organizations. Fix this:
+   ```typescript
+   const rows = await db.contradiction.findMany({
+     where: {
+       organizationId: tenant.organizationId,
+       ...(end ? { createdAt: { lte: end } } : {}),
+     },
+     orderBy: { severity: "desc" },
+     take: 50,
+   });
+   ```
+
+3. **Replace the truncated ID display** in the summary line with actual claim text. Replace the current line 90:
+   ```tsx
+   // OLD:
+   {(c.severity * 100).toFixed(0)}% · {c.claimAId.slice(0, 8)}… ↔ {c.claimBId.slice(0, 8)}…
+
+   // NEW:
+   <span style={{ color: "var(--ember)", fontWeight: "bold" }}>
+     {(c.severity * 100).toFixed(0)}%
+   </span>
+   ```
+   Then below the severity, show the two claims as a readable pair:
+   ```tsx
+   <div style={{ marginTop: "0.3rem", fontSize: "0.85rem", lineHeight: 1.45 }}>
+     <span style={{ color: "var(--parchment)" }}>
+       "{claimTexts[c.claimAId]?.slice(0, 120) || c.claimAId.slice(0, 8) + "…"}"
+     </span>
+     <span style={{
+       display: "inline-block",
+       margin: "0 0.4rem",
+       color: "var(--ember)",
+       fontSize: "0.7rem",
+     }}>
+       ↔
+     </span>
+     <span style={{ color: "var(--parchment)" }}>
+       "{claimTexts[c.claimBId]?.slice(0, 120) || c.claimBId.slice(0, 8) + "…"}"
+     </span>
+   </div>
+   ```
+
+4. **In the expanded details section**, show the FULL claim texts (not truncated) alongside the radar and JSON:
+   ```tsx
+   <div style={{ marginBottom: "1rem" }}>
+     <div style={{ marginBottom: "0.75rem" }}>
+       <div className="mono" style={{
+         fontSize: "0.6rem",
+         textTransform: "uppercase",
+         letterSpacing: "0.1em",
+         color: "var(--amber-dim)",
+         marginBottom: "0.2rem",
+       }}>Claim A</div>
+       <p style={{ margin: 0, color: "var(--parchment)", fontSize: "0.85rem", lineHeight: 1.5 }}>
+         {claimTexts[c.claimAId] || `Unresolved: ${c.claimAId}`}
+       </p>
+     </div>
+     <div>
+       <div className="mono" style={{
+         fontSize: "0.6rem",
+         textTransform: "uppercase",
+         letterSpacing: "0.1em",
+         color: "var(--amber-dim)",
+         marginBottom: "0.2rem",
+       }}>Claim B</div>
+       <p style={{ margin: 0, color: "var(--parchment)", fontSize: "0.85rem", lineHeight: 1.5 }}>
+         {claimTexts[c.claimBId] || `Unresolved: ${c.claimBId}`}
+       </p>
+     </div>
+   </div>
+   ```
+
+5. **Do NOT change** the CoherenceRadar component, the six-layer JSON display, or the TemporalReplayBar. Only modify how contradiction rows display their claim information.
+
+Do not proceed to any other work. Do not edit anything outside SCOPE.

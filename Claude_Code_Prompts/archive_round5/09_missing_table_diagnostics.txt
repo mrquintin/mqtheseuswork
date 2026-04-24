@@ -1,0 +1,87 @@
+# Claude Code Prompt 9 of 25 — UX: add diagnostics when raw-SQL-backed tabs return empty due to missing tables
+
+**Sequence:** prompt 9 of 25 (Wave 3 — independent of prompts 07, 08, 10, 11). When you finish, report back with: files you created/modified, any notable choices, any blockers.
+
+**Before you start — read current state:**
+1. Read `theseus-codex/src/lib/api/round3.ts` — note the `safeQuery` function that wraps `db.$queryRaw` in a try/catch and returns `[]` on ANY error.
+2. Read the tab components that consume these queries:
+   - `theseus-codex/src/app/(authed)/conclusions/[id]/provenance-tab.tsx`
+   - `theseus-codex/src/app/(authed)/conclusions/[id]/cascade-tab.tsx`
+   - `theseus-codex/src/app/(authed)/conclusions/[id]/peer-review-tab.tsx`
+3. Also check the standalone pages: `decay/page.tsx`, `post-mortem/page.tsx`, `eval/page.tsx`, `rigor-gate/page.tsx`, `methods/page.tsx`.
+
+## The problem
+
+The `safeQuery` function in `round3.ts` silently catches all errors — including "table does not exist" errors — and returns an empty array. Every consumer then shows "No records" or "No provenance records for this conclusion."
+
+The user has no way to distinguish between:
+- "This conclusion genuinely has no provenance records" (data issue)
+- "The `provenance` table doesn't exist in this database" (setup issue)
+- "The query failed due to a syntax or connection error" (bug)
+
+All three scenarios produce the same "nothing here" UI, making diagnosis impossible.
+
+## Your task
+
+Make `safeQuery` distinguish between "empty result" and "query error", and surface error context in the UI when queries fail. This should NOT crash the page — the current graceful degradation is correct in spirit. But the empty state should indicate whether it's a genuine empty result or an error.
+
+## SCOPE (files you may modify — stay within this list)
+- `theseus-codex/src/lib/api/round3.ts`                                        MODIFY
+- `theseus-codex/src/app/(authed)/conclusions/[id]/provenance-tab.tsx`          MODIFY
+- `theseus-codex/src/app/(authed)/conclusions/[id]/cascade-tab.tsx`             MODIFY
+- `theseus-codex/src/app/(authed)/conclusions/[id]/peer-review-tab.tsx`         MODIFY
+
+## Step-by-step
+
+1. **Change `safeQuery` to return a result type instead of just an array.** Define:
+   ```typescript
+   interface QueryResult<T> {
+     rows: T[];
+     error?: string;
+   }
+   ```
+   Update `safeQuery` to catch errors and return `{ rows: [], error: err.message }` on failure, and `{ rows: result }` on success.
+
+2. **Update all `fetch*` functions** to return the new shape. Each should pass through both `rows` and `error`. For example:
+   ```typescript
+   export async function fetchProvenanceForConclusion(conclusionId: string): Promise<{
+     records: ProvenanceRecord[];
+     error?: string;
+   }> {
+     const { rows, error } = await safeQuery(...);
+     return {
+       records: rows.map((r) => ({ ... })),
+       error,
+     };
+   }
+   ```
+
+3. **Update the tab components** to handle the error case. When `error` is present, show a diagnostic message below the "no records" text:
+   ```tsx
+   if (records.length === 0) {
+     return (
+       <div style={{ padding: "0.75rem 0", color: "var(--parchment-dim)", fontSize: "0.85rem" }}>
+         No provenance records for this conclusion.
+         {error && (
+           <details style={{ marginTop: "0.5rem" }}>
+             <summary style={{ cursor: "pointer", fontSize: "0.7rem", color: "var(--ember)" }}>
+               Query diagnostic
+             </summary>
+             <pre style={{ fontSize: "0.65rem", color: "var(--parchment-dim)", marginTop: "0.25rem" }}>
+               {error}
+             </pre>
+           </details>
+         )}
+       </div>
+     );
+   }
+   ```
+   The diagnostic is hidden behind a `<details>` toggle so it doesn't clutter the UI for normal users, but is accessible for debugging.
+
+4. **Also update the standalone pages** (decay, post-mortem, etc.) if they use `fetch*` functions from `round3.ts`. Same pattern: show the normal empty state, but add a diagnostic toggle if there was an error.
+
+5. **In production**, consider whether to hide the raw error message. For now, showing it is fine — the Codex is an internal tool. If you want, add a `NODE_ENV` check to show the full error in development but only "Query failed" in production.
+
+6. **Do NOT change** the query SQL, the return types of the mapped records, or any rendering logic for the non-empty case.
+
+Do not proceed to any other work. Do not edit anything outside SCOPE.

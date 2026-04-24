@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom">
+  <title>Theseus — Published conclusions</title>
+  <link href="https://theseus.invalid/"/>
+  <updated>2026-04-14T00:00:00.000Z</updated>
+  <id>https://theseus.invalid/atom.xml</id>
+  
+  <entry>
+    <title>Institutions encode information—not only incentives—and reform should be evaluated on epistemic grounds as well as efficiency.</title>
+    <link href="https://theseus.invalid/c/institutions-encode-information-not-just-incentives/v/2"/>
+    <id>institutions-encode-information-not-just-incentives@v2</id>
+    <updated>2026-04-10T15:30:00.000Z</updated>
+    <summary>Same core evidence; v2 adds explicit scope boundary and refines the adversarial response after new counterexamples were reviewed.</summary>
+  </entry>
+
+  <entry>
+    <title>For this firm, methodological discipline is itself the product: public standing should track demonstrated process, not episodic visibility.</title>
+    <link href="https://theseus.invalid/c/methodological-discipline-is-the-product/v/1"/>
+    <id>methodological-discipline-is-the-product@v1</id>
+    <updated>2026-04-05T09:00:00.000Z</updated>
+    <summary>Internal scoreboard + publication policy commitments reduce overconfidence incentives; adversarial engagement is treated as a gate, not theater.</summary>
+  </entry>
+
+  <entry>
+    <title>Institutions encode information—not only incentives—and reform should be evaluated on epistemic grounds as well as efficiency.</title>
+    <link href="https://theseus.invalid/c/institutions-encode-information-not-just-incentives/v/1"/>
+    <id>institutions-encode-information-not-just-incentives@v1</id>
+    <updated>2026-04-01T12:00:00.000Z</updated>
+    <summary>Cross-episode claim chains link incentive stories to error-correction structures; adversarial challenges on reductionism were engaged and answered with explicit mechanisms.</summary>
+  </entry>
+</feed>

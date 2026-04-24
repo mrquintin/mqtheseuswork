@@ -1,0 +1,89 @@
+# Claude Code Prompt 16 of 26 — Implement four concrete CorpusAdapters (GJP, Metaculus, ClaimReview, Replication)
+
+**Sequence:** prompt 16 of 26. Complete prompts 1..15 before starting this one. When you finish, report back with: files you created/modified, any notable choices, any blockers. I'll then paste the next prompt.
+
+**Parallelism (optional):** prompts 16, 17, 18, 19 touch disjoint files and could run in parallel Claude Code sessions if you want.
+
+**Before you start — read current state:**
+1. Run `git status` and `git branch` to see the current branch state.
+2. If you see stray branches matching `round3/*` or a `.orchestrator/` directory from a prior automated run, tell me and stop; we'll clean them up before continuing.
+3. For every file listed under SCOPE below, check whether it already exists and what it contains. If parts of the work described here are already done (from a previous attempt), INSPECT what is there and only add the missing pieces. Do NOT overwrite existing, correct work. Do NOT duplicate types or tests that already exist.
+4. If you find partial work that is clearly broken or half-finished, ask me whether to complete it or discard and restart that piece.
+## Your task
+You are an implementation agent. Your job is to implement four concrete `CorpusAdapter` classes that conform to the Protocol defined in wave_5/02. Each adapter reads from a pre-downloaded snapshot (NOT live scraping) and emits `ExternalItem`s with resolvable `Outcome`s.
+
+ 
+
+## Prerequisites
+- Wave 5 is done: `external_battery.adapters.CorpusAdapter` Protocol and `BatteryRunner` are importable.
+- Snapshot data: assume the orchestrator places snapshot archives at `~/.theseus/external_snapshots/<corpus>/` before this prompt runs. If missing, your adapter should raise a clear `SnapshotMissingError` naming the expected path and the URL to request a snapshot from.
+
+SCOPE (files you may create or modify — stay within this list)
+- `noosphere/noosphere/external_battery/adapters/gjp.py`          CREATE
+- `noosphere/noosphere/external_battery/adapters/metaculus.py`    CREATE
+- `noosphere/noosphere/external_battery/adapters/claim_review.py` CREATE
+- `noosphere/noosphere/external_battery/adapters/replication.py`  CREATE
+- `noosphere/tests/test_adapter_gjp.py`                           CREATE
+- `noosphere/tests/test_adapter_metaculus.py`                     CREATE
+- `noosphere/tests/test_adapter_claim_review.py`                  CREATE
+- `noosphere/tests/test_adapter_replication.py`                   CREATE
+- `noosphere/tests/fixtures/adapters/gjp/snapshot.json`           CREATE (≥ 5 items)
+- `noosphere/tests/fixtures/adapters/metaculus/snapshot.json`     CREATE
+- `noosphere/tests/fixtures/adapters/claim_review/snapshot.json`  CREATE
+- `noosphere/tests/fixtures/adapters/replication/snapshot.json`   CREATE
+- `docs/eval/external_corpora.md`                                 MODIFY (append per-corpus license notes)
+
+## Step-by-step
+1. Create an adapter class implementing the Protocol: `name`, `license`, `fetch`, `iter_items`, `resolve`.
+2. `fetch` reads the snapshot directory, computes a deterministic content hash over the snapshot files, and returns a `CorpusBundle`.
+3. `iter_items` parses the snapshot format and yields `ExternalItem`s with correct `as_of`, `resolved_at`, and `outcome_type`.
+4. `resolve` returns an `Outcome` with a concrete `resolution_source` (the corpus's own resolution authority; NEVER the firm).
+5. Create a small fixture snapshot under `tests/fixtures/adapters/<corpus>/` with at least 5 items covering the corpus's resolution variations.
+6. Write the adapter's tests.
+7. Append to `docs/eval/external_corpora.md` a section with: corpus name, license, URL, sample size, outcome kinds supported.
+
+ADAPTER SPECIFICS
+gjp.py (Good Judgment Project / Good Judgment Open):
+  license = LicenseTag.gjp_public
+  Snapshot format: JSON with records { question_id, question_text, opened_at, closed_at, outcome (yes/no/numeric range), gjp_baseline, superforecaster_baseline }.
+  iter_items: one ExternalItem per question. outcome_type = binary or interval depending on record.
+  resolve: outcome_source = "Good Judgment Project".
+
+metaculus.py:
+  license = LicenseTag.metaculus_public
+  Snapshot: JSON array of public Metaculus questions with community prediction history and resolution.
+  iter_items: one per resolved question (exclude unresolved).
+  resolve: outcome_source = "Metaculus public resolution".
+
+claim_review.py:
+  license = LicenseTag.claim_review
+  Snapshot: JSONL, one per ClaimReview-tagged fact-check.
+  iter_items: ExternalItem with question_text = the claim text, outcome_type = binary, resolved_at = fact-check date.
+  resolve: outcome_source = fact-checker name from record.
+
+replication.py:
+  license = LicenseTag.replication_public
+  Snapshot: CSV with columns { study_id, original_effect, replication_effect, replication_source, replication_date }.
+  iter_items: one ExternalItem per study. outcome_type = interval (effect size within a CI).
+  resolve: outcome_source = replication project name from the row.
+
+## Tests
+For each adapter:
+1. isinstance check against the Protocol (use `runtime_checkable`).
+2. `fetch` is deterministic: running twice against the same snapshot produces identical content_hash.
+3. `iter_items` yields exactly the number of items in the fixture; every item has non-empty `question_text` and valid `as_of`.
+4. `resolve` returns a non-None Outcome with a non-empty `resolution_source`.
+
+## How to verify
+1. `pytest noosphere/tests/test_adapter_*.py -v` — green.
+2. Running `BatteryRunner.run(adapter=GJPAdapter(), methods=[nli_scorer], sample_size=3)` on the fixture succeeds.
+
+## Do not
+- Fetch from live URLs in tests; use fixtures only.
+- Redistribute item text for licenses that forbid it; store IDs + re-fetch-at-eval-time pattern.
+- Silently retry a failed fetch; re-fetch creates a new bundle with a new hash.
+- Touch any file outside FILES TOUCHED.
+
+---
+
+**When you're finished:** report back with (a) files you created/modified, (b) any non-obvious choices you made, (c) any blockers. I'll paste the next prompt after I've reviewed your summary.

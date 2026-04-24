@@ -1,0 +1,16 @@
+{
+  "name": "@theseus/api-types",
+  "version": "1.0.0",
+  "description": "Shared TypeScript type definitions for the Theseus Researcher API round-3 endpoints",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "files": ["dist"],
+  "scripts": {
+    "build": "tsc --declaration",
+    "clean": "rm -rf dist"
+  },
+  "devDependencies": {
+    "typescript": "^5.4.0"
+  },
+  "license": "Apache-2.0"
+}

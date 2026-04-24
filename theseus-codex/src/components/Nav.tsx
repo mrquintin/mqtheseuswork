@@ -1,0 +1,273 @@
+"use client";
+
+import Link from "next/link";
+import { usePathname, useRouter } from "next/navigation";
+
+import LabyrinthIcon from "./LabyrinthIcon";
+import { SUB_NAV_GROUPS, findGroupForPath } from "./SubNav";
+import ThemeToggle from "./ThemeToggle";
+import { canWrite, canManageFounders } from "@/lib/roles";
+
+/**
+ * Top-level navigation.
+ *
+ * Before consolidation: 14 peers at the top level. Information overload.
+ *
+ * After: 7 destinations. The 4 thematic groups (Conclusions, Review,
+ * Library, Ops) each have a single top-nav entry; the siblings inside
+ * each group live in the sub-nav (`<SubNav />`, one row below).
+ *
+ *    Dashboard · Upload · Conclusions · Review · Library · Publication · Ops
+ *
+ * Clicking a group label (e.g. "Review") takes you to the group's default
+ * tab ("/contradictions"), from which the sub-nav lets you jump to peers.
+ *
+ * Each entry can declare a `requires` predicate; if present, the link
+ * is omitted for callers whose role doesn't satisfy it. Today the only
+ * gated link is `/upload` (write-only) and `/founders/manage` (admin-
+ * only). The rest are read-accessible to every signed-in role.
+ */
+type RoleGate = (role: string) => boolean;
+
+const TOP_NAV_LINKS: ReadonlyArray<{
+  href: string;
+  label: string;
+  requires?: RoleGate;
+}> = [
+  { href: "/dashboard", label: "Dashboard" },
+  // Hidden for viewers — the upload page itself also rejects them, but
+  // hiding the link keeps the nav honest about what they can do.
+  { href: "/upload", label: "Upload", requires: canWrite },
+  // "Library" is the org-wide transparency surface: everyone sees every
+  // upload + who put it there, with owner-only delete + peer-request
+  // delete flows. It sits next to Upload because the two are a pair
+  // ("what goes in" + "what is already in").
+  { href: "/library", label: "Library" },
+  // `/ask` is the LLM-grounded query surface — the central value
+  // proposition of the Codex (ask the oracle a question, get an answer
+  // grounded in the firm's recorded conclusions).
+  { href: "/ask", label: "Ask" },
+  { href: "/conclusions", label: "Conclusions" },
+  // Semantic explorer — interactive 2D projection of the conclusion
+  // embedding space. Sits next to Conclusions because it's the visual
+  // complement to the conclusion list.
+  { href: "/explorer", label: "Explorer" },
+  // The three group entries below follow the SUB_NAV_GROUPS order;
+  // clicking them lands on that group's default tab.
+  { href: SUB_NAV_GROUPS[0].defaultHref, label: SUB_NAV_GROUPS[0].topLabel },
+  { href: SUB_NAV_GROUPS[1].defaultHref, label: SUB_NAV_GROUPS[1].topLabel },
+  { href: "/publication", label: "Publication" },
+  { href: SUB_NAV_GROUPS[2].defaultHref, label: SUB_NAV_GROUPS[2].topLabel },
+  // Admin-only: the founder-role management page. Slotted at the
+  // end so non-admins (the common case) see no shift in the bar's
+  // layout when the link is absent.
+  { href: "/founders/manage", label: "Manage", requires: canManageFounders },
+];
+
+export default function Nav({
+  founder,
+}: {
+  founder: {
+    name: string;
+    username: string;
+    organizationSlug?: string;
+    role?: string;
+  } | null;
+}) {
+  const pathname = usePathname();
+  const router = useRouter();
+
+  const activeGroup = findGroupForPath(pathname);
+
+  function isActive(href: string): boolean {
+    // A top-nav entry is "active" either because the URL matches it directly
+    // or — for group entries — because we're on one of its sibling pages.
+    if (pathname === href || pathname.startsWith(href + "/")) return true;
+    if (activeGroup && href === activeGroup.defaultHref) return true;
+    return false;
+  }
+
+  // Filter the link list against the caller's role. Unauthenticated
+  // callers (founder === null) never reach this component — the
+  // (authed) layout redirects to /login first — but be defensive.
+  const role = founder?.role ?? "viewer";
+  const visibleLinks = TOP_NAV_LINKS.filter(
+    (link) => !link.requires || link.requires(role),
+  );
+
+  async function handleLogout() {
+    await fetch("/api/auth/logout", { method: "POST" });
+    // After sign-out we send the user back to the Gate at `/` — that's now
+    // the canonical sign-in surface; `/login` forwards to it. Using `/`
+    // directly saves the redirect hop.
+    router.push("/");
+    router.refresh();
+  }
+
+  return (
+    <nav
+      style={{
+        borderBottom: "1px solid var(--border)",
+        background: "var(--stone)",
+        position: "sticky",
+        top: 0,
+        zIndex: 50,
+      }}
+    >
+      <div
+        style={{
+          maxWidth: "1200px",
+          margin: "0 auto",
+          // Vertical padding gives the tabs room to breathe below the
+          // browser chrome. Before this the nav had `padding: "0 1rem"`
+          // so the tabs sat flush against the top of the viewport; we
+          // add ~20px top/bottom and bump minHeight accordingly so the
+          // row is centered with clear whitespace on either side.
+          padding: "1.25rem 1rem",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          minHeight: "88px",
+          flexWrap: "wrap",
+          gap: "0.5rem",
+        }}
+      >
+        <Link
+          href="/"
+          aria-label="Theseus Codex — home"
+          style={{
+            display: "inline-flex",
+            alignItems: "center",
+            gap: "0.55rem",
+            fontFamily: "'Cinzel', serif",
+            fontSize: "1rem",
+            letterSpacing: "0.24em",
+            color: "var(--amber)",
+            textDecoration: "none",
+            fontWeight: 600,
+            textShadow: "var(--glow-sm)",
+          }}
+        >
+          <LabyrinthIcon size={22} glow />
+          THESEUS
+        </Link>
+
+        <div
+          style={{
+            display: "flex",
+            flexWrap: "wrap",
+            gap: "1rem 1.75rem",
+            justifyContent: "center",
+          }}
+        >
+          {visibleLinks.map((link) => (
+            <Link
+              key={link.label}
+              href={link.href}
+              style={{
+                fontFamily: "'Cinzel', serif",
+                fontSize: "0.7rem",
+                letterSpacing: "0.14em",
+                textTransform: "uppercase",
+                color: isActive(link.href)
+                  ? "var(--gold)"
+                  : "var(--parchment-dim)",
+                textDecoration: "none",
+                transition: "color 0.2s",
+              }}
+            >
+              {link.label}
+            </Link>
+          ))}
+        </div>
+
+        <div style={{ display: "flex", gap: "1rem", alignItems: "center" }}>
+          {/* User guide PDF lives in /public/ so it's statically served.
+              Opening in a new tab keeps a first-time visitor from losing
+              their place mid-flow if they click it accidentally. */}
+          <a
+            href="/Theseus_Codex_User_Guide.pdf"
+            target="_blank"
+            rel="noopener noreferrer"
+            title="User guide (PDF, 10 pages)"
+            style={{
+              fontFamily: "'Cinzel', serif",
+              fontSize: "0.65rem",
+              letterSpacing: "0.12em",
+              textTransform: "uppercase",
+              color: "var(--parchment-dim)",
+              textDecoration: "none",
+              borderBottom: "1px dotted var(--parchment-dim)",
+            }}
+          >
+            Help
+          </a>
+          {founder ? (
+            <>
+              {/* Founder's name doubles as the entry point to /account —
+                  the single surface for passphrase rotation and (later)
+                  profile / email / avatar edits. A subtle hover-
+                  underline signals the affordance without adding chrome. */}
+              <Link
+                href="/account"
+                title="Account settings"
+                style={{
+                  fontFamily: "'Cinzel', serif",
+                  fontSize: "0.65rem",
+                  letterSpacing: "0.1em",
+                  color: "var(--gold-dim)",
+                  textDecoration: "none",
+                  borderBottom: "1px dotted transparent",
+                  transition: "border-color 0.15s, color 0.15s",
+                }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.color = "var(--amber)";
+                  e.currentTarget.style.borderBottomColor = "var(--amber-dim)";
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.color = "var(--gold-dim)";
+                  e.currentTarget.style.borderBottomColor = "transparent";
+                }}
+              >
+                {founder.name}
+                {founder.organizationSlug ? (
+                  <span
+                    style={{
+                      marginLeft: "0.5rem",
+                      color: "var(--parchment-dim)",
+                    }}
+                  >
+                    · {founder.organizationSlug}
+                  </span>
+                ) : null}
+              </Link>
+              <ThemeToggle size={28} />
+              <button
+                onClick={handleLogout}
+                className="btn"
+                style={{ fontSize: "0.65rem", padding: "0.3rem 0.8rem" }}
+              >
+                Sign Out
+              </button>
+            </>
+          ) : (
+            <>
+              <ThemeToggle size={28} />
+              <Link
+                href="/"
+                className="btn"
+                style={{
+                  fontSize: "0.65rem",
+                  padding: "0.3rem 0.8rem",
+                  textDecoration: "none",
+                }}
+              >
+                Sign In
+              </Link>
+            </>
+          )}
+        </div>
+      </div>
+    </nav>
+  );
+}

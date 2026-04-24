@@ -1,0 +1,4287 @@
+{
+  "graph_stats": {
+    "n_claims": 368,
+    "n_edges": 240,
+    "n_chapters": 15
+  },
+  "chapter_coherence": {
+    "Chapter 00: Preface": {
+      "coherence": 0.31622064033241737,
+      "mean_entailment_cosine": 0.27752941846847534,
+      "mean_tension": 0.22254406890182032,
+      "fragmentation": 0.5,
+      "n_claims": 4,
+      "n_edges": 2,
+      "n_components": 2,
+      "n_claims_in_chapter": 4
+    },
+    "Chapter 01: Fragmentation": {
+      "coherence": 0.3814768189201016,
+      "mean_entailment_cosine": 0.602379628203132,
+      "mean_tension": 0.236379661848131,
+      "fragmentation": 0.9166666666666666,
+      "n_claims": 34,
+      "n_edges": 22,
+      "n_components": 12,
+      "n_claims_in_chapter": 34
+    },
+    "Chapter 02: Mismanagement as Human Nature": {
+      "coherence": 0.3149223675084194,
+      "mean_entailment_cosine": 0.4522451219104585,
+      "mean_tension": 0.2362001934468099,
+      "fragmentation": 0.875,
+      "n_claims": 30,
+      "n_edges": 22,
+      "n_components": 8,
+      "n_claims_in_chapter": 30
+    },
+    "Chapter 03: Aligning the Incentives (Paradoxes)": {
+      "coherence": 0.3477916183046135,
+      "mean_entailment_cosine": 0.43193042278289795,
+      "mean_tension": 0.21817359308683543,
+      "fragmentation": 0.75,
+      "n_claims": 14,
+      "n_edges": 10,
+      "n_components": 4,
+      "n_claims_in_chapter": 14
+    },
+    "Chapter 04: Philosophy of the Firm": {
+      "coherence": 0.36400709166820683,
+      "mean_entailment_cosine": 0.5312443839179145,
+      "mean_tension": 0.2349484336240837,
+      "fragmentation": 0.8333333333333334,
+      "n_claims": 24,
+      "n_edges": 18,
+      "n_components": 6,
+      "n_claims_in_chapter": 24
+    },
+    "Chapter 05: Paradoxes of Business": {
+      "coherence": 0.3642458867216964,
+      "mean_entailment_cosine": 0.5701467435935448,
+      "mean_tension": 0.23749415174174265,
+      "fragmentation": 0.9166666666666666,
+      "n_claims": 41,
+      "n_edges": 29,
+      "n_components": 12,
+      "n_claims_in_chapter": 41
+    },
+    "Chapter 06: Addictive Products": {
+      "coherence": 0.4686151101858112,
+      "mean_entailment_cosine": 0.6124149296018813,
+      "mean_tension": 0.20425902128179607,
+      "fragmentation": 0.6666666666666667,
+      "n_claims": 12,
+      "n_edges": 9,
+      "n_components": 3,
+      "n_claims_in_chapter": 12
+    },
+    "Chapter 07: Operations": {
+      "coherence": 0.4384210623132547,
+      "mean_entailment_cosine": 0.5926110148429871,
+      "mean_tension": 0.22455111177490547,
+      "fragmentation": 0.6666666666666667,
+      "n_claims": 9,
+      "n_edges": 6,
+      "n_components": 3,
+      "n_claims_in_chapter": 9
+    },
+    "Chapter 08: Human Needs": {
+      "coherence": 0.36272267952747184,
+      "mean_entailment_cosine": 0.5246609999583318,
+      "mean_tension": 0.23960782045169404,
+      "fragmentation": 0.8,
+      "n_claims": 18,
+      "n_edges": 13,
+      "n_components": 5,
+      "n_claims_in_chapter": 18
+    },
+    "Chapter 09: Productivity Vogue": {
+      "coherence": 0.4606567094262031,
+      "mean_entailment_cosine": 0.6579926759004593,
+      "mean_tension": 0.23500629519069316,
+      "fragmentation": 0.6666666666666667,
+      "n_claims": 11,
+      "n_edges": 8,
+      "n_components": 3,
+      "n_claims_in_chapter": 11
+    },
+    "Chapter 10: Optimism": {
+      "coherence": 0.3837641497766719,
+      "mean_entailment_cosine": 0.562821239233017,
+      "mean_tension": 0.23764646983983653,
+      "fragmentation": 0.8,
+      "n_claims": 19,
+      "n_edges": 14,
+      "n_components": 5,
+      "n_claims_in_chapter": 19
+    },
+    "Chapter 11: Redefining Economics": {
+      "coherence": 0.4584244612214127,
+      "mean_entailment_cosine": 0.6730774370106783,
+      "mean_tension": 0.22811425728392645,
+      "fragmentation": 0.75,
+      "n_claims": 15,
+      "n_edges": 11,
+      "n_components": 4,
+      "n_claims_in_chapter": 15
+    },
+    "Chapter 12: Gamification": {
+      "coherence": 0.4398811603988373,
+      "mean_entailment_cosine": 0.5746456146240234,
+      "mean_tension": 0.21410831357984103,
+      "fragmentation": 0.6666666666666667,
+      "n_claims": 13,
+      "n_edges": 10,
+      "n_components": 3,
+      "n_claims_in_chapter": 13
+    },
+    "Chapter 13: Ethics, Nature, and False Security": {
+      "coherence": 0.3583761444811697,
+      "mean_entailment_cosine": 0.5753703798566546,
+      "mean_tension": 0.24264237878049086,
+      "fragmentation": 0.9333333333333333,
+      "n_claims": 50,
+      "n_edges": 35,
+      "n_components": 15,
+      "n_claims_in_chapter": 50
+    },
+    "Chapter 14: Ivory Tower": {
+      "coherence": 0.2639427151028246,
+      "mean_entailment_cosine": 0.41277100962977253,
+      "mean_tension": 0.24709395250275934,
+      "fragmentation": 0.9767441860465116,
+      "n_claims": 74,
+      "n_edges": 31,
+      "n_components": 43,
+      "n_claims_in_chapter": 74
+    }
+  },
+  "overall_coherence": {
+    "coherence": 0.32052000781527085,
+    "mean_entailment_cosine": 0.5390632706207211,
+    "mean_tension": 0.2505741274950897,
+    "fragmentation": 0.9921875,
+    "n_claims": 368,
+    "n_edges": 240,
+    "n_components": 128
+  },
+  "top_contradictions": [
+    {
+      "claim_a_id": "ch08.therefore.14",
+      "claim_b_id": "ch13.therefore.03",
+      "claim_a": "Base-horizon awareness prevents backsliding\u2014societies must maintain the capacity to meet all fundamental needs even as they pursue higher goals.",
+      "claim_b": "The base-horizon effect is the civilizational forgetting of primitivity.",
+      "chapter_a": "Chapter 08: Human Needs",
+      "chapter_b": "Chapter 13: Ethics, Nature, and False Security",
+      "cosine_similarity": 0.6239643692970276,
+      "hoyer_sparsity": 0.25664506021590167,
+      "l2_distance": 0.8672204613685608,
+      "contradiction_score": 0.1388744066088528,
+      "graph_relationship": "disconnected"
+    },
+    {
+      "claim_a_id": "ch02.consequence.19",
+      "claim_b_id": "ch09.claim.02",
+      "claim_a": "This creates purposeless efficiency\u2014organizations that are operationally excellent but logically incoherent.",
+      "claim_b": "Productivity disconnected from purpose is hollow virtue\u2014you can become very efficient at accomplishing nothing.",
+      "chapter_a": "Chapter 02: Mismanagement as Human Nature",
+      "chapter_b": "Chapter 09: Productivity Vogue",
+      "cosine_similarity": 0.6040028929710388,
+      "hoyer_sparsity": 0.25491613185738954,
+      "l2_distance": 0.8899403810501099,
+      "contradiction_score": 0.13702419265054647,
+      "graph_relationship": "disconnected"
+    },
+    {
+      "claim_a_id": "ch05.claim.33",
+      "claim_b_id": "ch10.claim.11",
+      "claim_a": "For a product to be adopted, its logic must be MORE cohesive than the societal premises it challenges.",
+      "claim_b": "Entrepreneurs with greater rationality can identify the incoherence and articulate a more coherent alternative.",
+      "chapter_a": "Chapter 05: Paradoxes of Business",
+      "chapter_b": "Chapter 10: Optimism",
+      "cosine_similarity": 0.5748313665390015,
+      "hoyer_sparsity": 0.2564850483033128,
+      "l2_distance": 0.9221373796463013,
+      "contradiction_score": 0.1359559247071608,
+      "graph_relationship": "disconnected"
+    },
+    {
+      "claim_a_id": "ch02.claim.23",
+      "claim_b_id": "ch10.claim.11",
+      "claim_a": "Within the \"satisficing window\" (the period when the organization is still functioning well enough), a startup can articulate the drift and capture market share by offering coherence.",
+      "claim_b": "Entrepreneurs with greater rationality can identify the incoherence and articulate a more coherent alternative.",
+      "chapter_a": "Chapter 02: Mismanagement as Human Nature",
+      "chapter_b": "Chapter 10: Optimism",
+      "cosine_similarity": 0.5763100385665894,
+      "hoyer_sparsity": 0.2559251851142861,
+      "l2_distance": 0.9205328226089478,
+      "contradiction_score": 0.13577146024631037,
+      "graph_relationship": "disconnected"
+    },
+    {
+      "claim_a_id": "ch10.claim.14",
+      "claim_b_id": "ch13.claim.27",
+      "claim_a": "Capitalism creates a competitive landscape where rationality is rewarded over time.",
+      "claim_b": "Value-as-persuasion (from Chapter 05) is the mechanism of market capitalism.",
+      "chapter_a": "Chapter 10: Optimism",
+      "chapter_b": "Chapter 13: Ethics, Nature, and False Security",
+      "cosine_similarity": 0.5825733542442322,
+      "hoyer_sparsity": 0.2547614036938108,
+      "l2_distance": 0.913703203201294,
+      "contradiction_score": 0.13560927605897133,
+      "graph_relationship": "disconnected"
+    },
+    {
+      "claim_a_id": "ch03.therefore.03",
+      "claim_b_id": "ch03.therefore.09",
+      "claim_a": "Self-interest and empathy (understanding and meeting another's needs) are not opposed in trade; they are unified.",
+      "claim_b": "Producer self-interest and consumer value are inseparable in a transaction.",
+      "chapter_a": "Chapter 03: Aligning the Incentives (Paradoxes)",
+      "chapter_b": "Chapter 03: Aligning the Incentives (Paradoxes)",
+      "cosine_similarity": 0.6199173927307129,
+      "hoyer_sparsity": 0.24991413519317848,
+      "l2_distance": 0.8718743920326233,
+      "contradiction_score": 0.13507611589636817,
+      "graph_relationship": "disconnected"
+    },
+    {
+      "claim_a_id": "ch01.claim.22",
+      "claim_b_id": "ch03.consequence.06",
+      "claim_a": "Paradoxes contain superimposed infinite regresses\u2014a statement that infinitely loops back on itself.",
+      "claim_b": "This is a paradox (a statement that appears self-contradictory but resolves into coherence) rather than a contradiction (which would invalidate the framework).",
+      "chapter_a": "Chapter 01: Fragmentation",
+      "chapter_b": "Chapter 03: Aligning the Incentives (Paradoxes)",
+      "cosine_similarity": 0.5612514019012451,
+      "hoyer_sparsity": 0.25624985007035095,
+      "l2_distance": 0.9367483258247375,
+      "contradiction_score": 0.1347236946430961,
+      "graph_relationship": "disconnected"
+    },
+    {
+      "claim_a_id": "ch02.claim.22",
+      "claim_b_id": "ch09.claim.02",
+      "claim_a": "Purposeless efficiency, once deeply embedded, becomes nearly impossible to correct.",
+      "claim_b": "Productivity disconnected from purpose is hollow virtue\u2014you can become very efficient at accomplishing nothing.",
+      "chapter_a": "Chapter 02: Mismanagement as Human Nature",
+      "chapter_b": "Chapter 09: Productivity Vogue",
+      "cosine_similarity": 0.6479277014732361,
+      "hoyer_sparsity": 0.24705491295859275,
+      "l2_distance": 0.8391335010528564,
+      "contradiction_score": 0.13432322267689853,
+      "graph_relationship": "disconnected"
+    },
+    {
+      "claim_a_id": "ch01.consequence.34",
+      "claim_b_id": "ch11.claim.07",
+      "claim_a": "Coherence is not a matter of opinion but a discoverable feature of reality that manifests over time through the persistence or collapse of systems.",
+      "claim_b": "From Chapter 01: Coherent systems correspond to reality.",
+      "chapter_a": "Chapter 01: Fragmentation",
+      "chapter_b": "Chapter 11: Redefining Economics",
+      "cosine_similarity": 0.5919168591499329,
+      "hoyer_sparsity": 0.2509610315173093,
+      "l2_distance": 0.9034192562103271,
+      "contradiction_score": 0.1342011828859237,
+      "graph_relationship": "disconnected"
+    },
+    {
+      "claim_a_id": "ch02.claim.24",
+      "claim_b_id": "ch04.claim.15",
+      "claim_a": "Once an organization has drifted far enough outside the satisficing window, the correction becomes irreversible\u2014the organization has too much structural inertia.",
+      "claim_b": "Adaptability decreases with organization size due to increased structural inertia.",
+      "chapter_a": "Chapter 02: Mismanagement as Human Nature",
+      "chapter_b": "Chapter 04: Philosophy of the Firm",
+      "cosine_similarity": 0.6444178223609924,
+      "hoyer_sparsity": 0.2453493330585441,
+      "l2_distance": 0.8433058857917786,
+      "contradiction_score": 0.13333297094032268,
+      "graph_relationship": "disconnected"
+    },
+    {
+      "claim_a_id": "ch05.claim.20",
+      "claim_b_id": "ch14.claim.46",
+      "claim_a": "Hayek argued that asymmetry of information is a fundamental problem in planned economies.",
+      "claim_b": "Market failures, externalities, information asymmetries = contradictions to level playing field",
+      "chapter_a": "Chapter 05: Paradoxes of Business",
+      "chapter_b": "Chapter 14: Ivory Tower",
+      "cosine_similarity": 0.5776898264884949,
+      "hoyer_sparsity": 0.2501594725120786,
+      "l2_distance": 0.9190322756767273,
+      "contradiction_score": 0.13281356541202938,
+      "graph_relationship": "disconnected"
+    },
+    {
+      "claim_a_id": "ch01.therefore.21",
+      "claim_b_id": "ch01.therefore.33",
+      "claim_a": "Encountering a paradox in an otherwise coherent system does not invalidate the system; encountering a contradiction does.",
+      "claim_b": "Coherence is falsifiable\u2014it is tested by time, scrutiny, and expansion. Incoherent systems collapse when exposed to sufficiently deep questioning or application.",
+      "chapter_a": "Chapter 01: Fragmentation",
+      "chapter_b": "Chapter 01: Fragmentation",
+      "cosine_similarity": 0.5679418444633484,
+      "hoyer_sparsity": 0.2513700222514944,
+      "l2_distance": 0.929578423500061,
+      "contradiction_score": 0.13270991953523717,
+      "graph_relationship": "disconnected"
+    },
+    {
+      "claim_a_id": "ch05.therefore.32",
+      "claim_b_id": "ch14.therefore.26",
+      "claim_a": "The coherence threshold for market survival equals the coherence of societal premises.",
+      "claim_b": "The book presents a unified framework in which truth, value, ethics, economics, and politics are all expressions of coherence\u2014the fundamental principle of reality.",
+      "chapter_a": "Chapter 05: Paradoxes of Business",
+      "chapter_b": "Chapter 14: Ivory Tower",
+      "cosine_similarity": 0.6019346117973328,
+      "hoyer_sparsity": 0.2467364599777154,
+      "l2_distance": 0.8922614455223083,
+      "contradiction_score": 0.13251796968942198,
+      "graph_relationship": "disconnected"
+    },
+    {
+      "claim_a_id": "ch10.therefore.16",
+      "claim_b_id": "ch14.claim.42",
+      "claim_a": "Capitalism leads toward a more rational society.",
+      "claim_b": "Capitalist SOCIETY (not capitalism itself) tends toward cohesion",
+      "chapter_a": "Chapter 10: Optimism",
+      "chapter_b": "Chapter 14: Ivory Tower",
+      "cosine_similarity": 0.6160833835601807,
+      "hoyer_sparsity": 0.24525572501864942,
+      "l2_distance": 0.8762611150741577,
+      "contradiction_score": 0.1324012817299726,
+      "graph_relationship": "disconnected"
+    },
+    {
+      "claim_a_id": "ch01.therefore.33",
+      "claim_b_id": "ch05.therefore.14",
+      "claim_a": "Coherence is falsifiable\u2014it is tested by time, scrutiny, and expansion. Incoherent systems collapse when exposed to sufficiently deep questioning or application.",
+      "claim_b": "The temporal dimension is crucial: coherent-seeming arguments survive short-term but erode through informational discovery.",
+      "chapter_a": "Chapter 01: Fragmentation",
+      "chapter_b": "Chapter 05: Paradoxes of Business",
+      "cosine_similarity": 0.6273370385169983,
+      "hoyer_sparsity": 0.24445645087785547,
+      "l2_distance": 0.8633224964141846,
+      "contradiction_score": 0.13239619061535488,
+      "graph_relationship": "disconnected"
+    }
+  ],
+  "top_tensions": [
+    {
+      "root_a": "All rungs of Maslow's hierarchy must be maintained at a consistent base rate\u2014even as society ascends to higher rungs, lower rungs must not collapse.",
+      "root_b": "As societies become more developed and secure, they tend to forget their primitive origins.",
+      "consequence_a": "Base-horizon awareness prevents backsliding\u2014societies must maintain the capacity to meet all fundamental needs even as they pursue higher goals.",
+      "consequence_b": "The base-horizon effect is the civilizational forgetting of primitivity.",
+      "root_a_id": "ch08.claim.12",
+      "root_b_id": "ch13.claim.01",
+      "consequence_a_id": "ch08.therefore.14",
+      "consequence_b_id": "ch13.therefore.03",
+      "cosine_similarity": 0.6239643692970276,
+      "l2_distance": 0.8672204613685608,
+      "tension_score": 0.1388744066088528
+    },
+    {
+      "root_a": "All rungs of Maslow's hierarchy must be maintained at a consistent base rate\u2014even as society ascends to higher rungs, lower rungs must not collapse.",
+      "root_b": "The \"base\" of civilization goes back to fundamentally irrational, primal animals\u2014hunting, gathering, violence.",
+      "consequence_a": "Base-horizon awareness prevents backsliding\u2014societies must maintain the capacity to meet all fundamental needs even as they pursue higher goals.",
+      "consequence_b": "The base-horizon effect is the civilizational forgetting of primitivity.",
+      "root_a_id": "ch08.claim.12",
+      "root_b_id": "ch13.claim.02",
+      "consequence_a_id": "ch08.therefore.14",
+      "consequence_b_id": "ch13.therefore.03",
+      "cosine_similarity": 0.6239643692970276,
+      "l2_distance": 0.8672204613685608,
+      "tension_score": 0.1388744066088528
+    },
+    {
+      "root_a": "The \"base-horizon\" is the knowledge that all rungs must be kept spinning simultaneously.",
+      "root_b": "As societies become more developed and secure, they tend to forget their primitive origins.",
+      "consequence_a": "Base-horizon awareness prevents backsliding\u2014societies must maintain the capacity to meet all fundamental needs even as they pursue higher goals.",
+      "consequence_b": "The base-horizon effect is the civilizational forgetting of primitivity.",
+      "root_a_id": "ch08.claim.13",
+      "root_b_id": "ch13.claim.01",
+      "consequence_a_id": "ch08.therefore.14",
+      "consequence_b_id": "ch13.therefore.03",
+      "cosine_similarity": 0.6239643692970276,
+      "l2_distance": 0.8672204613685608,
+      "tension_score": 0.1388744066088528
+    },
+    {
+      "root_a": "The \"base-horizon\" is the knowledge that all rungs must be kept spinning simultaneously.",
+      "root_b": "The \"base\" of civilization goes back to fundamentally irrational, primal animals\u2014hunting, gathering, violence.",
+      "consequence_a": "Base-horizon awareness prevents backsliding\u2014societies must maintain the capacity to meet all fundamental needs even as they pursue higher goals.",
+      "consequence_b": "The base-horizon effect is the civilizational forgetting of primitivity.",
+      "root_a_id": "ch08.claim.13",
+      "root_b_id": "ch13.claim.02",
+      "consequence_a_id": "ch08.therefore.14",
+      "consequence_b_id": "ch13.therefore.03",
+      "cosine_similarity": 0.6239643692970276,
+      "l2_distance": 0.8672204613685608,
+      "tension_score": 0.1388744066088528
+    },
+    {
+      "root_a": "Trade (exchange of goods or services) is an interaction where each party seeks to benefit themselves.",
+      "root_b": "The producer must provide genuine value to the consumer to satisfy his own needs (profit to earn a living).",
+      "consequence_a": "Self-interest and empathy (understanding and meeting another's needs) are not opposed in trade; they are unified.",
+      "consequence_b": "Producer self-interest and consumer value are inseparable in a transaction.",
+      "root_a_id": "ch03.claim.01",
+      "root_b_id": "ch03.claim.07",
+      "consequence_a_id": "ch03.therefore.03",
+      "consequence_b_id": "ch03.therefore.09",
+      "cosine_similarity": 0.6199174523353577,
+      "l2_distance": 0.8718743920326233,
+      "tension_score": 0.13507612888384682
+    },
+    {
+      "root_a": "Trade (exchange of goods or services) is an interaction where each party seeks to benefit themselves.",
+      "root_b": "The consumer will only provide payment if they receive value in return.",
+      "consequence_a": "Self-interest and empathy (understanding and meeting another's needs) are not opposed in trade; they are unified.",
+      "consequence_b": "Producer self-interest and consumer value are inseparable in a transaction.",
+      "root_a_id": "ch03.claim.01",
+      "root_b_id": "ch03.claim.08",
+      "consequence_a_id": "ch03.therefore.03",
+      "consequence_b_id": "ch03.therefore.09",
+      "cosine_similarity": 0.6199174523353577,
+      "l2_distance": 0.8718743920326233,
+      "tension_score": 0.13507612888384682
+    },
+    {
+      "root_a": "For trade to occur, each party must provide value to the other party\u2014otherwise the other party would not consent to the trade.",
+      "root_b": "The producer must provide genuine value to the consumer to satisfy his own needs (profit to earn a living).",
+      "consequence_a": "Self-interest and empathy (understanding and meeting another's needs) are not opposed in trade; they are unified.",
+      "consequence_b": "Producer self-interest and consumer value are inseparable in a transaction.",
+      "root_a_id": "ch03.claim.02",
+      "root_b_id": "ch03.claim.07",
+      "consequence_a_id": "ch03.therefore.03",
+      "consequence_b_id": "ch03.therefore.09",
+      "cosine_similarity": 0.6199174523353577,
+      "l2_distance": 0.8718743920326233,
+      "tension_score": 0.13507612888384682
+    },
+    {
+      "root_a": "For trade to occur, each party must provide value to the other party\u2014otherwise the other party would not consent to the trade.",
+      "root_b": "The consumer will only provide payment if they receive value in return.",
+      "consequence_a": "Self-interest and empathy (understanding and meeting another's needs) are not opposed in trade; they are unified.",
+      "consequence_b": "Producer self-interest and consumer value are inseparable in a transaction.",
+      "root_a_id": "ch03.claim.02",
+      "root_b_id": "ch03.claim.08",
+      "consequence_a_id": "ch03.therefore.03",
+      "consequence_b_id": "ch03.therefore.09",
+      "cosine_similarity": 0.6199174523353577,
+      "l2_distance": 0.8718743920326233,
+      "tension_score": 0.13507612888384682
+    },
+    {
+      "root_a": "A paradox may conclude a line of logic without being a hole in it.",
+      "root_b": "Coherence might appear to be an unfalsifiable criterion\u2014any system could claim internal coherence.",
+      "consequence_a": "Encountering a paradox in an otherwise coherent system does not invalidate the system; encountering a contradiction does.",
+      "consequence_b": "Coherence is falsifiable\u2014it is tested by time, scrutiny, and expansion. Incoherent systems collapse when exposed to sufficiently deep questioning or application.",
+      "root_a_id": "ch01.claim.19",
+      "root_b_id": "ch01.claim.30",
+      "consequence_a_id": "ch01.therefore.21",
+      "consequence_b_id": "ch01.therefore.33",
+      "cosine_similarity": 0.5679420232772827,
+      "l2_distance": 0.929578423500061,
+      "tension_score": 0.13270996131835822
+    },
+    {
+      "root_a": "A paradox may conclude a line of logic without being a hole in it.",
+      "root_b": "Society demonstrably grows more rational over time (historical progression shows increasing logical consistency in prevailing institutions).",
+      "consequence_a": "Encountering a paradox in an otherwise coherent system does not invalidate the system; encountering a contradiction does.",
+      "consequence_b": "Coherence is falsifiable\u2014it is tested by time, scrutiny, and expansion. Incoherent systems collapse when exposed to sufficiently deep questioning or application.",
+      "root_a_id": "ch01.claim.19",
+      "root_b_id": "ch01.claim.31",
+      "consequence_a_id": "ch01.therefore.21",
+      "consequence_b_id": "ch01.therefore.33",
+      "cosine_similarity": 0.5679420232772827,
+      "l2_distance": 0.929578423500061,
+      "tension_score": 0.13270996131835822
+    }
+  ],
+  "anti_ontology_distance": {
+    "n_matched_pairs": 368,
+    "mean_cosine": 0.9024636510597623,
+    "mean_l2_distance": 0.3589782224833312,
+    "std_cosine": 0.12393459243090525,
+    "min_cosine": 0.30379021167755127,
+    "max_cosine": 0.9999983906745911
+  },
+  "graph": {
+    "nodes": [
+      {
+        "id": "ch00.claim.01",
+        "text": "Civilizations have forgotten what made them great.",
+        "type": "CLAIM",
+        "chapter": "Chapter 00: Preface",
+        "section": ""
+      },
+      {
+        "id": "ch00.claim.02",
+        "text": "There are patterns in civilizational rise and fall that are repeatable and recognizable.",
+        "type": "CLAIM",
+        "chapter": "Chapter 00: Preface",
+        "section": ""
+      },
+      {
+        "id": "ch00.therefore.03",
+        "text": "A warning is necessary\u2014a framework that can be applied to prevent forgetting.",
+        "type": "THEREFORE",
+        "chapter": "Chapter 00: Preface",
+        "section": ""
+      },
+      {
+        "id": "ch00.purpose.04",
+        "text": "This book serves both as a warning and as a framework for understanding and preventing civilizationa",
+        "type": "PURPOSE",
+        "chapter": "Chapter 00: Preface",
+        "section": ""
+      },
+      {
+        "id": "ch01.claim.01",
+        "text": "Reality is fundamentally coherent.",
+        "type": "CLAIM",
+        "chapter": "Chapter 01: Fragmentation",
+        "section": "Foundation: Coherence and Reality"
+      },
+      {
+        "id": "ch01.claim.02",
+        "text": "Contradictions (two opposing statements that refute a line of logic) cannot exist in reality.",
+        "type": "CLAIM",
+        "chapter": "Chapter 01: Fragmentation",
+        "section": "Foundation: Coherence and Reality"
+      },
+      {
+        "id": "ch01.therefore.03",
+        "text": "If two seemingly contradictory logical systems both claim to describe reality, they cannot both be d",
+        "type": "THEREFORE",
+        "chapter": "Chapter 01: Fragmentation",
+        "section": "Foundation: Coherence and Reality"
+      },
+      {
+        "id": "ch01.claim.04",
+        "text": "Seemingly contradictory coherent systems (e.g., Euclidean geometry and non-Euclidean geometry) are n",
+        "type": "CLAIM",
+        "chapter": "Chapter 01: Fragmentation",
+        "section": "Foundation: Coherence and Reality"
+      },
+      {
+        "id": "ch01.therefore.05",
+        "text": "These seemingly incompatible frameworks must be branches of a larger unified system\u2014\"living, breathi",
+        "type": "THEREFORE",
+        "chapter": "Chapter 01: Fragmentation",
+        "section": "Foundation: Coherence and Reality"
+      },
+      {
+        "id": "ch01.consequence.06",
+        "text": "The coherence is not a feature of individual systems; it is a feature of the larger unified structur",
+        "type": "CONSEQUENCE",
+        "chapter": "Chapter 01: Fragmentation",
+        "section": "Foundation: Coherence and Reality"
+      },
+      {
+        "id": "ch01.claim.07",
+        "text": "Any sufficiently coherent logical structure must correspond to reality.",
+        "type": "CLAIM",
+        "chapter": "Chapter 01: Fragmentation",
+        "section": "The Quintin Hypothesis"
+      },
+      {
+        "id": "ch01.therefore.08",
+        "text": "Formal logical coherence is not merely an intellectual exercise\u2014it is a marker of contact with reali",
+        "type": "THEREFORE",
+        "chapter": "Chapter 01: Fragmentation",
+        "section": "The Quintin Hypothesis"
+      },
+      {
+        "id": "ch01.consequence.09",
+        "text": "We should treat theories as expandable networks, not as complete or final descriptions.",
+        "type": "CONSEQUENCE",
+        "chapter": "Chapter 01: Fragmentation",
+        "section": "The Quintin Hypothesis"
+      },
+      {
+        "id": "ch01.claim.10",
+        "text": "If a theory is coherent, scrutiny should either (a) deepen into premises to find unifying principles",
+        "type": "CLAIM",
+        "chapter": "Chapter 01: Fragmentation",
+        "section": "The Quintin Hypothesis"
+      },
+      {
+        "id": "ch01.therefore.11",
+        "text": "Theories are never \"wrong\"\u2014they are either incompletely understood or incompletely applied.",
+        "type": "THEREFORE",
+        "chapter": "Chapter 01: Fragmentation",
+        "section": "The Quintin Hypothesis"
+      },
+      {
+        "id": "ch01.claim.12",
+        "text": "Quantum mechanics appeared to violate classical physics frameworks.",
+        "type": "CLAIM",
+        "chapter": "Chapter 01: Fragmentation",
+        "section": "Coherence and Revolutionary Theories"
+      },
+      {
+        "id": "ch01.claim.13",
+        "text": "The mathematics necessary for quantum mechanics already existed in prior theoretical frameworks.",
+        "type": "CLAIM",
+        "chapter": "Chapter 01: Fragmentation",
+        "section": "Coherence and Revolutionary Theories"
+      },
+      {
+        "id": "ch01.therefore.14",
+        "text": "Quantum mechanics was not as fundamentally violative of prior frameworks as commonly claimed\u2014the mat",
+        "type": "THEREFORE",
+        "chapter": "Chapter 01: Fragmentation",
+        "section": "Coherence and Revolutionary Theories"
+      },
+      {
+        "id": "ch01.consequence.15",
+        "text": "Revolutionary theories often represent a reorganization of existing logical possibilities, not the i",
+        "type": "CONSEQUENCE",
+        "chapter": "Chapter 01: Fragmentation",
+        "section": "Coherence and Revolutionary Theories"
+      },
+      {
+        "id": "ch01.claim.16",
+        "text": "Paradoxes are single statements that oscillate between truth and falsehood (e.g., \"this statement is",
+        "type": "CLAIM",
+        "chapter": "Chapter 01: Fragmentation",
+        "section": "Paradoxes and Contradictions: A Crucial Distinction"
+      },
+      {
+        "id": "ch01.claim.17",
+        "text": "Contradictions are two opposing statements that refute a line of logic.",
+        "type": "CLAIM",
+        "chapter": "Chapter 01: Fragmentation",
+        "section": "Paradoxes and Contradictions: A Crucial Distinction"
+      },
+      {
+        "id": "ch01.therefore.18",
+        "text": "Paradoxes and contradictions are philosophically distinct and must be analyzed differently.",
+        "type": "THEREFORE",
+        "chapter": "Chapter 01: Fragmentation",
+        "section": "Paradoxes and Contradictions: A Crucial Distinction"
+      },
+      {
+        "id": "ch01.claim.19",
+        "text": "A paradox may conclude a line of logic without being a hole in it.",
+        "type": "CLAIM",
+        "chapter": "Chapter 01: Fragmentation",
+        "section": "Paradoxes and Contradictions: A Crucial Distinction"
+      },
+      {
+        "id": "ch01.claim.20",
+        "text": "A contradiction refutes a line of logic.",
+        "type": "CLAIM",
+        "chapter": "Chapter 01: Fragmentation",
+        "section": "Paradoxes and Contradictions: A Crucial Distinction"
+      },
+      {
+        "id": "ch01.therefore.21",
+        "text": "Encountering a paradox in an otherwise coherent system does not invalidate the system; encountering ",
+        "type": "THEREFORE",
+        "chapter": "Chapter 01: Fragmentation",
+        "section": "Paradoxes and Contradictions: A Crucial Distinction"
+      },
+      {
+        "id": "ch01.claim.22",
+        "text": "Paradoxes contain superimposed infinite regresses\u2014a statement that infinitely loops back on itself.",
+        "type": "CLAIM",
+        "chapter": "Chapter 01: Fragmentation",
+        "section": "The Paradox-Superposition Analogy (Speculative)"
+      },
+      {
+        "id": "ch01.claim.23",
+        "text": "Quantum superposition involves a system existing in multiple states simultaneously until observed.",
+        "type": "CLAIM",
+        "chapter": "Chapter 01: Fragmentation",
+        "section": "The Paradox-Superposition Analogy (Speculative)"
+      },
+      {
+        "id": "ch01.therefore.24",
+        "text": "There may be a deeper analogy between paradoxes in logic and superposition in quantum mechanics, tho",
+        "type": "THEREFORE",
+        "chapter": "Chapter 01: Fragmentation",
+        "section": "The Paradox-Superposition Analogy (Speculative)"
+      },
+      {
+        "id": "ch01.reserved.25",
+        "text": "This speculation is held for future development and is not central to the current argument.",
+        "type": "RESERVED",
+        "chapter": "Chapter 01: Fragmentation",
+        "section": "The Paradox-Superposition Analogy (Speculative)"
+      },
+      {
+        "id": "ch01.claim.26",
+        "text": "There is an intuitive similarity between the behavior of zero, infinity, and paradoxes\u2014they involve ",
+        "type": "CLAIM",
+        "chapter": "Chapter 01: Fragmentation",
+        "section": "Zero Equals Infinity (Speculative)"
+      },
+      {
+        "id": "ch01.claim.27",
+        "text": "Bubble-popping behavior (the sudden transition from zero to infinity or vice versa) resembles parado",
+        "type": "CLAIM",
+        "chapter": "Chapter 01: Fragmentation",
+        "section": "Zero Equals Infinity (Speculative)"
+      },
+      {
+        "id": "ch01.therefore.28",
+        "text": "There may be a mathematical relationship between zero, infinity, and paradox, though this is current",
+        "type": "THEREFORE",
+        "chapter": "Chapter 01: Fragmentation",
+        "section": "Zero Equals Infinity (Speculative)"
+      },
+      {
+        "id": "ch01.reserved.29",
+        "text": "This is held for future mathematical development.",
+        "type": "RESERVED",
+        "chapter": "Chapter 01: Fragmentation",
+        "section": "Zero Equals Infinity (Speculative)"
+      },
+      {
+        "id": "ch01.claim.30",
+        "text": "Coherence might appear to be an unfalsifiable criterion\u2014any system could claim internal coherence.",
+        "type": "CLAIM",
+        "chapter": "Chapter 01: Fragmentation",
+        "section": "Testing Coherence: Falsifiability of Coherence Itself"
+      },
+      {
+        "id": "ch01.claim.31",
+        "text": "Society demonstrably grows more rational over time (historical progression shows increasing logical ",
+        "type": "CLAIM",
+        "chapter": "Chapter 01: Fragmentation",
+        "section": "Testing Coherence: Falsifiability of Coherence Itself"
+      },
+      {
+        "id": "ch01.claim.32",
+        "text": "Scrutiny and expansion of premises consistently reveals hidden contradictions in older frameworks or",
+        "type": "CLAIM",
+        "chapter": "Chapter 01: Fragmentation",
+        "section": "Testing Coherence: Falsifiability of Coherence Itself"
+      },
+      {
+        "id": "ch01.therefore.33",
+        "text": "Coherence is falsifiable\u2014it is tested by time, scrutiny, and expansion. Incoherent systems collapse ",
+        "type": "THEREFORE",
+        "chapter": "Chapter 01: Fragmentation",
+        "section": "Testing Coherence: Falsifiability of Coherence Itself"
+      },
+      {
+        "id": "ch01.consequence.34",
+        "text": "Coherence is not a matter of opinion but a discoverable feature of reality that manifests over time ",
+        "type": "CONSEQUENCE",
+        "chapter": "Chapter 01: Fragmentation",
+        "section": "Testing Coherence: Falsifiability of Coherence Itself"
+      },
+      {
+        "id": "ch02.claim.01",
+        "text": "Conventional wisdom assumes institutional decay is an inevitable product of human nature\u2014entropy app",
+        "type": "CLAIM",
+        "chapter": "Chapter 02: Mismanagement as Human Nature",
+        "section": "The False Assumption About Institutional Decay"
+      },
+      {
+        "id": "ch02.claim.02",
+        "text": "Institutional drift (the gradual loss of an organization's original purpose and values) is observabl",
+        "type": "CLAIM",
+        "chapter": "Chapter 02: Mismanagement as Human Nature",
+        "section": "The False Assumption About Institutional Decay"
+      },
+      {
+        "id": "ch02.therefore.03",
+        "text": "It seems natural to conclude that decay is unavoidable.",
+        "type": "THEREFORE",
+        "chapter": "Chapter 02: Mismanagement as Human Nature",
+        "section": "The False Assumption About Institutional Decay"
+      },
+      {
+        "id": "ch02.challenge.04",
+        "text": "This conclusion is incorrect.",
+        "type": "CHALLENGE",
+        "chapter": "Chapter 02: Mismanagement as Human Nature",
+        "section": "The False Assumption About Institutional Decay"
+      },
+      {
+        "id": "ch02.claim.05",
+        "text": "Institutional drift is not passive; it results from active mismanagement\u2014deliberate choices by leade",
+        "type": "CLAIM",
+        "chapter": "Chapter 02: Mismanagement as Human Nature",
+        "section": "The Active Choice of Mismanagement"
+      },
+      {
+        "id": "ch02.claim.06",
+        "text": "Decay is a function of management decisions, not an intrinsic property of institutions.",
+        "type": "CLAIM",
+        "chapter": "Chapter 02: Mismanagement as Human Nature",
+        "section": "The Active Choice of Mismanagement"
+      },
+      {
+        "id": "ch02.therefore.07",
+        "text": "Institutions have a direction that leadership can willingly alter.",
+        "type": "THEREFORE",
+        "chapter": "Chapter 02: Mismanagement as Human Nature",
+        "section": "The Active Choice of Mismanagement"
+      },
+      {
+        "id": "ch02.consequence.08",
+        "text": "Institutional decay is NOT inevitable; it is a choice, and therefore it can be prevented or reversed",
+        "type": "CONSEQUENCE",
+        "chapter": "Chapter 02: Mismanagement as Human Nature",
+        "section": "The Active Choice of Mismanagement"
+      },
+      {
+        "id": "ch02.claim.09",
+        "text": "Organizations often lose their purpose and begin to imitate competitor behavior directly.",
+        "type": "CLAIM",
+        "chapter": "Chapter 02: Mismanagement as Human Nature",
+        "section": "Mimesis as Purpose vs. Mimesis as Method"
+      },
+      {
+        "id": "ch02.claim.10",
+        "text": "This direct imitation of purpose (pursuing mimesis as the goal itself) is fundamentally destructive.",
+        "type": "CLAIM",
+        "chapter": "Chapter 02: Mismanagement as Human Nature",
+        "section": "Mimesis as Purpose vs. Mimesis as Method"
+      },
+      {
+        "id": "ch02.therefore.11",
+        "text": "When an organization pursues imitation as its purpose, it loses coherence\u2014it is now oriented toward ",
+        "type": "THEREFORE",
+        "chapter": "Chapter 02: Mismanagement as Human Nature",
+        "section": "Mimesis as Purpose vs. Mimesis as Method"
+      },
+      {
+        "id": "ch02.consequence.12",
+        "text": "Direct mimesis as purpose leads to purposeless efficiency\u2014the ability to execute operations effectiv",
+        "type": "CONSEQUENCE",
+        "chapter": "Chapter 02: Mismanagement as Human Nature",
+        "section": "Mimesis as Purpose vs. Mimesis as Method"
+      },
+      {
+        "id": "ch02.distinct_claim.13",
+        "text": "Mimesis as method (learning techniques from competitors to further one's own purposive goals) is pro",
+        "type": "DISTINCT_CLAIM",
+        "chapter": "Chapter 02: Mismanagement as Human Nature",
+        "section": "Mimesis as Purpose vs. Mimesis as Method"
+      },
+      {
+        "id": "ch02.therefore.14",
+        "text": "The distinction is not between imitation and innovation, but between imitation-as-purpose and imitat",
+        "type": "THEREFORE",
+        "chapter": "Chapter 02: Mismanagement as Human Nature",
+        "section": "Mimesis as Purpose vs. Mimesis as Method"
+      },
+      {
+        "id": "ch02.claim.15",
+        "text": "Industries begin with a clear purpose: solve a consumer problem.",
+        "type": "CLAIM",
+        "chapter": "Chapter 02: Mismanagement as Human Nature",
+        "section": "The Drift Mechanism"
+      },
+      {
+        "id": "ch02.claim.16",
+        "text": "As firms grow successful and competitors emerge, firms begin observing competitor behavior.",
+        "type": "CLAIM",
+        "chapter": "Chapter 02: Mismanagement as Human Nature",
+        "section": "The Drift Mechanism"
+      },
+      {
+        "id": "ch02.claim.17",
+        "text": "Rather than using competitor behavior as input to strengthen their own purpose, firms increasingly a",
+        "type": "CLAIM",
+        "chapter": "Chapter 02: Mismanagement as Human Nature",
+        "section": "The Drift Mechanism"
+      },
+      {
+        "id": "ch02.therefore.18",
+        "text": "Mimesis transitions from a tool to a primary goal, and the original purpose fades.",
+        "type": "THEREFORE",
+        "chapter": "Chapter 02: Mismanagement as Human Nature",
+        "section": "The Drift Mechanism"
+      },
+      {
+        "id": "ch02.consequence.19",
+        "text": "This creates purposeless efficiency\u2014organizations that are operationally excellent but logically inc",
+        "type": "CONSEQUENCE",
+        "chapter": "Chapter 02: Mismanagement as Human Nature",
+        "section": "The Drift Mechanism"
+      },
+      {
+        "id": "ch02.claim.20",
+        "text": "When an organization has lost its purpose, specific signals emerge:",
+        "type": "CLAIM",
+        "chapter": "Chapter 02: Mismanagement as Human Nature",
+        "section": "Signals of Purposeless Efficiency"
+      },
+      {
+        "id": "ch02.therefore.21",
+        "text": "These three signals are diagnostic of purposeless efficiency.",
+        "type": "THEREFORE",
+        "chapter": "Chapter 02: Mismanagement as Human Nature",
+        "section": "Signals of Purposeless Efficiency"
+      },
+      {
+        "id": "ch02.claim.22",
+        "text": "Purposeless efficiency, once deeply embedded, becomes nearly impossible to correct.",
+        "type": "CLAIM",
+        "chapter": "Chapter 02: Mismanagement as Human Nature",
+        "section": "The Point of No Return"
+      },
+      {
+        "id": "ch02.claim.23",
+        "text": "Within the \"satisficing window\" (the period when the organization is still functioning well enough),",
+        "type": "CLAIM",
+        "chapter": "Chapter 02: Mismanagement as Human Nature",
+        "section": "The Point of No Return"
+      },
+      {
+        "id": "ch02.claim.24",
+        "text": "Once an organization has drifted far enough outside the satisficing window, the correction becomes i",
+        "type": "CLAIM",
+        "chapter": "Chapter 02: Mismanagement as Human Nature",
+        "section": "The Point of No Return"
+      },
+      {
+        "id": "ch02.therefore.25",
+        "text": "Purposeless efficiency can only be overcome insofar as it can be prevented; once entrenched, especia",
+        "type": "THEREFORE",
+        "chapter": "Chapter 02: Mismanagement as Human Nature",
+        "section": "The Point of No Return"
+      },
+      {
+        "id": "ch02.claim.26",
+        "text": "Large organizations have greater structural inertia than small ones\u2014\"larger boats\" cannot turn quick",
+        "type": "CLAIM",
+        "chapter": "Chapter 02: Mismanagement as Human Nature",
+        "section": "The Structure of Large Organizations as Barrier"
+      },
+      {
+        "id": "ch02.claim.27",
+        "text": "This structural inability to pivot is the primary barrier to correcting purposeless efficiency.",
+        "type": "CLAIM",
+        "chapter": "Chapter 02: Mismanagement as Human Nature",
+        "section": "The Structure of Large Organizations as Barrier"
+      },
+      {
+        "id": "ch02.claim.28",
+        "text": "Psychological resistance to change is a secondary barrier, not the primary one.",
+        "type": "CLAIM",
+        "chapter": "Chapter 02: Mismanagement as Human Nature",
+        "section": "The Structure of Large Organizations as Barrier"
+      },
+      {
+        "id": "ch02.therefore.29",
+        "text": "Size itself is the fundamental obstacle to revitalization.",
+        "type": "THEREFORE",
+        "chapter": "Chapter 02: Mismanagement as Human Nature",
+        "section": "The Structure of Large Organizations as Barrier"
+      },
+      {
+        "id": "ch02.consequence.30",
+        "text": "Organizations must choose between size and adaptability; they cannot maximize both.",
+        "type": "CONSEQUENCE",
+        "chapter": "Chapter 02: Mismanagement as Human Nature",
+        "section": "The Structure of Large Organizations as Barrier"
+      },
+      {
+        "id": "ch03.claim.01",
+        "text": "Trade (exchange of goods or services) is an interaction where each party seeks to benefit themselves",
+        "type": "CLAIM",
+        "chapter": "Chapter 03: Aligning the Incentives (Paradoxes)",
+        "section": "The Trade Paradox and Selfish Empathy"
+      },
+      {
+        "id": "ch03.claim.02",
+        "text": "For trade to occur, each party must provide value to the other party\u2014otherwise the other party would",
+        "type": "CLAIM",
+        "chapter": "Chapter 03: Aligning the Incentives (Paradoxes)",
+        "section": "The Trade Paradox and Selfish Empathy"
+      },
+      {
+        "id": "ch03.therefore.03",
+        "text": "Self-interest and empathy (understanding and meeting another's needs) are not opposed in trade; they",
+        "type": "THEREFORE",
+        "chapter": "Chapter 03: Aligning the Incentives (Paradoxes)",
+        "section": "The Trade Paradox and Selfish Empathy"
+      },
+      {
+        "id": "ch03.claim.04",
+        "text": "This unity holds for both one-off transactions and repeated trades.",
+        "type": "CLAIM",
+        "chapter": "Chapter 03: Aligning the Incentives (Paradoxes)",
+        "section": "The Trade Paradox and Selfish Empathy"
+      },
+      {
+        "id": "ch03.therefore.05",
+        "text": "Trade is the vehicle of selfish empathy whether one-time or repeated\u2014the paradox holds for ALL trans",
+        "type": "THEREFORE",
+        "chapter": "Chapter 03: Aligning the Incentives (Paradoxes)",
+        "section": "The Trade Paradox and Selfish Empathy"
+      },
+      {
+        "id": "ch03.consequence.06",
+        "text": "This is a paradox (a statement that appears self-contradictory but resolves into coherence) rather t",
+        "type": "CONSEQUENCE",
+        "chapter": "Chapter 03: Aligning the Incentives (Paradoxes)",
+        "section": "The Trade Paradox and Selfish Empathy"
+      },
+      {
+        "id": "ch03.claim.07",
+        "text": "The producer must provide genuine value to the consumer to satisfy his own needs (profit to earn a l",
+        "type": "CLAIM",
+        "chapter": "Chapter 03: Aligning the Incentives (Paradoxes)",
+        "section": "Producer and Consumer as Mutual Obligators"
+      },
+      {
+        "id": "ch03.claim.08",
+        "text": "The consumer will only provide payment if they receive value in return.",
+        "type": "CLAIM",
+        "chapter": "Chapter 03: Aligning the Incentives (Paradoxes)",
+        "section": "Producer and Consumer as Mutual Obligators"
+      },
+      {
+        "id": "ch03.therefore.09",
+        "text": "Producer self-interest and consumer value are inseparable in a transaction.",
+        "type": "THEREFORE",
+        "chapter": "Chapter 03: Aligning the Incentives (Paradoxes)",
+        "section": "Producer and Consumer as Mutual Obligators"
+      },
+      {
+        "id": "ch03.consequence.10",
+        "text": "Trade systems that align incentives correctly create structures where selfish behavior produces empa",
+        "type": "CONSEQUENCE",
+        "chapter": "Chapter 03: Aligning the Incentives (Paradoxes)",
+        "section": "Producer and Consumer as Mutual Obligators"
+      },
+      {
+        "id": "ch03.claim.11",
+        "text": "A paradox is usually a single statement oscillating between truth and falsehood without resolving in",
+        "type": "CLAIM",
+        "chapter": "Chapter 03: Aligning the Incentives (Paradoxes)",
+        "section": "Distinguishing Paradoxes from Contradictions (Refined)"
+      },
+      {
+        "id": "ch03.claim.12",
+        "text": "A contradiction is usually two opposing statements or premises that refute a line of logic.",
+        "type": "CLAIM",
+        "chapter": "Chapter 03: Aligning the Incentives (Paradoxes)",
+        "section": "Distinguishing Paradoxes from Contradictions (Refined)"
+      },
+      {
+        "id": "ch03.therefore.13",
+        "text": "The selfish empathy of trade is a paradox, not a contradiction, because it resolves into coherence w",
+        "type": "THEREFORE",
+        "chapter": "Chapter 03: Aligning the Incentives (Paradoxes)",
+        "section": "Distinguishing Paradoxes from Contradictions (Refined)"
+      },
+      {
+        "id": "ch03.consequence.14",
+        "text": "The presence of paradox in a system does not invalidate it; the presence of contradiction does.",
+        "type": "CONSEQUENCE",
+        "chapter": "Chapter 03: Aligning the Incentives (Paradoxes)",
+        "section": "Distinguishing Paradoxes from Contradictions (Refined)"
+      },
+      {
+        "id": "ch04.claim.01",
+        "text": "As organizations scale, their coherence decreases\u2014more moving parts create more opportunities for co",
+        "type": "CLAIM",
+        "chapter": "Chapter 04: Philosophy of the Firm",
+        "section": "The Twin Enemies of Purpose"
+      },
+      {
+        "id": "ch04.claim.02",
+        "text": "As organizations centralize decision-making, individual agents lose agency and the organization lose",
+        "type": "CLAIM",
+        "chapter": "Chapter 04: Philosophy of the Firm",
+        "section": "The Twin Enemies of Purpose"
+      },
+      {
+        "id": "ch04.therefore.03",
+        "text": "Scale and centralization are the enemies of purpose.",
+        "type": "THEREFORE",
+        "chapter": "Chapter 04: Philosophy of the Firm",
+        "section": "The Twin Enemies of Purpose"
+      },
+      {
+        "id": "ch04.consequence.04",
+        "text": "To maintain purpose, organizations must remain small and decentralized.",
+        "type": "CONSEQUENCE",
+        "chapter": "Chapter 04: Philosophy of the Firm",
+        "section": "The Twin Enemies of Purpose"
+      },
+      {
+        "id": "ch04.claim.05",
+        "text": "When organizations decentralize authority and trust employees (laissez-faire within a company), empl",
+        "type": "CLAIM",
+        "chapter": "Chapter 04: Philosophy of the Firm",
+        "section": "Decentralization and Trust as Productivity Drivers"
+      },
+      {
+        "id": "ch04.claim.06",
+        "text": "Rapid decision-making at the point of action (where information is most abundant) is faster than cen",
+        "type": "CLAIM",
+        "chapter": "Chapter 04: Philosophy of the Firm",
+        "section": "Decentralization and Trust as Productivity Drivers"
+      },
+      {
+        "id": "ch04.therefore.07",
+        "text": "Decentralization and trust fuel rapid productivity growth and adaptability.",
+        "type": "THEREFORE",
+        "chapter": "Chapter 04: Philosophy of the Firm",
+        "section": "Decentralization and Trust as Productivity Drivers"
+      },
+      {
+        "id": "ch04.consequence.08",
+        "text": "The most productive organizations are not the most centralized; they are the most trusted.",
+        "type": "CONSEQUENCE",
+        "chapter": "Chapter 04: Philosophy of the Firm",
+        "section": "Decentralization and Trust as Productivity Drivers"
+      },
+      {
+        "id": "ch04.claim.09",
+        "text": "Modern tools and technology allow individual entrepreneurs to produce output that previously require",
+        "type": "CLAIM",
+        "chapter": "Chapter 04: Philosophy of the Firm",
+        "section": "The One-Person Firm Thesis (Separate from Optimal Size)"
+      },
+      {
+        "id": "ch04.claim.10",
+        "text": "This is not because one-person firms are optimal for all purposes, but because technology has extend",
+        "type": "CLAIM",
+        "chapter": "Chapter 04: Philosophy of the Firm",
+        "section": "The One-Person Firm Thesis (Separate from Optimal Size)"
+      },
+      {
+        "id": "ch04.therefore.11",
+        "text": "The one-person firm thesis is SEPARATE from the question of optimal firm size.",
+        "type": "THEREFORE",
+        "chapter": "Chapter 04: Philosophy of the Firm",
+        "section": "The One-Person Firm Thesis (Separate from Optimal Size)"
+      },
+      {
+        "id": "ch04.consequence.12",
+        "text": "The existence of productive one-person firms tells us about technological capability, not about opti",
+        "type": "CONSEQUENCE",
+        "chapter": "Chapter 04: Philosophy of the Firm",
+        "section": "The One-Person Firm Thesis (Separate from Optimal Size)"
+      },
+      {
+        "id": "ch04.claim.13",
+        "text": "Organizations should be small enough to maintain their \"soul\"\u2014coherence, shared values, and common p",
+        "type": "CLAIM",
+        "chapter": "Chapter 04: Philosophy of the Firm",
+        "section": "Optimal Firm Size: Rousseau's Geneva"
+      },
+      {
+        "id": "ch04.claim.14",
+        "text": "Coordination difficulty increases exponentially with organization size.",
+        "type": "CLAIM",
+        "chapter": "Chapter 04: Philosophy of the Firm",
+        "section": "Optimal Firm Size: Rousseau's Geneva"
+      },
+      {
+        "id": "ch04.claim.15",
+        "text": "Adaptability decreases with organization size due to increased structural inertia.",
+        "type": "CLAIM",
+        "chapter": "Chapter 04: Philosophy of the Firm",
+        "section": "Optimal Firm Size: Rousseau's Geneva"
+      },
+      {
+        "id": "ch04.claim.16",
+        "text": "Optimal organizations are significantly smaller than current organizational incumbents.",
+        "type": "CLAIM",
+        "chapter": "Chapter 04: Philosophy of the Firm",
+        "section": "Optimal Firm Size: Rousseau's Geneva"
+      },
+      {
+        "id": "ch04.therefore.17",
+        "text": "Optimal firm size is the Rousseau's Geneva concept: organizations best kept small enough that all me",
+        "type": "THEREFORE",
+        "chapter": "Chapter 04: Philosophy of the Firm",
+        "section": "Optimal Firm Size: Rousseau's Geneva"
+      },
+      {
+        "id": "ch04.consequence.18",
+        "text": "We drastically underestimate when diminishing returns from scale kick in.",
+        "type": "CONSEQUENCE",
+        "chapter": "Chapter 04: Philosophy of the Firm",
+        "section": "Optimal Firm Size: Rousseau's Geneva"
+      },
+      {
+        "id": "ch04.claim.19",
+        "text": "Most organizations measure quantifiable metrics: revenue, user count, engagement, etc.",
+        "type": "CLAIM",
+        "chapter": "Chapter 04: Philosophy of the Firm",
+        "section": "Measuring Purpose, Not Metrics"
+      },
+      {
+        "id": "ch04.claim.20",
+        "text": "These metrics can increase even as purpose decreases (the purposeless efficiency problem).",
+        "type": "CLAIM",
+        "chapter": "Chapter 04: Philosophy of the Firm",
+        "section": "Measuring Purpose, Not Metrics"
+      },
+      {
+        "id": "ch04.therefore.21",
+        "text": "Organizations should measure purpose, not arbitrary metrics.",
+        "type": "THEREFORE",
+        "chapter": "Chapter 04: Philosophy of the Firm",
+        "section": "Measuring Purpose, Not Metrics"
+      },
+      {
+        "id": "ch04.claim.22",
+        "text": "Purpose is best measured through employee freedom and agency\u2014do individuals have the autonomy to exe",
+        "type": "CLAIM",
+        "chapter": "Chapter 04: Philosophy of the Firm",
+        "section": "Measuring Purpose, Not Metrics"
+      },
+      {
+        "id": "ch04.therefore.23",
+        "text": "Qualitative measures (Do employees understand the purpose? Do they have agency?) are more reliable t",
+        "type": "THEREFORE",
+        "chapter": "Chapter 04: Philosophy of the Firm",
+        "section": "Measuring Purpose, Not Metrics"
+      },
+      {
+        "id": "ch04.consequence.24",
+        "text": "Management must shift from metric-driven to purpose-driven evaluation.",
+        "type": "CONSEQUENCE",
+        "chapter": "Chapter 04: Philosophy of the Firm",
+        "section": "Measuring Purpose, Not Metrics"
+      },
+      {
+        "id": "ch05.claim.01",
+        "text": "A product has value only if someone is willing to exchange something (money, time, attention) for it",
+        "type": "CLAIM",
+        "chapter": "Chapter 05: Paradoxes of Business",
+        "section": "Value as Persuasion"
+      },
+      {
+        "id": "ch05.claim.02",
+        "text": "Willingness to exchange requires persuasion\u2014the product must persuade the consumer that it is worth ",
+        "type": "CLAIM",
+        "chapter": "Chapter 05: Paradoxes of Business",
+        "section": "Value as Persuasion"
+      },
+      {
+        "id": "ch05.therefore.03",
+        "text": "Value is persuasion\u2014the ability to convince someone that your product is worth their resources.",
+        "type": "THEREFORE",
+        "chapter": "Chapter 05: Paradoxes of Business",
+        "section": "Value as Persuasion"
+      },
+      {
+        "id": "ch05.claim.04",
+        "text": "Persuasion is only possible if information is constrained\u2014if the consumer has incomplete information",
+        "type": "CLAIM",
+        "chapter": "Chapter 05: Paradoxes of Business",
+        "section": "Value as Persuasion"
+      },
+      {
+        "id": "ch05.therefore.05",
+        "text": "Value is only power insofar as information is constrained.",
+        "type": "THEREFORE",
+        "chapter": "Chapter 05: Paradoxes of Business",
+        "section": "Value as Persuasion"
+      },
+      {
+        "id": "ch05.consequence.06",
+        "text": "As information becomes more available, the power to persuade through constraint decreases.",
+        "type": "CONSEQUENCE",
+        "chapter": "Chapter 05: Paradoxes of Business",
+        "section": "Value as Persuasion"
+      },
+      {
+        "id": "ch05.claim.07",
+        "text": "Lies, deceit, and manipulation can succeed in the short term because information is locally constrai",
+        "type": "CLAIM",
+        "chapter": "Chapter 05: Paradoxes of Business",
+        "section": "The Unsustainability of Deception"
+      },
+      {
+        "id": "ch05.claim.08",
+        "text": "One individual discovering truth starts the erosion of reputation and trust.",
+        "type": "CLAIM",
+        "chapter": "Chapter 05: Paradoxes of Business",
+        "section": "The Unsustainability of Deception"
+      },
+      {
+        "id": "ch05.claim.09",
+        "text": "As information spreads, the deception unravels.",
+        "type": "CLAIM",
+        "chapter": "Chapter 05: Paradoxes of Business",
+        "section": "The Unsustainability of Deception"
+      },
+      {
+        "id": "ch05.therefore.10",
+        "text": "Lies, deceit, and manipulation are not sustainable long-term\u2014they collapse under informational scrut",
+        "type": "THEREFORE",
+        "chapter": "Chapter 05: Paradoxes of Business",
+        "section": "The Unsustainability of Deception"
+      },
+      {
+        "id": "ch05.consequence.11",
+        "text": "Deceptive business models have an expiration date.",
+        "type": "CONSEQUENCE",
+        "chapter": "Chapter 05: Paradoxes of Business",
+        "section": "The Unsustainability of Deception"
+      },
+      {
+        "id": "ch05.claim.12",
+        "text": "Arguments that seem coherent in the short term may reveal contradictions when scrutinized over time.",
+        "type": "CLAIM",
+        "chapter": "Chapter 05: Paradoxes of Business",
+        "section": "The Temporal Dimension: Coherence Under Scrutiny"
+      },
+      {
+        "id": "ch05.claim.13",
+        "text": "Information discovery, market feedback, and empirical evidence gradually expose incoherence.",
+        "type": "CLAIM",
+        "chapter": "Chapter 05: Paradoxes of Business",
+        "section": "The Temporal Dimension: Coherence Under Scrutiny"
+      },
+      {
+        "id": "ch05.therefore.14",
+        "text": "The temporal dimension is crucial: coherent-seeming arguments survive short-term but erode through i",
+        "type": "THEREFORE",
+        "chapter": "Chapter 05: Paradoxes of Business",
+        "section": "The Temporal Dimension: Coherence Under Scrutiny"
+      },
+      {
+        "id": "ch05.consequence.15",
+        "text": "Time is a filter for coherence.",
+        "type": "CONSEQUENCE",
+        "chapter": "Chapter 05: Paradoxes of Business",
+        "section": "The Temporal Dimension: Coherence Under Scrutiny"
+      },
+      {
+        "id": "ch05.claim.16",
+        "text": "Capitalism creates incentives for information production and distribution.",
+        "type": "CLAIM",
+        "chapter": "Chapter 05: Paradoxes of Business",
+        "section": "Information Democratization and Capitalism"
+      },
+      {
+        "id": "ch05.claim.17",
+        "text": "With advancement of capitalism and infrastructure, information becomes increasingly democratized\u2014har",
+        "type": "CLAIM",
+        "chapter": "Chapter 05: Paradoxes of Business",
+        "section": "Information Democratization and Capitalism"
+      },
+      {
+        "id": "ch05.therefore.18",
+        "text": "Over time, capitalism undermines the information asymmetries that allow deception.",
+        "type": "THEREFORE",
+        "chapter": "Chapter 05: Paradoxes of Business",
+        "section": "Information Democratization and Capitalism"
+      },
+      {
+        "id": "ch05.consequence.19",
+        "text": "Capitalism tends to punish deceptive business models more severely as information becomes more avail",
+        "type": "CONSEQUENCE",
+        "chapter": "Chapter 05: Paradoxes of Business",
+        "section": "Information Democratization and Capitalism"
+      },
+      {
+        "id": "ch05.claim.20",
+        "text": "Hayek argued that asymmetry of information is a fundamental problem in planned economies.",
+        "type": "CLAIM",
+        "chapter": "Chapter 05: Paradoxes of Business",
+        "section": "Hayek's Logic and Level Playing Fields"
+      },
+      {
+        "id": "ch05.claim.21",
+        "text": "This same logic applies to markets: when information is too asymmetrical, weaker arguments can preva",
+        "type": "CLAIM",
+        "chapter": "Chapter 05: Paradoxes of Business",
+        "section": "Hayek's Logic and Level Playing Fields"
+      },
+      {
+        "id": "ch05.therefore.22",
+        "text": "To harness the power of capitalism to select for coherence, level playing fields must be upheld.",
+        "type": "THEREFORE",
+        "chapter": "Chapter 05: Paradoxes of Business",
+        "section": "Hayek's Logic and Level Playing Fields"
+      },
+      {
+        "id": "ch05.claim.23",
+        "text": "Level playing fields maximize information symmetry and ensure that stronger arguments prevail.",
+        "type": "CLAIM",
+        "chapter": "Chapter 05: Paradoxes of Business",
+        "section": "Hayek's Logic and Level Playing Fields"
+      },
+      {
+        "id": "ch05.therefore.24",
+        "text": "The solution is to bolster the free argumentative market, not to abandon it.",
+        "type": "THEREFORE",
+        "chapter": "Chapter 05: Paradoxes of Business",
+        "section": "Hayek's Logic and Level Playing Fields"
+      },
+      {
+        "id": "ch05.consequence.25",
+        "text": "Markets self-correct deception not by abandoning market mechanisms, but by ensuring markets are free",
+        "type": "CONSEQUENCE",
+        "chapter": "Chapter 05: Paradoxes of Business",
+        "section": "Hayek's Logic and Level Playing Fields"
+      },
+      {
+        "id": "ch05.claim.26",
+        "text": "Delusion is differentiated from truth by the fact that it falls apart under scrutiny and expansion.",
+        "type": "CLAIM",
+        "chapter": "Chapter 05: Paradoxes of Business",
+        "section": "Delusion vs. Truth"
+      },
+      {
+        "id": "ch05.claim.27",
+        "text": "Truth is coherent even when scrutinized and expanded.",
+        "type": "CLAIM",
+        "chapter": "Chapter 05: Paradoxes of Business",
+        "section": "Delusion vs. Truth"
+      },
+      {
+        "id": "ch05.therefore.28",
+        "text": "The test of truth is persistence under interrogation, not initial plausibility.",
+        "type": "THEREFORE",
+        "chapter": "Chapter 05: Paradoxes of Business",
+        "section": "Delusion vs. Truth"
+      },
+      {
+        "id": "ch05.consequence.29",
+        "text": "What appears true in the short term may be delusion; what is true is what survives scrutiny.",
+        "type": "CONSEQUENCE",
+        "chapter": "Chapter 05: Paradoxes of Business",
+        "section": "Delusion vs. Truth"
+      },
+      {
+        "id": "ch05.claim.30",
+        "text": "A product survives in the market only if its logical justification is sufficiently coherent.",
+        "type": "CLAIM",
+        "chapter": "Chapter 05: Paradoxes of Business",
+        "section": "The Coherence Threshold for Market Survival"
+      },
+      {
+        "id": "ch05.claim.31",
+        "text": "The threshold for survival is the coherence of societal premises\u2014the level of logical consistency th",
+        "type": "CLAIM",
+        "chapter": "Chapter 05: Paradoxes of Business",
+        "section": "The Coherence Threshold for Market Survival"
+      },
+      {
+        "id": "ch05.therefore.32",
+        "text": "The coherence threshold for market survival equals the coherence of societal premises.",
+        "type": "THEREFORE",
+        "chapter": "Chapter 05: Paradoxes of Business",
+        "section": "The Coherence Threshold for Market Survival"
+      },
+      {
+        "id": "ch05.claim.33",
+        "text": "For a product to be adopted, its logic must be MORE cohesive than the societal premises it challenge",
+        "type": "CLAIM",
+        "chapter": "Chapter 05: Paradoxes of Business",
+        "section": "The Coherence Threshold for Market Survival"
+      },
+      {
+        "id": "ch05.therefore.34",
+        "text": "Inventions must be MORE cohesive than societal premises to endure\u2014they must be harder to argue again",
+        "type": "THEREFORE",
+        "chapter": "Chapter 05: Paradoxes of Business",
+        "section": "The Coherence Threshold for Market Survival"
+      },
+      {
+        "id": "ch05.consequence.35",
+        "text": "Innovation is fundamentally an argumentative process: new products win by being more logically coher",
+        "type": "CONSEQUENCE",
+        "chapter": "Chapter 05: Paradoxes of Business",
+        "section": "The Coherence Threshold for Market Survival"
+      },
+      {
+        "id": "ch05.claim.36",
+        "text": "Capitalism is a system of voluntary exchange where parties can refuse transactions.",
+        "type": "CLAIM",
+        "chapter": "Chapter 05: Paradoxes of Business",
+        "section": "Capitalism's Tendency Toward Perfect Coherence"
+      },
+      {
+        "id": "ch05.claim.37",
+        "text": "Over time, parties select for transactions with stronger logical justification.",
+        "type": "CLAIM",
+        "chapter": "Chapter 05: Paradoxes of Business",
+        "section": "Capitalism's Tendency Toward Perfect Coherence"
+      },
+      {
+        "id": "ch05.therefore.38",
+        "text": "Capitalism tends toward perfect coherence\u2014it harnesses only the strongest arguments.",
+        "type": "THEREFORE",
+        "chapter": "Chapter 05: Paradoxes of Business",
+        "section": "Capitalism's Tendency Toward Perfect Coherence"
+      },
+      {
+        "id": "ch05.claim.39",
+        "text": "When a product's logic is seen as more contradictory than societal premises, demand shifts away.",
+        "type": "CLAIM",
+        "chapter": "Chapter 05: Paradoxes of Business",
+        "section": "Capitalism's Tendency Toward Perfect Coherence"
+      },
+      {
+        "id": "ch05.therefore.40",
+        "text": "Market demand is fundamentally responsive to coherence.",
+        "type": "THEREFORE",
+        "chapter": "Chapter 05: Paradoxes of Business",
+        "section": "Capitalism's Tendency Toward Perfect Coherence"
+      },
+      {
+        "id": "ch05.consequence.41",
+        "text": "Capitalism is a mechanism for discovering and selecting truth-like propositions (coherent frameworks",
+        "type": "CONSEQUENCE",
+        "chapter": "Chapter 05: Paradoxes of Business",
+        "section": "Capitalism's Tendency Toward Perfect Coherence"
+      },
+      {
+        "id": "ch06.claim.01",
+        "text": "A truly addictive product is one that consumers voluntarily return to repeatedly, despite the costs.",
+        "type": "CLAIM",
+        "chapter": "Chapter 06: Addictive Products",
+        "section": "Addiction as Proof of Value Creation"
+      },
+      {
+        "id": "ch06.claim.02",
+        "text": "If a product is genuinely addictive (beneficial dependence), it proves the consumer values it.",
+        "type": "CLAIM",
+        "chapter": "Chapter 06: Addictive Products",
+        "section": "Addiction as Proof of Value Creation"
+      },
+      {
+        "id": "ch06.therefore.03",
+        "text": "Product addiction is proof of genuine value creation.",
+        "type": "THEREFORE",
+        "chapter": "Chapter 06: Addictive Products",
+        "section": "Addiction as Proof of Value Creation"
+      },
+      {
+        "id": "ch06.consequence.04",
+        "text": "Addictive products are not inherently unethical; they represent products that meet real needs so eff",
+        "type": "CONSEQUENCE",
+        "chapter": "Chapter 06: Addictive Products",
+        "section": "Addiction as Proof of Value Creation"
+      },
+      {
+        "id": "ch06.claim.05",
+        "text": "Many products follow a pattern: frontier (novel, competing on innovative features) \u2192 commodity (comp",
+        "type": "CLAIM",
+        "chapter": "Chapter 06: Addictive Products",
+        "section": "The Frontier-to-Commodity Lifecycle"
+      },
+      {
+        "id": "ch06.claim.06",
+        "text": "This is not a universal law, but a common pattern in mature industries.",
+        "type": "CLAIM",
+        "chapter": "Chapter 06: Addictive Products",
+        "section": "The Frontier-to-Commodity Lifecycle"
+      },
+      {
+        "id": "ch06.therefore.07",
+        "text": "The frontier-to-commodity lifecycle is an interesting pattern worth studying, though not inevitable.",
+        "type": "THEREFORE",
+        "chapter": "Chapter 06: Addictive Products",
+        "section": "The Frontier-to-Commodity Lifecycle"
+      },
+      {
+        "id": "ch06.consequence.08",
+        "text": "Understanding this pattern helps predict when an industry will shift from innovation to efficiency a",
+        "type": "CONSEQUENCE",
+        "chapter": "Chapter 06: Addictive Products",
+        "section": "The Frontier-to-Commodity Lifecycle"
+      },
+      {
+        "id": "ch06.claim.09",
+        "text": "Honest addiction meets real consumer needs and creates genuine value; the consumer consciously choos",
+        "type": "CLAIM",
+        "chapter": "Chapter 06: Addictive Products",
+        "section": "Honest vs. Dishonest Addiction"
+      },
+      {
+        "id": "ch06.claim.10",
+        "text": "Dishonest addiction is manufactured through manipulation, exploiting cognitive biases, or creating a",
+        "type": "CLAIM",
+        "chapter": "Chapter 06: Addictive Products",
+        "section": "Honest vs. Dishonest Addiction"
+      },
+      {
+        "id": "ch06.therefore.11",
+        "text": "Addiction must be distinguished by whether the underlying need is genuine.",
+        "type": "THEREFORE",
+        "chapter": "Chapter 06: Addictive Products",
+        "section": "Honest vs. Dishonest Addiction"
+      },
+      {
+        "id": "ch06.consequence.12",
+        "text": "In a coherent market (high information symmetry), honest addiction persists while dishonest addictio",
+        "type": "CONSEQUENCE",
+        "chapter": "Chapter 06: Addictive Products",
+        "section": "Honest vs. Dishonest Addiction"
+      },
+      {
+        "id": "ch07.claim.01",
+        "text": "Organizations operate along distinct dimensions where they can compete or improve.",
+        "type": "CLAIM",
+        "chapter": "Chapter 07: Operations",
+        "section": "The Four Fundamental Dimensions of Entrepreneurship"
+      },
+      {
+        "id": "ch07.claim.02",
+        "text": "These four dimensions are:",
+        "type": "CLAIM",
+        "chapter": "Chapter 07: Operations",
+        "section": "The Four Fundamental Dimensions of Entrepreneurship"
+      },
+      {
+        "id": "ch07.therefore.03",
+        "text": "These four dimensions logically exhaust the space of organizational and market reorganization\u2014improv",
+        "type": "THEREFORE",
+        "chapter": "Chapter 07: Operations",
+        "section": "The Four Fundamental Dimensions of Entrepreneurship"
+      },
+      {
+        "id": "ch07.claim.04",
+        "text": "Two additional dimensions may exist:",
+        "type": "CLAIM",
+        "chapter": "Chapter 07: Operations",
+        "section": "Two Additional Dimensions (Speculative)"
+      },
+      {
+        "id": "ch07.therefore.05",
+        "text": "The full space of reorganization may include six dimensions, though the core four are foundational.",
+        "type": "THEREFORE",
+        "chapter": "Chapter 07: Operations",
+        "section": "Two Additional Dimensions (Speculative)"
+      },
+      {
+        "id": "ch07.claim.06",
+        "text": "Each operation (improvement, pivot, or reorganization) is a transformation of the firm's argument\u2014it",
+        "type": "CLAIM",
+        "chapter": "Chapter 07: Operations",
+        "section": "Operations as Logical Transformations"
+      },
+      {
+        "id": "ch07.claim.07",
+        "text": "If the firm's value proposition is its core argument, then every operational change must either stre",
+        "type": "CLAIM",
+        "chapter": "Chapter 07: Operations",
+        "section": "Operations as Logical Transformations"
+      },
+      {
+        "id": "ch07.therefore.08",
+        "text": "Each operation is a logical transformation of the firm's argument.",
+        "type": "THEREFORE",
+        "chapter": "Chapter 07: Operations",
+        "section": "Operations as Logical Transformations"
+      },
+      {
+        "id": "ch07.consequence.09",
+        "text": "Operational excellence is not merely tactical; it is fundamentally argumentative.",
+        "type": "CONSEQUENCE",
+        "chapter": "Chapter 07: Operations",
+        "section": "Operations as Logical Transformations"
+      },
+      {
+        "id": "ch08.claim.01",
+        "text": "Maslow's hierarchy of needs progresses from basic physiological needs \u2192 safety \u2192 belonging \u2192 esteem ",
+        "type": "CLAIM",
+        "chapter": "Chapter 08: Human Needs",
+        "section": "Maslow's Hierarchy and Economic Development"
+      },
+      {
+        "id": "ch08.claim.02",
+        "text": "Societies at different stages of economic development prioritize different rungs of this hierarchy.",
+        "type": "CLAIM",
+        "chapter": "Chapter 08: Human Needs",
+        "section": "Maslow's Hierarchy and Economic Development"
+      },
+      {
+        "id": "ch08.therefore.03",
+        "text": "Maslow's hierarchy maps to economic development phases\u2014societies ascend the hierarchy as they become",
+        "type": "THEREFORE",
+        "chapter": "Chapter 08: Human Needs",
+        "section": "Maslow's Hierarchy and Economic Development"
+      },
+      {
+        "id": "ch08.claim.04",
+        "text": "Markets self-correct ethical failures by raising the rationality standard over time.",
+        "type": "CLAIM",
+        "chapter": "Chapter 08: Human Needs",
+        "section": "Maslow's Hierarchy and Economic Development"
+      },
+      {
+        "id": "ch08.claim.05",
+        "text": "Example: Tobacco industry was not corrected until societal premises (health, science) surpassed the ",
+        "type": "CLAIM",
+        "chapter": "Chapter 08: Human Needs",
+        "section": "Maslow's Hierarchy and Economic Development"
+      },
+      {
+        "id": "ch08.therefore.06",
+        "text": "As society ascends Maslow's hierarchy, it becomes less tolerant of products that violate higher rung",
+        "type": "THEREFORE",
+        "chapter": "Chapter 08: Human Needs",
+        "section": "Maslow's Hierarchy and Economic Development"
+      },
+      {
+        "id": "ch08.consequence.07",
+        "text": "Ethical correction in markets is driven by the advance of societal premises, not by moral sentiment ",
+        "type": "CONSEQUENCE",
+        "chapter": "Chapter 08: Human Needs",
+        "section": "Maslow's Hierarchy and Economic Development"
+      },
+      {
+        "id": "ch08.claim.08",
+        "text": "Societies have difficulty ascending Maslow's hierarchy out of order.",
+        "type": "CLAIM",
+        "chapter": "Chapter 08: Human Needs",
+        "section": "The Ordering Problem"
+      },
+      {
+        "id": "ch08.claim.09",
+        "text": "If basic needs are not met, pursuing self-actualization is irrational (an earlier rung cannot be ski",
+        "type": "CLAIM",
+        "chapter": "Chapter 08: Human Needs",
+        "section": "The Ordering Problem"
+      },
+      {
+        "id": "ch08.therefore.10",
+        "text": "This mirrors Adam Smith's observation about the progression of opulence\u2014societies must ascend in ord",
+        "type": "THEREFORE",
+        "chapter": "Chapter 08: Human Needs",
+        "section": "The Ordering Problem"
+      },
+      {
+        "id": "ch08.consequence.11",
+        "text": "Development cannot be accelerated by skipping rungs.",
+        "type": "CONSEQUENCE",
+        "chapter": "Chapter 08: Human Needs",
+        "section": "The Ordering Problem"
+      },
+      {
+        "id": "ch08.claim.12",
+        "text": "All rungs of Maslow's hierarchy must be maintained at a consistent base rate\u2014even as society ascends",
+        "type": "CLAIM",
+        "chapter": "Chapter 08: Human Needs",
+        "section": "Base-Horizon Awareness"
+      },
+      {
+        "id": "ch08.claim.13",
+        "text": "The \"base-horizon\" is the knowledge that all rungs must be kept spinning simultaneously.",
+        "type": "CLAIM",
+        "chapter": "Chapter 08: Human Needs",
+        "section": "Base-Horizon Awareness"
+      },
+      {
+        "id": "ch08.therefore.14",
+        "text": "Base-horizon awareness prevents backsliding\u2014societies must maintain the capacity to meet all fundame",
+        "type": "THEREFORE",
+        "chapter": "Chapter 08: Human Needs",
+        "section": "Base-Horizon Awareness"
+      },
+      {
+        "id": "ch08.consequence.15",
+        "text": "Civilizational strength requires not the elimination of lower rungs, but the maintenance of all simu",
+        "type": "CONSEQUENCE",
+        "chapter": "Chapter 08: Human Needs",
+        "section": "Base-Horizon Awareness"
+      },
+      {
+        "id": "ch08.claim.16",
+        "text": "Humanity is increasingly tapping into the self-actualization rung (pursuing meaning, purpose, creati",
+        "type": "CLAIM",
+        "chapter": "Chapter 08: Human Needs",
+        "section": "Self-Actualization and Modern Humanity"
+      },
+      {
+        "id": "ch08.therefore.17",
+        "text": "Modern markets increasingly concern themselves with self-actualization\u2014meaning-making is becoming ec",
+        "type": "THEREFORE",
+        "chapter": "Chapter 08: Human Needs",
+        "section": "Self-Actualization and Modern Humanity"
+      },
+      {
+        "id": "ch08.consequence.18",
+        "text": "Products and organizations must now compete on whether they contribute to self-actualization, not ju",
+        "type": "CONSEQUENCE",
+        "chapter": "Chapter 08: Human Needs",
+        "section": "Self-Actualization and Modern Humanity"
+      },
+      {
+        "id": "ch09.claim.01",
+        "text": "Productivity (output per unit of input) is often pursued as a goal in itself.",
+        "type": "CLAIM",
+        "chapter": "Chapter 09: Productivity Vogue",
+        "section": "The Incoherence of Purposeless Productivity"
+      },
+      {
+        "id": "ch09.claim.02",
+        "text": "Productivity disconnected from purpose is hollow virtue\u2014you can become very efficient at accomplishi",
+        "type": "CLAIM",
+        "chapter": "Chapter 09: Productivity Vogue",
+        "section": "The Incoherence of Purposeless Productivity"
+      },
+      {
+        "id": "ch09.therefore.03",
+        "text": "Productivity divorced from purpose is logically incoherent.",
+        "type": "THEREFORE",
+        "chapter": "Chapter 09: Productivity Vogue",
+        "section": "The Incoherence of Purposeless Productivity"
+      },
+      {
+        "id": "ch09.consequence.04",
+        "text": "Organizations obsessed with productivity metrics often become engines of purposeless efficiency.",
+        "type": "CONSEQUENCE",
+        "chapter": "Chapter 09: Productivity Vogue",
+        "section": "The Incoherence of Purposeless Productivity"
+      },
+      {
+        "id": "ch09.claim.05",
+        "text": "Hayek's critique of central planning: a central planner cannot possess all the information distribut",
+        "type": "CLAIM",
+        "chapter": "Chapter 09: Productivity Vogue",
+        "section": "Hayek's Central Planning Problem Within Corporations"
+      },
+      {
+        "id": "ch09.claim.06",
+        "text": "Large corporations organize as centralized hierarchies where decision-making authority is concentrat",
+        "type": "CLAIM",
+        "chapter": "Chapter 09: Productivity Vogue",
+        "section": "Hayek's Central Planning Problem Within Corporations"
+      },
+      {
+        "id": "ch09.therefore.07",
+        "text": "Hayek's central planning problem manifests within large corporations\u2014central management lacks the di",
+        "type": "THEREFORE",
+        "chapter": "Chapter 09: Productivity Vogue",
+        "section": "Hayek's Central Planning Problem Within Corporations"
+      },
+      {
+        "id": "ch09.consequence.08",
+        "text": "Corporate structure itself reproduces the problem Hayek identified in planned economies.",
+        "type": "CONSEQUENCE",
+        "chapter": "Chapter 09: Productivity Vogue",
+        "section": "Hayek's Central Planning Problem Within Corporations"
+      },
+      {
+        "id": "ch09.claim.09",
+        "text": "Markets progress through phases:",
+        "type": "CLAIM",
+        "chapter": "Chapter 09: Productivity Vogue",
+        "section": "Phases of Competition"
+      },
+      {
+        "id": "ch09.therefore.10",
+        "text": "Different phases reward different organizational structures and priorities.",
+        "type": "THEREFORE",
+        "chapter": "Chapter 09: Productivity Vogue",
+        "section": "Phases of Competition"
+      },
+      {
+        "id": "ch09.consequence.11",
+        "text": "An organization optimized for the Solid phase (innovation) will fail in the Gas phase (optimization)",
+        "type": "CONSEQUENCE",
+        "chapter": "Chapter 09: Productivity Vogue",
+        "section": "Phases of Competition"
+      },
+      {
+        "id": "ch10.claim.01",
+        "text": "Optimism is often treated as mere sentiment\u2014a psychological state.",
+        "type": "CLAIM",
+        "chapter": "Chapter 10: Optimism",
+        "section": "Optimism as a Logical Position"
+      },
+      {
+        "id": "ch10.claim.02",
+        "text": "Optimism is actually a logical position rooted in evidence that systems improve over time.",
+        "type": "CLAIM",
+        "chapter": "Chapter 10: Optimism",
+        "section": "Optimism as a Logical Position"
+      },
+      {
+        "id": "ch10.therefore.03",
+        "text": "Optimism is justified\u2014it is not sentimentality but rationality.",
+        "type": "THEREFORE",
+        "chapter": "Chapter 10: Optimism",
+        "section": "Optimism as a Logical Position"
+      },
+      {
+        "id": "ch10.consequence.04",
+        "text": "Pessimism, by contrast, requires arguing that systems never improve, which contradicts historical ev",
+        "type": "CONSEQUENCE",
+        "chapter": "Chapter 10: Optimism",
+        "section": "Optimism as a Logical Position"
+      },
+      {
+        "id": "ch10.claim.05",
+        "text": "Hope oscillation (the rise and fall of hope within a society) is a relative measure\u2014it is comparativ",
+        "type": "CLAIM",
+        "chapter": "Chapter 10: Optimism",
+        "section": "Hope Oscillation vs. Economic Growth"
+      },
+      {
+        "id": "ch10.claim.06",
+        "text": "Economic growth is an absolute measure\u2014output increases in measurable terms.",
+        "type": "CLAIM",
+        "chapter": "Chapter 10: Optimism",
+        "section": "Hope Oscillation vs. Economic Growth"
+      },
+      {
+        "id": "ch10.claim.07",
+        "text": "Perhaps hope doesn't trend upward because it is inherently relative\u2014always comparative to expectatio",
+        "type": "CLAIM",
+        "chapter": "Chapter 10: Optimism",
+        "section": "Hope Oscillation vs. Economic Growth"
+      },
+      {
+        "id": "ch10.therefore.08",
+        "text": "Hope oscillation is social sentiment, not equivalent to economic growth.",
+        "type": "THEREFORE",
+        "chapter": "Chapter 10: Optimism",
+        "section": "Hope Oscillation vs. Economic Growth"
+      },
+      {
+        "id": "ch10.consequence.09",
+        "text": "A society can be objectively more materially wealthy and more objectively hopeful while reporting le",
+        "type": "CONSEQUENCE",
+        "chapter": "Chapter 10: Optimism",
+        "section": "Hope Oscillation vs. Economic Growth"
+      },
+      {
+        "id": "ch10.claim.10",
+        "text": "Purposeless efficiency is not inevitable; it is a systemic failure that creates opportunity.",
+        "type": "CLAIM",
+        "chapter": "Chapter 10: Optimism",
+        "section": "Purposeless Efficiency as Opportunity"
+      },
+      {
+        "id": "ch10.claim.11",
+        "text": "Entrepreneurs with greater rationality can identify the incoherence and articulate a more coherent a",
+        "type": "CLAIM",
+        "chapter": "Chapter 10: Optimism",
+        "section": "Purposeless Efficiency as Opportunity"
+      },
+      {
+        "id": "ch10.therefore.12",
+        "text": "Purposeless efficiency is NOT inevitable but a \"systemic opportunity\" for entrepreneurs with greater",
+        "type": "THEREFORE",
+        "chapter": "Chapter 10: Optimism",
+        "section": "Purposeless Efficiency as Opportunity"
+      },
+      {
+        "id": "ch10.consequence.13",
+        "text": "Market failure creates market opportunity for those who can see through it.",
+        "type": "CONSEQUENCE",
+        "chapter": "Chapter 10: Optimism",
+        "section": "Purposeless Efficiency as Opportunity"
+      },
+      {
+        "id": "ch10.claim.14",
+        "text": "Capitalism creates a competitive landscape where rationality is rewarded over time.",
+        "type": "CLAIM",
+        "chapter": "Chapter 10: Optimism",
+        "section": "Capitalism as Rationality Rewarding System"
+      },
+      {
+        "id": "ch10.claim.15",
+        "text": "Irrational actors (pursuing contradictory or incoherent strategies) eventually lose to rational acto",
+        "type": "CLAIM",
+        "chapter": "Chapter 10: Optimism",
+        "section": "Capitalism as Rationality Rewarding System"
+      },
+      {
+        "id": "ch10.therefore.16",
+        "text": "Capitalism leads toward a more rational society.",
+        "type": "THEREFORE",
+        "chapter": "Chapter 10: Optimism",
+        "section": "Capitalism as Rationality Rewarding System"
+      },
+      {
+        "id": "ch10.claim.17",
+        "text": "Capitalism prevents irrational behavior by incentivizing rational correction through competition.",
+        "type": "CLAIM",
+        "chapter": "Chapter 10: Optimism",
+        "section": "Capitalism as Rationality Rewarding System"
+      },
+      {
+        "id": "ch10.therefore.18",
+        "text": "The system itself selects for coherence.",
+        "type": "THEREFORE",
+        "chapter": "Chapter 10: Optimism",
+        "section": "Capitalism as Rationality Rewarding System"
+      },
+      {
+        "id": "ch10.consequence.19",
+        "text": "Optimism about human progress is justified because capitalism rewards the improvement of arguments o",
+        "type": "CONSEQUENCE",
+        "chapter": "Chapter 10: Optimism",
+        "section": "Capitalism as Rationality Rewarding System"
+      },
+      {
+        "id": "ch11.claim.01",
+        "text": "Traditional economics focuses on scarcity\u2014the problem of unlimited wants and limited resources.",
+        "type": "CLAIM",
+        "chapter": "Chapter 11: Redefining Economics",
+        "section": "Economics as the Study of Voluntary Exchange"
+      },
+      {
+        "id": "ch11.claim.02",
+        "text": "But scarcity is not the fundamental subject; voluntary exchange is.",
+        "type": "CLAIM",
+        "chapter": "Chapter 11: Redefining Economics",
+        "section": "Economics as the Study of Voluntary Exchange"
+      },
+      {
+        "id": "ch11.claim.03",
+        "text": "Economics is the study of how sovereign agents (individuals with decision-making power) exchange val",
+        "type": "CLAIM",
+        "chapter": "Chapter 11: Redefining Economics",
+        "section": "Economics as the Study of Voluntary Exchange"
+      },
+      {
+        "id": "ch11.therefore.04",
+        "text": "Economics is the study of voluntary exchanges between sovereign agents, not scarcity.",
+        "type": "THEREFORE",
+        "chapter": "Chapter 11: Redefining Economics",
+        "section": "Economics as the Study of Voluntary Exchange"
+      },
+      {
+        "id": "ch11.consequence.05",
+        "text": "This reframes the entire discipline: economics is about understanding what makes exchange coherent, ",
+        "type": "CONSEQUENCE",
+        "chapter": "Chapter 11: Redefining Economics",
+        "section": "Economics as the Study of Voluntary Exchange"
+      },
+      {
+        "id": "ch11.claim.06",
+        "text": "From Chapter 05: Products survive by logical consistency.",
+        "type": "CLAIM",
+        "chapter": "Chapter 11: Redefining Economics",
+        "section": "Value as Coherence"
+      },
+      {
+        "id": "ch11.claim.07",
+        "text": "From Chapter 01: Coherent systems correspond to reality.",
+        "type": "CLAIM",
+        "chapter": "Chapter 11: Redefining Economics",
+        "section": "Value as Coherence"
+      },
+      {
+        "id": "ch11.therefore.08",
+        "text": "Value IS coherence\u2014products that are logically coherent survive; incoherent ones collapse.",
+        "type": "THEREFORE",
+        "chapter": "Chapter 11: Redefining Economics",
+        "section": "Value as Coherence"
+      },
+      {
+        "id": "ch11.consequence.09",
+        "text": "Economics is fundamentally the study of which arguments (value propositions) survive in competitive ",
+        "type": "CONSEQUENCE",
+        "chapter": "Chapter 11: Redefining Economics",
+        "section": "Value as Coherence"
+      },
+      {
+        "id": "ch11.claim.10",
+        "text": "Innovation creates new economic territory\u2014new markets, new categories, new possibilities.",
+        "type": "CLAIM",
+        "chapter": "Chapter 11: Redefining Economics",
+        "section": "Innovation as Territory Creation"
+      },
+      {
+        "id": "ch11.claim.11",
+        "text": "These new territories did not exist before the innovation.",
+        "type": "CLAIM",
+        "chapter": "Chapter 11: Redefining Economics",
+        "section": "Innovation as Territory Creation"
+      },
+      {
+        "id": "ch11.therefore.12",
+        "text": "Innovation creates new economic territory.",
+        "type": "THEREFORE",
+        "chapter": "Chapter 11: Redefining Economics",
+        "section": "Innovation as Territory Creation"
+      },
+      {
+        "id": "ch11.claim.13",
+        "text": "Economic territory is not equivalent to geographic territory; markets are defined by logical coheren",
+        "type": "CLAIM",
+        "chapter": "Chapter 11: Redefining Economics",
+        "section": "Innovation as Territory Creation"
+      },
+      {
+        "id": "ch11.therefore.14",
+        "text": "Economic territory vs geographic territory are fundamentally different concepts.",
+        "type": "THEREFORE",
+        "chapter": "Chapter 11: Redefining Economics",
+        "section": "Innovation as Territory Creation"
+      },
+      {
+        "id": "ch11.consequence.15",
+        "text": "The geography of commerce is increasingly defined by ideas and arguments, not by physical location.",
+        "type": "CONSEQUENCE",
+        "chapter": "Chapter 11: Redefining Economics",
+        "section": "Innovation as Territory Creation"
+      },
+      {
+        "id": "ch12.claim.01",
+        "text": "Gamification is the substitution of a metric for an underlying goal.",
+        "type": "CLAIM",
+        "chapter": "Chapter 12: Gamification",
+        "section": "Gamification as Metric Substitution"
+      },
+      {
+        "id": "ch12.claim.02",
+        "text": "Example: Measuring teacher performance by test scores rather than student learning.",
+        "type": "CLAIM",
+        "chapter": "Chapter 12: Gamification",
+        "section": "Gamification as Metric Substitution"
+      },
+      {
+        "id": "ch12.claim.03",
+        "text": "When a metric becomes the goal, it destroys the intrinsic motivation that originally drove the activ",
+        "type": "CLAIM",
+        "chapter": "Chapter 12: Gamification",
+        "section": "Gamification as Metric Substitution"
+      },
+      {
+        "id": "ch12.therefore.04",
+        "text": "Gamification is metric substitution that destroys intrinsic motivation.",
+        "type": "THEREFORE",
+        "chapter": "Chapter 12: Gamification",
+        "section": "Gamification as Metric Substitution"
+      },
+      {
+        "id": "ch12.consequence.05",
+        "text": "Gamified systems produce the appearance of progress (metrics improve) while actual purpose erodes.",
+        "type": "CONSEQUENCE",
+        "chapter": "Chapter 12: Gamification",
+        "section": "Gamification as Metric Substitution"
+      },
+      {
+        "id": "ch12.claim.06",
+        "text": "Betting markets (where participants put skin in the game) create accountability because wrong predic",
+        "type": "CLAIM",
+        "chapter": "Chapter 12: Gamification",
+        "section": "Stakes as the Antidote"
+      },
+      {
+        "id": "ch12.claim.07",
+        "text": "When stakes exist, participants cannot afford to optimize for metrics at the expense of reality\u2014real",
+        "type": "CLAIM",
+        "chapter": "Chapter 12: Gamification",
+        "section": "Stakes as the Antidote"
+      },
+      {
+        "id": "ch12.therefore.08",
+        "text": "Stakes (betting markets, skin in the game) are the antidote to gamification.",
+        "type": "THEREFORE",
+        "chapter": "Chapter 12: Gamification",
+        "section": "Stakes as the Antidote"
+      },
+      {
+        "id": "ch12.consequence.09",
+        "text": "Systems with real consequences tend to resist metric substitution because incoherent metrics are emp",
+        "type": "CONSEQUENCE",
+        "chapter": "Chapter 12: Gamification",
+        "section": "Stakes as the Antidote"
+      },
+      {
+        "id": "ch12.claim.10",
+        "text": "Organizations with strong philosophical commitment to a purpose tend to resist gamification.",
+        "type": "CLAIM",
+        "chapter": "Chapter 12: Gamification",
+        "section": "Philosophical Commitment vs. Metric Chasing"
+      },
+      {
+        "id": "ch12.claim.11",
+        "text": "Organizations without such commitment are vulnerable to metric chasing.",
+        "type": "CLAIM",
+        "chapter": "Chapter 12: Gamification",
+        "section": "Philosophical Commitment vs. Metric Chasing"
+      },
+      {
+        "id": "ch12.therefore.12",
+        "text": "The antidote to gamification is philosophical commitment combined with stakes.",
+        "type": "THEREFORE",
+        "chapter": "Chapter 12: Gamification",
+        "section": "Philosophical Commitment vs. Metric Chasing"
+      },
+      {
+        "id": "ch12.consequence.13",
+        "text": "Purpose is not just motivational; it is a structural protection against the gamification trap.",
+        "type": "CONSEQUENCE",
+        "chapter": "Chapter 12: Gamification",
+        "section": "Philosophical Commitment vs. Metric Chasing"
+      },
+      {
+        "id": "ch13.claim.01",
+        "text": "As societies become more developed and secure, they tend to forget their primitive origins.",
+        "type": "CLAIM",
+        "chapter": "Chapter 13: Ethics, Nature, and False Security",
+        "section": "The Base-Horizon Effect in Civilization"
+      },
+      {
+        "id": "ch13.claim.02",
+        "text": "The \"base\" of civilization goes back to fundamentally irrational, primal animals\u2014hunting, gathering,",
+        "type": "CLAIM",
+        "chapter": "Chapter 13: Ethics, Nature, and False Security",
+        "section": "The Base-Horizon Effect in Civilization"
+      },
+      {
+        "id": "ch13.therefore.03",
+        "text": "The base-horizon effect is the civilizational forgetting of primitivity.",
+        "type": "THEREFORE",
+        "chapter": "Chapter 13: Ethics, Nature, and False Security",
+        "section": "The Base-Horizon Effect in Civilization"
+      },
+      {
+        "id": "ch13.claim.04",
+        "text": "Civilizational evolution and civilizational forgetting are not opposed; they are often the same proc",
+        "type": "CLAIM",
+        "chapter": "Chapter 13: Ethics, Nature, and False Security",
+        "section": "The Base-Horizon Effect in Civilization"
+      },
+      {
+        "id": "ch13.therefore.05",
+        "text": "No major difference between civilizational evolution and civilizational forgetting\u2014they are two ways",
+        "type": "THEREFORE",
+        "chapter": "Chapter 13: Ethics, Nature, and False Security",
+        "section": "The Base-Horizon Effect in Civilization"
+      },
+      {
+        "id": "ch13.claim.06",
+        "text": "There is no genuine difference between modern humans and our ancestors in terms of fundamental drive",
+        "type": "CLAIM",
+        "chapter": "Chapter 13: Ethics, Nature, and False Security",
+        "section": "The Permanence of Violent Instinct"
+      },
+      {
+        "id": "ch13.claim.07",
+        "text": "\"Violence\" means violent INSTINCTS, not violent history\u2014the capacity for violence, not its frequency",
+        "type": "CLAIM",
+        "chapter": "Chapter 13: Ethics, Nature, and False Security",
+        "section": "The Permanence of Violent Instinct"
+      },
+      {
+        "id": "ch13.therefore.08",
+        "text": "It is dangerous to believe we are genuinely different from our ancestors; violence is always possibl",
+        "type": "THEREFORE",
+        "chapter": "Chapter 13: Ethics, Nature, and False Security",
+        "section": "The Permanence of Violent Instinct"
+      },
+      {
+        "id": "ch13.claim.09",
+        "text": "Societies can forget the specifics of their violent history but must remember the instinct exists.",
+        "type": "CLAIM",
+        "chapter": "Chapter 13: Ethics, Nature, and False Security",
+        "section": "The Permanence of Violent Instinct"
+      },
+      {
+        "id": "ch13.therefore.10",
+        "text": "The forgetting is not harmless; it is dangerous because it erases awareness of human capacity for ha",
+        "type": "THEREFORE",
+        "chapter": "Chapter 13: Ethics, Nature, and False Security",
+        "section": "The Permanence of Violent Instinct"
+      },
+      {
+        "id": "ch13.claim.11",
+        "text": "Peter Thiel argued that liberal societies can fall into a \"globalist trap\" of assuming perpetual pea",
+        "type": "CLAIM",
+        "chapter": "Chapter 13: Ethics, Nature, and False Security",
+        "section": "Thiel's Straussian Moment"
+      },
+      {
+        "id": "ch13.claim.12",
+        "text": "9/11 was a \"Straussian Moment\"\u2014a wake-up call that violence is always possible.",
+        "type": "CLAIM",
+        "chapter": "Chapter 13: Ethics, Nature, and False Security",
+        "section": "Thiel's Straussian Moment"
+      },
+      {
+        "id": "ch13.therefore.13",
+        "text": "Societies cannot assume permanent peace; they must remember violent capacity even when violence is a",
+        "type": "THEREFORE",
+        "chapter": "Chapter 13: Ethics, Nature, and False Security",
+        "section": "Thiel's Straussian Moment"
+      },
+      {
+        "id": "ch13.consequence.14",
+        "text": "Complacency about security mirrors the base-horizon effect\u2014the forgetting of the base.",
+        "type": "CONSEQUENCE",
+        "chapter": "Chapter 13: Ethics, Nature, and False Security",
+        "section": "Thiel's Straussian Moment"
+      },
+      {
+        "id": "ch13.claim.15",
+        "text": "Scandinavian, Japanese, and Singaporean societies maintain cultural edge and harshness despite mater",
+        "type": "CLAIM",
+        "chapter": "Chapter 13: Ethics, Nature, and False Security",
+        "section": "Cultural Softening and Weakness"
+      },
+      {
+        "id": "ch13.claim.16",
+        "text": "The United States has noticeably softened in cultural tone relative to its historical baseline.",
+        "type": "CLAIM",
+        "chapter": "Chapter 13: Ethics, Nature, and False Security",
+        "section": "Cultural Softening and Weakness"
+      },
+      {
+        "id": "ch13.claim.17",
+        "text": "Societies periodically enter periods of weakness/softness.",
+        "type": "CLAIM",
+        "chapter": "Chapter 13: Ethics, Nature, and False Security",
+        "section": "Cultural Softening and Weakness"
+      },
+      {
+        "id": "ch13.therefore.18",
+        "text": "Societies periodically enter weakness/softness; precisely then they must remember their animalistic ",
+        "type": "THEREFORE",
+        "chapter": "Chapter 13: Ethics, Nature, and False Security",
+        "section": "Cultural Softening and Weakness"
+      },
+      {
+        "id": "ch13.consequence.19",
+        "text": "Cultural strength requires remembering the base, not transcending it.",
+        "type": "CONSEQUENCE",
+        "chapter": "Chapter 13: Ethics, Nature, and False Security",
+        "section": "Cultural Softening and Weakness"
+      },
+      {
+        "id": "ch13.claim.20",
+        "text": "When government welfare systems are cut to further free markets, charity moves to voluntary hands (c",
+        "type": "CLAIM",
+        "chapter": "Chapter 13: Ethics, Nature, and False Security",
+        "section": "Church as Welfare and the Efficiency of Charity"
+      },
+      {
+        "id": "ch13.claim.21",
+        "text": "Voluntary charity is more efficient than bureaucratic welfare because it is driven by genuine commit",
+        "type": "CLAIM",
+        "chapter": "Chapter 13: Ethics, Nature, and False Security",
+        "section": "Church as Welfare and the Efficiency of Charity"
+      },
+      {
+        "id": "ch13.therefore.22",
+        "text": "Church-as-welfare makes charity more efficient and increases religiosity (participation in religious",
+        "type": "THEREFORE",
+        "chapter": "Chapter 13: Ethics, Nature, and False Security",
+        "section": "Church as Welfare and the Efficiency of Charity"
+      },
+      {
+        "id": "ch13.claim.23",
+        "text": "This is not the most coherent alignment with human nature (self-interest), but the most INTERNALLY c",
+        "type": "CLAIM",
+        "chapter": "Chapter 13: Ethics, Nature, and False Security",
+        "section": "Church as Welfare and the Efficiency of Charity"
+      },
+      {
+        "id": "ch13.therefore.24",
+        "text": "Capitalism + charity is the most coherent ethical framework that survives in practice.",
+        "type": "THEREFORE",
+        "chapter": "Chapter 13: Ethics, Nature, and False Security",
+        "section": "Church as Welfare and the Efficiency of Charity"
+      },
+      {
+        "id": "ch13.consequence.25",
+        "text": "Ethics is not about achieving perfect alignment with human nature, but about achieving the most inte",
+        "type": "CONSEQUENCE",
+        "chapter": "Chapter 13: Ethics, Nature, and False Security",
+        "section": "Church as Welfare and the Efficiency of Charity"
+      },
+      {
+        "id": "ch13.claim.26",
+        "text": "Market capitalism uses trade as the vehicle for peacefully advancing human interests (vs. violence, ",
+        "type": "CLAIM",
+        "chapter": "Chapter 13: Ethics, Nature, and False Security",
+        "section": "The Coherence of Market Capitalism"
+      },
+      {
+        "id": "ch13.claim.27",
+        "text": "Value-as-persuasion (from Chapter 05) is the mechanism of market capitalism.",
+        "type": "CLAIM",
+        "chapter": "Chapter 13: Ethics, Nature, and False Security",
+        "section": "The Coherence of Market Capitalism"
+      },
+      {
+        "id": "ch13.therefore.28",
+        "text": "Market capitalism through value-as-persuasion is \"the most human institution\"\u2014it uses trade maximall",
+        "type": "THEREFORE",
+        "chapter": "Chapter 13: Ethics, Nature, and False Security",
+        "section": "The Coherence of Market Capitalism"
+      },
+      {
+        "id": "ch13.consequence.29",
+        "text": "Capitalism is ethically justified not because it maximizes happiness, but because it is the most coh",
+        "type": "CONSEQUENCE",
+        "chapter": "Chapter 13: Ethics, Nature, and False Security",
+        "section": "The Coherence of Market Capitalism"
+      },
+      {
+        "id": "ch13.claim.30",
+        "text": "Commitment and self-interest are not exclusive; virtue is part of argumentation.",
+        "type": "CLAIM",
+        "chapter": "Chapter 13: Ethics, Nature, and False Security",
+        "section": "The Unity of Ethics, Logic, Politics, and Business"
+      },
+      {
+        "id": "ch13.claim.31",
+        "text": "Ethics, logic, politics, and business are not separate domains; they connect in a broader philosophi",
+        "type": "CLAIM",
+        "chapter": "Chapter 13: Ethics, Nature, and False Security",
+        "section": "The Unity of Ethics, Logic, Politics, and Business"
+      },
+      {
+        "id": "ch13.therefore.32",
+        "text": "A coherent ethical framework must also be logically coherent, politically viable, and economically s",
+        "type": "THEREFORE",
+        "chapter": "Chapter 13: Ethics, Nature, and False Security",
+        "section": "The Unity of Ethics, Logic, Politics, and Business"
+      },
+      {
+        "id": "ch13.consequence.33",
+        "text": "Morality and self-interest are unified in coherent systems; systems that divide them are incoherent.",
+        "type": "CONSEQUENCE",
+        "chapter": "Chapter 13: Ethics, Nature, and False Security",
+        "section": "The Unity of Ethics, Logic, Politics, and Business"
+      },
+      {
+        "id": "ch13.claim.34",
+        "text": "Anarchic society (without centralized state authority) faces four fundamental problems:",
+        "type": "CLAIM",
+        "chapter": "Chapter 13: Ethics, Nature, and False Security",
+        "section": "Reputocracy: Four Pillars and Four Problems"
+      },
+      {
+        "id": "ch13.claim.35",
+        "text": "Reputocracy solves these four problems through business innovation (reputation markets, contracts, i",
+        "type": "CLAIM",
+        "chapter": "Chapter 13: Ethics, Nature, and False Security",
+        "section": "Reputocracy: Four Pillars and Four Problems"
+      },
+      {
+        "id": "ch13.therefore.36",
+        "text": "Reputocracy\u2014a system based on reputation\u2014can solve the four core problems of anarchic society throug",
+        "type": "THEREFORE",
+        "chapter": "Chapter 13: Ethics, Nature, and False Security",
+        "section": "Reputocracy: Four Pillars and Four Problems"
+      },
+      {
+        "id": "ch13.claim.37",
+        "text": "Capitalist business systems have historically consumed government functions.",
+        "type": "CLAIM",
+        "chapter": "Chapter 13: Ethics, Nature, and False Security",
+        "section": "Capitalism Consuming Government Function"
+      },
+      {
+        "id": "ch13.claim.38",
+        "text": "This trend continues: private security, private arbitration, private schools, private infrastructure",
+        "type": "CLAIM",
+        "chapter": "Chapter 13: Ethics, Nature, and False Security",
+        "section": "Capitalism Consuming Government Function"
+      },
+      {
+        "id": "ch13.therefore.39",
+        "text": "Capitalism is slowly consuming government function until effectively no state exists.",
+        "type": "THEREFORE",
+        "chapter": "Chapter 13: Ethics, Nature, and False Security",
+        "section": "Capitalism Consuming Government Function"
+      },
+      {
+        "id": "ch13.claim.40",
+        "text": "This is not a moral claim; it is an observational claim about historical trend.",
+        "type": "CLAIM",
+        "chapter": "Chapter 13: Ethics, Nature, and False Security",
+        "section": "Capitalism Consuming Government Function"
+      },
+      {
+        "id": "ch13.therefore.41",
+        "text": "The future may be a libertarian anarchy where government is replaced by market mechanisms.",
+        "type": "THEREFORE",
+        "chapter": "Chapter 13: Ethics, Nature, and False Security",
+        "section": "Capitalism Consuming Government Function"
+      },
+      {
+        "id": "ch13.claim.42",
+        "text": "In libertarian anarchy, individuals have freedom to form and leave communities based on shared value",
+        "type": "CLAIM",
+        "chapter": "Chapter 13: Ethics, Nature, and False Security",
+        "section": "Freedom to Assemble and Disassemble"
+      },
+      {
+        "id": "ch13.claim.43",
+        "text": "Exiled individuals can form new communities without asking permission.",
+        "type": "CLAIM",
+        "chapter": "Chapter 13: Ethics, Nature, and False Security",
+        "section": "Freedom to Assemble and Disassemble"
+      },
+      {
+        "id": "ch13.therefore.44",
+        "text": "Libertarian anarchy allows freedom to assemble and disassemble communities.",
+        "type": "THEREFORE",
+        "chapter": "Chapter 13: Ethics, Nature, and False Security",
+        "section": "Freedom to Assemble and Disassemble"
+      },
+      {
+        "id": "ch13.consequence.45",
+        "text": "This system is not utopian, but it preserves the freedom to exit oppressive arrangements.",
+        "type": "CONSEQUENCE",
+        "chapter": "Chapter 13: Ethics, Nature, and False Security",
+        "section": "Freedom to Assemble and Disassemble"
+      },
+      {
+        "id": "ch13.claim.46",
+        "text": "The book is not a moral relativist; it believes in objective truth about ethics.",
+        "type": "CLAIM",
+        "chapter": "Chapter 13: Ethics, Nature, and False Security",
+        "section": "One True Infinitely Cohesive Morality"
+      },
+      {
+        "id": "ch13.claim.47",
+        "text": "There is one true infinitely cohesive morality\u2014a moral framework that is perfectly logically consist",
+        "type": "CLAIM",
+        "chapter": "Chapter 13: Ethics, Nature, and False Security",
+        "section": "One True Infinitely Cohesive Morality"
+      },
+      {
+        "id": "ch13.claim.48",
+        "text": "This morality will eventually emerge through ideological evolution as less coherent systems collapse",
+        "type": "CLAIM",
+        "chapter": "Chapter 13: Ethics, Nature, and False Security",
+        "section": "One True Infinitely Cohesive Morality"
+      },
+      {
+        "id": "ch13.therefore.49",
+        "text": "Progress toward moral truth is not guaranteed, but capitalism's mechanism for selecting coherence ma",
+        "type": "THEREFORE",
+        "chapter": "Chapter 13: Ethics, Nature, and False Security",
+        "section": "One True Infinitely Cohesive Morality"
+      },
+      {
+        "id": "ch13.consequence.50",
+        "text": "Morality, like truth, is discoverable through the survival of coherent systems.",
+        "type": "CONSEQUENCE",
+        "chapter": "Chapter 13: Ethics, Nature, and False Security",
+        "section": "One True Infinitely Cohesive Morality"
+      },
+      {
+        "id": "ch14.claim.01",
+        "text": "Empiricism has become dominant in academia and popular thought.",
+        "type": "CLAIM",
+        "chapter": "Chapter 14: Ivory Tower",
+        "section": "Defense of Theoretical Thinking"
+      },
+      {
+        "id": "ch14.claim.02",
+        "text": "Theoretical thinking (pure logical deduction) is often dismissed as disconnected from reality.",
+        "type": "CLAIM",
+        "chapter": "Chapter 14: Ivory Tower",
+        "section": "Defense of Theoretical Thinking"
+      },
+      {
+        "id": "ch14.claim.03",
+        "text": "This dismissal is incorrect.",
+        "type": "CLAIM",
+        "chapter": "Chapter 14: Ivory Tower",
+        "section": "Defense of Theoretical Thinking"
+      },
+      {
+        "id": "ch14.therefore.04",
+        "text": "Theoretical thinking deserves defense as a legitimate and necessary form of inquiry.",
+        "type": "THEREFORE",
+        "chapter": "Chapter 14: Ivory Tower",
+        "section": "Defense of Theoretical Thinking"
+      },
+      {
+        "id": "ch14.claim.05",
+        "text": "Progress has slowed in recent decades.",
+        "type": "CLAIM",
+        "chapter": "Chapter 14: Ivory Tower",
+        "section": "The Paradox of Progress and Empiricism"
+      },
+      {
+        "id": "ch14.claim.06",
+        "text": "Conventional wisdom blames this on excessive theorizing, disconnection from reality, ivory tower thi",
+        "type": "CLAIM",
+        "chapter": "Chapter 14: Ivory Tower",
+        "section": "The Paradox of Progress and Empiricism"
+      },
+      {
+        "id": "ch14.claim.07",
+        "text": "But the opposite is true: progress has slowed because we are too in-touch with empirical minutiae an",
+        "type": "CLAIM",
+        "chapter": "Chapter 14: Ivory Tower",
+        "section": "The Paradox of Progress and Empiricism"
+      },
+      {
+        "id": "ch14.therefore.08",
+        "text": "The cure for slow progress is not more empiricism, but more ambitious theoretical thinking.",
+        "type": "THEREFORE",
+        "chapter": "Chapter 14: Ivory Tower",
+        "section": "The Paradox of Progress and Empiricism"
+      },
+      {
+        "id": "ch14.consequence.09",
+        "text": "The book itself exemplifies this: it is written to appeal to popular audience, but COULD be written ",
+        "type": "CONSEQUENCE",
+        "chapter": "Chapter 14: Ivory Tower",
+        "section": "The Paradox of Progress and Empiricism"
+      },
+      {
+        "id": "ch14.claim.10",
+        "text": "Coherence (the internal logical consistency of a system) can be quantified and measured.",
+        "type": "CLAIM",
+        "chapter": "Chapter 14: Ivory Tower",
+        "section": "Coherence as Quantifiable"
+      },
+      {
+        "id": "ch14.claim.11",
+        "text": "Mathematics is just another domain of philosophy; formal logic has been doing similar things for cen",
+        "type": "CLAIM",
+        "chapter": "Chapter 14: Ivory Tower",
+        "section": "Coherence as Quantifiable"
+      },
+      {
+        "id": "ch14.therefore.12",
+        "text": "Coherence is absolutely quantifiable\u2014it is not subjective or qualitative in principle.",
+        "type": "THEREFORE",
+        "chapter": "Chapter 14: Ivory Tower",
+        "section": "Coherence as Quantifiable"
+      },
+      {
+        "id": "ch14.consequence.13",
+        "text": "This opens the possibility of scientific study of philosophical systems.",
+        "type": "CONSEQUENCE",
+        "chapter": "Chapter 14: Ivory Tower",
+        "section": "Coherence as Quantifiable"
+      },
+      {
+        "id": "ch14.claim.14",
+        "text": "There may be a geometrical way to test coherence\u2014to visually or mathematically represent the interna",
+        "type": "CLAIM",
+        "chapter": "Chapter 14: Ivory Tower",
+        "section": "The Geometry of Coherence (Speculative)"
+      },
+      {
+        "id": "ch14.claim.15",
+        "text": "This is speculative and not central to the current argument.",
+        "type": "CLAIM",
+        "chapter": "Chapter 14: Ivory Tower",
+        "section": "The Geometry of Coherence (Speculative)"
+      },
+      {
+        "id": "ch14.reserved.16",
+        "text": "This is second book territory.",
+        "type": "RESERVED",
+        "chapter": "Chapter 14: Ivory Tower",
+        "section": "The Geometry of Coherence (Speculative)"
+      },
+      {
+        "id": "ch14.claim.17",
+        "text": "The next book will be about \"institutional design\"\u2014institutions as systems where agents use inputs i",
+        "type": "CLAIM",
+        "chapter": "Chapter 14: Ivory Tower",
+        "section": "Future Volumes and the Foundation"
+      },
+      {
+        "id": "ch14.claim.18",
+        "text": "The third book will concern the nature of paradox, quantum physics, and philosophy.",
+        "type": "CLAIM",
+        "chapter": "Chapter 14: Ivory Tower",
+        "section": "Future Volumes and the Foundation"
+      },
+      {
+        "id": "ch14.claim.19",
+        "text": "This book is the foundation for the next volumes; it establishes the coherence-as-truth framework.",
+        "type": "CLAIM",
+        "chapter": "Chapter 14: Ivory Tower",
+        "section": "Future Volumes and the Foundation"
+      },
+      {
+        "id": "ch14.therefore.20",
+        "text": "\"Purposeless Efficiency\" is Volume 1 of a larger philosophical project.",
+        "type": "THEREFORE",
+        "chapter": "Chapter 14: Ivory Tower",
+        "section": "Future Volumes and the Foundation"
+      },
+      {
+        "id": "ch14.consequence.21",
+        "text": "The argumentative ontology of this book sets up the argumentative ontology of future work.",
+        "type": "CONSEQUENCE",
+        "chapter": "Chapter 14: Ivory Tower",
+        "section": "Future Volumes and the Foundation"
+      },
+      {
+        "id": "ch14.claim.22",
+        "text": "After establishing that coherence is the measure of truth, value, ethics, and survival, one conclusi",
+        "type": "CLAIM",
+        "chapter": "Chapter 14: Ivory Tower",
+        "section": "The Book's Conclusion"
+      },
+      {
+        "id": "ch14.therefore.23",
+        "text": "The ultimate imperative is: PURSUE INFINITELY EXTENSIVE AND COHESIVE COMPREHENSION.",
+        "type": "THEREFORE",
+        "chapter": "Chapter 14: Ivory Tower",
+        "section": "The Book's Conclusion"
+      },
+      {
+        "id": "ch14.consequence.24",
+        "text": "The highest human goal is not happiness, security, or pleasure, but the relentless expansion and dee",
+        "type": "CONSEQUENCE",
+        "chapter": "Chapter 14: Ivory Tower",
+        "section": "The Book's Conclusion"
+      },
+      {
+        "id": "ch14.consequence.25",
+        "text": "There is no fundamental contradiction between self-interest and ethics; they are unified in coherent",
+        "type": "CONSEQUENCE",
+        "chapter": "Chapter 14: Ivory Tower",
+        "section": "The Central Paradox Resolved"
+      },
+      {
+        "id": "ch14.therefore.26",
+        "text": "The book presents a unified framework in which truth, value, ethics, economics, and politics are all",
+        "type": "THEREFORE",
+        "chapter": "Chapter 14: Ivory Tower",
+        "section": "The Ultimate Framework"
+      },
+      {
+        "id": "ch14.consequence.27",
+        "text": "This is not pluralism (many truths) or relativism (all truths equal). It is monism with infinite dep",
+        "type": "CONSEQUENCE",
+        "chapter": "Chapter 14: Ivory Tower",
+        "section": "The Ultimate Framework"
+      },
+      {
+        "id": "ch14.therefore.28",
+        "text": "The book is a call to intellectual and philosophical ambition, grounded not in optimism or sentiment",
+        "type": "THEREFORE",
+        "chapter": "Chapter 14: Ivory Tower",
+        "section": "The Ultimate Framework"
+      },
+      {
+        "id": "ch14.claim.29",
+        "text": "The coherence-reality isomorphism is the one foundational axiom",
+        "type": "CLAIM",
+        "chapter": "Chapter 14: Ivory Tower",
+        "section": "The Ultimate Framework"
+      },
+      {
+        "id": "ch14.therefore.30",
+        "text": "If disproved, the disproof itself operates by coherence logic, creating a potential self-referential",
+        "type": "THEREFORE",
+        "chapter": "Chapter 14: Ivory Tower",
+        "section": "The Ultimate Framework"
+      },
+      {
+        "id": "ch14.therefore.31",
+        "text": "This may be the one axiom that cannot be refuted without invoking its own authority",
+        "type": "THEREFORE",
+        "chapter": "Chapter 14: Ivory Tower",
+        "section": "The Ultimate Framework"
+      },
+      {
+        "id": "ch14.claim.32",
+        "text": "The infinite model is not one general formula but an infinitely expansive causal network",
+        "type": "CLAIM",
+        "chapter": "Chapter 14: Ivory Tower",
+        "section": "The Ultimate Framework"
+      },
+      {
+        "id": "ch14.therefore.33",
+        "text": "Take any two pieces of the network and follow the causal web between them",
+        "type": "THEREFORE",
+        "chapter": "Chapter 14: Ivory Tower",
+        "section": "The Ultimate Framework"
+      },
+      {
+        "id": "ch14.therefore.34",
+        "text": "Infinitesimal causes are theoretically captured",
+        "type": "THEREFORE",
+        "chapter": "Chapter 14: Ivory Tower",
+        "section": "The Ultimate Framework"
+      },
+      {
+        "id": "ch14.therefore.35",
+        "text": "This explains everything precisely because it is infinitely detailed, not infinitely vague",
+        "type": "THEREFORE",
+        "chapter": "Chapter 14: Ivory Tower",
+        "section": "The Ultimate Framework"
+      },
+      {
+        "id": "ch14.claim.36",
+        "text": "Incoherent systems can persist indefinitely in constrained environments",
+        "type": "CLAIM",
+        "chapter": "Chapter 14: Ivory Tower",
+        "section": "The Ultimate Framework"
+      },
+      {
+        "id": "ch14.therefore.37",
+        "text": "Expansion (toward fundamentals and ramifications) is the mechanism that forces failure",
+        "type": "THEREFORE",
+        "chapter": "Chapter 14: Ivory Tower",
+        "section": "The Ultimate Framework"
+      },
+      {
+        "id": "ch14.therefore.38",
+        "text": "Philosophy should be treated mathematically \u2014 as proofs and deductions",
+        "type": "THEREFORE",
+        "chapter": "Chapter 14: Ivory Tower",
+        "section": "The Ultimate Framework"
+      },
+      {
+        "id": "ch14.claim.39",
+        "text": "No system is fully proven; any theory is \"up for the killing\"",
+        "type": "CLAIM",
+        "chapter": "Chapter 14: Ivory Tower",
+        "section": "The Ultimate Framework"
+      },
+      {
+        "id": "ch14.therefore.40",
+        "text": "The pursuit of the one true philosophy is infinite",
+        "type": "THEREFORE",
+        "chapter": "Chapter 14: Ivory Tower",
+        "section": "The Ultimate Framework"
+      },
+      {
+        "id": "ch14.therefore.41",
+        "text": "No falsification timeline exists; coherence is tested by continuous expansion",
+        "type": "THEREFORE",
+        "chapter": "Chapter 14: Ivory Tower",
+        "section": "The Ultimate Framework"
+      },
+      {
+        "id": "ch14.claim.42",
+        "text": "Capitalist SOCIETY (not capitalism itself) tends toward cohesion",
+        "type": "CLAIM",
+        "chapter": "Chapter 14: Ivory Tower",
+        "section": "The Ultimate Framework"
+      },
+      {
+        "id": "ch14.therefore.43",
+        "text": "Products shape society; more cohesive products overthrow less cohesive",
+        "type": "THEREFORE",
+        "chapter": "Chapter 14: Ivory Tower",
+        "section": "The Ultimate Framework"
+      },
+      {
+        "id": "ch14.therefore.44",
+        "text": "Dialectical competition is a metaphysical debate of competing product arguments",
+        "type": "THEREFORE",
+        "chapter": "Chapter 14: Ivory Tower",
+        "section": "The Ultimate Framework"
+      },
+      {
+        "id": "ch14.therefore.45",
+        "text": "Don't confuse the mechanism (competition) with the sociological effect (increasing rationality)",
+        "type": "THEREFORE",
+        "chapter": "Chapter 14: Ivory Tower",
+        "section": "The Ultimate Framework"
+      },
+      {
+        "id": "ch14.claim.46",
+        "text": "Market failures, externalities, information asymmetries = contradictions to level playing field",
+        "type": "CLAIM",
+        "chapter": "Chapter 14: Ivory Tower",
+        "section": "The Ultimate Framework"
+      },
+      {
+        "id": "ch14.therefore.47",
+        "text": "Entrepreneurs profit from fixing incoherences",
+        "type": "THEREFORE",
+        "chapter": "Chapter 14: Ivory Tower",
+        "section": "The Ultimate Framework"
+      },
+      {
+        "id": "ch14.therefore.48",
+        "text": "These are middle ground between innovation and invention",
+        "type": "THEREFORE",
+        "chapter": "Chapter 14: Ivory Tower",
+        "section": "The Ultimate Framework"
+      },
+      {
+        "id": "ch14.therefore.49",
+        "text": "Economic advancement is increasingly fixing them",
+        "type": "THEREFORE",
+        "chapter": "Chapter 14: Ivory Tower",
+        "section": "The Ultimate Framework"
+      },
+      {
+        "id": "ch14.claim.50",
+        "text": "A truly free market cannot be monopolized",
+        "type": "CLAIM",
+        "chapter": "Chapter 14: Ivory Tower",
+        "section": "The Ultimate Framework"
+      },
+      {
+        "id": "ch14.therefore.51",
+        "text": "Anyone can enter with even the smallest product",
+        "type": "THEREFORE",
+        "chapter": "Chapter 14: Ivory Tower",
+        "section": "The Ultimate Framework"
+      },
+      {
+        "id": "ch14.therefore.52",
+        "text": "As margins thin, subtler contradictions become exploitable",
+        "type": "THEREFORE",
+        "chapter": "Chapter 14: Ivory Tower",
+        "section": "The Ultimate Framework"
+      },
+      {
+        "id": "ch14.therefore.53",
+        "text": "Monopoly enters only through government force",
+        "type": "THEREFORE",
+        "chapter": "Chapter 14: Ivory Tower",
+        "section": "The Ultimate Framework"
+      },
+      {
+        "id": "ch14.claim.54",
+        "text": "Purposeless efficiency = periodic opportunity for profit (\"inverse bubble\")",
+        "type": "CLAIM",
+        "chapter": "Chapter 14: Ivory Tower",
+        "section": "The Ultimate Framework"
+      },
+      {
+        "id": "ch14.therefore.55",
+        "text": "As industry degrades, opportunity grows",
+        "type": "THEREFORE",
+        "chapter": "Chapter 14: Ivory Tower",
+        "section": "The Ultimate Framework"
+      },
+      {
+        "id": "ch14.therefore.56",
+        "text": "When burst, leads to prosperous return to noncontradiction",
+        "type": "THEREFORE",
+        "chapter": "Chapter 14: Ivory Tower",
+        "section": "The Ultimate Framework"
+      },
+      {
+        "id": "ch14.claim.57",
+        "text": "Trade is argument in economic realm; debate is argument in social realm",
+        "type": "CLAIM",
+        "chapter": "Chapter 14: Ivory Tower",
+        "section": "The Ultimate Framework"
+      },
+      {
+        "id": "ch14.therefore.58",
+        "text": "Capitalism captures humanity's strife for infinitely extensive-cohesive philosophy",
+        "type": "THEREFORE",
+        "chapter": "Chapter 14: Ivory Tower",
+        "section": "The Ultimate Framework"
+      },
+      {
+        "id": "ch14.therefore.59",
+        "text": "Meta-moral case for capitalism: not prescribing morality but advocating the institution that best fa",
+        "type": "THEREFORE",
+        "chapter": "Chapter 14: Ivory Tower",
+        "section": "The Ultimate Framework"
+      },
+      {
+        "id": "ch14.claim.60",
+        "text": "One true infinitely cohesive morality exists as objective reality",
+        "type": "CLAIM",
+        "chapter": "Chapter 14: Ivory Tower",
+        "section": "The Ultimate Framework"
+      },
+      {
+        "id": "ch14.therefore.61",
+        "text": "Philosophy is one giant web; morality is a subset",
+        "type": "THEREFORE",
+        "chapter": "Chapter 14: Ivory Tower",
+        "section": "The Ultimate Framework"
+      },
+      {
+        "id": "ch14.therefore.62",
+        "text": "We'll never fully discover it but should overturn every principle in pursuit",
+        "type": "THEREFORE",
+        "chapter": "Chapter 14: Ivory Tower",
+        "section": "The Ultimate Framework"
+      },
+      {
+        "id": "ch14.therefore.63",
+        "text": "Perhaps detecting/measuring infinity = fodder for fourth book",
+        "type": "THEREFORE",
+        "chapter": "Chapter 14: Ivory Tower",
+        "section": "The Ultimate Framework"
+      },
+      {
+        "id": "ch14.claim.64",
+        "text": "Paradox/contradiction distinction is explicitly unresolved",
+        "type": "CLAIM",
+        "chapter": "Chapter 14: Ivory Tower",
+        "section": "The Ultimate Framework"
+      },
+      {
+        "id": "ch14.therefore.65",
+        "text": "Third book territory",
+        "type": "THEREFORE",
+        "chapter": "Chapter 14: Ivory Tower",
+        "section": "The Ultimate Framework"
+      },
+      {
+        "id": "ch14.therefore.66",
+        "text": "Quantum determinism may need redefinition, not abandonment",
+        "type": "THEREFORE",
+        "chapter": "Chapter 14: Ivory Tower",
+        "section": "The Ultimate Framework"
+      },
+      {
+        "id": "ch14.claim.67",
+        "text": "Reputocracy = brainstorm of four problems with anarchy, not mandate",
+        "type": "CLAIM",
+        "chapter": "Chapter 14: Ivory Tower",
+        "section": "The Ultimate Framework"
+      },
+      {
+        "id": "ch14.therefore.68",
+        "text": "Different communities, different systems; freedom to exit",
+        "type": "THEREFORE",
+        "chapter": "Chapter 14: Ivory Tower",
+        "section": "The Ultimate Framework"
+      },
+      {
+        "id": "ch14.therefore.69",
+        "text": "Financial market information efficiency as model for reputation markets",
+        "type": "THEREFORE",
+        "chapter": "Chapter 14: Ivory Tower",
+        "section": "The Ultimate Framework"
+      },
+      {
+        "id": "ch14.claim.70",
+        "text": "Examples are rhetorical illustrations, never proofs",
+        "type": "CLAIM",
+        "chapter": "Chapter 14: Ivory Tower",
+        "section": "The Ultimate Framework"
+      },
+      {
+        "id": "ch14.therefore.71",
+        "text": "Theory is disproved by pure theoretical refutation (scrutinize premises, logic, or deduce contradict",
+        "type": "THEREFORE",
+        "chapter": "Chapter 14: Ivory Tower",
+        "section": "The Ultimate Framework"
+      },
+      {
+        "id": "ch14.therefore.72",
+        "text": "Empirical examples = concessions to readability",
+        "type": "THEREFORE",
+        "chapter": "Chapter 14: Ivory Tower",
+        "section": "The Ultimate Framework"
+      },
+      {
+        "id": "ch14.claim.73",
+        "text": "Church-as-welfare is illustrative correlation only, not causal argument",
+        "type": "CLAIM",
+        "chapter": "Chapter 14: Ivory Tower",
+        "section": "The Ultimate Framework"
+      },
+      {
+        "id": "ch14.therefore.74",
+        "text": "Small institutional design changes \u2192 massive chaotic ramifications (chaos theory of policy)",
+        "type": "THEREFORE",
+        "chapter": "Chapter 14: Ivory Tower",
+        "section": "The Ultimate Framework"
+      }
+    ],
+    "edges": [
+      {
+        "source": "ch00.claim.01",
+        "target": "ch00.therefore.03",
+        "relation": "entails"
+      },
+      {
+        "source": "ch00.claim.02",
+        "target": "ch00.therefore.03",
+        "relation": "entails"
+      },
+      {
+        "source": "ch01.claim.01",
+        "target": "ch01.therefore.03",
+        "relation": "entails"
+      },
+      {
+        "source": "ch01.claim.02",
+        "target": "ch01.therefore.03",
+        "relation": "entails"
+      },
+      {
+        "source": "ch01.claim.04",
+        "target": "ch01.therefore.05",
+        "relation": "entails"
+      },
+      {
+        "source": "ch01.therefore.05",
+        "target": "ch01.consequence.06",
+        "relation": "entails"
+      },
+      {
+        "source": "ch01.claim.07",
+        "target": "ch01.therefore.08",
+        "relation": "entails"
+      },
+      {
+        "source": "ch01.therefore.08",
+        "target": "ch01.consequence.09",
+        "relation": "entails"
+      },
+      {
+        "source": "ch01.claim.10",
+        "target": "ch01.therefore.11",
+        "relation": "entails"
+      },
+      {
+        "source": "ch01.claim.12",
+        "target": "ch01.therefore.14",
+        "relation": "entails"
+      },
+      {
+        "source": "ch01.claim.13",
+        "target": "ch01.therefore.14",
+        "relation": "entails"
+      },
+      {
+        "source": "ch01.therefore.14",
+        "target": "ch01.consequence.15",
+        "relation": "entails"
+      },
+      {
+        "source": "ch01.claim.16",
+        "target": "ch01.therefore.18",
+        "relation": "entails"
+      },
+      {
+        "source": "ch01.claim.17",
+        "target": "ch01.therefore.18",
+        "relation": "entails"
+      },
+      {
+        "source": "ch01.claim.19",
+        "target": "ch01.therefore.21",
+        "relation": "entails"
+      },
+      {
+        "source": "ch01.claim.20",
+        "target": "ch01.therefore.21",
+        "relation": "entails"
+      },
+      {
+        "source": "ch01.claim.22",
+        "target": "ch01.therefore.24",
+        "relation": "entails"
+      },
+      {
+        "source": "ch01.claim.23",
+        "target": "ch01.therefore.24",
+        "relation": "entails"
+      },
+      {
+        "source": "ch01.claim.26",
+        "target": "ch01.therefore.28",
+        "relation": "entails"
+      },
+      {
+        "source": "ch01.claim.27",
+        "target": "ch01.therefore.28",
+        "relation": "entails"
+      },
+      {
+        "source": "ch01.claim.30",
+        "target": "ch01.therefore.33",
+        "relation": "entails"
+      },
+      {
+        "source": "ch01.claim.31",
+        "target": "ch01.therefore.33",
+        "relation": "entails"
+      },
+      {
+        "source": "ch01.claim.32",
+        "target": "ch01.therefore.33",
+        "relation": "entails"
+      },
+      {
+        "source": "ch01.therefore.33",
+        "target": "ch01.consequence.34",
+        "relation": "entails"
+      },
+      {
+        "source": "ch02.claim.01",
+        "target": "ch02.therefore.03",
+        "relation": "entails"
+      },
+      {
+        "source": "ch02.claim.02",
+        "target": "ch02.therefore.03",
+        "relation": "entails"
+      },
+      {
+        "source": "ch02.therefore.03",
+        "target": "ch02.challenge.04",
+        "relation": "tensions"
+      },
+      {
+        "source": "ch02.claim.05",
+        "target": "ch02.therefore.07",
+        "relation": "entails"
+      },
+      {
+        "source": "ch02.claim.06",
+        "target": "ch02.therefore.07",
+        "relation": "entails"
+      },
+      {
+        "source": "ch02.therefore.07",
+        "target": "ch02.consequence.08",
+        "relation": "entails"
+      },
+      {
+        "source": "ch02.claim.09",
+        "target": "ch02.therefore.11",
+        "relation": "entails"
+      },
+      {
+        "source": "ch02.claim.10",
+        "target": "ch02.therefore.11",
+        "relation": "entails"
+      },
+      {
+        "source": "ch02.therefore.11",
+        "target": "ch02.consequence.12",
+        "relation": "entails"
+      },
+      {
+        "source": "ch02.distinct_claim.13",
+        "target": "ch02.therefore.14",
+        "relation": "entails"
+      },
+      {
+        "source": "ch02.claim.15",
+        "target": "ch02.therefore.18",
+        "relation": "entails"
+      },
+      {
+        "source": "ch02.claim.16",
+        "target": "ch02.therefore.18",
+        "relation": "entails"
+      },
+      {
+        "source": "ch02.claim.17",
+        "target": "ch02.therefore.18",
+        "relation": "entails"
+      },
+      {
+        "source": "ch02.therefore.18",
+        "target": "ch02.consequence.19",
+        "relation": "entails"
+      },
+      {
+        "source": "ch02.claim.20",
+        "target": "ch02.therefore.21",
+        "relation": "entails"
+      },
+      {
+        "source": "ch02.claim.22",
+        "target": "ch02.therefore.25",
+        "relation": "entails"
+      },
+      {
+        "source": "ch02.claim.23",
+        "target": "ch02.therefore.25",
+        "relation": "entails"
+      },
+      {
+        "source": "ch02.claim.24",
+        "target": "ch02.therefore.25",
+        "relation": "entails"
+      },
+      {
+        "source": "ch02.claim.26",
+        "target": "ch02.therefore.29",
+        "relation": "entails"
+      },
+      {
+        "source": "ch02.claim.27",
+        "target": "ch02.therefore.29",
+        "relation": "entails"
+      },
+      {
+        "source": "ch02.claim.28",
+        "target": "ch02.therefore.29",
+        "relation": "entails"
+      },
+      {
+        "source": "ch02.therefore.29",
+        "target": "ch02.consequence.30",
+        "relation": "entails"
+      },
+      {
+        "source": "ch03.claim.01",
+        "target": "ch03.therefore.03",
+        "relation": "entails"
+      },
+      {
+        "source": "ch03.claim.02",
+        "target": "ch03.therefore.03",
+        "relation": "entails"
+      },
+      {
+        "source": "ch03.claim.04",
+        "target": "ch03.therefore.05",
+        "relation": "entails"
+      },
+      {
+        "source": "ch03.therefore.05",
+        "target": "ch03.consequence.06",
+        "relation": "entails"
+      },
+      {
+        "source": "ch03.claim.07",
+        "target": "ch03.therefore.09",
+        "relation": "entails"
+      },
+      {
+        "source": "ch03.claim.08",
+        "target": "ch03.therefore.09",
+        "relation": "entails"
+      },
+      {
+        "source": "ch03.therefore.09",
+        "target": "ch03.consequence.10",
+        "relation": "entails"
+      },
+      {
+        "source": "ch03.claim.11",
+        "target": "ch03.therefore.13",
+        "relation": "entails"
+      },
+      {
+        "source": "ch03.claim.12",
+        "target": "ch03.therefore.13",
+        "relation": "entails"
+      },
+      {
+        "source": "ch03.therefore.13",
+        "target": "ch03.consequence.14",
+        "relation": "entails"
+      },
+      {
+        "source": "ch04.claim.01",
+        "target": "ch04.therefore.03",
+        "relation": "entails"
+      },
+      {
+        "source": "ch04.claim.02",
+        "target": "ch04.therefore.03",
+        "relation": "entails"
+      },
+      {
+        "source": "ch04.therefore.03",
+        "target": "ch04.consequence.04",
+        "relation": "entails"
+      },
+      {
+        "source": "ch04.claim.05",
+        "target": "ch04.therefore.07",
+        "relation": "entails"
+      },
+      {
+        "source": "ch04.claim.06",
+        "target": "ch04.therefore.07",
+        "relation": "entails"
+      },
+      {
+        "source": "ch04.therefore.07",
+        "target": "ch04.consequence.08",
+        "relation": "entails"
+      },
+      {
+        "source": "ch04.claim.09",
+        "target": "ch04.therefore.11",
+        "relation": "entails"
+      },
+      {
+        "source": "ch04.claim.10",
+        "target": "ch04.therefore.11",
+        "relation": "entails"
+      },
+      {
+        "source": "ch04.therefore.11",
+        "target": "ch04.consequence.12",
+        "relation": "entails"
+      },
+      {
+        "source": "ch04.claim.13",
+        "target": "ch04.therefore.17",
+        "relation": "entails"
+      },
+      {
+        "source": "ch04.claim.14",
+        "target": "ch04.therefore.17",
+        "relation": "entails"
+      },
+      {
+        "source": "ch04.claim.15",
+        "target": "ch04.therefore.17",
+        "relation": "entails"
+      },
+      {
+        "source": "ch04.claim.16",
+        "target": "ch04.therefore.17",
+        "relation": "entails"
+      },
+      {
+        "source": "ch04.therefore.17",
+        "target": "ch04.consequence.18",
+        "relation": "entails"
+      },
+      {
+        "source": "ch04.claim.19",
+        "target": "ch04.therefore.21",
+        "relation": "entails"
+      },
+      {
+        "source": "ch04.claim.20",
+        "target": "ch04.therefore.21",
+        "relation": "entails"
+      },
+      {
+        "source": "ch04.claim.22",
+        "target": "ch04.therefore.23",
+        "relation": "entails"
+      },
+      {
+        "source": "ch04.therefore.23",
+        "target": "ch04.consequence.24",
+        "relation": "entails"
+      },
+      {
+        "source": "ch05.claim.01",
+        "target": "ch05.therefore.03",
+        "relation": "entails"
+      },
+      {
+        "source": "ch05.claim.02",
+        "target": "ch05.therefore.03",
+        "relation": "entails"
+      },
+      {
+        "source": "ch05.claim.04",
+        "target": "ch05.therefore.05",
+        "relation": "entails"
+      },
+      {
+        "source": "ch05.therefore.05",
+        "target": "ch05.consequence.06",
+        "relation": "entails"
+      },
+      {
+        "source": "ch05.claim.07",
+        "target": "ch05.therefore.10",
+        "relation": "entails"
+      },
+      {
+        "source": "ch05.claim.08",
+        "target": "ch05.therefore.10",
+        "relation": "entails"
+      },
+      {
+        "source": "ch05.claim.09",
+        "target": "ch05.therefore.10",
+        "relation": "entails"
+      },
+      {
+        "source": "ch05.therefore.10",
+        "target": "ch05.consequence.11",
+        "relation": "entails"
+      },
+      {
+        "source": "ch05.claim.12",
+        "target": "ch05.therefore.14",
+        "relation": "entails"
+      },
+      {
+        "source": "ch05.claim.13",
+        "target": "ch05.therefore.14",
+        "relation": "entails"
+      },
+      {
+        "source": "ch05.therefore.14",
+        "target": "ch05.consequence.15",
+        "relation": "entails"
+      },
+      {
+        "source": "ch05.claim.16",
+        "target": "ch05.therefore.18",
+        "relation": "entails"
+      },
+      {
+        "source": "ch05.claim.17",
+        "target": "ch05.therefore.18",
+        "relation": "entails"
+      },
+      {
+        "source": "ch05.therefore.18",
+        "target": "ch05.consequence.19",
+        "relation": "entails"
+      },
+      {
+        "source": "ch05.claim.20",
+        "target": "ch05.therefore.22",
+        "relation": "entails"
+      },
+      {
+        "source": "ch05.claim.21",
+        "target": "ch05.therefore.22",
+        "relation": "entails"
+      },
+      {
+        "source": "ch05.claim.23",
+        "target": "ch05.therefore.24",
+        "relation": "entails"
+      },
+      {
+        "source": "ch05.therefore.24",
+        "target": "ch05.consequence.25",
+        "relation": "entails"
+      },
+      {
+        "source": "ch05.claim.26",
+        "target": "ch05.therefore.28",
+        "relation": "entails"
+      },
+      {
+        "source": "ch05.claim.27",
+        "target": "ch05.therefore.28",
+        "relation": "entails"
+      },
+      {
+        "source": "ch05.therefore.28",
+        "target": "ch05.consequence.29",
+        "relation": "entails"
+      },
+      {
+        "source": "ch05.claim.30",
+        "target": "ch05.therefore.32",
+        "relation": "entails"
+      },
+      {
+        "source": "ch05.claim.31",
+        "target": "ch05.therefore.32",
+        "relation": "entails"
+      },
+      {
+        "source": "ch05.claim.33",
+        "target": "ch05.therefore.34",
+        "relation": "entails"
+      },
+      {
+        "source": "ch05.therefore.34",
+        "target": "ch05.consequence.35",
+        "relation": "entails"
+      },
+      {
+        "source": "ch05.claim.36",
+        "target": "ch05.therefore.38",
+        "relation": "entails"
+      },
+      {
+        "source": "ch05.claim.37",
+        "target": "ch05.therefore.38",
+        "relation": "entails"
+      },
+      {
+        "source": "ch05.claim.39",
+        "target": "ch05.therefore.40",
+        "relation": "entails"
+      },
+      {
+        "source": "ch05.therefore.40",
+        "target": "ch05.consequence.41",
+        "relation": "entails"
+      },
+      {
+        "source": "ch06.claim.01",
+        "target": "ch06.therefore.03",
+        "relation": "entails"
+      },
+      {
+        "source": "ch06.claim.02",
+        "target": "ch06.therefore.03",
+        "relation": "entails"
+      },
+      {
+        "source": "ch06.therefore.03",
+        "target": "ch06.consequence.04",
+        "relation": "entails"
+      },
+      {
+        "source": "ch06.claim.05",
+        "target": "ch06.therefore.07",
+        "relation": "entails"
+      },
+      {
+        "source": "ch06.claim.06",
+        "target": "ch06.therefore.07",
+        "relation": "entails"
+      },
+      {
+        "source": "ch06.therefore.07",
+        "target": "ch06.consequence.08",
+        "relation": "entails"
+      },
+      {
+        "source": "ch06.claim.09",
+        "target": "ch06.therefore.11",
+        "relation": "entails"
+      },
+      {
+        "source": "ch06.claim.10",
+        "target": "ch06.therefore.11",
+        "relation": "entails"
+      },
+      {
+        "source": "ch06.therefore.11",
+        "target": "ch06.consequence.12",
+        "relation": "entails"
+      },
+      {
+        "source": "ch07.claim.01",
+        "target": "ch07.therefore.03",
+        "relation": "entails"
+      },
+      {
+        "source": "ch07.claim.02",
+        "target": "ch07.therefore.03",
+        "relation": "entails"
+      },
+      {
+        "source": "ch07.claim.04",
+        "target": "ch07.therefore.05",
+        "relation": "entails"
+      },
+      {
+        "source": "ch07.claim.06",
+        "target": "ch07.therefore.08",
+        "relation": "entails"
+      },
+      {
+        "source": "ch07.claim.07",
+        "target": "ch07.therefore.08",
+        "relation": "entails"
+      },
+      {
+        "source": "ch07.therefore.08",
+        "target": "ch07.consequence.09",
+        "relation": "entails"
+      },
+      {
+        "source": "ch08.claim.01",
+        "target": "ch08.therefore.03",
+        "relation": "entails"
+      },
+      {
+        "source": "ch08.claim.02",
+        "target": "ch08.therefore.03",
+        "relation": "entails"
+      },
+      {
+        "source": "ch08.claim.04",
+        "target": "ch08.therefore.06",
+        "relation": "entails"
+      },
+      {
+        "source": "ch08.claim.05",
+        "target": "ch08.therefore.06",
+        "relation": "entails"
+      },
+      {
+        "source": "ch08.therefore.06",
+        "target": "ch08.consequence.07",
+        "relation": "entails"
+      },
+      {
+        "source": "ch08.claim.08",
+        "target": "ch08.therefore.10",
+        "relation": "entails"
+      },
+      {
+        "source": "ch08.claim.09",
+        "target": "ch08.therefore.10",
+        "relation": "entails"
+      },
+      {
+        "source": "ch08.therefore.10",
+        "target": "ch08.consequence.11",
+        "relation": "entails"
+      },
+      {
+        "source": "ch08.claim.12",
+        "target": "ch08.therefore.14",
+        "relation": "entails"
+      },
+      {
+        "source": "ch08.claim.13",
+        "target": "ch08.therefore.14",
+        "relation": "entails"
+      },
+      {
+        "source": "ch08.therefore.14",
+        "target": "ch08.consequence.15",
+        "relation": "entails"
+      },
+      {
+        "source": "ch08.claim.16",
+        "target": "ch08.therefore.17",
+        "relation": "entails"
+      },
+      {
+        "source": "ch08.therefore.17",
+        "target": "ch08.consequence.18",
+        "relation": "entails"
+      },
+      {
+        "source": "ch09.claim.01",
+        "target": "ch09.therefore.03",
+        "relation": "entails"
+      },
+      {
+        "source": "ch09.claim.02",
+        "target": "ch09.therefore.03",
+        "relation": "entails"
+      },
+      {
+        "source": "ch09.therefore.03",
+        "target": "ch09.consequence.04",
+        "relation": "entails"
+      },
+      {
+        "source": "ch09.claim.05",
+        "target": "ch09.therefore.07",
+        "relation": "entails"
+      },
+      {
+        "source": "ch09.claim.06",
+        "target": "ch09.therefore.07",
+        "relation": "entails"
+      },
+      {
+        "source": "ch09.therefore.07",
+        "target": "ch09.consequence.08",
+        "relation": "entails"
+      },
+      {
+        "source": "ch09.claim.09",
+        "target": "ch09.therefore.10",
+        "relation": "entails"
+      },
+      {
+        "source": "ch09.therefore.10",
+        "target": "ch09.consequence.11",
+        "relation": "entails"
+      },
+      {
+        "source": "ch10.claim.01",
+        "target": "ch10.therefore.03",
+        "relation": "entails"
+      },
+      {
+        "source": "ch10.claim.02",
+        "target": "ch10.therefore.03",
+        "relation": "entails"
+      },
+      {
+        "source": "ch10.therefore.03",
+        "target": "ch10.consequence.04",
+        "relation": "entails"
+      },
+      {
+        "source": "ch10.claim.05",
+        "target": "ch10.therefore.08",
+        "relation": "entails"
+      },
+      {
+        "source": "ch10.claim.06",
+        "target": "ch10.therefore.08",
+        "relation": "entails"
+      },
+      {
+        "source": "ch10.claim.07",
+        "target": "ch10.therefore.08",
+        "relation": "entails"
+      },
+      {
+        "source": "ch10.therefore.08",
+        "target": "ch10.consequence.09",
+        "relation": "entails"
+      },
+      {
+        "source": "ch10.claim.10",
+        "target": "ch10.therefore.12",
+        "relation": "entails"
+      },
+      {
+        "source": "ch10.claim.11",
+        "target": "ch10.therefore.12",
+        "relation": "entails"
+      },
+      {
+        "source": "ch10.therefore.12",
+        "target": "ch10.consequence.13",
+        "relation": "entails"
+      },
+      {
+        "source": "ch10.claim.14",
+        "target": "ch10.therefore.16",
+        "relation": "entails"
+      },
+      {
+        "source": "ch10.claim.15",
+        "target": "ch10.therefore.16",
+        "relation": "entails"
+      },
+      {
+        "source": "ch10.claim.17",
+        "target": "ch10.therefore.18",
+        "relation": "entails"
+      },
+      {
+        "source": "ch10.therefore.18",
+        "target": "ch10.consequence.19",
+        "relation": "entails"
+      },
+      {
+        "source": "ch11.claim.01",
+        "target": "ch11.therefore.04",
+        "relation": "entails"
+      },
+      {
+        "source": "ch11.claim.02",
+        "target": "ch11.therefore.04",
+        "relation": "entails"
+      },
+      {
+        "source": "ch11.claim.03",
+        "target": "ch11.therefore.04",
+        "relation": "entails"
+      },
+      {
+        "source": "ch11.therefore.04",
+        "target": "ch11.consequence.05",
+        "relation": "entails"
+      },
+      {
+        "source": "ch11.claim.06",
+        "target": "ch11.therefore.08",
+        "relation": "entails"
+      },
+      {
+        "source": "ch11.claim.07",
+        "target": "ch11.therefore.08",
+        "relation": "entails"
+      },
+      {
+        "source": "ch11.therefore.08",
+        "target": "ch11.consequence.09",
+        "relation": "entails"
+      },
+      {
+        "source": "ch11.claim.10",
+        "target": "ch11.therefore.12",
+        "relation": "entails"
+      },
+      {
+        "source": "ch11.claim.11",
+        "target": "ch11.therefore.12",
+        "relation": "entails"
+      },
+      {
+        "source": "ch11.claim.13",
+        "target": "ch11.therefore.14",
+        "relation": "entails"
+      },
+      {
+        "source": "ch11.therefore.14",
+        "target": "ch11.consequence.15",
+        "relation": "entails"
+      },
+      {
+        "source": "ch12.claim.01",
+        "target": "ch12.therefore.04",
+        "relation": "entails"
+      },
+      {
+        "source": "ch12.claim.02",
+        "target": "ch12.therefore.04",
+        "relation": "entails"
+      },
+      {
+        "source": "ch12.claim.03",
+        "target": "ch12.therefore.04",
+        "relation": "entails"
+      },
+      {
+        "source": "ch12.therefore.04",
+        "target": "ch12.consequence.05",
+        "relation": "entails"
+      },
+      {
+        "source": "ch12.claim.06",
+        "target": "ch12.therefore.08",
+        "relation": "entails"
+      },
+      {
+        "source": "ch12.claim.07",
+        "target": "ch12.therefore.08",
+        "relation": "entails"
+      },
+      {
+        "source": "ch12.therefore.08",
+        "target": "ch12.consequence.09",
+        "relation": "entails"
+      },
+      {
+        "source": "ch12.claim.10",
+        "target": "ch12.therefore.12",
+        "relation": "entails"
+      },
+      {
+        "source": "ch12.claim.11",
+        "target": "ch12.therefore.12",
+        "relation": "entails"
+      },
+      {
+        "source": "ch12.therefore.12",
+        "target": "ch12.consequence.13",
+        "relation": "entails"
+      },
+      {
+        "source": "ch13.claim.01",
+        "target": "ch13.therefore.03",
+        "relation": "entails"
+      },
+      {
+        "source": "ch13.claim.02",
+        "target": "ch13.therefore.03",
+        "relation": "entails"
+      },
+      {
+        "source": "ch13.claim.04",
+        "target": "ch13.therefore.05",
+        "relation": "entails"
+      },
+      {
+        "source": "ch13.claim.06",
+        "target": "ch13.therefore.08",
+        "relation": "entails"
+      },
+      {
+        "source": "ch13.claim.07",
+        "target": "ch13.therefore.08",
+        "relation": "entails"
+      },
+      {
+        "source": "ch13.claim.09",
+        "target": "ch13.therefore.10",
+        "relation": "entails"
+      },
+      {
+        "source": "ch13.claim.11",
+        "target": "ch13.therefore.13",
+        "relation": "entails"
+      },
+      {
+        "source": "ch13.claim.12",
+        "target": "ch13.therefore.13",
+        "relation": "entails"
+      },
+      {
+        "source": "ch13.therefore.13",
+        "target": "ch13.consequence.14",
+        "relation": "entails"
+      },
+      {
+        "source": "ch13.claim.15",
+        "target": "ch13.therefore.18",
+        "relation": "entails"
+      },
+      {
+        "source": "ch13.claim.16",
+        "target": "ch13.therefore.18",
+        "relation": "entails"
+      },
+      {
+        "source": "ch13.claim.17",
+        "target": "ch13.therefore.18",
+        "relation": "entails"
+      },
+      {
+        "source": "ch13.therefore.18",
+        "target": "ch13.consequence.19",
+        "relation": "entails"
+      },
+      {
+        "source": "ch13.claim.20",
+        "target": "ch13.therefore.22",
+        "relation": "entails"
+      },
+      {
+        "source": "ch13.claim.21",
+        "target": "ch13.therefore.22",
+        "relation": "entails"
+      },
+      {
+        "source": "ch13.claim.23",
+        "target": "ch13.therefore.24",
+        "relation": "entails"
+      },
+      {
+        "source": "ch13.therefore.24",
+        "target": "ch13.consequence.25",
+        "relation": "entails"
+      },
+      {
+        "source": "ch13.claim.26",
+        "target": "ch13.therefore.28",
+        "relation": "entails"
+      },
+      {
+        "source": "ch13.claim.27",
+        "target": "ch13.therefore.28",
+        "relation": "entails"
+      },
+      {
+        "source": "ch13.therefore.28",
+        "target": "ch13.consequence.29",
+        "relation": "entails"
+      },
+      {
+        "source": "ch13.claim.30",
+        "target": "ch13.therefore.32",
+        "relation": "entails"
+      },
+      {
+        "source": "ch13.claim.31",
+        "target": "ch13.therefore.32",
+        "relation": "entails"
+      },
+      {
+        "source": "ch13.therefore.32",
+        "target": "ch13.consequence.33",
+        "relation": "entails"
+      },
+      {
+        "source": "ch13.claim.34",
+        "target": "ch13.therefore.36",
+        "relation": "entails"
+      },
+      {
+        "source": "ch13.claim.35",
+        "target": "ch13.therefore.36",
+        "relation": "entails"
+      },
+      {
+        "source": "ch13.claim.37",
+        "target": "ch13.therefore.39",
+        "relation": "entails"
+      },
+      {
+        "source": "ch13.claim.38",
+        "target": "ch13.therefore.39",
+        "relation": "entails"
+      },
+      {
+        "source": "ch13.claim.40",
+        "target": "ch13.therefore.41",
+        "relation": "entails"
+      },
+      {
+        "source": "ch13.claim.42",
+        "target": "ch13.therefore.44",
+        "relation": "entails"
+      },
+      {
+        "source": "ch13.claim.43",
+        "target": "ch13.therefore.44",
+        "relation": "entails"
+      },
+      {
+        "source": "ch13.therefore.44",
+        "target": "ch13.consequence.45",
+        "relation": "entails"
+      },
+      {
+        "source": "ch13.claim.46",
+        "target": "ch13.therefore.49",
+        "relation": "entails"
+      },
+      {
+        "source": "ch13.claim.47",
+        "target": "ch13.therefore.49",
+        "relation": "entails"
+      },
+      {
+        "source": "ch13.claim.48",
+        "target": "ch13.therefore.49",
+        "relation": "entails"
+      },
+      {
+        "source": "ch13.therefore.49",
+        "target": "ch13.consequence.50",
+        "relation": "entails"
+      },
+      {
+        "source": "ch14.claim.01",
+        "target": "ch14.therefore.04",
+        "relation": "entails"
+      },
+      {
+        "source": "ch14.claim.02",
+        "target": "ch14.therefore.04",
+        "relation": "entails"
+      },
+      {
+        "source": "ch14.claim.03",
+        "target": "ch14.therefore.04",
+        "relation": "entails"
+      },
+      {
+        "source": "ch14.claim.05",
+        "target": "ch14.therefore.08",
+        "relation": "entails"
+      },
+      {
+        "source": "ch14.claim.06",
+        "target": "ch14.therefore.08",
+        "relation": "entails"
+      },
+      {
+        "source": "ch14.claim.07",
+        "target": "ch14.therefore.08",
+        "relation": "entails"
+      },
+      {
+        "source": "ch14.therefore.08",
+        "target": "ch14.consequence.09",
+        "relation": "entails"
+      },
+      {
+        "source": "ch14.claim.10",
+        "target": "ch14.therefore.12",
+        "relation": "entails"
+      },
+      {
+        "source": "ch14.claim.11",
+        "target": "ch14.therefore.12",
+        "relation": "entails"
+      },
+      {
+        "source": "ch14.therefore.12",
+        "target": "ch14.consequence.13",
+        "relation": "entails"
+      },
+      {
+        "source": "ch14.claim.17",
+        "target": "ch14.therefore.20",
+        "relation": "entails"
+      },
+      {
+        "source": "ch14.claim.18",
+        "target": "ch14.therefore.20",
+        "relation": "entails"
+      },
+      {
+        "source": "ch14.claim.19",
+        "target": "ch14.therefore.20",
+        "relation": "entails"
+      },
+      {
+        "source": "ch14.therefore.20",
+        "target": "ch14.consequence.21",
+        "relation": "entails"
+      },
+      {
+        "source": "ch14.claim.22",
+        "target": "ch14.therefore.23",
+        "relation": "entails"
+      },
+      {
+        "source": "ch14.therefore.23",
+        "target": "ch14.consequence.24",
+        "relation": "entails"
+      },
+      {
+        "source": "ch14.therefore.26",
+        "target": "ch14.consequence.27",
+        "relation": "entails"
+      },
+      {
+        "source": "ch14.claim.29",
+        "target": "ch14.therefore.30",
+        "relation": "entails"
+      },
+      {
+        "source": "ch14.claim.32",
+        "target": "ch14.therefore.33",
+        "relation": "entails"
+      },
+      {
+        "source": "ch14.claim.36",
+        "target": "ch14.therefore.37",
+        "relation": "entails"
+      },
+      {
+        "source": "ch14.claim.39",
+        "target": "ch14.therefore.40",
+        "relation": "entails"
+      },
+      {
+        "source": "ch14.claim.42",
+        "target": "ch14.therefore.43",
+        "relation": "entails"
+      },
+      {
+        "source": "ch14.claim.46",
+        "target": "ch14.therefore.47",
+        "relation": "entails"
+      },
+      {
+        "source": "ch14.claim.50",
+        "target": "ch14.therefore.51",
+        "relation": "entails"
+      },
+      {
+        "source": "ch14.claim.54",
+        "target": "ch14.therefore.55",
+        "relation": "entails"
+      },
+      {
+        "source": "ch14.claim.57",
+        "target": "ch14.therefore.58",
+        "relation": "entails"
+      },
+      {
+        "source": "ch14.claim.60",
+        "target": "ch14.therefore.61",
+        "relation": "entails"
+      },
+      {
+        "source": "ch14.claim.64",
+        "target": "ch14.therefore.65",
+        "relation": "entails"
+      },
+      {
+        "source": "ch14.claim.67",
+        "target": "ch14.therefore.68",
+        "relation": "entails"
+      },
+      {
+        "source": "ch14.claim.70",
+        "target": "ch14.therefore.71",
+        "relation": "entails"
+      },
+      {
+        "source": "ch14.claim.73",
+        "target": "ch14.therefore.74",
+        "relation": "entails"
+      }
+    ]
+  }
+}

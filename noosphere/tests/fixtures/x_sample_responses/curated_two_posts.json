@@ -1,0 +1,24 @@
+{
+  "data": [
+    {
+      "id": "1780000000000000001",
+      "text": "First curated post about capital allocation and methodological yield.",
+      "created_at": "2026-04-20T12:00:00Z",
+      "author_id": "100001",
+      "conversation_id": "1780000000000000001"
+    },
+    {
+      "id": "1780000000000000002",
+      "text": "Second curated post about venture discipline and long-horizon returns.",
+      "created_at": "2026-04-20T12:05:00Z",
+      "author_id": "100001",
+      "conversation_id": "1780000000000000002"
+    }
+  ],
+  "includes": {
+    "users": [
+      {"id": "100001", "username": "alice"}
+    ]
+  },
+  "meta": {"result_count": 2}
+}

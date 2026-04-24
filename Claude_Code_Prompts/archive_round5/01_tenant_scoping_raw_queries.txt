@@ -1,0 +1,65 @@
+# Claude Code Prompt 1 of 25 — Security: tenant-scope all raw SQL queries in round3.ts
+
+**Sequence:** prompt 1 of 25 (Wave 1 — independent of prompts 02 and 03). When you finish, report back with: files you created/modified, any notable choices, any blockers.
+
+**Before you start — read current state:**
+1. Read `theseus-codex/src/lib/api/round3.ts` — this is the primary target. Note every `safeQuery` call and the SQL it executes.
+2. Read `theseus-codex/src/lib/auth.ts` and `theseus-codex/src/lib/tenant.ts` — understand how session context and tenant (organizationId) are resolved.
+3. Read `theseus-codex/prisma/schema.prisma` — note that every model has an `organizationId` field.
+4. For every file listed under SCOPE below, check whether it already exists and inspect its current state.
+
+## The bug
+
+Every raw SQL query in `round3.ts` — provenance, cascade, peer_review, decay_record, post_mortem, eval_run, rigor_gate_submission, method_registry, method_version, method_candidate — lacks an `organizationId` filter. In a multi-tenant deployment, any authenticated user can see data from any organization. The Prisma-backed queries (e.g. `db.conclusion.findMany` in the conclusions list page) are correctly scoped; only the raw SQL queries are unscoped.
+
+## Your task
+
+Add tenant scoping to every raw SQL read function in `round3.ts`. Each function should accept an `organizationId` parameter, and every `SELECT` must include `WHERE organization_id = ${organizationId}` (or `AND organization_id = ${organizationId}` if there's already a WHERE clause).
+
+Then update every call site to pass the resolved organizationId from the session context.
+
+## Prerequisites
+- The existing Theseus Codex codebase at `theseus-codex/`.
+- Working Prisma schema with `organizationId` on all tenant-scoped models.
+
+## SCOPE (files you may modify — stay within this list)
+- `theseus-codex/src/lib/api/round3.ts`                                        MODIFY
+- `theseus-codex/src/app/(authed)/conclusions/[id]/provenance-tab.tsx`          MODIFY
+- `theseus-codex/src/app/(authed)/conclusions/[id]/cascade-tab.tsx`             MODIFY
+- `theseus-codex/src/app/(authed)/conclusions/[id]/peer-review-tab.tsx`         MODIFY
+- `theseus-codex/src/app/(authed)/peer-review/[conclusionId]/page.tsx`          MODIFY
+- `theseus-codex/src/app/(authed)/provenance/page.tsx`                          MODIFY
+- `theseus-codex/src/app/(authed)/cascade/[conclusionId]/page.tsx`              MODIFY
+- `theseus-codex/src/app/(authed)/decay/page.tsx`                               MODIFY
+- `theseus-codex/src/app/(authed)/post-mortem/page.tsx`                         MODIFY
+- `theseus-codex/src/app/(authed)/eval/page.tsx`                                MODIFY (if exists)
+- `theseus-codex/src/app/(authed)/rigor-gate/page.tsx`                          MODIFY (if exists)
+- `theseus-codex/src/app/(authed)/methods/page.tsx`                             MODIFY (if exists)
+
+## Step-by-step
+
+1. **In `round3.ts`**, update every `fetch*` function signature to accept `organizationId: string` as its first parameter (or add it if the function currently takes no parameters). For functions that already take a specific ID (like `fetchProvenanceForConclusion(conclusionId)`), add `organizationId` as the first parameter.
+
+2. **In every SQL query**, add `organization_id = ${organizationId}` to the WHERE clause. For queries that have no WHERE clause (like `fetchProvenanceRecords`), add one. For queries that already have a WHERE (like `fetchProvenanceForConclusion`), add an AND. Example:
+   ```sql
+   -- Before
+   SELECT ... FROM provenance WHERE conclusion_id = ${conclusionId}
+   -- After
+   SELECT ... FROM provenance WHERE organization_id = ${organizationId} AND conclusion_id = ${conclusionId}
+   ```
+
+3. **In every call site** (the page components listed in SCOPE), resolve the organizationId from the session context. The pattern is:
+   ```typescript
+   import { requireTenantContext } from "@/lib/tenant";
+   // inside the component:
+   const tenant = await requireTenantContext();
+   if (!tenant) return null; // or redirect
+   // then pass tenant.organizationId to the fetch function
+   ```
+   Check how `conclusions/page.tsx` already does this — follow the same pattern.
+
+4. **Do NOT change** the function signatures of `submitToRigorGate`, `withGated`, `toCSV`, `downloadHref`, or any type definitions. Only modify the `fetch*` read functions and their call sites.
+
+5. **Verify** by reading every `safeQuery` call in the modified file and confirming each one includes `organization_id` in its SQL.
+
+Do not proceed to any other work. Do not edit anything outside SCOPE.

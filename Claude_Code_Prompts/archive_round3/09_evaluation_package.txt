@@ -1,0 +1,87 @@
+# Claude Code Prompt 9 of 26 — Build the evaluation/ package (CorpusSlicer + counterfactual rig)
+
+**Sequence:** prompt 9 of 26. Complete prompts 1..8 before starting this one. When you finish, report back with: files you created/modified, any notable choices, any blockers. I'll then paste the next prompt.
+
+**Parallelism (optional):** prompts 7, 8, 9, 10 touch disjoint files and could run in parallel Claude Code sessions if you want.
+
+**Before you start — read current state:**
+1. Run `git status` and `git branch` to see the current branch state.
+2. If you see stray branches matching `round3/*` or a `.orchestrator/` directory from a prior automated run, tell me and stop; we'll clean them up before continuing.
+3. For every file listed under SCOPE below, check whether it already exists and what it contains. If parts of the work described here are already done (from a previous attempt), INSPECT what is there and only add the missing pieces. Do NOT overwrite existing, correct work. Do NOT duplicate types or tests that already exist.
+4. If you find partial work that is clearly broken or half-finished, ask me whether to complete it or discard and restart that piece.
+## Your task
+You are an implementation agent. Your job is to create `noosphere/noosphere/evaluation/`: a package that provides a `CorpusSlicer` (frozen, read-only store view pinned to a past date), outcome-resolution logic, calibration metrics, and a counterfactual runner that grades each method's predictive accuracy on held-out temporal slices. You will also register an `embargo_check` pre-hook so that methods invoked under a `frozen_cut_id` context read only from the slice.
+
+ 
+
+## Prerequisites
+- Wave 3 is done.
+- `TemporalCut`, `Outcome`, `CalibrationMetrics`, `CounterfactualEvalRun` pydantic types exist.
+- `Store.insert_temporal_cut`, `Store.insert_outcome`, etc. exist.
+
+SCOPE (files you may create or modify — stay within this list)
+- `noosphere/noosphere/evaluation/__init__.py`       CREATE
+- `noosphere/noosphere/evaluation/slicer.py`         CREATE
+- `noosphere/noosphere/evaluation/outcomes.py`       CREATE
+- `noosphere/noosphere/evaluation/metrics.py`        CREATE
+- `noosphere/noosphere/evaluation/counterfactual.py` CREATE
+- `noosphere/noosphere/evaluation/hooks.py`          CREATE
+- `noosphere/noosphere/evaluation/report.py`         CREATE
+- `scripts/check_no_hidden_globals.py`               CREATE
+- `noosphere/tests/test_evaluation_slicer.py`        CREATE
+- `noosphere/tests/test_evaluation_outcomes.py`      CREATE
+- `noosphere/tests/test_evaluation_metrics.py`       CREATE
+- `noosphere/tests/test_evaluation_counterfactual_endtoend.py` CREATE
+- `noosphere/tests/test_evaluation_no_temporal_leakage.py` CREATE
+- `docs/eval/figures/.gitkeep`                       CREATE
+
+## Step-by-step
+1. Build `slicer.py` with `CorpusSlicer(store, cut: TemporalCut)` that proxies every read through a predicate `created_at <= cut.as_of AND matches cut.corpus_slice`. Out-of-slice reads raise `EmbargoViolation`.
+2. Build `outcomes.py` with `resolve(outcome, prediction) -> ResolutionResult` handling binary/interval/preference. Every outcome MUST carry `resolution_source`; do not self-grade.
+3. Build `metrics.py` with Brier, log loss, ECE, reliability curves, resolution, coverage. Strict per-outcome-kind separation — no cross-kind aggregation.
+4. Build `counterfactual.py` with `CounterfactualRunner.run(methods, window_start, window_end, cadence)`.
+5. Build `hooks.py`. On import, register pre-hook `evaluation.embargo_check`:
+   - If `inv.context.orchestrator_run_id` begins with "cf-" (a counterfactual run), look up the cut, replace the process-wide `STORE` ref with a `CorpusSlicer(store, cut)`, enforce `EmbeddingVersionPin`.
+   - Otherwise, no-op.
+6. Build `report.py` with `render(run: CounterfactualEvalRun, out_dir: Path)`: writes markdown + JSON + PNG plots.
+7. Build `scripts/check_no_hidden_globals.py`: AST-walk every module under `methods/`; fail if a method reads from module-level mutable state not routed through Store.
+8. Write all tests.
+9. `pytest noosphere/tests/test_evaluation_*.py -v`.
+
+CorpusSlicer proxy (exact)
+class CorpusSlicer:
+    def __init__(self, store, cut: TemporalCut):
+        self._store = store
+        self._cut = cut
+
+    def get_artifact(self, artifact_id: str):
+        obj = self._store.get_artifact(artifact_id)
+        if obj is None: return None
+        if obj.created_at > self._cut.as_of: raise EmbargoViolation(f"{artifact_id} is after {self._cut.as_of}")
+        return obj
+
+    # Similarly for iter_claims, iter_chunks, iter_embeddings, etc.
+    # Any method on Store not relevant to read paths is not proxied (calling it raises AttributeError).
+
+## Tests
+test_evaluation_slicer.py — out-of-slice read raises EmbargoViolation.
+test_evaluation_outcomes.py — binary / interval / preference each resolve correctly on fixtures.
+test_evaluation_metrics.py — Brier / log-loss / ECE match reference implementations on hand-computed inputs.
+test_evaluation_counterfactual_endtoend.py — a tiny synthetic corpus + one method produces a valid CounterfactualEvalRun with sensible metrics.
+test_evaluation_no_temporal_leakage.py — insert a canary claim after the cut; assert it never appears in method output during a counterfactual run; any leak fails the test.
+
+## How to verify
+1. `pytest noosphere/tests/test_evaluation_*.py -v` — green.
+2. `python scripts/check_no_hidden_globals.py` — exits 0 on the current tree.
+3. `python -c "import noosphere.noosphere.evaluation"` triggers hook registration.
+
+## Do not
+- Permit network access during a counterfactual run. Mock the HTTP client to intercept.
+- Aggregate across outcome kinds in any summary.
+- Count `unresolved` as correct — it affects coverage, not Brier.
+- Modify the decorator, methods, or any other subsystem files.
+- Touch any file outside FILES TOUCHED.
+
+---
+
+**When you're finished:** report back with (a) files you created/modified, (b) any non-obvious choices you made, (c) any blockers. I'll paste the next prompt after I've reviewed your summary.

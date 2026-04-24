@@ -1,0 +1,358 @@
+\documentclass[11pt,letterpaper]{article}
+
+\usepackage[margin=1in]{geometry}
+\usepackage[T1]{fontenc}
+\usepackage{lmodern}
+\usepackage{microtype}
+\usepackage{parskip}
+\usepackage{enumitem}
+\usepackage{booktabs}
+\usepackage{longtable}
+\usepackage{array}
+\usepackage{titlesec}
+\usepackage[hidelinks,colorlinks=true,linkcolor=black,urlcolor=black,citecolor=black]{hyperref}
+\usepackage{xcolor}
+\usepackage{fancyvrb}
+\usepackage{fancyhdr}
+\usepackage{listings}
+
+\titleformat{\section}{\Large\bfseries}{\thesection}{1em}{}
+\titleformat{\subsection}{\large\bfseries}{\thesubsection}{1em}{}
+\titleformat{\subsubsection}{\normalsize\bfseries}{\thesubsubsection}{1em}{}
+
+\pagestyle{fancy}
+\fancyhf{}
+\fancyhead[L]{\small Theseus --- CI/CD Setup Guide}
+\fancyhead[R]{\small\thepage}
+\renewcommand{\headrulewidth}{0.4pt}
+
+\setlength{\parindent}{0pt}
+
+\lstset{
+  basicstyle=\small\ttfamily,
+  breaklines=true,
+  frame=single,
+  backgroundcolor=\color{gray!8},
+  xleftmargin=1em,
+  framexleftmargin=0.5em,
+  columns=fullflexible,
+  keepspaces=true,
+  showstringspaces=false,
+}
+
+\newcommand{\file}[1]{\texttt{#1}}
+\newcommand{\cmd}[1]{\texttt{#1}}
+
+\title{\textbf{Theseus}\\[4pt]\large CI/CD Setup Guide}
+\date{April 2026}
+\author{}
+
+\begin{document}
+
+\maketitle
+\thispagestyle{empty}
+
+\tableofcontents
+\newpage
+
+% =======================================================================
+\section{Overview}
+% =======================================================================
+
+Theseus uses GitHub Actions for continuous integration and continuous delivery. The pipeline automates building desktop applications for macOS and Windows, building Docker images for the web services, running invariant checks and security tests, and publishing releases. All workflow files live in \file{.github/workflows/}.
+
+\subsection{Workflow inventory}
+
+\begin{longtable}{p{4.2cm} p{10.3cm}}
+\toprule
+\textbf{Workflow} & \textbf{Purpose} \\
+\midrule
+\endhead
+\file{build-dialectic.yml}        & Build Dialectic desktop app on macOS and Windows via PyInstaller. Sign and notarize when certificates are available. \\
+\file{build-noosphere.yml}        & Build Noosphere CLI on macOS and Windows via PyInstaller. Sign and notarize when certificates are available. \\
+\file{build-theseus-codex.yml}   & Build Theseus Codex Electron desktop app on macOS and Windows via electron-builder. Sign when certificates are available. \\
+\file{build-docker.yml}           & Build Docker images for Theseus Codex and Theseus Public. Validate \file{docker-compose.yml}. \\
+\file{release.yml}                & Orchestrate a full release: call all three build workflows, collect artifacts, create a draft GitHub Release. \\
+\file{round3.yml}                 & Run round-3 invariant checks and system tests. \\
+\file{noosphere-redteam.yml}      & Run adversarial and security tests against the Noosphere engine. \\
+\bottomrule
+\end{longtable}
+
+\file{.github/dependabot.yml} is also present, configuring weekly automated dependency updates for npm (Theseus Codex, Public Site), pip (Noosphere, Dialectic), and GitHub Actions.
+
+% =======================================================================
+\section{Trigger model}
+% =======================================================================
+
+Each workflow responds to a specific set of events. The design is path-filtered so that changes to Dialectic do not trigger the Theseus Codex build, and vice versa.
+
+\begin{longtable}{p{4.2cm} p{10.3cm}}
+\toprule
+\textbf{Workflow} & \textbf{Triggers} \\
+\midrule
+\endhead
+\file{build-dialectic.yml}      & Push to \cmd{main} (paths: \file{dialectic/**}), pull request (same paths), \cmd{workflow\_call} (for reuse by release.yml), \cmd{workflow\_dispatch} (manual). \\
+\file{build-noosphere.yml}      & Push to \cmd{main} (paths: \file{noosphere/**}), pull request, \cmd{workflow\_call}, \cmd{workflow\_dispatch}. \\
+\file{build-theseus-codex.yml} & Push to \cmd{main} (paths: \file{theseus-codex/**}), pull request, \cmd{workflow\_call}, \cmd{workflow\_dispatch}. \\
+\file{build-docker.yml}         & Push to \cmd{main} (paths: \file{theseus-codex/**}, \file{theseus-public/**}, \file{docker-compose.yml}), pull request, \cmd{workflow\_dispatch}. \\
+\file{release.yml}              & Push of a tag matching \cmd{v*} (e.g., \cmd{v0.2.0}). \\
+\file{round3.yml}               & Push to \cmd{main}, pull request. \\
+\file{noosphere-redteam.yml}    & Push to \cmd{main} (paths: \file{noosphere/**}), \cmd{workflow\_dispatch}. \\
+\bottomrule
+\end{longtable}
+
+The \cmd{workflow\_call} trigger on the three build workflows is what allows \file{release.yml} to compose them as reusable sub-workflows. The \cmd{workflow\_dispatch} trigger allows any workflow to be run manually from the GitHub Actions UI.
+
+% =======================================================================
+\section{Build workflows in detail}
+% =======================================================================
+
+\subsection{Dialectic (PyInstaller)}
+
+\file{build-dialectic.yml} uses a matrix strategy with two entries:
+
+\begin{table}[h]
+\small
+\begin{tabular}{p{3cm} p{3cm} p{8.5cm}}
+\toprule
+\textbf{Runner} & \textbf{Platform} & \textbf{Steps} \\
+\midrule
+\cmd{macos-14} & macOS (ARM) & Python 3.11, pip install, icon generation, PyInstaller, DMG creation via \cmd{create-dmg}, code signing, notarization. \\
+\cmd{windows-latest} & Windows & Python 3.11, pip install, icon generation, PyInstaller, optional NSIS installer, code signing. \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Working directory: \file{dialectic/}. Build artifacts (DMG, app directory, installer) are uploaded via \cmd{actions/upload-artifact@v4} with 30-day retention.
+
+The \cmd{fail-fast: false} setting ensures that a failure on one platform does not cancel the other platform's build.
+
+\subsection{Noosphere (PyInstaller)}
+
+\file{build-noosphere.yml} follows the same structure. Differences: the macOS build produces a tar.gz archive instead of a DMG (Noosphere is a CLI, not a GUI), and the Windows build produces an NSIS installer that adds the CLI to the system PATH.
+
+\subsection{Theseus Codex (Electron)}
+
+\file{build-theseus-codex.yml} uses a matrix with two entries:
+
+\begin{table}[h]
+\small
+\begin{tabular}{p{3cm} p{3cm} p{8.5cm}}
+\toprule
+\textbf{Runner} & \textbf{Platform} & \textbf{Steps} \\
+\midrule
+\cmd{macos-14} & macOS (ARM) & Node 20, \cmd{npm ci}, Next.js build, TypeScript compile, icon generation, \cmd{electron-builder --mac}. \\
+\cmd{windows-latest} & Windows & Same, but with \cmd{electron-builder --win}. \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Working directory: \file{theseus-codex/}. electron-builder handles code signing internally when the appropriate environment variables are set (see \S\ref{sec:secrets}). Artifacts: DMG and ZIP on macOS, EXE on Windows.
+
+The \cmd{GH\_TOKEN} environment variable is set to \cmd{\$\{\{ secrets.GITHUB\_TOKEN \}\}} so that electron-builder can publish update manifests to GitHub Releases (used by the auto-updater).
+
+\subsection{Docker}
+
+\file{build-docker.yml} runs on \cmd{ubuntu-latest} with a matrix over the two services (Theseus Codex and Theseus Public). Each service is built using \cmd{docker/build-push-action@v6} with Docker Buildx and GitHub Actions cache (\cmd{cache-from: type=gha}). Images are built but not pushed (for push, configure a container registry). The Theseus Codex entry also validates \cmd{docker-compose.yml} via \cmd{docker compose config}.
+
+% =======================================================================
+\section{Release workflow}
+% =======================================================================
+
+\file{release.yml} is the orchestrator for publishing a new version. It is triggered by pushing a Git tag matching \cmd{v*}:
+
+\begin{lstlisting}
+git tag v0.2.0
+git push origin v0.2.0
+\end{lstlisting}
+
+The workflow proceeds in two phases:
+
+\textbf{Phase 1: Build.} Three parallel jobs invoke the build workflows as reusable sub-workflows:
+\begin{lstlisting}
+jobs:
+  build-dialectic:
+    uses: ./.github/workflows/build-dialectic.yml
+  build-noosphere:
+    uses: ./.github/workflows/build-noosphere.yml
+  build-theseus-codex:
+    uses: ./.github/workflows/build-theseus-codex.yml
+\end{lstlisting}
+
+Each sub-workflow runs its full matrix (macOS + Windows), producing platform-specific artifacts.
+
+\textbf{Phase 2: Publish.} After all three builds complete, a final job downloads all artifacts via \cmd{actions/download-artifact@v4} and creates a draft GitHub Release via \cmd{softprops/action-gh-release@v2}. The release includes all platform artifacts (DMGs, tarballs, NSIS installers, Electron bundles) and auto-generated release notes from commit history.
+
+The release is created as a \textbf{draft} so the maintainer can review the artifacts and edit the release notes before making it public. Publishing the release triggers electron-updater notifications for existing Theseus Codex installations.
+
+The workflow requires \cmd{contents: write} permission to create releases.
+
+% =======================================================================
+\section{Required secrets}
+\label{sec:secrets}
+% =======================================================================
+
+All secrets are optional. Builds succeed without them --- signing and notarization steps are skipped gracefully. Configure them in \textbf{Settings $\to$ Secrets and variables $\to$ Actions} in the GitHub repository.
+
+\subsection{macOS code signing}
+
+\begin{longtable}{p{4.5cm} p{10cm}}
+\toprule
+\textbf{Secret} & \textbf{Description} \\
+\midrule
+\endhead
+\cmd{APPLE\_SIGNING\_IDENTITY} & The Common Name of the Developer ID Application certificate (e.g., \cmd{Developer ID Application: Theseus Inc (ABC123)}). Used by the PyInstaller signing scripts. \\
+\cmd{MAC\_CERT\_P12\_BASE64} & The signing certificate exported as a \file{.p12} file, then base64-encoded: \cmd{base64 -i cert.p12 | pbcopy}. Used by electron-builder (mapped to \cmd{CSC\_LINK}). \\
+\cmd{MAC\_CERT\_PASSWORD} & The password for the \file{.p12} certificate. Used by electron-builder (mapped to \cmd{CSC\_KEY\_PASSWORD}). \\
+\bottomrule
+\end{longtable}
+
+\subsection{macOS notarization}
+
+\begin{longtable}{p{4cm} p{10.5cm}}
+\toprule
+\textbf{Secret} & \textbf{Description} \\
+\midrule
+\endhead
+\cmd{APPLE\_ID} & The Apple ID email address enrolled in the Developer Program. \\
+\cmd{APPLE\_TEAM\_ID} & The 10-character Team ID from \cmd{developer.apple.com/account}. \\
+\cmd{APPLE\_APP\_PASSWORD} & An app-specific password generated at \cmd{appleid.apple.com/account/manage}. Do not use your Apple ID password. \\
+\bottomrule
+\end{longtable}
+
+\subsection{Windows code signing}
+
+\begin{longtable}{p{4.5cm} p{10cm}}
+\toprule
+\textbf{Secret} & \textbf{Description} \\
+\midrule
+\endhead
+\cmd{WIN\_CERT\_PFX\_BASE64} & The Windows code signing certificate as a \file{.pfx} file, base64-encoded. The CI workflow decodes it to a temporary file at runtime. \\
+\cmd{WIN\_CERT\_PASSWORD} & The password for the \file{.pfx} certificate. \\
+\bottomrule
+\end{longtable}
+
+\subsection{How secrets flow}
+
+For the PyInstaller apps (Dialectic, Noosphere), the CI workflow passes secrets as environment variables to the shared signing scripts:
+
+\begin{lstlisting}
+- name: Code sign (macOS)
+  if: matrix.platform == 'macos' && env.APPLE_SIGNING_IDENTITY != ''
+  env:
+    APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+  run: bash ../scripts/codesign_macos.sh dist/Dialectic.app
+       "$APPLE_SIGNING_IDENTITY"
+\end{lstlisting}
+
+For the Theseus Codex (Electron), electron-builder reads the secrets from its own environment variable names:
+
+\begin{lstlisting}
+- name: Build desktop app
+  env:
+    GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    CSC_LINK: ${{ secrets.MAC_CERT_P12_BASE64 }}
+    CSC_KEY_PASSWORD: ${{ secrets.MAC_CERT_PASSWORD }}
+    WIN_CSC_LINK: ${{ secrets.WIN_CERT_PFX_BASE64 }}
+    WIN_CSC_KEY_PASSWORD: ${{ secrets.WIN_CERT_PASSWORD }}
+  run: npx electron-builder ...
+\end{lstlisting}
+
+The \cmd{GITHUB\_TOKEN} is automatically provided by GitHub Actions and does not need manual configuration. It is used by electron-builder to publish update manifests to GitHub Releases.
+
+% =======================================================================
+\section{Invariant checks and testing}
+% =======================================================================
+
+\subsection{round3.yml}
+
+This workflow runs the architectural invariant checks that ensure the round-3 subsystems maintain their contracts. It invokes the Python lint scripts in \file{scripts/}:
+
+\begin{longtable}{p{5cm} p{9.5cm}}
+\toprule
+\textbf{Script} & \textbf{What it checks} \\
+\midrule
+\endhead
+\file{check\_methods\_gated.py} & Every public method uses the \cmd{@gated} decorator. \\
+\file{check\_no\_hidden\_globals.py} & No hidden module-level mutable state. \\
+\file{check\_packaging\_selfcontainment.py} & Packaged methods are fully self-contained. \\
+\file{check\_mip\_versioning.py} & MIP version numbers are coherent across manifests. \\
+\file{check\_gated\_decorator\_present.py} & The gating decorator exists and is importable. \\
+\file{check\_public\_store\_only\_gated.py} & Writes to the public content store go through gated methods only. \\
+\file{check\_doc\_drift.py} & Documentation is in sync with code. \\
+\file{check\_ui\_uses\_gated\_api.py} & Frontend pages call gated API routes, not raw functions. \\
+\file{check\_no\_phone\_home.py} & No unauthorized external network calls in the codebase. \\
+\file{check\_round3\_invariants.py} & Composite check of all round-3 architectural invariants. \\
+\file{check\_signed\_artifacts.py} & Published artifacts have valid signatures. \\
+\bottomrule
+\end{longtable}
+
+Any failure blocks the pull request from merging (when branch protection rules are configured).
+
+\subsection{noosphere-redteam.yml}
+
+This workflow runs the adversarial testing harness defined in \file{noosphere/noosphere/redteam.py}. It executes a battery of adversarial inputs (prompt injection, metadata spoofing, embedding attacks, etc.) against the ingestion and coherence pipelines and verifies that all mitigations documented in \file{docs/Robustness\_Ledger.md} are effective. Failures produce structured reports that identify which attack classes bypassed mitigations.
+
+% =======================================================================
+\section{Dependabot}
+% =======================================================================
+
+\file{.github/dependabot.yml} configures automated dependency updates:
+
+\begin{lstlisting}
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: /theseus-codex
+    schedule: { interval: weekly }
+  - package-ecosystem: npm
+    directory: /theseus-public
+    schedule: { interval: weekly }
+  - package-ecosystem: pip
+    directory: /noosphere
+    schedule: { interval: weekly }
+  - package-ecosystem: pip
+    directory: /dialectic
+    schedule: { interval: weekly }
+  - package-ecosystem: github-actions
+    directory: /
+    schedule: { interval: weekly }
+\end{lstlisting}
+
+Dependabot creates pull requests for each outdated dependency. The \cmd{github-actions} ecosystem entry updates the Actions themselves (e.g., \cmd{actions/checkout}, \cmd{actions/setup-python}) to prevent using deprecated versions.
+
+% =======================================================================
+\section{Setting up from scratch}
+% =======================================================================
+
+If you are configuring CI/CD for the first time on a new GitHub repository:
+
+\begin{enumerate}[leftmargin=1.5em,itemsep=0.2em]
+  \item \textbf{Push the repository} to GitHub with the \file{.github/} directory intact.
+  \item \textbf{Enable Actions} in the repository settings (Settings $\to$ Actions $\to$ General $\to$ allow all actions).
+  \item \textbf{Configure secrets} (Settings $\to$ Secrets and variables $\to$ Actions). Add each secret from \S\ref{sec:secrets} that you have available. You can start with none --- builds will work, just unsigned.
+  \item \textbf{Set branch protection} on \cmd{main} (Settings $\to$ Branches $\to$ Add rule): require status checks to pass before merging, and select the workflow jobs you want to gate on (at minimum: the round-3 invariant checks).
+  \item \textbf{Update \file{electron-builder.yml}} in \file{theseus-codex/}: replace \cmd{OWNER\_PLACEHOLDER} and \cmd{REPO\_PLACEHOLDER} in the \cmd{publish} block with your actual GitHub owner and repository name. Without this, the auto-updater will not find releases.
+  \item \textbf{Test with a manual dispatch}: go to Actions $\to$ select any build workflow $\to$ Run workflow $\to$ Run. Verify it completes.
+  \item \textbf{Tag a release}: \cmd{git tag v0.1.0 \&\& git push origin v0.1.0}. The release workflow should trigger, build all three apps, and create a draft release.
+\end{enumerate}
+
+% =======================================================================
+\section{Troubleshooting}
+% =======================================================================
+
+\textbf{Workflow never triggers.} Check that path filters match the changed files. A change to \file{docs/} will not trigger any build workflow. Push to the relevant directory or use \cmd{workflow\_dispatch} to trigger manually.
+
+\textbf{macOS signing fails with ``no identity found.''} The \cmd{APPLE\_SIGNING\_IDENTITY} secret must match the Common Name of a certificate installed in the runner's Keychain. In CI, the P12 certificate is imported into a temporary Keychain by electron-builder. For PyInstaller apps, you may need to import it manually in a workflow step before calling \file{codesign\_macos.sh}.
+
+\textbf{Notarization times out.} The default timeout is 600 seconds. For large bundles (Dialectic is 2--3\,GB), Apple's notarization can take 10--15 minutes. Increase the timeout in \file{scripts/notarize\_macos.sh} if needed.
+
+\textbf{electron-builder fails with ``cannot find module better-sqlite3.''} Native modules must be rebuilt for Electron's Node version. Add \cmd{npx electron-rebuild -f -w better-sqlite3} as a step after \cmd{npm ci}.
+
+\textbf{GitHub Actions cache full.} Buildx caches (used by the Docker workflow) are limited to 10\,GB per repository. If builds slow down, clear the cache: Actions $\to$ Caches $\to$ delete stale entries.
+
+\textbf{Release artifacts missing a platform.} If one platform build fails, the release workflow still creates the GitHub Release but only includes artifacts from successful builds. Check the failed build job's logs, fix the issue, and re-run the failed job. The release can be re-published to include the new artifacts.
+
+\textbf{Dependabot PRs break the build.} This typically means a dependency introduced a breaking change. Review the Dependabot PR's CI results, pin the dependency to the last working version if needed, and file an issue upstream.
+
+\end{document}

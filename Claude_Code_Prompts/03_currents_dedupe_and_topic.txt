@@ -1,0 +1,254 @@
+# Claude Code Prompt 03 of 17 — Near-duplicate detection, topic classification, relevance gate
+
+**Sequence:** prompt 03 of 17 (Wave 2). Depends on 01 and 02. Report back with: files created, the near-duplicate similarity threshold you settled on, and the abstention rate on your test fixtures.
+
+**Before you start — read current state:**
+1. Read `noosphere/noosphere/embeddings.py` — note the embedding API the firm already uses (model name, dimensionality, sync/async). Reuse it exactly — do NOT introduce a second embedding provider.
+2. Read `noosphere/noosphere/classifier.py` and `noosphere/noosphere/methods/classify_claim_type.py` — note the classification pattern. The topic classifier will follow the same shape.
+3. Read `noosphere/noosphere/currents/x_ingestor.py` (from prompt 02) — note that newly-ingested events have `embedding=None` and `topic_hint=None` on arrival.
+4. Read `noosphere/noosphere/retrieval.py` — specifically how embeddings are compared; reuse the same cosine helper if one exists.
+5. Read `noosphere/noosphere/models.py` — confirm `Topic` exists as a model (seen in the models list). You'll map `topic_hint` to existing topics when possible.
+
+## Your task
+
+Add a post-ingestion pipeline stage that: (a) embeds each `OBSERVED` `CurrentEvent`, (b) marks it `SUPPRESSED` if it is a near-duplicate of another recent event (same story, different post), (c) assigns a `topic_hint` by embedding-nearest-neighbor against existing `Topic` centroids and/or existing `Conclusion` topics, and (d) runs a relevance gate that marks events as `ABSTAINED` with `status_reason="no sources above threshold"` when retrieval finds nothing substantive to opine on.
+
+Events that survive all three gates remain `OBSERVED` and are picked up by the opinion generator in prompt 05. An abstention is not a failure — it is the system honoring design invariant #1: no opinion without sources.
+
+## Prerequisites
+
+- Prompt 01 (models + store) applied.
+- Prompt 02 (X ingestor writing `CurrentEvent` rows with `status=OBSERVED`).
+
+## SCOPE
+
+- `noosphere/noosphere/currents/enrich.py`                          CREATE
+- `noosphere/noosphere/currents/relevance.py`                       CREATE
+- `noosphere/noosphere/currents/__init__.py`                        MODIFY (re-export functions)
+- `noosphere/tests/test_currents_enrich.py`                         CREATE
+- `noosphere/tests/test_currents_relevance.py`                      CREATE
+
+Do NOT modify `x_ingestor.py`, `models.py`, `store.py`, retrieval, or the public site.
+
+## Step-by-step
+
+### 1. `enrich.py` — embed, dedupe-by-similarity, topic-hint
+
+```python
+from __future__ import annotations
+
+from dataclasses import dataclass
+from datetime import datetime, timedelta, timezone
+from typing import Optional
+
+import numpy as np
+
+from noosphere.embeddings import embed_text            # reuse the existing helper
+from noosphere.models import CurrentEvent, CurrentEventStatus, Topic
+from noosphere.observability import get_logger
+from noosphere.store import Store
+
+logger = get_logger(__name__)
+
+
+# Tune empirically. Start here:
+NEAR_DUPLICATE_COSINE = 0.92
+TOPIC_ASSIGNMENT_COSINE = 0.35   # loose — we just need a rough topic label
+
+
+def _cosine(a: np.ndarray, b: np.ndarray) -> float:
+    denom = (np.linalg.norm(a) * np.linalg.norm(b)) or 1e-9
+    return float(np.dot(a, b) / denom)
+
+
+@dataclass
+class EnrichmentResult:
+    event_id: str
+    was_duplicate_of: Optional[str]     # ID of the event we collapsed into
+    topic_hint: Optional[str]           # assigned topic (or None)
+
+
+def enrich_event(store: Store, event: CurrentEvent, *, now: Optional[datetime] = None) -> EnrichmentResult:
+    """Embed, check for near-duplicates in the last 24h, assign topic hint, persist."""
+    now = now or datetime.now(timezone.utc)
+    if event.embedding is not None:
+        logger.info("enrich_skip_already_enriched", event_id=event.id)
+        return EnrichmentResult(event.id, None, event.topic_hint)
+
+    vec = np.asarray(embed_text(event.raw_text), dtype=np.float32)
+
+    # 1. Near-duplicate check against recent events
+    lookback = now - timedelta(hours=24)
+    recent_ids = store.list_current_event_ids(since=lookback, limit=500)
+    for other_id in recent_ids:
+        if other_id == event.id:
+            continue
+        other = store.get_current_event(other_id)
+        if other is None or other.embedding is None:
+            continue
+        sim = _cosine(vec, np.asarray(other.embedding, dtype=np.float32))
+        if sim >= NEAR_DUPLICATE_COSINE:
+            store.update_current_event_status(
+                event.id,
+                CurrentEventStatus.SUPPRESSED,
+                reason=f"near_duplicate_of:{other_id}",
+            )
+            logger.info("enrich_near_duplicate", event_id=event.id, of=other_id, sim=sim)
+            return EnrichmentResult(event.id, other_id, other.topic_hint)
+
+    # 2. Topic assignment — nearest Topic centroid (if Topics have embeddings)
+    topic_hint = _assign_topic_hint(store, vec)
+
+    # 3. Persist embedding + topic hint
+    store.set_current_event_topic_and_embedding(event.id, topic_hint=topic_hint or "", embedding=vec.tolist())
+    logger.info("enrich_ok", event_id=event.id, topic=topic_hint)
+    return EnrichmentResult(event.id, None, topic_hint)
+
+
+def _assign_topic_hint(store: Store, event_vec: np.ndarray) -> Optional[str]:
+    """Return the nearest Topic's label if similarity exceeds threshold, else None.
+
+    If Topics don't carry precomputed centroid embeddings in your store,
+    fall back to embedding the topic label on the fly and caching for the run.
+    """
+    topics = _load_topics_with_embeddings(store)
+    if not topics:
+        return None
+    best_label = None
+    best_sim = -1.0
+    for label, tvec in topics:
+        sim = _cosine(event_vec, tvec)
+        if sim > best_sim:
+            best_sim = sim
+            best_label = label
+    return best_label if best_sim >= TOPIC_ASSIGNMENT_COSINE else None
+
+
+def _load_topics_with_embeddings(store: Store) -> list[tuple[str, np.ndarray]]:
+    """Return (topic_label, embedding) pairs. Cache within a single ingestion pass
+    if this becomes a hot path — for now, load each call since Topics are small."""
+    # Implement based on how Topics are stored. If Topics don't exist or have no
+    # embeddings, fall back to embedding existing Conclusion.topicHint labels, deduped.
+    ...
+```
+
+If `Topic` rows with stored embeddings don't exist, fall back to: collect the distinct `topicHint` strings from existing `Conclusion` rows, embed each label once, and use those as the target set. Cache per-process.
+
+### 2. `relevance.py` — the abstention gate
+
+```python
+from __future__ import annotations
+
+from dataclasses import dataclass
+from typing import Optional
+
+from noosphere.currents.retrieval_adapter import retrieve_for_event  # defined in prompt 04
+from noosphere.models import CurrentEvent, CurrentEventStatus
+from noosphere.observability import get_logger
+from noosphere.store import Store
+
+logger = get_logger(__name__)
+
+# Tune empirically.
+MIN_SOURCES_FOR_OPINION = 2
+MIN_TOP_SCORE = 0.55
+
+
+@dataclass
+class RelevanceResult:
+    event_id: str
+    passed: bool
+    reason: Optional[str]
+    sources_found: int
+    top_score: float
+
+
+def check_relevance(store: Store, event: CurrentEvent) -> RelevanceResult:
+    if event.status != CurrentEventStatus.OBSERVED:
+        return RelevanceResult(event.id, False, f"skipped_status:{event.status.value}", 0, 0.0)
+    if event.embedding is None:
+        return RelevanceResult(event.id, False, "skipped_no_embedding", 0, 0.0)
+
+    hits = retrieve_for_event(store, event)   # stub interface — real impl in prompt 04
+    if len(hits) < MIN_SOURCES_FOR_OPINION or (hits and hits[0].score < MIN_TOP_SCORE):
+        store.update_current_event_status(
+            event.id,
+            CurrentEventStatus.ABSTAINED,
+            reason="no_sources_above_threshold",
+        )
+        logger.info("relevance_abstain", event_id=event.id, hits=len(hits),
+                    top_score=(hits[0].score if hits else 0.0))
+        return RelevanceResult(event.id, False, "no_sources_above_threshold",
+                               len(hits), hits[0].score if hits else 0.0)
+
+    return RelevanceResult(event.id, True, None, len(hits), hits[0].score)
+```
+
+`retrieve_for_event` is defined in prompt 04. For THIS prompt, add a temporary shim at `noosphere/noosphere/currents/retrieval_adapter.py` with the function signature and a `NotImplementedError` body — the tests in this prompt monkeypatch it. Prompt 04 will replace the shim with a real implementation.
+
+```python
+# retrieval_adapter.py — SHIM for prompt 03; real implementation in prompt 04.
+
+from dataclasses import dataclass
+from typing import Sequence
+
+from noosphere.models import CurrentEvent
+from noosphere.store import Store
+
+
+@dataclass(frozen=True)
+class EventRetrievalHit:
+    source_kind: str        # "conclusion" or "claim"
+    source_id: str
+    text: str
+    score: float
+
+
+def retrieve_for_event(store: Store, event: CurrentEvent) -> Sequence[EventRetrievalHit]:
+    raise NotImplementedError("Replaced by prompt 04")
+```
+
+### 3. Expose in `__init__.py`
+
+```python
+from noosphere.currents.enrich import enrich_event, EnrichmentResult
+from noosphere.currents.relevance import check_relevance, RelevanceResult
+from noosphere.currents.x_ingestor import ingest_once
+
+__all__ = ["enrich_event", "EnrichmentResult", "check_relevance", "RelevanceResult", "ingest_once"]
+```
+
+### 4. Tests
+
+`tests/test_currents_enrich.py`:
+
+- `test_enrich_writes_embedding_and_topic` — seed a single event, monkeypatch `embed_text` to return a fixed vector, assert embedding persisted and topic_hint assigned (mock Topics).
+- `test_enrich_collapses_near_duplicate` — seed event A with vector v; ingest event B with vector v * 0.99 + small noise; assert B gets status `SUPPRESSED` with reason `near_duplicate_of:A.id`.
+- `test_enrich_keeps_distinct_events_separate` — ingest event A with vector [1,0,0]; event B with vector [0,1,0]; both stay `OBSERVED`.
+- `test_topic_hint_none_when_no_topic_above_threshold` — monkeypatch topics to return only unrelated embeddings; `topic_hint` is `None` (or empty-string, per store contract).
+
+`tests/test_currents_relevance.py`:
+
+- `test_abstains_when_no_sources` — monkeypatch `retrieve_for_event` to return `[]`; event moves to `ABSTAINED`, reason `no_sources_above_threshold`.
+- `test_abstains_when_top_score_too_low` — monkeypatch to return 3 hits all < 0.5; abstains.
+- `test_abstains_when_too_few_sources` — monkeypatch to return 1 hit of 0.9; abstains (below `MIN_SOURCES_FOR_OPINION`).
+- `test_passes_when_sufficient_sources` — return 2 hits, top score 0.7; event stays `OBSERVED`, `passed=True`.
+- `test_relevance_skips_events_without_embedding` — event has `embedding=None` (shouldn't happen post-enrich, but defense-in-depth); `passed=False`, reason `skipped_no_embedding`, status unchanged.
+
+## Verification
+
+```bash
+cd noosphere
+pytest tests/test_currents_enrich.py tests/test_currents_relevance.py -q
+python -c "from noosphere.currents import enrich_event, check_relevance, ingest_once; print('ok')"
+```
+
+## Prohibitions
+
+- Do NOT call the real embedding model in tests — monkeypatch `embed_text`.
+- Do NOT implement `retrieve_for_event` here — that's prompt 04. Keep the shim.
+- Do NOT lower `MIN_SOURCES_FOR_OPINION` below 2. Single-citation opinions look confident-but-unsupported and violate design invariant #1.
+- Do NOT set `NEAR_DUPLICATE_COSINE` below 0.88 — you'll start collapsing related-but-distinct events.
+- Do NOT silently swallow embed failures. Let them raise so the scheduler (prompt 15) can back off.
+
+Do not proceed to any other work. Do not edit anything outside SCOPE.

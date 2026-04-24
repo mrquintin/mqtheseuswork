@@ -1,0 +1,91 @@
+# Claude Code Prompt 8 of 25 — UX: show source uploads in the conclusion Overview tab
+
+**Sequence:** prompt 8 of 25 (Wave 3 — independent of prompts 07, 09–11). When you finish, report back with: files you created/modified, any notable choices, any blockers.
+
+**Before you start — read current state:**
+1. Read `theseus-codex/src/app/(authed)/conclusions/[id]/page.tsx` — note the OverviewTab component.
+2. Read `theseus-codex/prisma/schema.prisma` — note the `ConclusionSource` bridge model (many-to-many between `Conclusion` and `Upload`).
+3. Check how the conclusion detail page queries the conclusion — note it does NOT currently include `sources`.
+
+## The problem
+
+Every conclusion was extracted from one or more uploaded documents (via the `ConclusionSource` bridge table). The Overview tab shows the conclusion text, rationale, and counts of supporting principles — but never shows WHERE the conclusion came from. The user has no way to trace a conclusion back to its source material.
+
+## Your task
+
+Add a "Sources" section to the Overview tab that lists the uploads this conclusion was extracted from, with links to view each source document.
+
+## SCOPE (files you may modify — stay within this list)
+- `theseus-codex/src/app/(authed)/conclusions/[id]/page.tsx`    MODIFY
+
+## Step-by-step
+
+1. **Expand the conclusion query** to include source uploads. Update the `findFirst` (or `findUnique`) query to include the ConclusionSource bridge and the related Upload:
+   ```typescript
+   include: {
+     attributedFounder: true,
+     organization: true,
+     sources: {
+       include: {
+         upload: {
+           select: { id: true, title: true, sourceType: true, createdAt: true, founderId: true },
+         },
+       },
+       orderBy: { createdAt: "desc" },
+     },
+   },
+   ```
+
+2. **Pass the sources to OverviewTab.** Add a `sources` prop:
+   ```typescript
+   sources: conclusion.sources.map((cs) => ({
+     uploadId: cs.upload.id,
+     title: cs.upload.title,
+     sourceType: cs.upload.sourceType,
+     linkedAt: cs.createdAt,
+   }))
+   ```
+
+3. **Render a Sources section** in the OverviewTab, below the existing content (below the MetaBlocks or the expanded sections from prompt 07). Style it consistently:
+   ```tsx
+   {sources.length > 0 && (
+     <div>
+       <div style={{
+         fontFamily: "'Cinzel', serif",
+         fontSize: "0.6rem",
+         letterSpacing: "0.15em",
+         textTransform: "uppercase",
+         color: "var(--parchment-dim)",
+         marginBottom: "0.5rem",
+       }}>
+         Source documents
+       </div>
+       {sources.map((s) => (
+         <Link
+           key={s.uploadId}
+           href={`/library?upload=${s.uploadId}`}
+           style={{
+             display: "block",
+             padding: "0.4rem 0.75rem",
+             borderLeft: "2px solid var(--gold-dim)",
+             marginBottom: "0.25rem",
+             color: "var(--parchment)",
+             textDecoration: "none",
+             fontSize: "0.85rem",
+           }}
+         >
+           {s.title}
+           <span style={{ fontSize: "0.65rem", color: "var(--parchment-dim)", marginLeft: "0.5rem" }}>
+             {s.sourceType}
+           </span>
+         </Link>
+       ))}
+     </div>
+   )}
+   ```
+
+4. **Check that the library link pattern is correct.** Read the library page to understand how upload detail URLs work. Adjust the `href` if the library uses a different URL structure (e.g., `/library/[id]` vs `/library?upload=[id]`).
+
+5. **Do NOT change** the header, tabs, or other tab components. Only modify the OverviewTab and the data fetching.
+
+Do not proceed to any other work. Do not edit anything outside SCOPE.

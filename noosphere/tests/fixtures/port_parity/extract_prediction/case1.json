@@ -1,0 +1,8 @@
+{
+  "claim_text": "AI-driven drug discovery will cut average Phase I trial timelines by 40% within 3 years, probably by 2027.",
+  "claim_id": "claim_pred_001",
+  "claim_type": "predictive",
+  "confidence_hedges": ["probably"],
+  "speaker_name": "Test Founder",
+  "artifact_id": "artifact_001"
+}

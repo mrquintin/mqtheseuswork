@@ -1,0 +1,156 @@
+# Claude Code Prompt 8 of 12 — Contradictions: overall UI layout and usability overhaul
+
+**Sequence:** prompt 8 of 12 (Wave 3 — contradictions overhaul; apply AFTER prompts 06 and 07). When you finish, report back with: files you created/modified, any notable choices, any blockers.
+
+**Before you start — read current state:**
+1. Read `theseus-codex/src/app/(authed)/contradictions/page.tsx` — the full file AFTER prompts 06 and 07 have been applied. Those prompts added claim text resolution and layer breakdown display.
+2. Read `theseus-codex/src/app/(authed)/dashboard/page.tsx` — observe the visual style, card patterns, typography, and UI conventions used across the portal.
+3. Read `theseus-codex/src/app/globals.css` — understand the available CSS variables (`--gold`, `--ember`, `--parchment`, `--stone-mid`, etc.) and utility classes (`portal-card`, `ascii-frame`, `mono`, `btn`, etc.).
+
+## The problem
+
+The contradictions page is a flat, unstyled list of `<details>` elements with minimal visual hierarchy. The founder called it "extremely messy." Even after prompts 06–07 fix the content (claim text + layer explanations), the page still needs structural and visual improvements:
+
+1. No page header explanation of what contradictions are or why they matter.
+2. No severity filtering or grouping — all 50 contradictions appear in a single flat list.
+3. No visual distinction between high-severity (genuine concern) and low-severity (minor tension) contradictions.
+4. The `<details>` expand/collapse pattern is functional but provides no visual affordance.
+5. No connection back to the conclusions that are in tension — no links to navigate to the individual conclusion detail pages.
+
+## SCOPE (files you may modify — stay within this list)
+- `theseus-codex/src/app/(authed)/contradictions/page.tsx`    MODIFY
+
+## Step-by-step
+
+1. **Add a page introduction** below the title, matching the portal's Garamond + parchment style:
+   ```tsx
+   <p style={{
+     fontFamily: "'EB Garamond', serif",
+     fontStyle: "italic",
+     fontSize: "1rem",
+     color: "var(--parchment-dim)",
+     maxWidth: "44em",
+     lineHeight: 1.55,
+     marginBottom: "1.5rem",
+   }}>
+     Contradictions surface when two conclusions in the model are in
+     tension — they resist being held simultaneously. Each is scored by
+     six independent coherence layers. High severity means the model is
+     confident these claims genuinely conflict.
+   </p>
+   ```
+
+2. **Group contradictions by severity band.** Define three bands:
+   - **Critical** (severity ≥ 0.7): genuine contradictions requiring resolution
+   - **Notable** (severity ≥ 0.4 and < 0.7): tensions worth reviewing
+   - **Minor** (severity < 0.4): weak signals, possibly false positives
+
+   Render each group under its own `ascii-frame` section header:
+   ```tsx
+   const critical = rows.filter((r) => r.severity >= 0.7);
+   const notable = rows.filter((r) => r.severity >= 0.4 && r.severity < 0.7);
+   const minor = rows.filter((r) => r.severity < 0.4);
+   ```
+
+   ```tsx
+   {critical.length > 0 && (
+     <section className="ascii-frame" data-label={`CRITICAL · ${critical.length}`}
+       style={{ marginBottom: "1.5rem" }}>
+       {/* render critical rows */}
+     </section>
+   )}
+   {notable.length > 0 && (
+     <section className="ascii-frame" data-label={`NOTABLE · ${notable.length}`}
+       style={{ marginBottom: "1.5rem" }}>
+       {/* render notable rows */}
+     </section>
+   )}
+   {minor.length > 0 && (
+     <section className="ascii-frame" data-label={`MINOR · ${minor.length}`}>
+       {/* render minor rows */}
+     </section>
+   )}
+   ```
+
+3. **Improve each contradiction card.** Replace the bare `<details>` with `portal-card` styling. The summary should show:
+   - A left-border color based on severity (ember for critical, amber for notable, parchment-dim for minor)
+   - The severity percentage as a prominent number
+   - The two claim texts (truncated to ~120 chars in the summary)
+   - A subtle "expand" chevron indicator
+
+   ```tsx
+   <li key={c.id} className="portal-card" style={{
+     padding: 0,
+     overflow: "hidden",
+     borderLeft: `3px solid ${
+       c.severity >= 0.7 ? "var(--ember)" :
+       c.severity >= 0.4 ? "var(--amber)" :
+       "var(--parchment-dim)"
+     }`,
+   }}>
+   ```
+
+4. **Add links to individual conclusion pages** in the expanded details. After showing each claim's full text, add a link:
+   ```tsx
+   <Link href={`/conclusions/${c.claimAId}`} style={{
+     fontSize: "0.65rem",
+     color: "var(--gold)",
+     textDecoration: "none",
+   }}>
+     View conclusion →
+   </Link>
+   ```
+
+5. **Add a summary stat bar** at the top of the page showing:
+   ```tsx
+   <div style={{
+     display: "flex",
+     gap: "1.5rem",
+     marginBottom: "1.5rem",
+     fontSize: "0.8rem",
+   }}>
+     <span style={{ color: "var(--ember)" }}>
+       {critical.length} critical
+     </span>
+     <span style={{ color: "var(--amber)" }}>
+       {notable.length} notable
+     </span>
+     <span style={{ color: "var(--parchment-dim)" }}>
+       {minor.length} minor
+     </span>
+     <span className="mono" style={{
+       fontSize: "0.65rem",
+       color: "var(--parchment-dim)",
+       marginLeft: "auto",
+     }}>
+       {rows.length} total
+     </span>
+   </div>
+   ```
+
+6. **Handle empty state** with a Latin-styled message matching the dashboard pattern:
+   ```tsx
+   {rows.length === 0 && (
+     <div style={{ padding: "2rem", textAlign: "center" }}>
+       <p style={{
+         fontFamily: "'EB Garamond', serif",
+         fontStyle: "italic",
+         fontSize: "1rem",
+         color: "var(--parchment)",
+       }}>
+         Concordia regnat.
+       </p>
+       <p className="mono" style={{
+         fontSize: "0.7rem",
+         color: "var(--parchment-dim)",
+         marginTop: "0.25rem",
+       }}>
+         No contradictions detected — the model is internally coherent.
+       </p>
+     </div>
+   )}
+   ```
+
+7. **Do NOT change** the CoherenceRadar, the LayerBreakdown (from prompt 07), the TemporalReplayBar, or any Noosphere code. This prompt is purely a UI/layout improvement to the contradictions page.
+
+Do not proceed to any other work. Do not edit anything outside SCOPE.

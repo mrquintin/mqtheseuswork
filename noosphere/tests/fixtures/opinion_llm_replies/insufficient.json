@@ -1,0 +1,8 @@
+{
+  "stance": "insufficient",
+  "confidence": 0.1,
+  "headline": "Theseus has no informed position on this event.",
+  "body_markdown": "The firm's existing Noosphere does not contain material that substantively bears on this announcement.",
+  "uncertainty_notes": ["No aligned conclusions.", "No aligned firm-belief claims."],
+  "citations": []
+}

@@ -1,0 +1,101 @@
+# Claude Code Prompt 1 of 12 — Ingestion: filter out non-author content (prompts, questions, debate positions)
+
+**Sequence:** prompt 1 of 12 (Wave 1 — independent of prompt 02). When you finish, report back with: files you created/modified, any notable choices, any blockers.
+
+**Before you start — read current state:**
+1. Read `noosphere/noosphere/claim_extractor.py` — the LLM-backed ClaimExtractor that uses Claude to extract claims from Chunks. Note the system prompt on line 62 and the `claim_origin` parameter.
+2. Read `noosphere/noosphere/ingester.py` — the TranscriptIngester and its ClaimExtractor (a different, older version). Note the batch extraction prompt on line 357.
+3. Read `noosphere/noosphere/models.py` — find the `ClaimOrigin` enum (FOUNDER, LITERATURE, ADVERSARIAL, VOICE, SYSTEM) and the `Claim` model.
+4. Read `noosphere/noosphere/orchestrator.py` — understand how ingestion is orchestrated and which extractor is used.
+5. Read `noosphere/noosphere/codex_bridge.py` — understand how claims flow from Noosphere into the Codex database as Conclusions.
+6. Read `noosphere/noosphere/methods/extract_claims.py` — the method-registry version of claim extraction.
+
+## The problem
+
+When a founder uploads content to the Codex, the ingestion pipeline extracts "claims" — atomic truth-apt propositions — and stores them as conclusions. But the extraction is indiscriminate: it treats ALL text as the founder's own position. This means:
+
+1. **Questions asked TO the founder** (e.g., interview prompts, debate challenges) get extracted as if they are the founder's conclusions. If a prompt says "Isn't your position wrong because X?", the system may extract "the position is wrong because X" as a founder conclusion.
+
+2. **Debate positions contrary to the founder** get extracted as founder claims. If the text contains a counterargument the founder is responding to, that counterargument may be extracted alongside the founder's actual response, creating false contradictions.
+
+3. **Quoted or paraphrased external positions** that the founder is analyzing or criticizing get treated as the founder's own views.
+
+This is catastrophic for an epistemic system — it pollutes the founder's belief model with positions they may actively disagree with, and generates spurious contradictions between the founder's actual views and the external content misattributed to them.
+
+## Your task
+
+Modify the claim extraction pipeline so that it distinguishes between:
+- **Founder assertions**: Claims the author is actually endorsing or asserting
+- **External content**: Questions, prompts, debate positions, quoted opposing views, paraphrased challenges
+
+External content should either be excluded from extraction entirely or extracted with `claim_origin=ClaimOrigin.EXTERNAL` (you'll need to add this enum value) so downstream systems can filter it out.
+
+## SCOPE (files you may create or modify — stay within this list)
+- `noosphere/noosphere/models.py`                              MODIFY (add EXTERNAL to ClaimOrigin if needed)
+- `noosphere/noosphere/claim_extractor.py`                     MODIFY (primary target — the Chunk-based extractor)
+- `noosphere/noosphere/ingester.py`                            MODIFY (the TranscriptIngester's older ClaimExtractor)
+- `noosphere/noosphere/methods/extract_claims.py`              MODIFY (if it has its own extraction prompt)
+
+## Step-by-step
+
+1. **Add `EXTERNAL` to ClaimOrigin** in `models.py` if it doesn't already exist:
+   ```python
+   class ClaimOrigin(str, Enum):
+       FOUNDER = "founder"
+       EXTERNAL = "external"     # ← ADD THIS
+       LITERATURE = "literature"
+       ADVERSARIAL = "adversarial"
+       VOICE = "voice"
+       SYSTEM = "system"
+   ```
+
+2. **Rewrite the system prompt in `claim_extractor.py`** (the Chunk-based extractor, line 62). The current prompt is:
+   ```
+   "You extract atomic truth-apt claims from a text chunk."
+   ```
+   Replace it with a prompt that instructs the LLM to classify each claim's attribution:
+   ```python
+   system = (
+       "You extract atomic truth-apt claims from a text chunk. "
+       "CRITICAL: You must distinguish between claims the AUTHOR is asserting "
+       "and claims from external sources (interview questions, debate prompts, "
+       "quoted opposing views, paraphrased challenges, rhetorical questions). "
+       "Only extract claims the author is genuinely endorsing or asserting as their own position. "
+       "Do NOT extract: (1) questions asked TO the author, (2) positions the author is arguing AGAINST, "
+       "(3) prompts or challenges the author is responding to, (4) hypothetical positions the author "
+       "raises only to refute. "
+       "If the text is a response to a prompt or question, focus ONLY on the author's response, "
+       "not the prompt itself. "
+       "Reply with JSON only matching schema: "
+       '{"claims":[{"text":str,"type":"empirical|normative|methodological|'
+       'predictive|definitional","confidence_hedges":[str],"evidence_pointers":[str],'
+       '"is_author_assertion":bool}]}'
+   )
+   ```
+
+3. **Update the JSON response parsing** in `claim_extractor.py` to check `is_author_assertion`. In `ClaimExtractionItem`, add:
+   ```python
+   is_author_assertion: bool = True  # default True for backward compat
+   ```
+   In `_to_claims`, filter or tag based on this field:
+   ```python
+   origin = claim_origin if item.is_author_assertion else ClaimOrigin.EXTERNAL
+   ```
+   Pass `claim_origin=origin` when constructing each Claim.
+
+4. **Apply the same fix to `ingester.py`'s `_call_claude_for_batch`** (the TranscriptIngester's older extraction path). Update its prompt (line 357) with similar instructions to exclude non-author content. Update `_parse_claude_response` to handle the `is_author_assertion` field.
+
+5. **Update `methods/extract_claims.py`** if it has its own extraction prompt — apply the same author-attribution filtering.
+
+6. **Downstream filtering.** Check `noosphere/noosphere/codex_bridge.py` or wherever claims become Codex Conclusions. If `ClaimOrigin.EXTERNAL` claims should NOT become Conclusions at all, add a filter:
+   ```python
+   if claim.claim_origin == ClaimOrigin.EXTERNAL:
+       continue  # skip — not a founder assertion
+   ```
+   If they should be stored but marked differently, ensure the `claim_origin` field propagates to the Conclusion record.
+
+7. **Do NOT change** the coherence engine, the contradiction detection, the peer review system, or any UI code. This prompt is exclusively about the extraction pipeline.
+
+8. **Verify** by reading all modified files and confirming that every extraction path now instructs the LLM to distinguish author assertions from external content.
+
+Do not proceed to any other work. Do not edit anything outside SCOPE.

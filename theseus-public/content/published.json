@@ -1,0 +1,184 @@
+{
+  "schema": "theseus.publishedExport.v1",
+  "generatedAt": "2026-04-14T00:00:00.000Z",
+  "conclusions": [
+    {
+      "id": "pub_demo_1_v1",
+      "slug": "institutions-encode-information-not-just-incentives",
+      "version": 1,
+      "sourceConclusionId": "c_demo_1",
+      "publishedAt": "2026-04-01T12:00:00.000Z",
+      "doi": "10.5281/zenodo.preview.demo1",
+      "zenodoRecordId": "",
+      "discountedConfidence": 0.62,
+      "statedConfidence": 0.78,
+      "calibrationDiscountReason": "This domain has limited resolved calibration history; headline confidence is discounted per the scoreboard.",
+      "payload": {
+        "schema": "theseus.publicConclusion.v1",
+        "conclusionText": "Institutions encode information—not only incentives—and reform should be evaluated on epistemic grounds as well as efficiency.",
+        "rationale": "Synthesized from internal deliberation; illustrative public bundle row.",
+        "topicHint": "institutions",
+        "evidenceSummary": "Cross-episode claim chains link incentive stories to error-correction structures; adversarial challenges on reductionism were engaged and answered with explicit mechanisms.",
+        "exitConditions": [
+          "A large natural experiment shows institution design has no measurable effect on collective belief accuracy under preregistered criteria.",
+          "A better explanatory model fits the same episodes without an information-encoding channel."
+        ],
+        "strongestObjection": {
+          "objection": "Incentive compatibility might fully explain observed institutional persistence; the 'information' channel may be redundant.",
+          "firmAnswer": "We treat redundancy as an empirical question: the model stays until a tighter incentive-only account predicts the same fine-grained update patterns across cases."
+        },
+        "openQuestionsAdjacent": [
+          "How should the firm score 'belief accuracy' outcomes in messy real institutions?"
+        ],
+        "voiceComparisons": [
+          { "voice": "Hayek", "stance": "Converges on dispersed knowledge; diverges on how much formal design can improve epistemic routing." }
+        ],
+        "timeline": [{ "at": "2026-04-01T12:00:00.000Z", "label": "Initial publication" }],
+        "whatWouldChangeOurMind": [
+          "A large natural experiment shows institution design has no measurable effect on collective belief accuracy under preregistered criteria.",
+          "A better explanatory model fits the same episodes without an information-encoding channel."
+        ],
+        "citations": [
+          {
+            "format": "bibtex",
+            "block": "@misc{theseus_institutions_v1,\n  title={Institutions encode information—not only incentives},\n  author={{Theseus}},\n  year={2026},\n  doi={10.5281/zenodo.preview.demo1},\n  url={https://theseus.invalid/c/institutions-encode-information-not-just-incentives/v/1}\n}"
+          },
+          {
+            "format": "apa",
+            "block": "Theseus (2026). Institutions encode information—not only incentives. https://theseus.invalid/c/institutions-encode-information-not-just-incentives/v/1 https://doi.org/10.5281/zenodo.preview.demo1"
+          },
+          {
+            "format": "ris",
+            "block": "TY  - GEN\nAU  - Theseus\nTI  - Institutions encode information—not only incentives\nDO  - 10.5281/zenodo.preview.demo1\nUR  - https://theseus.invalid/c/institutions-encode-information-not-just-incentives/v/1\nPY  - 2026\nER  -\n"
+          }
+        ]
+      }
+    },
+    {
+      "id": "pub_demo_1_v2",
+      "slug": "institutions-encode-information-not-just-incentives",
+      "version": 2,
+      "sourceConclusionId": "c_demo_1",
+      "publishedAt": "2026-04-10T15:30:00.000Z",
+      "doi": "10.5281/zenodo.preview.demo1b",
+      "zenodoRecordId": "",
+      "discountedConfidence": 0.58,
+      "statedConfidence": 0.78,
+      "calibrationDiscountReason": "Calibration discount widened slightly after new unresolved adjacent questions were registered.",
+      "payload": {
+        "schema": "theseus.publicConclusion.v1",
+        "conclusionText": "Institutions encode information—not only incentives—and reform should be evaluated on epistemic grounds as well as efficiency.",
+        "rationale": "Revision tightens scope: applies primarily to contested coordination environments.",
+        "topicHint": "institutions",
+        "evidenceSummary": "Same core evidence; v2 adds explicit scope boundary and refines the adversarial response after new counterexamples were reviewed.",
+        "exitConditions": [
+          "A large natural experiment shows institution design has no measurable effect on collective belief accuracy under preregistered criteria.",
+          "A better explanatory model fits the same episodes without an information-encoding channel.",
+          "A preregistered replication fails to reproduce the cross-episode update pattern used as supporting evidence."
+        ],
+        "strongestObjection": {
+          "objection": "The 'information encoding' claim may collapse into a relabeling of incentive structures.",
+          "firmAnswer": "We operationalize 'encoding' as constraints on belief updates that are not reducible to private payoff shifts; v2 cites the concrete update tests used."
+        },
+        "openQuestionsAdjacent": [
+          "How should the firm score 'belief accuracy' outcomes in messy real institutions?",
+          "Which institution designs admit clean counterfactuals for public testing?"
+        ],
+        "voiceComparisons": [
+          { "voice": "Hayek", "stance": "Converges on dispersed knowledge; diverges on how much formal design can improve epistemic routing." },
+          { "voice": "Habermas", "stance": "Converges on legitimacy-as-communication; diverges on how much structure is compatible with authentic deliberation." }
+        ],
+        "timeline": [
+          { "at": "2026-04-01T12:00:00.000Z", "label": "Initial publication" },
+          { "at": "2026-04-10T15:30:00.000Z", "label": "Revision v2", "detail": "Tightened scope; expanded exit conditions." }
+        ],
+        "whatWouldChangeOurMind": [
+          "A large natural experiment shows institution design has no measurable effect on collective belief accuracy under preregistered criteria.",
+          "A better explanatory model fits the same episodes without an information-encoding channel.",
+          "A preregistered replication fails to reproduce the cross-episode update pattern used as supporting evidence."
+        ],
+        "citations": [
+          {
+            "format": "bibtex",
+            "block": "@misc{theseus_institutions_v2,\n  title={Institutions encode information—not only incentives},\n  author={{Theseus}},\n  year={2026},\n  doi={10.5281/zenodo.preview.demo1b},\n  url={https://theseus.invalid/c/institutions-encode-information-not-just-incentives/v/2}\n}"
+          },
+          {
+            "format": "apa",
+            "block": "Theseus (2026). Institutions encode information—not only incentives. https://theseus.invalid/c/institutions-encode-information-not-just-incentives/v/2 https://doi.org/10.5281/zenodo.preview.demo1b"
+          },
+          {
+            "format": "ris",
+            "block": "TY  - GEN\nAU  - Theseus\nTI  - Institutions encode information—not only incentives\nDO  - 10.5281/zenodo.preview.demo1b\nUR  - https://theseus.invalid/c/institutions-encode-information-not-just-incentives/v/2\nPY  - 2026\nER  -\n"
+          }
+        ]
+      }
+    },
+    {
+      "id": "pub_demo_2_v1",
+      "slug": "methodological-discipline-is-the-product",
+      "version": 1,
+      "sourceConclusionId": "c_demo_2",
+      "publishedAt": "2026-04-05T09:00:00.000Z",
+      "doi": "10.5281/zenodo.preview.demo2",
+      "zenodoRecordId": "",
+      "discountedConfidence": 0.7,
+      "statedConfidence": 0.72,
+      "calibrationDiscountReason": "Small discount: stated confidence already modest and domain calibration is thin but not hostile.",
+      "payload": {
+        "schema": "theseus.publicConclusion.v1",
+        "conclusionText": "For this firm, methodological discipline is itself the product: public standing should track demonstrated process, not episodic visibility.",
+        "rationale": "Illustrative bundle row for the public site proof.",
+        "topicHint": "method",
+        "evidenceSummary": "Internal scoreboard + publication policy commitments reduce overconfidence incentives; adversarial engagement is treated as a gate, not theater.",
+        "exitConditions": [
+          "A sustained period of public predictions shows calibration materially worse than the internal ledger without corrective updates.",
+          "External audit finds systematic mismatch between published claims and internal evidence trails."
+        ],
+        "strongestObjection": {
+          "objection": "Process obsession can crowd out object-level truth seeking.",
+          "firmAnswer": "Process here is instrumental: it is judged by whether it increases the rate of correct updates on falsifiable claims over time."
+        },
+        "openQuestionsAdjacent": [
+          "What public metrics best proxy 'demonstrated discipline' without gamification?"
+        ],
+        "voiceComparisons": [{ "voice": "Popper", "stance": "Converges on error correction as central; diverges on institutionalization details." }],
+        "timeline": [{ "at": "2026-04-05T09:00:00.000Z", "label": "Initial publication" }],
+        "whatWouldChangeOurMind": [
+          "A sustained period of public predictions shows calibration materially worse than the internal ledger without corrective updates.",
+          "External audit finds systematic mismatch between published claims and internal evidence trails."
+        ],
+        "citations": [
+          {
+            "format": "bibtex",
+            "block": "@misc{theseus_methodproduct_v1,\n  title={Methodological discipline is the product},\n  author={{Theseus}},\n  year={2026},\n  doi={10.5281/zenodo.preview.demo2},\n  url={https://theseus.invalid/c/methodological-discipline-is-the-product/v/1}\n}"
+          },
+          {
+            "format": "apa",
+            "block": "Theseus (2026). Methodological discipline is the product. https://theseus.invalid/c/methodological-discipline-is-the-product/v/1 https://doi.org/10.5281/zenodo.preview.demo2"
+          },
+          {
+            "format": "ris",
+            "block": "TY  - GEN\nAU  - Theseus\nTI  - Methodological discipline is the product\nDO  - 10.5281/zenodo.preview.demo2\nUR  - https://theseus.invalid/c/methodological-discipline-is-the-product/v/1\nPY  - 2026\nER  -\n"
+          }
+        ]
+      }
+    }
+  ],
+  "openQuestions": [
+    {
+      "id": "oq_demo_1",
+      "summary": "When two principles conflict under partial observability, which layer should dominate for firm-tier publication?",
+      "unresolvedReason": "Meta-analysis flags unresolved tension between severity and closure criteria in this cluster.",
+      "layerDisagreementSummary": "NLI and judge disagree on whether the contradiction is substantive or linguistic.",
+      "createdAt": "2026-03-20T10:00:00.000Z"
+    },
+    {
+      "id": "oq_demo_2",
+      "summary": "How to operationalize 'belief accuracy' for institutions without clean counterfactuals?",
+      "unresolvedReason": "No agreed measurement protocol yet; competing operationalizations survive adversarial review.",
+      "layerDisagreementSummary": "Evidence aggregation differs on what counts as a successful prediction.",
+      "createdAt": "2026-03-22T16:00:00.000Z"
+    }
+  ],
+  "responses": []
+}

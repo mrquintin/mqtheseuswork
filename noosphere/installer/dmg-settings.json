@@ -1,0 +1,14 @@
+{
+  "title": "Noosphere CLI",
+  "icon": "../assets/Noosphere.icns",
+  "background-color": "#141e3c",
+  "icon-size": 100,
+  "contents": [
+    { "x": 150, "y": 190, "type": "file", "path": "../dist/noosphere" },
+    { "x": 450, "y": 190, "type": "link", "path": "/usr/local/bin" }
+  ],
+  "window": {
+    "position": { "x": 200, "y": 120 },
+    "size": { "width": 500, "height": 350 }
+  }
+}

@@ -1,0 +1,36 @@
+{
+  "alpha_sweep": {
+    "1.0": {
+      "exact_hit_rate": 0.8,
+      "top3_hit_rate": 0.9285714285714286,
+      "mean_cosine_with_target": 0.6451451182365417,
+      "std_cosine_with_target": 0.178579643368721
+    },
+    "2.0": {
+      "exact_hit_rate": 0.8428571428571429,
+      "top3_hit_rate": 0.9285714285714286,
+      "mean_cosine_with_target": 0.6303987503051758,
+      "std_cosine_with_target": 0.17363807559013367
+    },
+    "3.0": {
+      "exact_hit_rate": 0.8285714285714286,
+      "top3_hit_rate": 0.9142857142857143,
+      "mean_cosine_with_target": 0.5981853008270264,
+      "std_cosine_with_target": 0.1740322858095169
+    },
+    "5.0": {
+      "exact_hit_rate": 0.7142857142857143,
+      "top3_hit_rate": 0.9,
+      "mean_cosine_with_target": 0.5315987467765808,
+      "std_cosine_with_target": 0.18411582708358765
+    },
+    "8.0": {
+      "exact_hit_rate": 0.5571428571428572,
+      "top3_hit_rate": 0.7,
+      "mean_cosine_with_target": 0.4544314444065094,
+      "std_cosine_with_target": 0.19327370822429657
+    }
+  },
+  "c_hat_method": "mean_direction",
+  "best_alpha": 1.0
+}

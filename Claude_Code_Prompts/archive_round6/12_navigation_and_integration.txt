@@ -1,0 +1,125 @@
+# Claude Code Prompt 12 of 12 — Navigation updates and cross-feature integration
+
+**Sequence:** prompt 12 of 12 (final pass — apply AFTER all other prompts 01–11). When you finish, report back with: files you created/modified, any notable choices, any blockers.
+
+**Before you start — read current state:**
+1. Read `theseus-codex/src/app/(authed)/layout.tsx` — understand the navigation structure, sidebar, or top-nav.
+2. Read `theseus-codex/src/app/(authed)/dashboard/page.tsx` — verify prompts 03 and 05 have been applied.
+3. Read `theseus-codex/src/app/(authed)/contradictions/page.tsx` — verify prompts 06–09 have been applied.
+4. Read `theseus-codex/src/app/(authed)/explorer/page.tsx` — verify prompt 11 has been applied.
+5. Read `theseus-codex/src/app/(authed)/conclusions/[id]/page.tsx` — verify prompt 04 has been applied.
+6. Scan for any TypeScript compilation errors across the modified files: `npx tsc --noEmit`.
+
+## The problem
+
+After prompts 01–11 are applied individually, several cross-cutting concerns remain:
+
+1. **Navigation:** The new `/explorer` page has no navigation entry. The conclusion deletion request system (prompt 04) may need a pending-requests indicator somewhere.
+2. **Dashboard integration:** The dashboard should link to the contradictions page if there are active contradictions, and to the explorer.
+3. **Type consistency:** The various prompts may have introduced type interfaces that should be shared rather than duplicated.
+4. **Compilation:** Individual prompts may create import references or type dependencies that break when applied in isolation — this prompt ensures everything compiles cleanly.
+
+## SCOPE (files you may modify — stay within this list)
+- `theseus-codex/src/app/(authed)/layout.tsx`                                   MODIFY (navigation)
+- `theseus-codex/src/app/(authed)/dashboard/page.tsx`                           MODIFY (integration links)
+- Any file modified by prompts 01–11 that has TypeScript errors                  MODIFY (fix only)
+
+## Step-by-step
+
+1. **Add navigation entries.** In the layout's navigation (sidebar, top-nav, or whatever pattern exists), ensure these routes are present:
+   - `/dashboard` — Forum (already exists)
+   - `/conclusions` — Conclusions (likely already exists)
+   - `/contradictions` — Contradictions (may already exist)
+   - `/explorer` — Explorer (NEW — add this)
+   - `/library` — Library (already exists)
+
+   Match the existing navigation style. If the nav uses icons, choose appropriate ones. If it uses Cinzel font labels, use that.
+
+2. **Add a contradictions summary to the dashboard.** Below the existing decay alerts and deletion request banners, add a small indicator if there are active contradictions:
+   ```typescript
+   const activeContradictions = await db.contradiction.count({
+     where: {
+       organizationId: tenant.organizationId,
+       status: "active",
+     },
+   });
+   ```
+
+   ```tsx
+   {activeContradictions > 0 && (
+     <Link href="/contradictions" style={{ textDecoration: "none", display: "block" }}>
+       <div className="portal-card" style={{
+         padding: "0.7rem 1rem",
+         marginBottom: "1rem",
+         display: "flex",
+         justifyContent: "space-between",
+         alignItems: "center",
+         fontSize: "0.8rem",
+         borderLeft: "3px solid var(--ember)",
+       }}>
+         <span style={{ color: "var(--ember)" }}>
+           {activeContradictions} active contradiction{activeContradictions > 1 ? "s" : ""} detected
+         </span>
+         <span className="mono" style={{
+           fontSize: "0.6rem",
+           color: "var(--amber-dim)",
+           textTransform: "uppercase",
+         }}>
+           Review →
+         </span>
+       </div>
+     </Link>
+   )}
+   ```
+
+   **Note:** This requires the `status` field on `Contradiction` from prompt 09. If that field doesn't exist when this prompt runs, use a simple count without the status filter:
+   ```typescript
+   const activeContradictions = await db.contradiction.count({
+     where: { organizationId: tenant.organizationId },
+   });
+   ```
+
+3. **Add pending conclusion deletion requests indicator.** If prompt 04 has been applied, count pending conclusion deletion requests and show them alongside the upload deletion request banner:
+   ```typescript
+   const pendingConclusionDeletions = await db.conclusionDeletionRequest.count({
+     where: {
+       conclusion: { organizationId: tenant.organizationId },
+       status: "pending",
+     },
+   });
+   ```
+
+   If the `ConclusionDeletionRequest` model doesn't exist yet (prompt 04 not applied), wrap in a try/catch or skip:
+   ```typescript
+   let pendingConclusionDeletions = 0;
+   try {
+     pendingConclusionDeletions = await db.conclusionDeletionRequest.count({
+       where: {
+         conclusion: { organizationId: tenant.organizationId },
+         status: "pending",
+       },
+     });
+   } catch {
+     // ConclusionDeletionRequest table may not exist yet
+   }
+   ```
+
+4. **Run TypeScript compilation** and fix any errors:
+   ```bash
+   npx tsc --noEmit 2>&1 | head -100
+   ```
+   Common issues to watch for:
+   - Missing imports (e.g., `resolveClaimTexts`, `requireTenantContext`)
+   - Prisma client not regenerated after schema changes (run `npx prisma generate`)
+   - Type mismatches between API response shapes and frontend expectations
+   - Missing reverse relations on Prisma models
+
+5. **Verify Prisma schema validity:**
+   ```bash
+   npx prisma validate
+   ```
+   If there are relation errors (e.g., missing reverse relations from earlier prompts), fix them now.
+
+6. **Do NOT make functional changes** beyond what's listed above. This prompt is for wiring, navigation, and compilation fixes — not new features. If you discover a bug in a previous prompt's implementation, note it as a blocker but do not fix it here (unless it's a trivial type/import fix).
+
+Do not proceed to any other work. Do not edit anything outside SCOPE.

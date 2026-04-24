@@ -1,0 +1,110 @@
+# Claude Code Prompt 7 of 26 — Build the ledger/ package (append-only signed audit log)
+
+**Sequence:** prompt 7 of 26. Complete prompts 1..6 before starting this one. When you finish, report back with: files you created/modified, any notable choices, any blockers. I'll then paste the next prompt.
+
+**Parallelism (optional):** prompts 7, 8, 9, 10 touch disjoint files and could run in parallel Claude Code sessions if you want.
+
+**Before you start — read current state:**
+1. Run `git status` and `git branch` to see the current branch state.
+2. If you see stray branches matching `round3/*` or a `.orchestrator/` directory from a prior automated run, tell me and stop; we'll clean them up before continuing.
+3. For every file listed under SCOPE below, check whether it already exists and what it contains. If parts of the work described here are already done (from a previous attempt), INSPECT what is there and only add the missing pieces. Do NOT overwrite existing, correct work. Do NOT duplicate types or tests that already exist.
+4. If you find partial work that is clearly broken or half-finished, ask me whether to complete it or discard and restart that piece.
+## Your task
+You are an implementation agent. Your job is to create a self-contained `noosphere/noosphere/ledger/` package that: (a) manages Ed25519 signing keys, (b) appends signed, Merkle-chained entries to the ledger on every method invocation, (c) mirrors to filesystem JSONL, (d) verifies chain + signatures + deterministic replay, (e) exports audit bundles.
+
+You must register hooks with the method decorator at import time — do NOT modify the decorator itself.  
+
+## Prerequisites
+- Wave 3 is done: registered methods exist and the `methods/__init__.py` exposes `register_pre_hook`, `register_post_hook`, `register_failure_hook`.
+- `Store.append_ledger_entry` and related methods exist with chain integrity enforcement.
+- `LedgerEntry`, `Actor`, `ContextMeta` pydantic models exist in `models.py`.
+
+SCOPE (files you may create or modify — stay within this list)
+- `noosphere/noosphere/ledger/__init__.py`           CREATE
+- `noosphere/noosphere/ledger/keys.py`               CREATE
+- `noosphere/noosphere/ledger/ledger.py`             CREATE
+- `noosphere/noosphere/ledger/hooks.py`              CREATE
+- `noosphere/noosphere/ledger/verify.py`             CREATE
+- `noosphere/noosphere/ledger/export.py`             CREATE
+- `noosphere/tests/test_ledger_chain.py`             CREATE
+- `noosphere/tests/test_ledger_signatures.py`        CREATE
+- `noosphere/tests/test_ledger_hooks.py`             CREATE
+- `noosphere/tests/test_ledger_replay.py`            CREATE
+- `noosphere/tests/test_ledger_export.py`            CREATE
+
+## Step-by-step
+1. Add `pynacl` to `noosphere/pyproject.toml` if not present (declare in your output so the orchestrator pip-installs).
+2. Build `keys.py` with a `KeyRing` class that loads Ed25519 keys from disk paths pointed to by env vars `THESEUS_LEDGER_SIGNING_KEY_PATH` and `THESEUS_LEDGER_VERIFICATION_KEYS_DIR`. Expose `sign(bytes) -> bytes`, `verify(bytes, sig, key_id) -> bool`, `rotate(new_key_path)`.
+3. Build `ledger.py` with a `Ledger(store)` class. Its `append()` method computes the chained `entry_id`, signs, writes to Store via `store.append_ledger_entry`, and mirrors to `~/.theseus/ledger/<YYYY>-<MM>.jsonl`.
+4. Build `hooks.py` that on import registers THREE hooks with the decorator using the hook API from wave 2. Hooks are idempotent per `inv.id`.
+5. Build `verify.py` with `verify(since=None, until=None) -> VerifyReport` that walks the ledger, recomputes hashes, verifies signatures, and for deterministic methods re-runs from `inputs_ref` via `REGISTRY.get(method_id)`.
+6. Build `export.py` with `export_bundle(from_id, to_id, out_path)` producing a tar.gz with ledger slice, blobs, Method specs, public keys, and a `verify_bundle.py` script.
+7. Write all five test files. Each test should construct an in-memory Store and a temporary keys directory.
+8. Run `pytest noosphere/tests/test_ledger_*.py -v`.
+
+Ledger.append behavior (exact)
+def append(self, *, actor: Actor, method_id: str | None, inputs_hash: str, outputs_hash: str,
+           inputs_ref: str, outputs_ref: str, context: ContextMeta) -> str:
+    prev = self.store.ledger_tail()
+    prev_hash = prev.entry_id if prev else ""
+    payload = canonical_json({
+        "prev_hash": prev_hash, "timestamp": now_isoformat(),
+        "actor": actor.model_dump(), "method_id": method_id,
+        "inputs_hash": inputs_hash, "outputs_hash": outputs_hash,
+        "inputs_ref": inputs_ref, "outputs_ref": outputs_ref,
+        "context": context.model_dump(),
+    })
+    entry_id = sha256(prev_hash.encode() + payload.encode()).hexdigest()
+    signature_bytes = self.keyring.sign(entry_id.encode())
+    entry = LedgerEntry(entry_id=entry_id, prev_hash=prev_hash, ...,
+                        signature=signature_bytes.hex(), signer_key_id=self.keyring.active_key_id)
+    self.store.append_ledger_entry(entry)
+    self._mirror_to_jsonl(entry)
+    return entry_id
+
+Hook registration (hooks.py on import)
+On import of `ledger/__init__.py`, call:
+  register_pre_hook("ledger.capture_inputs", _pre_capture_inputs)
+  register_post_hook("ledger.append", _post_append)
+  register_failure_hook("ledger.append_on_failure", _on_failure_append)
+
+_pre_capture_inputs(spec, inv, input):
+  blob_ref = storage_client.put(canonical_json(input))
+  inv.inputs_ref = blob_ref       # mutate invocation (not frozen)
+
+_post_append(spec, inv, input, result):
+  blob_ref = storage_client.put(canonical_json(result))
+  inv.outputs_ref = blob_ref
+  Ledger(store).append(actor=Actor(kind="method", id=spec.method_id, ...),
+                       method_id=spec.method_id,
+                       inputs_hash=inv.input_hash, outputs_hash=inv.output_hash,
+                       inputs_ref=blob_ref, outputs_ref=blob_ref,
+                       context=ContextMeta(tenant_id=inv.tenant_id, correlation_id=inv.correlation_id))
+
+_on_failure_append(spec, inv, input, exc):
+  similar; outputs_hash="", outputs_ref="".
+
+Guard hook calls with a set tracking `inv.id` so duplicate invocations are no-ops.
+
+## Tests
+test_ledger_chain.py — tamper an output blob and assert verify flags it.
+test_ledger_signatures.py — swap signer key without rotation → verify flags; rotate legitimately → all entries verify.
+test_ledger_hooks.py — invoke a registered method (use a dummy method registered in-test) and assert exactly one ledger entry exists with matching hashes.
+test_ledger_replay.py — deterministic method replay reproduces output_hash; a nondeterministic method is skipped with a structured skip_reason.
+test_ledger_export.py — round-trip bundle through export and verify on a fresh temporary directory containing only the bundle + its verify_bundle.py.
+
+## How to verify
+1. `pytest noosphere/tests/test_ledger_*.py -v` — green.
+2. `python -c "import noosphere.noosphere.ledger"` — triggers hook registration without error.
+3. Any representative registered-method call produces a ledger entry.
+4. No round-1/round-2/round-3 regressions.
+
+## Do not
+- Modify `_decorator.py` or any file in `methods/`.
+- Inline blobs into ledger entries — only content-addressed refs.
+- Make hooks raise for expected-path behavior.
+- Touch any file outside FILES TOUCHED.
+
+---
+
+**When you're finished:** report back with (a) files you created/modified, (b) any non-obvious choices you made, (c) any blockers. I'll paste the next prompt after I've reviewed your summary.

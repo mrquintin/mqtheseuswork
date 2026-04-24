@@ -1,0 +1,51 @@
+# Claude Code Prompt 2 of 25 — Security: tenant-scope the conclusion detail page
+
+**Sequence:** prompt 2 of 25 (Wave 1 — independent of prompts 01 and 03). When you finish, report back with: files you created/modified, any notable choices, any blockers.
+
+**Before you start — read current state:**
+1. Read `theseus-codex/src/app/(authed)/conclusions/[id]/page.tsx` — this is the primary target.
+2. Read `theseus-codex/src/app/(authed)/conclusions/page.tsx` — note how it correctly uses `requireTenantContext()` and scopes its query with `organizationId`.
+3. Read `theseus-codex/src/lib/tenant.ts` to understand `requireTenantContext()`.
+4. Read `theseus-codex/src/lib/auth.ts` to understand `getFounder()`.
+
+## The bug
+
+The conclusion detail page at `/conclusions/[id]` does:
+```typescript
+const conclusion = await db.conclusion.findUnique({
+  where: { id },
+  include: { attributedFounder: true, organization: true },
+});
+```
+
+There is no `organizationId` filter. Any authenticated user from any organization can view any conclusion by navigating to `/conclusions/<id>`. The conclusions list page correctly scopes to the tenant; the detail page does not.
+
+## Your task
+
+Add tenant scoping to the conclusion detail page so that a user can only view conclusions belonging to their own organization. If the conclusion exists but belongs to a different org, return 404 (same as if it didn't exist — do not leak the existence of cross-org records).
+
+## SCOPE (files you may modify — stay within this list)
+- `theseus-codex/src/app/(authed)/conclusions/[id]/page.tsx`    MODIFY
+
+## Step-by-step
+
+1. Import `requireTenantContext` from `@/lib/tenant`.
+
+2. Call `const tenant = await requireTenantContext();` at the top of `ConclusionDetailPage`, before the database query.
+
+3. If `!tenant`, return `null` (matching the pattern in `conclusions/page.tsx`).
+
+4. Change the `findUnique` query to include the organizationId in the where clause:
+   ```typescript
+   const conclusion = await db.conclusion.findFirst({
+     where: { id, organizationId: tenant.organizationId },
+     include: { attributedFounder: true, organization: true },
+   });
+   ```
+   Note: `findUnique` requires only unique fields in `where`. Since we're adding `organizationId` (not unique by itself), switch to `findFirst` with both `id` and `organizationId`.
+
+5. The `notFound()` call on `if (!conclusion)` already handles the case where the conclusion belongs to another org — it will simply not be found.
+
+6. **Do NOT change** the tab rendering logic, the OverviewTab component, the MetaBlock component, or any styling. Only the auth check and the database query.
+
+Do not proceed to any other work. Do not edit anything outside SCOPE.

@@ -1,0 +1,42 @@
+[
+  {
+    "claim_id": "cr-001",
+    "claim_text": "COVID-19 vaccines contain microchips",
+    "fact_checker": "PolitiFact",
+    "review_date": "2024-03-15T00:00:00+00:00",
+    "rating": "false",
+    "url": "https://www.politifact.com/factchecks/2024/001"
+  },
+  {
+    "claim_id": "cr-002",
+    "claim_text": "The Earth is warming at an unprecedented rate",
+    "fact_checker": "FactCheck.org",
+    "review_date": "2024-04-01T00:00:00+00:00",
+    "rating": "true",
+    "url": "https://www.factcheck.org/2024/002"
+  },
+  {
+    "claim_id": "cr-003",
+    "claim_text": "5G towers cause cancer",
+    "fact_checker": "Snopes",
+    "review_date": "2024-05-10T00:00:00+00:00",
+    "rating": "false",
+    "url": "https://www.snopes.com/fact-check/2024/003"
+  },
+  {
+    "claim_id": "cr-004",
+    "claim_text": "Wind turbines kill more birds than cats",
+    "fact_checker": "PolitiFact",
+    "review_date": "2024-06-20T00:00:00+00:00",
+    "rating": "false",
+    "url": "https://www.politifact.com/factchecks/2024/004"
+  },
+  {
+    "claim_id": "cr-005",
+    "claim_text": "Global sea levels have risen measurably since 1900",
+    "fact_checker": "Full Fact",
+    "review_date": "2024-07-01T00:00:00+00:00",
+    "rating": "true",
+    "url": "https://fullfact.org/environment/2024/005"
+  }
+]

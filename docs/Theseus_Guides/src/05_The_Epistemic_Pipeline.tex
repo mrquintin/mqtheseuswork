@@ -1,0 +1,299 @@
+\documentclass[11pt,letterpaper]{article}
+
+\usepackage[margin=1in]{geometry}
+\usepackage[T1]{fontenc}
+\usepackage{lmodern}
+\usepackage{microtype}
+\usepackage{parskip}
+\usepackage{enumitem}
+\usepackage{booktabs}
+\usepackage{longtable}
+\usepackage{array}
+\usepackage{titlesec}
+\usepackage[hidelinks,colorlinks=true,linkcolor=black,urlcolor=black,citecolor=black]{hyperref}
+\usepackage{xcolor}
+\usepackage{fancyhdr}
+\usepackage{amsmath}
+
+\titleformat{\section}{\Large\bfseries}{\thesection}{1em}{}
+\titleformat{\subsection}{\large\bfseries}{\thesubsection}{1em}{}
+
+\pagestyle{fancy}
+\fancyhf{}
+\fancyhead[L]{\small The Theseus Guides --- V. The Epistemic Pipeline}
+\fancyhead[R]{\small\thepage}
+\renewcommand{\headrulewidth}{0.4pt}
+
+\setlength{\parindent}{0pt}
+
+\newcommand{\file}[1]{\texttt{#1}}
+
+\title{\textbf{The Theseus Guides}\\[6pt]\large V. The Epistemic Pipeline:\\How a Transcript Becomes a Public Conclusion}
+\date{April 2026}
+\author{}
+
+\begin{document}
+\maketitle
+\thispagestyle{empty}
+
+\begin{quote}\itshape
+The canonical path through Theseus is the weekly-transcript-to-public-conclusion path. It composes every subsystem and is therefore the most informative flow to narrate end to end.
+\end{quote}
+
+\vspace{1em}
+\tableofcontents
+\newpage
+
+% =======================================================================
+\section{Why trace this particular flow}
+% =======================================================================
+
+The firm has many operational flows: ingesting an external essay, scoring an outside researcher's text, retiring a decayed conclusion, regenerating a method documentation bundle. All of them are useful, but only one of them composes every subsystem Theseus owns. That flow is the weekly transcript path: the founders record a four-hour conversation, Dialectic transcribes it, Noosphere ingests it, the coherence engine scores claims against each other, the synthesis layer promotes principles to firm-tier conclusions, the adversarial subsystem stress-tests them, the peer-review swarm audits them, the decay policy binds their re-validation schedule, the rigor gate decides whether they may be published, and the public site renders them with their full provenance.
+
+Following this flow is the best map the firm has of its own machinery, and this guide walks it step by step.
+
+% =======================================================================
+\section{Stage 1 --- Capture}
+% =======================================================================
+
+A transcript enters the system in one of two ways.
+
+\textbf{Live capture via Dialectic.} The founders run \file{python run.py} from the \file{dialectic/} directory before a conversation begins. The PyQt6 dashboard opens. Voice-activity detection in \file{audio.py} cuts the microphone stream into speech segments, which \file{transcriber.py} pushes through \file{faster-whisper}. Finalized utterances are claim-segmented by \file{analyzer.py}, embedded with sentence-transformers MiniLM, clustered for topic drift, and run pairwise through a DeBERTa-v3 NLI head. At session end, Dialectic writes a JSON Lines file --- one line per finalized claim, each with timestamp, speaker, text, embedding, and any contradictions detected in-session. If \texttt{DIALECTIC\_CLOUD\_URL} and \texttt{DIALECTIC\_CLOUD\_API\_KEY} are set in the environment, the transcript auto-uploads to the Codex's \file{/api/upload} endpoint; audio \file{.wav} files stay local as provenance.
+
+\textbf{Written or external capture.} An existing transcript, essay, or memo is dragged onto the \file{/upload} page of the Codex, or placed in \file{Podcast talks/} and ingested via the CLI. Supported inline formats are \file{.md}, \file{.markdown}, \file{.txt}, \file{.vtt}, and \file{.jsonl}; PDF, DOCX, and audio need a binary-storage backend that is not enabled by default on the Vercel deployment.
+
+Either way, the input is now a file on disk, addressable by a content-hash identifier.
+
+% =======================================================================
+\section{Stage 2 --- Ingest}
+% =======================================================================
+
+A founder clicks Upload, or an operator runs \texttt{python -m noosphere ingest}. The ingester (\file{noosphere/noosphere/ingester.py}) parses the file, extracts YAML frontmatter (for episode number, date, participants), segments the body into chunks on paragraph or speaker-turn boundaries, and writes \texttt{Artifact} and \texttt{Chunk} rows into the store. Content-addressed identifiers (\file{noosphere/noosphere/ids.py}) make the ingest operation idempotent: re-running ingest on the same file with the same segmentation policy produces the same row IDs, and the store's typed upsert short-circuits.
+
+A ledger entry is written for the ingest itself: the artifact hash, the segmentation policy version, the chunk count, and the timestamp. This is the first of many ledger entries the document will accumulate on its way to publication.
+
+% =======================================================================
+\section{Stage 3 --- Claim extraction}
+% =======================================================================
+
+\file{noosphere/noosphere/claim\_extractor.py} walks each chunk through the LLM client (\file{llm.py}) with a structured JSON-output prompt. For each chunk it extracts zero or more \texttt{Claim} rows, each carrying:
+
+\begin{itemize}[leftmargin=1.5em,itemsep=0.1em]
+\item A claim type --- one of \texttt{empirical}, \texttt{normative}, \texttt{methodological}, \texttt{predictive}, \texttt{definitional}.
+\item Hedge phrases capturing the original author's confidence qualification (``possibly,'' ``I believe,'' ``it seems,'' ``definitively'').
+\item Evidence pointers back to the source chunk and the token offsets within it.
+\item A speaker attribution, if the source document supplied one (Dialectic always does; written essays usually do not).
+\end{itemize}
+
+\file{classifier.py} then re-verifies the claim-type label with a zero-shot MNLI classifier. Disagreements between the LLM-assigned label and the classifier-assigned label are flagged on the claim row; downstream consumers treat flagged claims with extra conservatism. Each extraction is a distinct method invocation, so each writes its own ledger entry, and each emits a \texttt{cascade} edge of relation type \texttt{extracted\_from} linking the claim back to the chunk.
+
+The design decision underneath this stage is in \file{noosphere/README.md}: \emph{atomic propositions, not summaries}. The unit of analysis is the individual claim; paragraph-level summaries are deliberately avoided because summaries destroy the logical structure that later stages need.
+
+% =======================================================================
+\section{Stage 4 --- Embedding and ontology update}
+% =======================================================================
+
+\file{embed\_pass.py} batches the newly-extracted claims and produces sentence-transformers embeddings. Embeddings are cached on disk (\file{embeddings.py}) under a content-hash key plus a model-version tag, so a model upgrade invalidates cached embeddings cleanly. The claims' embedding vectors are written to the \texttt{embeddings} table.
+
+\file{ontology.py} then places each new claim into the growing topic ontology. It runs UMAP to reduce the embedding into low-dimensional space, then HDBSCAN to assign cluster membership. Cluster identities are persistent: as new claims arrive, existing clusters absorb them or spawn splits, but cluster IDs do not get reassigned. Entity-linking via spaCy collapses name variants (``Company X,'' ``X Corp.,'' ``X Inc.'') to canonical \texttt{Entity} rows, which bind the claim to the firm's entity registry.
+
+This stage is where the firm's corpus becomes a knowledge graph rather than a vector store. The difference matters: a vector store treats every entry as independent; a graph preserves the logical relationships (supports, contradicts, refines, instantiates) that make the coherence engine possible downstream.
+
+% =======================================================================
+\section{Stage 5 --- Coherence scoring}
+% =======================================================================
+
+The six-layer coherence stack, documented in Guide IV, now runs. The \file{coherence/scheduler.py} picks pairs of claims to score, prioritizing pairs that are load-bearing for existing firm-tier conclusions --- pairs whose verdict would most affect the firm's published positions.
+
+Each pair runs through all six layers:
+
+\begin{enumerate}[leftmargin=1.5em,itemsep=0.15em]
+\item \texttt{nli.py} --- DeBERTa-v3 MNLI/ANLI head; entail / neutral / contradict probabilities.
+\item \texttt{argumentation.py} --- Dung-style admissibility in a formal argumentation framework; grounded and preferred extensions.
+\item \texttt{probabilistic.py} --- joint satisfiability under any coherent probability assignment.
+\item \texttt{geometry.py} --- embedding-geometry test per the validated Embedding Geometry Conjecture (difference-vector sparsity, Householder reflection across the learned contradiction direction).
+\item \texttt{information.py} --- information-theoretic compressibility; claim-set entropy and redundancy.
+\item \texttt{judge.py} --- LLM-as-judge with structured output, flagged whenever it disagrees with the other layers.
+\end{enumerate}
+
+\file{aggregator.py} combines the six layer verdicts into a single \texttt{SixLayerScore}. The aggregator is \emph{deliberately conservative}: when the layers disagree past a threshold, the output is \texttt{unresolved} rather than a forced point verdict. \texttt{unresolved} is a first-class output that every downstream consumer handles explicitly --- synthesis, the adversarial subsystem, the meta-analysis gate, the rigor gate. This is severity (Guide II) made executable: the system refuses to declare agreement when its own layers cannot agree, because that refusal is the honest verdict.
+
+A ledger entry is written for each coherence-pair invocation. A cascade edge of relation type \texttt{coheres\_with}, \texttt{contradicts}, or \texttt{disagrees\_with\_layers} connects the two claims with the verdict encoded on the edge.
+
+% =======================================================================
+\section{Stage 6 --- Cascade emission and ledger write}
+% =======================================================================
+
+Every method invocation everywhere in the pipeline emits cascade edges via the post-hook registered by \file{cascade/hooks.py}. The typed relation kinds in the cascade graph are eleven in number: \texttt{extracted\_from}, \texttt{coheres\_with}, \texttt{contradicts}, \texttt{predicts}, \texttt{supports}, \texttt{refutes}, \texttt{depends\_on}, \texttt{retired\_by}, \texttt{reviewed\_by}, \texttt{gated\_by}, and \texttt{published\_as}. This is the evidence-flow graph; it answers the question ``where did this come from and what does it imply?'' for any node in the system.
+
+Concurrently, \file{ledger/hooks.py} writes a signed ledger entry for each invocation. The entry records:
+
+\begin{itemize}[leftmargin=1.5em,itemsep=0.1em]
+\item The method's name and version.
+\item The input hash (of the claim IDs, corpus slice, and any parameters).
+\item The output hash (of the verdict or artifact produced).
+\item Pointers to the stored input and output blobs (via \file{storage\_client.py}).
+\item An Ed25519 signature over the entry.
+\item A Merkle-chain link to the previous entry.
+\end{itemize}
+
+The chain is externally verifiable. \texttt{noosphere ledger verify} walks the chain and validates every signature and hash link. \texttt{noosphere ledger export} produces a self-contained audit bundle that can be handed to an outside auditor. The chain is append-only: a ledger entry is never deleted or mutated, and the chain breaks if anyone tries. This is the infrastructural consequence of the firm's commitment to public provenance.
+
+% =======================================================================
+\section{Stage 7 --- Synthesis}
+% =======================================================================
+
+\file{synthesis.py} composes the pipeline \texttt{run\_synthesis\_pipeline}. It promotes \emph{candidate principles} from clusters of mutually-supporting claims. A principle is a clustered abstraction: claims that say structurally similar things across multiple sources are collapsed into a candidate principle rather than each remaining as an independent claim.
+
+Each candidate principle is run through the five-criterion meta-analysis gate (\file{meta\_analysis.py}), which scores it on:
+
+\begin{itemize}[leftmargin=1.5em,itemsep=0.1em]
+\item \textbf{Severity} --- would the analysis have caught the principle's falsity under plausible alternatives?
+\item \textbf{Coherence} --- does the principle pass the six-layer coherence engine against supporting claims?
+\item \textbf{Freshness} --- is the evidence base current, or is it dominated by stale material?
+\item \textbf{Provenance} --- are the supporting claims traceable through the cascade and ledger?
+\item \textbf{Calibration} --- when the principle's implied predictions have been scored historically, has the firm been well-calibrated on this class of claim?
+\end{itemize}
+
+Principles that pass the gate become \texttt{Conclusion} rows. Conclusions are \emph{tiered}:
+
+\begin{itemize}[leftmargin=1.5em,itemsep=0.1em]
+\item \textbf{Open} --- tentative; dissent remains in the claim pool; shown to founders but not published.
+\item \textbf{Founder} --- one named founder stands behind the conclusion; the conclusion carries that founder's name and is discounted by that founder's calibration score.
+\item \textbf{Firm} --- institutional position; no meaningful internal dissent; has passed the gate; eligible for publication.
+\end{itemize}
+
+The confidence value attached to a firm-tier conclusion is discounted by the producing method's calibration history, as tracked by the calibration scoreboard (\file{scoring.py}). This is Lakatos-progressivity made numeric: a method that has predicted poorly in the past has its current confidence outputs discounted mechanically, not rhetorically.
+
+% =======================================================================
+\section{Stage 8 --- Adversarial challenge}
+% =======================================================================
+
+\file{adversarial.py} generates structured objections to every firm-tier conclusion. Each objection is generated with an explicit target (``attack the severity,'' ``attack the empirical grounding,'' ``attack the domain-transfer assumption,'' etc.) and is scored through the same six-layer coherence stack that produced the original conclusion.
+
+Challenges land in one of four states:
+
+\begin{itemize}[leftmargin=1.5em,itemsep=0.1em]
+\item \textbf{Pending} --- awaiting founder triage.
+\item \textbf{Addressed} --- the firm has already answered this line of attack in a memo; pointer recorded.
+\item \textbf{Fallen} --- the challenge scored high and was not addressed; forces demotion of the conclusion to \texttt{open} tier unless shadow mode is set.
+\item \textbf{Fatal} --- a human reviewer flagged the challenge as terminal; forces demotion to \texttt{open} and records the justification.
+\end{itemize}
+
+The adversarial subsystem exists because severity (Guide II) is not a property one can assume; it must be generated. Structured objections are the computational equivalent of the steelman. The firm's wager is that a conclusion that survives structured adversarial challenge is more trustworthy than one that has merely not been attacked --- and that a conclusion that has been attacked and not defended should be demoted automatically, not defended by silence.
+
+The Reverse Marxism reflection framework from Guide III is the generative engine here. The challenge generator reflects the conclusion's embedding across the operative concept axis to generate the structurally-strongest counter-position, then uses the LLM to articulate it coherently against the firm's own corpus.
+
+% =======================================================================
+\section{Stage 9 --- Peer-review swarm}
+% =======================================================================
+
+On transition to firm tier, a conclusion auto-queues a swarm review across seven declared reviewer roles in \file{noosphere/noosphere/peer\_review/}:
+
+\begin{enumerate}[leftmargin=1.5em,itemsep=0.1em]
+\item \textbf{Methodological reviewer} --- audits the five criteria on this conclusion's claim structure.
+\item \textbf{Evidential reviewer} --- audits the supporting-claim chain for provenance completeness.
+\item \textbf{Statistical reviewer} --- audits any quantitative claims, base rates, and confidence arithmetic.
+\item \textbf{Adversarial-literature reviewer} --- searches external literature for existing counter-arguments.
+\item \textbf{Replication reviewer} --- checks whether the claim has been empirically replicated.
+\item \textbf{Rhetorical reviewer} --- audits for hidden persuasion moves, missing hedges, unstated assumptions.
+\item \textbf{Humility reviewer} --- audits whether the confidence is appropriately discounted by the method's historical calibration and the conclusion's domain sensitivity.
+\end{enumerate}
+
+Each reviewer is an LLM instance with an explicitly declared bias profile (methodological reviewer is aggressive, humility reviewer is conservative, replication reviewer is skeptical). Each produces a \texttt{ReviewReport} with findings at severity levels \texttt{info}, \texttt{minor}, \texttt{major}, \texttt{blocker}. \textbf{Major and blocker findings require structured rebuttals} before the conclusion can advance past the review stage.
+
+Reviewer-level calibration is itself tracked. Reviewers whose findings historically correlate poorly with ground truth see their findings discounted by a calibration factor, never dropped. No reviewer is ever removed; they are weighted. The swarm's job is to produce broad coverage, not to reach unanimity.
+
+% =======================================================================
+\section{Stage 10 --- Decay binding}
+% =======================================================================
+
+Each new conclusion is bound to a default decay policy by \file{decay/} subsystem when it lands in the store. Typical defaults:
+
+\begin{itemize}[leftmargin=1.5em,itemsep=0.1em]
+\item \textbf{FixedInterval(days=30)} --- firm-tier conclusions are re-validated every 30 days by default.
+\item \textbf{EvidenceChanged} --- any change to the supporting claim set triggers immediate re-validation.
+\item \textbf{MethodVersionBump} --- an upgrade to any method in the method chain triggers re-validation.
+\item \textbf{EmbeddingDrift} --- when the embedding model is upgraded or claim embeddings drift past a threshold, re-validation is triggered.
+\item \textbf{OutcomeObserved} --- a predictive claim's outcome being observed triggers immediate scoring against the prediction and retention/retirement accordingly.
+\item \textbf{CalibrationRegression} --- the producing method's calibration dropping past a threshold triggers re-validation of every conclusion produced by that method.
+\end{itemize}
+
+Re-validation runs the full coherence and meta-analysis stack. If the re-validation verdict agrees with the prior verdict, the conclusion's freshness state is advanced (\texttt{fresh} $\to$ \texttt{aging} $\to$ \texttt{stale} $\to$ \texttt{retired}, with state transitions governed by policy-specific thresholds). If it disagrees, the conclusion is demoted a tier and flagged for founder triage.
+
+\textbf{Freshness is always derived, never cached.} This is not a cache-invalidation optimization; it is an epistemic commitment. At any point one can ask the system ``what is the current state of this conclusion's endorsement?'' and the answer is recomputed live from the decay policies and the current state of the evidence base. \textbf{Retirement is irreversible.} A retired conclusion is preserved in the ledger, but its endorsement is withdrawn and cannot be restored; if the firm comes back to believe it, a new conclusion with fresh provenance is created.
+
+% =======================================================================
+\section{Stage 11 --- Rigor gate}
+% =======================================================================
+
+A founder elects to publish a firm-tier conclusion. The conclusion is submitted to \file{noosphere/noosphere/rigor\_gate/}. Nine declared checks run in parallel. Representative checks:
+
+\begin{itemize}[leftmargin=1.5em,itemsep=0.1em]
+\item \textbf{Provenance completeness} --- the cascade path from publication conclusion back to source artifacts is unbroken.
+\item \textbf{Calibrated confidence} --- the conclusion's confidence is within calibration-appropriate bounds for the producing method.
+\item \textbf{Peer review completeness} --- all major and blocker findings have been rebutted.
+\item \textbf{Freshness} --- no supporting claim is \texttt{stale} or \texttt{retired} at submission time.
+\item \textbf{Adversarial status} --- no unaddressed \texttt{fallen} challenges exist for this conclusion.
+\item \textbf{Cascade soundness} --- no cycles in the evidence graph; single-point-of-failure nodes are disclosed if present.
+\item \textbf{Method signatures} --- every method in the chain is registered, versioned, and its code has a valid signature against the registry.
+\item \textbf{Publication conditions} --- if present, are machine-readable and loaded into the public site's metadata for the conclusion.
+\item \textbf{Corpus hash} --- the hash of the corpus state at publication is recorded and pinned to the publication entry.
+\end{itemize}
+
+Any blocker fails the submission outright. A conclusion may pass, pass-with-conditions (machine-readable conditions attached), or fail. Every verdict is ledger-recorded. Founder overrides are \emph{public and ledger-recorded}; every override lives on the public site's \file{/methodology/overrides/} page with full justification, forever. The monthly refusal rate is published on \file{/methodology/rigor/}. A 100\% pass rate for multiple consecutive months would be evidence that the gate is too weak, not that the firm is flawless.
+
+% =======================================================================
+\section{Stage 12 --- Publication}
+% =======================================================================
+
+On rigor-gate pass, the conclusion lands in the public content store. The Theseus Public site (\file{theseus-public/}) reads from this store only; writes bypassing the rigor gate are architecturally impossible (a storage-layer assertion rejects un-gated writes, and a CI lint verifies the \texttt{@gated} decorator is present on every publication handler).
+
+Each published conclusion carries:
+
+\begin{itemize}[leftmargin=1.5em,itemsep=0.1em]
+\item The conclusion text and its rationale.
+\item A confidence value, discounted by the producing method's calibration history.
+\item A provenance block linking to the ledger entries that produced it.
+\item A sanitized adversarial history showing reviewer roles (but not agent identities).
+\item The corpus hash at the time of publication, pinning the state.
+\item A stable slug and a versioned URL so external citations remain valid across revisions.
+\item Citation metadata compliant with scholarly practice.
+\end{itemize}
+
+Predictive conclusions additionally enter the Calibration Scoreboard: resolution dates tick forward; outcomes are scored against the predicted probability as they occur; Brier score, log-loss, and ECE accumulate by author, method, and domain. Predictions in $[0.45, 0.55]$ are excluded as honest uncertainty --- they are not scored.
+
+% =======================================================================
+\section{Stage 13 --- Re-ingestion}
+% =======================================================================
+
+The firm's own output is itself a source document. The Theseus Codex and the Theseus Public conclusions are periodically re-ingested into Noosphere --- the ingester consumes them exactly as it would consume an external essay, extracts claims, embeds, scores, and folds them back into the knowledge graph.
+
+This is not a redundancy; it is a specific epistemic commitment. The firm's published positions are part of the evidence base from which future positions are generated, and they are subject to the same adversarial scrutiny as any external source. A firm-tier conclusion from 2024 that is flatly contradicted by claims extracted from 2026 transcripts is caught in Stage 5 the next time the scheduler runs, which triggers Stage 10, which may retire the 2024 conclusion.
+
+This closes the loop. The firm's ``memory'' is the knowledge graph; the ``critic'' is the coherence stack; the ``revisionist'' is the decay subsystem; the ``conscience'' is the rigor gate; the ``auditor'' is the ledger. Every piece of the machine is audited by a different piece of the machine, and every audit is itself ledger-recorded.
+
+% =======================================================================
+\section{What the pipeline guarantees, and what it does not}
+% =======================================================================
+
+\textbf{Guaranteed.}
+\begin{itemize}[leftmargin=1.5em,itemsep=0.1em]
+\item Every public conclusion has a complete, verifiable cascade from source material to publication, signed at every step.
+\item Every public conclusion has been stress-tested adversarially and peer-reviewed by seven declared roles.
+\item Every public conclusion's confidence is discounted by its producing method's historical calibration.
+\item Every stored object's freshness is computed live against its decay policy; stale objects are demoted or retired.
+\item Every founder override of the rigor gate is public and permanent.
+\item The aggregator can, and does, return \texttt{unresolved} when its layers disagree; there is no forced point verdict.
+\end{itemize}
+
+\textbf{Not guaranteed.}
+\begin{itemize}[leftmargin=1.5em,itemsep=0.1em]
+\item That a conclusion is \emph{true}. The firm does not make that claim. It claims only that the conclusion survived the pipeline and passed the gate; the calibration scoreboard is the public record of how often that survival coincides with external reality.
+\item That the methods are optimal for every domain. NFL (Guide II) forbids universal optimality. What the external battery guarantees is visibility into where methods fail.
+\item That the human element is infallible. Founders are human, reviewers are LLMs, bias exists in both; but every human decision is ledger-recorded, every LLM reviewer has a tracked calibration, and every override is public.
+\end{itemize}
+
+The pipeline is an instrument, not an oracle. Guide VI describes how the firm plans to sharpen it.
+
+\end{document}

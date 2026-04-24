@@ -1,0 +1,6 @@
+apiVersion: v2
+name: theseus
+description: Theseus Codex (web portal) + ingest worker (skeleton chart)
+type: application
+version: 0.1.0
+appVersion: "0.1.0"

@@ -1,0 +1,117 @@
+WAVE 2 / PROMPT 1 — Extend store.py and create the round-3 Alembic migration
+
+═══════════════════════════════════════════════════════════════════════════════
+YOUR TASK
+═══════════════════════════════════════════════════════════════════════════════
+You are an implementation agent. Your job is to extend `noosphere/noosphere/store.py` with SQLModel classes and typed CRUD methods for every round-3 table, and to create one Alembic migration that applies all the new schema in a single upgrade. You are the sole agent touching `store.py` in round 3.
+
+A sibling agent in wave 2 is working on `methods/` — do not touch their files.
+
+═══════════════════════════════════════════════════════════════════════════════
+PREREQUISITES
+═══════════════════════════════════════════════════════════════════════════════
+- Wave 1 is done: all pydantic types you need are present in `noosphere/noosphere/models.py`. Do NOT redefine them; import from models.
+- Alembic is configured; a migration chain exists under `noosphere/noosphere/alembic/versions/`.
+
+═══════════════════════════════════════════════════════════════════════════════
+FILES TOUCHED
+═══════════════════════════════════════════════════════════════════════════════
+- `noosphere/noosphere/store.py`                                              MODIFY
+- `noosphere/noosphere/alembic/versions/NNNN_round3_foundations.py`           CREATE
+- `noosphere/tests/test_store_round3.py`                                      CREATE
+
+═══════════════════════════════════════════════════════════════════════════════
+STEP-BY-STEP INSTRUCTIONS
+═══════════════════════════════════════════════════════════════════════════════
+1. Read `store.py` to understand its existing Store class conventions, SQLModel usage, and how round-1/round-2 tables were added.
+2. For each new table listed below, define a SQLModel class mirroring the pydantic model from `models.py`. Reuse enums by importing them.
+3. Add typed methods to the `Store` class (listed under STORE METHODS).
+4. Find the current head migration in `alembic/versions/` by running `alembic heads`. Create a new file `NNNN_round3_foundations.py` with `down_revision = <current_head>`. In `upgrade()`, create every new table; in `downgrade()`, drop them in reverse order.
+5. For the three existing tables (`conclusions`, `claims`, `topics`), add columns `freshness` (VARCHAR / enum) and `last_validated_at` (DATETIME nullable) via `op.add_column`.
+6. Implement `append_ledger_entry` with transactional chain integrity: inside a single transaction, read the current tail, check `prev_hash` matches, insert.
+7. Implement `insert_cascade_edge` with method_invocation_id FK check and supports/refutes conflict rejection.
+8. Create `tests/test_store_round3.py` with the tests described in TESTS.
+9. Run `alembic upgrade head` against a throwaway SQLite DB; ensure it applies cleanly. Then run `alembic downgrade -1` and confirm it drops only round-3 tables. Then upgrade again.
+10. Run `pytest noosphere/tests/test_store_round3.py -v`.
+
+═══════════════════════════════════════════════════════════════════════════════
+TABLES TO CREATE
+═══════════════════════════════════════════════════════════════════════════════
+methods, method_invocations, ledger_entries, cascade_nodes, cascade_edges, temporal_cuts,
+outcomes, cut_outcomes (association), counterfactual_eval_runs, external_bundles,
+battery_runs, transfer_studies, review_reports, rebuttals, decay_policies,
+object_policy_bindings, revalidations, rigor_submissions, rigor_verdicts, founder_overrides,
+mip_manifests
+
+Column types should mirror the pydantic field types. Use indices on:
+- method_invocations(method_id), method_invocations(correlation_id)
+- ledger_entries(prev_hash), ledger_entries(method_id), ledger_entries(timestamp)
+- cascade_nodes(kind)
+- cascade_edges(src), cascade_edges(dst), cascade_edges(relation), cascade_edges(retracted_at)
+- revalidations(object_id)
+- rigor_submissions(author), rigor_submissions(intended_venue)
+
+═══════════════════════════════════════════════════════════════════════════════
+STORE METHODS TO ADD
+═══════════════════════════════════════════════════════════════════════════════
+insert_method(Method) → None          # idempotent on method_id
+get_method(method_id: str) → Method | None
+list_methods(status_filter: str | None = None) → list[Method]
+insert_method_invocation(MethodInvocation) → None
+get_method_invocation(id: str) → MethodInvocation | None
+
+append_ledger_entry(LedgerEntry) → None       # raises LedgerChainError on prev_hash mismatch
+get_ledger_entry(entry_id: str) → LedgerEntry | None
+iter_ledger(from_id: str | None = None, to_id: str | None = None) → Iterator[LedgerEntry]
+ledger_tail() → LedgerEntry | None
+
+insert_cascade_node(CascadeNode) → None
+get_cascade_node(node_id: str) → CascadeNode | None
+insert_cascade_edge(CascadeEdge) → None      # raises CascadeEdgeOrphanError if method_invocation_id missing;
+                                             # raises CascadeEdgeConflictError on supports/refutes conflict
+retract_cascade_edge(edge_id: str, retracted_at: datetime) → None
+iter_cascade_edges(src=None, dst=None, relation=None, include_retracted=False) → Iterator[CascadeEdge]
+
+insert_temporal_cut / get_temporal_cut / iter_temporal_cuts
+insert_outcome / list_outcomes_for_cut
+insert_counterfactual_run / get_counterfactual_run
+insert_corpus_bundle / get_corpus_bundle
+insert_battery_run / get_battery_run
+insert_transfer_study / list_transfer_studies(method_ref)
+insert_review_report / list_review_reports(conclusion_id)
+insert_rebuttal / list_rebuttals(report_id)
+insert_decay_policy / bind_policy(object_id, policy_id) / unbind_policy(object_id, policy_id)
+insert_revalidation / list_revalidations(object_id)
+insert_rigor_submission / insert_rigor_verdict / insert_founder_override
+insert_mip_manifest / list_mip_manifests
+
+Define three custom exceptions at the top of `store.py`: `LedgerChainError`, `CascadeEdgeOrphanError`, `CascadeEdgeConflictError`.
+
+═══════════════════════════════════════════════════════════════════════════════
+TESTS TO WRITE
+═══════════════════════════════════════════════════════════════════════════════
+In `tests/test_store_round3.py`, use an in-memory SQLite fixture and assert:
+1. For every new table, an insert followed by a get returns the same object.
+2. `append_ledger_entry` rejects an entry whose `prev_hash` does not match the current tail, raising `LedgerChainError`.
+3. `append_ledger_entry` succeeds when `prev_hash` matches; the new tail equals the inserted entry.
+4. `insert_cascade_edge` raises `CascadeEdgeOrphanError` if the referenced method_invocation_id does not exist.
+5. `insert_cascade_edge` raises `CascadeEdgeConflictError` if you insert a `supports` edge where a non-retracted `refutes` edge already exists between the same (src, dst).
+6. `retract_cascade_edge` sets `retracted_at` and makes `iter_cascade_edges(include_retracted=False)` exclude it.
+7. Migration upgrade → downgrade → upgrade is a no-op (diff before and after is empty).
+8. Existing round-2 tests in `tests/test_store.py` still pass.
+
+═══════════════════════════════════════════════════════════════════════════════
+HOW TO VERIFY YOU ARE DONE
+═══════════════════════════════════════════════════════════════════════════════
+1. `pytest noosphere/tests/test_store_round3.py -v` — green.
+2. `alembic upgrade head && alembic downgrade -1 && alembic upgrade head` — clean.
+3. `pytest noosphere/tests/ -v` — no regressions.
+
+═══════════════════════════════════════════════════════════════════════════════
+DO NOT
+═══════════════════════════════════════════════════════════════════════════════
+- Redefine pydantic types; import from `models.py`.
+- Add business logic beyond typed CRUD — store is a thin wrapper.
+- Write ledger chain hashing / signing logic in store — that is in `ledger/` (wave 4).
+- Edit `methods/` — that is wave_2/02, running in parallel with you.
+- Edit CLI or UI.

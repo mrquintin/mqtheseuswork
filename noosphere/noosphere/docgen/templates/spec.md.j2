@@ -1,0 +1,51 @@
+# Method Specification: {{ name }} v{{ version }}
+
+**Type:** {{ method_type }}
+**Owner:** {{ owner }}
+**Status:** {{ status }}
+**Created:** {{ created_at }}
+
+## Description
+
+{{ description }}
+
+## Input Schema
+
+```json
+{{ input_schema }}
+```
+
+## Output Schema
+
+```json
+{{ output_schema }}
+```
+
+## Preconditions
+
+{% for pre in preconditions -%}
+- {{ pre }}
+{% endfor %}
+
+## Postconditions
+
+{% for post in postconditions -%}
+- {{ post }}
+{% endfor %}
+
+## Dependencies
+
+{% for dep_name, dep_version in dependencies -%}
+- {{ dep_name }} v{{ dep_version }}
+{% endfor %}
+
+## Implementation
+
+- **Module:** `{{ impl_module }}`
+- **Function:** `{{ impl_fn_name }}`
+- **Git SHA:** `{{ impl_git_sha }}`
+{% if impl_image_digest %}- **Image digest:** `{{ impl_image_digest }}`{% endif %}
+
+## Nondeterministic
+
+{{ "Yes" if nondeterministic else "No" }}

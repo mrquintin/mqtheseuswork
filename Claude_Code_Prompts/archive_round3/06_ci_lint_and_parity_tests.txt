@@ -1,0 +1,60 @@
+# Claude Code Prompt 6 of 26 — Build the methods-gated CI lint and the parity-test harness
+
+**Sequence:** prompt 6 of 26. Complete prompts 1..5 before starting this one. When you finish, report back with: files you created/modified, any notable choices, any blockers. I'll then paste the next prompt.
+
+**Parallelism (optional):** prompts 4, 5, 6 touch disjoint files and could run in parallel Claude Code sessions if you want.
+
+**Before you start — read current state:**
+1. Run `git status` and `git branch` to see the current branch state.
+2. If you see stray branches matching `round3/*` or a `.orchestrator/` directory from a prior automated run, tell me and stop; we'll clean them up before continuing.
+3. For every file listed under SCOPE below, check whether it already exists and what it contains. If parts of the work described here are already done (from a previous attempt), INSPECT what is there and only add the missing pieces. Do NOT overwrite existing, correct work. Do NOT duplicate types or tests that already exist.
+4. If you find partial work that is clearly broken or half-finished, ask me whether to complete it or discard and restart that piece.
+## Your task
+You are an implementation agent. Your job is to create two things: (1) a CI lint script that fails the build if any module in `noosphere/noosphere/` directly calls a function that has been ported into `methods/` instead of going through `REGISTRY.get()`; (2) the parity-test harness that runs every ported method against its legacy copy on a fixture and asserts identical output.
+
+Two in wave 3 are porting methods; their outputs are the inputs your lint and harness consume. You may start writing skeleton code in parallel with them and fill in the target-set once they land.
+
+## Prerequisites
+- Wave 2 is done: registry exists.
+- Siblings are (or will be) creating `methods/<name>.py` and `methods/_legacy/<name>.py` pairs with fixture JSON files.
+
+SCOPE (files you may create or modify — stay within this list)
+- `scripts/check_methods_gated.py`                          CREATE
+- `noosphere/tests/test_method_port_parity.py`              CREATE
+- `noosphere/tests/test_methods_gated.py`                   CREATE
+- `noosphere/tests/fixtures/bypass_example.py`              CREATE
+
+## Step-by-step
+1. Write `scripts/check_methods_gated.py`. It must:
+   a. Import the `methods/` package and build a set of fully-qualified names of every ported implementation (for each spec in REGISTRY, collect `spec.implementation.module + "." + spec.implementation.fn_name`, AND also the fully-qualified names of the original `_legacy/<name>.py` functions).
+   b. Walk every `.py` file under `noosphere/noosphere/` EXCEPT `methods/_legacy/` and `methods/_decorator.py`.
+   c. For each file, parse the AST, resolve imports to fully-qualified names, and find every `Call` node.
+   d. If a Call resolves to a name in the target set AND the call-site is not inside `REGISTRY.get(...)` or a method-registry-routed call, emit a violation: `<file>:<line> calls ported fn <name> directly — use REGISTRY.get()`.
+   e. Exit 0 if no violations, 1 otherwise.
+   f. Finish in under 5 seconds on the full repo (use `concurrent.futures.ThreadPoolExecutor` if needed).
+
+2. Write `tests/test_method_port_parity.py`. It must:
+   a. Discover every method under `methods/` that has a sibling `methods/_legacy/<name>.py`.
+   b. For each, load both, load the fixture `tests/fixtures/port_parity/<name>/case1.json`, run both on the fixture, and assert deep equality of outputs.
+   c. Use `@pytest.mark.parametrize` over the discovered method list.
+   d. If a method is marked `nondeterministic=True` in its spec AND the fixture does not pin a seed, skip with a structured reason rather than failing.
+
+3. Write `tests/test_methods_gated.py`. It must:
+   a. Create a temporary module at `tests/fixtures/bypass_example.py` that deliberately imports a legacy-pattern function directly (e.g. `from noosphere.noosphere.methods._legacy.nli_scorer import score`).
+   b. Invoke `scripts/check_methods_gated.py` as a subprocess with `PYTHONPATH` extended to include the fixture location.
+   c. Assert the lint reports exactly one violation pointing at the fixture.
+   d. Second test: run the lint without the fixture in the scan path and assert zero violations.
+
+## How to verify
+1. `python scripts/check_methods_gated.py` exits 0 on the real repo.
+2. `pytest noosphere/tests/test_methods_gated.py noosphere/tests/test_method_port_parity.py -v` is green.
+3. Adding a deliberate bypass call anywhere in `noosphere/noosphere/` fails `check_methods_gated.py`.
+
+## Do not
+- Produce false positives for legitimate calls routed through the registry.
+- Hand-maintain a list of target methods. The set must be derived dynamically by importing the registry.
+- Touch any files outside FILES TOUCHED.
+
+---
+
+**When you're finished:** report back with (a) files you created/modified, (b) any non-obvious choices you made, (c) any blockers. I'll paste the next prompt after I've reviewed your summary.

@@ -1,0 +1,77 @@
+# Claude Code Prompt 5 of 26 — Port extraction and synthesis methods; create method_candidate_extractor
+
+**Sequence:** prompt 5 of 26. Complete prompts 1..4 before starting this one. When you finish, report back with: files you created/modified, any notable choices, any blockers. I'll then paste the next prompt.
+
+**Parallelism (optional):** prompts 4, 5, 6 touch disjoint files and could run in parallel Claude Code sessions if you want.
+
+**Before you start — read current state:**
+1. Run `git status` and `git branch` to see the current branch state.
+2. If you see stray branches matching `round3/*` or a `.orchestrator/` directory from a prior automated run, tell me and stop; we'll clean them up before continuing.
+3. For every file listed under SCOPE below, check whether it already exists and what it contains. If parts of the work described here are already done (from a previous attempt), INSPECT what is there and only add the missing pieces. Do NOT overwrite existing, correct work. Do NOT duplicate types or tests that already exist.
+4. If you find partial work that is clearly broken or half-finished, ask me whether to complete it or discard and restart that piece.
+## Your task
+You are an implementation agent. Your job is to port seven existing judgment/extraction/aggregation functions into the method registry, and to create one new method (`method_candidate_extractor`) that scans ingested transcripts for passages describing a methodology. Follow the same procedure as wave_3/01: copy legacy → verbatim under `_legacy/`, create registered method file, write RATIONALE.md, seed a parity fixture.
+
+Two are porting coherence methods and writing the CI lint. 
+
+## Prerequisites
+- Wave 2 is done.
+- Original modules exist at: `claim_extractor.py`, `predictive_extractor.py`, `classifier.py`, `conclusions.py`, `founders.py`, `literature.py`, `research_advisor.py` under `noosphere/noosphere/`.
+
+SCOPE (files you may create or modify — stay within this list)
+- `noosphere/noosphere/methods/extract_claims.py`          CREATE
+- `noosphere/noosphere/methods/extract_prediction.py`      CREATE
+- `noosphere/noosphere/methods/classify_claim_type.py`     CREATE
+- `noosphere/noosphere/methods/synthesize_conclusion.py`   CREATE
+- `noosphere/noosphere/methods/decompose_voice.py`         CREATE
+- `noosphere/noosphere/methods/external_claim_match.py`    CREATE
+- `noosphere/noosphere/methods/suggest_research.py`        CREATE
+- `noosphere/noosphere/methods/extract_from_corpus.py`     CREATE
+- Matching `_legacy/<name>.py` verbatim copy for all seven ports  CREATE
+- Matching `<name>.RATIONALE.md` for all eight methods (seven ports + new extractor)  CREATE
+- `noosphere/tests/fixtures/port_parity/<name>/case1.json` for all seven ports     CREATE
+
+## Step-by-step
+1. Copy the original source verbatim into `_legacy/<name>.py`. Strip any decorators that would register the legacy copy with the new registry.
+2. Create `methods/<name>.py` wrapping the same behavior, decorated with `@register_method(...)` using the spec below.
+3. Write `<name>.RATIONALE.md` (≥ 200 words). Include a "Dependencies" heading that names any external LLM or model the method requires.
+4. Seed `tests/fixtures/port_parity/<name>/case1.json` with a valid input payload.
+
+## Spec fields
+extract_claims           type=EXTRACTION    nondeterministic=True   emits_edges=["extracted_from"]
+extract_prediction       type=EXTRACTION    nondeterministic=True   emits_edges=["predicts","extracted_from"]
+classify_claim_type      type=JUDGMENT      nondeterministic=False  emits_edges=[]
+synthesize_conclusion    type=AGGREGATION   nondeterministic=True   emits_edges=["aggregates","supports","refutes"]
+decompose_voice          type=TRANSFORMATION nondeterministic=True  emits_edges=[]
+external_claim_match     type=JUDGMENT      nondeterministic=False  emits_edges=["coheres_with","contradicts"]
+suggest_research         type=AGGREGATION   nondeterministic=True   emits_edges=[]
+
+For every method, set: version="1.0.0", owner="founder", status="active", dependencies=[] unless the original code obviously depends on another method you are porting in this prompt (then declare the dep).
+
+NEW METHOD — method_candidate_extractor (NOT a port)
+Create `methods/extract_from_corpus.py` containing a new registered method `method_candidate_extractor`:
+- method_type = EXTRACTION
+- version = "1.0.0"
+- nondeterministic = True
+- Input: a pydantic `MethodExtractionInput { artifact_refs: list[str], window_chars: int = 2000 }`
+- Output: a pydantic `MethodExtractionOutput { candidates: list[MethodCandidate] }`
+- Behavior: scan each artifact for chunks matching any of a small regex catalog ("the way to tell", "the test we use", "the rule of thumb", "we determine X by") AND pass candidate chunks through an LLM with a structured prompt that extracts `{ name, description, rationale, preconditions, postconditions }`.
+- A `MethodCandidate` pydantic model is defined at the top of this file (not in `models.py`).
+- Each candidate is persisted via a new `Store.insert_method_candidate` helper — if this helper does not exist yet in Store, treat it as a TODO: create a row in `method_candidates` table using raw SQLModel here, and flag to the orchestrator that the Store helper is missing (write a `WAVE3_TODO_STORE_HELPER.md` note at the repo root listing the missing method).
+
+## How to verify
+1. Every ported method imports cleanly and appears in `REGISTRY.list()`.
+2. `method_candidate_extractor` runs on a fixture artifact and returns at least one candidate.
+3. Fixture JSON files match each method's input schema.
+4. `pytest noosphere/tests/ -v` shows no regressions.
+
+## Do not
+- "Improve" any algorithm during port. Version bumps are for behavior changes.
+- Add registrations to legacy copies.
+- Modify `models.py`, `store.py`, or the decorator.
+- Touch files outside FILES TOUCHED.
+- Forget the "Dependencies" heading in each RATIONALE for any method that uses an external LLM.
+
+---
+
+**When you're finished:** report back with (a) files you created/modified, (b) any non-obvious choices you made, (c) any blockers. I'll paste the next prompt after I've reviewed your summary.

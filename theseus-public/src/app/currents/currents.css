@@ -1,0 +1,9 @@
+/* Scope-local rules for /currents. Global tokens live in globals.css. */
+
+/* Detail view (/currents/[id]) stacks to a single column on narrow viewports
+   so the audit trail and source drawer don't crush each other on mobile. */
+@media (max-width: 900px) {
+  .currents-detail-split {
+    grid-template-columns: 1fr !important;
+  }
+}

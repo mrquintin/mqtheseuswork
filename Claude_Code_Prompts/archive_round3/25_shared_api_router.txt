@@ -1,0 +1,66 @@
+# Claude Code Prompt 25 of 26 — Researcher API round-3 router + shared TS types package
+
+**Sequence:** prompt 25 of 26. Complete prompts 1..24 before starting this one. When you finish, report back with: files you created/modified, any notable choices, any blockers. I'll then paste the next prompt.
+
+**Parallelism (optional):** prompts 23, 24, 25 touch disjoint files and could run in parallel Claude Code sessions if you want.
+
+**Before you start — read current state:**
+1. Run `git status` and `git branch` to see the current branch state.
+2. If you see stray branches matching `round3/*` or a `.orchestrator/` directory from a prior automated run, tell me and stop; we'll clean them up before continuing.
+3. For every file listed under SCOPE below, check whether it already exists and what it contains. If parts of the work described here are already done (from a previous attempt), INSPECT what is there and only add the missing pieces. Do NOT overwrite existing, correct work. Do NOT duplicate types or tests that already exist.
+4. If you find partial work that is clearly broken or half-finished, ask me whether to complete it or discard and restart that piece.
+## Your task
+You are an implementation agent. Your job is to add a `round3.py` router module to the Researcher API exposing every public-readable endpoint that the UIs consume, AND to create a shared TypeScript types package (`packages/theseus-api-types/`) so the founder portal and public site share identical type definitions for these endpoints.
+
+ 
+
+## Prerequisites
+- Waves 5–7 are done; all subsystem APIs are importable.
+- Researcher API exists at `researcher_api/researcher_api/` with its existing FastAPI (or equivalent) setup.
+
+SCOPE (files you may create or modify — stay within this list)
+- `researcher_api/researcher_api/routes/round3.py`                      CREATE
+- `researcher_api/researcher_api/app.py`                                MODIFY (include the new router)
+- `researcher_api/tests/test_round3_routes.py`                          CREATE
+- `packages/theseus-api-types/package.json`                             CREATE
+- `packages/theseus-api-types/tsconfig.json`                            CREATE
+- `packages/theseus-api-types/src/index.ts`                             CREATE
+- `packages/theseus-api-types/src/methods.ts`                           CREATE
+- `packages/theseus-api-types/src/conclusions.ts`                       CREATE
+- `packages/theseus-api-types/src/methodology.ts`                       CREATE
+- `packages/theseus-api-types/src/interop.ts`                           CREATE
+
+## Step-by-step
+1. Build `routes/round3.py` exposing READ-ONLY endpoints:
+     GET /methods
+     GET /methods/{name}/{version}
+     GET /methods/{name}/{version}/doc
+     GET /methods/{name}/{version}/eval-card
+     GET /conclusions/{id}/provenance
+     GET /conclusions/{id}/cascade
+     GET /conclusions/{id}/peer-review
+     GET /methodology/rigor
+     GET /methodology/overrides
+     GET /methodology/decay
+     GET /interop
+     GET /interop/{name}/{version}
+   Every endpoint returns a pydantic response model. No mutation endpoints on this surface.
+2. Modify `app.py` to include the new router.
+3. In `packages/theseus-api-types/`, create a small TS package publishing interfaces for every response model. Use a Python script (or manually mirror) to ensure types stay in sync. Add a build step `tsc --declaration`.
+4. Write `tests/test_round3_routes.py` exercising every endpoint with a seeded test store.
+5. Both sibling agents' `lib/api/round3.ts` should import these shared types.
+
+## How to verify
+1. `pytest researcher_api/tests/test_round3_routes.py -v` — green.
+2. `cd packages/theseus-api-types && pnpm build` — produces `dist/` with `.d.ts` files.
+3. All endpoints return valid responses against a seeded store.
+
+## Do not
+- Add any mutating endpoint on the public Researcher API.
+- Let the shared TS types drift from the pydantic response models; enforce via a generation script in a follow-up round if needed.
+- Touch `founder-portal/src/` or `theseus-public/src/` — those are sibling agents' files.
+- Touch any file outside FILES TOUCHED.
+
+---
+
+**When you're finished:** report back with (a) files you created/modified, (b) any non-obvious choices you made, (c) any blockers. I'll paste the next prompt after I've reviewed your summary.

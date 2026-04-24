@@ -1,0 +1,192 @@
+\documentclass[11pt,letterpaper]{article}
+
+\usepackage[margin=1in]{geometry}
+\usepackage[T1]{fontenc}
+\usepackage{lmodern}
+\usepackage{microtype}
+\usepackage{parskip}
+\usepackage{enumitem}
+\usepackage{booktabs}
+\usepackage{longtable}
+\usepackage{array}
+\usepackage{titlesec}
+\usepackage[hidelinks,colorlinks=true,linkcolor=black,urlcolor=black,citecolor=black]{hyperref}
+\usepackage{xcolor}
+\usepackage{fancyhdr}
+\usepackage{amsmath}
+\usepackage{amssymb}
+
+\titleformat{\section}{\Large\bfseries}{\thesection}{1em}{}
+\titleformat{\subsection}{\large\bfseries}{\thesubsection}{1em}{}
+
+\pagestyle{fancy}
+\fancyhf{}
+\fancyhead[L]{\small The Theseus Guides --- II. The Meta-Method}
+\fancyhead[R]{\small\thepage}
+\renewcommand{\headrulewidth}{0.4pt}
+
+\setlength{\parindent}{0pt}
+
+\newcommand{\file}[1]{\texttt{#1}}
+
+\title{\textbf{The Theseus Guides}\\[6pt]\large II. The Meta-Method:\\The Firm's Criteria for Evaluating Methods}
+\date{April 2026}
+\author{}
+
+\begin{document}
+\maketitle
+\thispagestyle{empty}
+
+\begin{quote}\itshape
+The meta-method is self-applying. Evaluate it using its own criteria. The regress terminates because the meta-method is a fixed point: it evaluates itself and passes.
+\end{quote}
+
+\vspace{1em}
+\tableofcontents
+\newpage
+
+% =======================================================================
+\section{The problem the meta-method solves}
+% =======================================================================
+
+Guide I ended with a wager: that a firm built on methodological second- and third-order products would outperform one built on first-order claims. That wager is coherent only if one can specify, in advance and in public, what makes a method reliable. Otherwise the firm is merely asserting methodological virtue --- a first-order claim in disguise.
+
+The meta-method is the public specification. It names five formal properties that any reliable truth-finding method must possess, names the intellectual tradition each property was developed in, gives each property an operational test, and closes with a fixed-point argument explaining why the specification does not itself require a further meta-meta-method.
+
+The list and its ordering are taken directly from \file{THE\_META\_METHOD.md}. The framing that ``a method is reliable to the extent that it would detect its own failure'' is the unifying principle from which the five properties are derivable; this is the firm's claim, not a quotation from any of the five source traditions, and the load-bearing part of it is the derivation, not the slogan.
+
+% =======================================================================
+\section{The five criteria}
+% =======================================================================
+
+\subsection{Progressivity (Lakatos)}
+
+\textbf{Statement.} A method is \emph{progressive} if it generates novel, testable predictions that go beyond the evidence that motivated it. A method is \emph{degenerating} if it only produces post-hoc explanations of what is already known.
+
+\textbf{Provenance.} Imre Lakatos, \textit{The Methodology of Scientific Research Programmes}. Lakatos's move was to evaluate not single theories but research programmes, and to distinguish those in a progressive problem-shift (producing novel, corroborated predictions) from those in a degenerating problem-shift (producing only ad-hoc rescues).
+
+\textbf{Operational test.} The firm asks, of any methodology it uses or evaluates: does this methodology predict things that would be surprising if true, and do some of those predictions come true? If only past successes are explained, the methodology is degenerating. The explicit apparatus that tests this is the Calibration Scoreboard (\file{noosphere/noosphere/scoring.py}), which tracks Brier, log-loss, and ECE per-method per-month against resolved predictions.
+
+\textbf{Why this is load-bearing.} Degenerating methods feel productive because they explain everything in hindsight. Explanation without prediction is unfalsifiable, and unfalsifiable methods are epistemically worthless regardless of how aesthetically pleasing their explanations look. The distinction between genuine insight and post-hoc rationalization is progressivity.
+
+\subsection{Severity (Mayo)}
+
+\textbf{Statement.} A method provides severe evidence for a claim $H$ only if the method \emph{would very probably have detected} $H$'s falsity, had $H$ been false. A test that would pass any reasonable hypothesis in the same neighborhood is non-severe.
+
+\textbf{Provenance.} Deborah Mayo, \textit{Error and the Growth of Experimental Knowledge} and \textit{Statistical Inference as Severe Testing}. Mayo's severity requirement is the explicit formalization of what philosophers of science historically meant by ``genuine test.''
+
+\textbf{Operational test.} For any claim the firm endorses, it asks: was this analysis conducted in a way that \emph{would have detected} the claim's falsity under plausible alternative scenarios? Or was the analysis structured such that any nearby hypothesis would have been confirmed by the same evidence? The explicit apparatus that tests this is the Adversarial Challenge system (\file{noosphere/noosphere/adversarial.py}), which generates structured objections to firm-tier conclusions and runs them through the same coherence stack; fallen challenges demote the conclusion.
+
+\textbf{Why this is load-bearing.} Most analysis in practice is non-severe. The confirmation-bias failure mode is not that people fail to look for evidence; it is that they look for \emph{confirming} evidence, find it (it is always there), and conclude they have support. Severity inverts the criterion: you must show that your method would have rejected the claim under plausible alternatives. Severity is the computational formalization of steelmanning.
+
+\subsection{Coherence across Aims, Methods, and Theories (Laudan)}
+
+\textbf{Statement.} A method is rational only if it is coherent with the aims it serves and the theoretical framework it operates within. Misalignment between aims, methods, and theories is a marker of irrationality even when each element is locally defensible.
+
+\textbf{Provenance.} Larry Laudan, \textit{Science and Values} (the ``reticulated model'' of scientific rationality). Laudan's contribution was to observe that methodological rules do not stand alone: they are justified only relative to aims, and aims are constrained by what the operative theories say is possible.
+
+\textbf{Operational test.} Is the firm's methodology aligned with its stated aims? If the stated aim is ``identify companies with durable competitive advantages'' but the method in use is ``compare P/E ratios to sector averages,'' there is a coherence failure --- the method does not address the aim. The explicit apparatus is the Epistemic Process Auditor (Guide VI, Project 6), which scores each analysis on methodological compliance against its declared aims.
+
+\textbf{Why this is load-bearing.} A method that is excellent for one aim may be useless or misleading for another. Methodological evaluation requires checking not just ``is the method good?'' but ``is the method good \emph{for what we are trying to do}?''. Laudan's reticulated structure makes coherence-across-aims a first-class property rather than an afterthought.
+
+\subsection{Compressibility (Solomonoff / Kolmogorov)}
+
+\textbf{Statement.} The best explanation is the shortest one that generates all the observed data. A method that requires many ad-hoc parameters to fit the data is worse than one that fits the data with fewer assumptions.
+
+\textbf{Provenance.} Ray Solomonoff's formalization of induction in terms of the Kolmogorov complexity of a hypothesis; Chaitin's and Kolmogorov's independent work on algorithmic information. The theoretical ideal here is: the probability of a hypothesis is exponentially weighted by the inverse of its description length under a universal Turing machine.
+
+\textbf{Operational test.} Does the firm's thesis require many special assumptions (``this time is different because of $A$, $B$, $C$, $D$, and $E$''), or does it follow from a small number of general principles? More assumptions $\Rightarrow$ less compressible $\Rightarrow$ less likely to generalize. The explicit apparatus is Layer 5 of the six-layer coherence engine (\file{coherence/information.py}), which measures information-theoretic compressibility of the claim set and penalizes redundancy and entropy spikes.
+
+\textbf{Why this is load-bearing.} Kolmogorov complexity is the theoretical ideal of inference. In practice it manifests as Occam's razor, but with a formal rather than aesthetic foundation. The connection to the firm's engineering is direct: compressibility of a claim set \emph{is} the information-theoretic layer of the coherence engine, and it participates in every coherence verdict on equal footing with the NLI layer.
+
+\subsection{Domain Sensitivity (No Free Lunch Theorems)}
+
+\textbf{Statement.} No method is universally optimal. A method's reliability is always relative to a problem class. A reliable meta-methodology maps methods to their domains of reliability.
+
+\textbf{Provenance.} Wolpert and Macready, ``No Free Lunch Theorems for Optimization'' (1997) and its extensions. The theorems establish that no search or optimization algorithm outperforms all others averaged over all possible objective functions --- performance advantages are always relative to structure in the problem distribution.
+
+\textbf{Operational test.} Does the firm know the \emph{boundaries} of its methodology? Where does it work and where does it fail? Is the firm as precise about the method's failure modes as about its successes? The explicit apparatus is the External Corpus Battery (\file{noosphere/noosphere/external\_battery/}), which benchmarks each method against Good Judgment, Metaculus, ClaimReview-tagged fact-checking, and replication projects, and publishes per-corpus calibration metrics alongside a five-way failure taxonomy.
+
+\textbf{Why this is load-bearing.} The most dangerous methodological failures occur when a method is applied outside its domain of reliability: value investing in tech stocks during a growth regime; statistical models fit to Gaussian distributions and deployed in fat-tailed environments; analogical reasoning across structurally dissimilar domains. The meta-methodologist's primary output is the \emph{mapping} between domains and methods. Without that mapping, any method is a suicide pact waiting for the wrong problem.
+
+% =======================================================================
+\section{The unifying principle}
+% =======================================================================
+
+All five criteria reduce to a single principle, formally stated:
+
+\begin{quote}
+\textbf{A method is reliable to the extent that it would detect its own failure.}
+\end{quote}
+
+The reduction is exact:
+
+\begin{itemize}[leftmargin=1.5em,itemsep=0.2em]
+\item \textbf{Severity} is the criterion applied to a single claim within a single test: the method detects \emph{this} claim's falsity under plausible alternatives.
+\item \textbf{Progressivity} is the criterion applied over time: the method detects its own failures by generating novel predictions that can miss, and it updates when they do.
+\item \textbf{Compressibility} is the criterion applied to hypothesis space: a non-compressible method accommodates any observation and therefore can never detect a failure; compressibility ensures the method has \emph{something to lose} on evidence.
+\item \textbf{Coherence} is the criterion applied to the research programme's structure: misalignment between aims, methods, and theories is itself a failure the method should detect in \emph{itself}, not only in its outputs.
+\item \textbf{Domain sensitivity} is the criterion applied to the method's boundary conditions: the method detects its own failure at the edges of its reliable domain by knowing where that edge is.
+\end{itemize}
+
+The principle is load-bearing for a surprising reason: it is the only formal property a method can have that survives the meta-methodological regress. A method that lacks self-detection of failure cannot be audited for reliability without an external audit, which requires a meta-method, which in turn requires its own audit, and so on. A method that \emph{has} self-detection of failure can be audited \emph{by itself}. The regress terminates at fixed points, and self-detecting methods are fixed points.
+
+% =======================================================================
+\section{The fixed-point argument}
+% =======================================================================
+
+The natural objection to meta-methodology is that it is turtles all the way down. If one needs a method to evaluate methods, one also needs a meta-meta-method to evaluate the meta-method, and so on ad infinitum.
+
+The answer given in \file{THE\_META\_METHOD.md} is that the meta-method is \emph{self-applying}, and the regress terminates at a fixed point. One evaluates the meta-method against its own five criteria:
+
+\textbf{Progressive?} Yes. The meta-method predicts that methodologically rigorous firms will outperform methodologically sloppy ones on any problem class where truth matters, over any long enough horizon. This prediction is novel (no prior firm has been explicit about it at this level) and testable (the calibration scoreboard and external corpus battery test it monthly).
+
+\textbf{Severe?} Yes. If methodologically rigorous firms consistently underperform on the problem classes the firm engages with, the meta-method fails its own severity test. The firm has declared the exact conditions under which it would abandon the meta-method --- sustained calibration regression plus sustained external-battery failure on matched problem classes.
+
+\textbf{Coherent with aims?} Yes. The aim is to identify reliable methods. The five criteria (progressivity, severity, coherence, compressibility, domain sensitivity) are each independently validated by a separate intellectual tradition (Lakatos, Mayo, Laudan, Solomonoff, NFL). They triangulate.
+
+\textbf{Compressible?} Yes. Five criteria, each formally defined, derivable from a single principle. One slogan --- ``a method is reliable to the extent that it would detect its own failure'' --- encodes the entire specification.
+
+\textbf{Domain-sensitive?} Yes. The meta-method explicitly acknowledges (via NFL) that no method is universal, and its primary output is the mapping from problem class to reliable method. The meta-method therefore treats itself as subject to the same domain-relativity it imposes on its objects.
+
+The meta-method evaluates itself against its own criteria and passes all five. This is the fixed point. It does not eliminate the abstract possibility of a still-deeper meta-meta-method, but it does eliminate the \emph{necessity} of one: the meta-method's authority is self-sustaining in the same way that a self-verifying proof is, or the way Tarski's undefinability theorem is self-referentially consistent when restricted to its own metalanguage.
+
+The deepest thing Theseus can claim is not that it has a good method, but that it has a method that can evaluate itself and survive the evaluation.
+
+% =======================================================================
+\section{Consequences for the engineering}
+% =======================================================================
+
+The meta-method translates into specific architectural commitments that govern the shape of every piece of software Theseus builds. These commitments are not negotiable by individual engineering taste; they are the meta-method's downstream requirements, and \file{docs/Product\_And\_Software\_Summary.pdf} lists them explicitly.
+
+\textbf{Methods are the primary unit of code.} Every judgment the system makes is a registered \emph{method} with a declared input/output schema, a rationale document, evaluation data, and a version. The registry lives at \file{noosphere/noosphere/methods/}. Methods are versioned, testable against external data, packageable as standalone bundles, and documentable in human-readable form.
+
+\textbf{Every claim is traceable.} The cryptographic ledger (\file{noosphere/noosphere/ledger/}) records every method invocation, its input hash, its output hash, and pointers to the stored input/output blobs, signed with Ed25519 and Merkle-chained. External auditors can verify the chain with \texttt{theseus ledger verify} and export a self-contained audit bundle.
+
+\textbf{Every public output passes a rigor gate.} The gate (\file{noosphere/noosphere/rigor\_gate/}) enforces nine declared checks: provenance completeness, calibrated confidence, peer review, freshness, cascade soundness, and four others. Refusals are logged publicly; override counts are published monthly; override justifications are visible.
+
+\textbf{Refusal is a first-class output.} The aggregator that combines the six coherence layers returns \texttt{unresolved} when layers disagree past a threshold, and every downstream consumer handles \texttt{unresolved} explicitly. A system that cannot refuse is a system that is miscalibrated on hard cases.
+
+\textbf{Freshness is derived, never cached.} Every stored object has a decay policy (\file{noosphere/noosphere/decay/}). Policies include fixed-interval, evidence-changed, method-version-bump, embedding-drift, outcome-observed, and calibration-regression. The freshness state of any object is recomputed on every read against the current policy.
+
+\textbf{Retirement is irreversible.} An object that fails re-validation is retired, not deleted and not archived-for-possible-revival. The epistemic history is preserved; the endorsement is withdrawn.
+
+\textbf{Counterfactual replay is available.} The evaluation rig (\file{noosphere/noosphere/evaluation/}) includes a \texttt{CorpusSlicer} that presents a read-only view of the store pinned to a past \texttt{as\_of} date; methods invoked against the slice raise \texttt{EmbargoViolation} on any out-of-slice read, eliminating temporal leakage. This is severity (Mayo) made computational.
+
+\textbf{External corpora are the final referee.} The external battery runs monthly against problem classes the firm does not control (Good Judgment, Metaculus, ClaimReview, replication projects). A method that regresses past a threshold on a corpus triggers a red-flag ticket and a calibration-weight rollback.
+
+Each of these architectural commitments is a direct consequence of the five criteria. Severity $\Rightarrow$ adversarial challenge + counterfactual replay. Progressivity $\Rightarrow$ calibration scoreboard. Coherence $\Rightarrow$ cascade graph + meta-analysis gate. Compressibility $\Rightarrow$ the information-theoretic layer of the coherence engine. Domain sensitivity $\Rightarrow$ external corpus battery.
+
+% =======================================================================
+\section{What the meta-method is not}
+% =======================================================================
+
+Two final clarifications, because both misreadings are common.
+
+\textbf{The meta-method is not certainty.} Nothing in the five criteria guarantees that a method applied to a new problem will succeed. NFL guarantees the opposite: no method succeeds universally. What the meta-method guarantees is that when a method fails, the failure is \emph{visible and informative}, and that the firm's stake in any single method is appropriately sized to the method's historical calibration.
+
+\textbf{The meta-method is not neutrality.} Meta-methodology is not ``we have no views.'' The firm has strong methodological views: that severity beats confirmation, that progressivity beats retrofitting, that compressibility beats ad-hoc accommodation, that domain sensitivity beats universalist overreach. These are themselves substantive positions. The meta-method is neutral only with respect to \emph{first-order} claims about the world; it is emphatically partisan with respect to \emph{second-order} claims about how belief should be produced.
+
+A firm with no methodological commitments cannot have a meta-method. A firm with methodological commitments that cannot be stated formally has a tradition rather than a method. Theseus's wager is that a firm whose methodological commitments can be stated formally, audited publicly, and updated in response to their own performance will compound in credibility as fashionable firms burn through it.
+
+\end{document}

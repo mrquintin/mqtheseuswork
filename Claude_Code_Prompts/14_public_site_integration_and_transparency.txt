@@ -1,0 +1,312 @@
+# Claude Code Prompt 14 of 17 — Public site integration: nav, homepage teaser, transparency footer, permalinks/share
+
+**Sequence:** prompt 14 of 17 (Wave 6 closer). Depends on 10, 11, 12, 13. Report back with: the exact nav label, the homepage teaser copy, and the share-link UTM policy (there is none — verify).
+
+**Before you start — read current state:**
+1. Read `theseus-public/src/app/layout.tsx` — note the root nav bar, which currently links to `/`, `/methodology`, `/open-questions`, `/responses`, `/feed.xml`, `/atom.xml`.
+2. Read `theseus-public/src/app/page.tsx` — the homepage with the latest-conclusions list.
+3. Read the methodology page at `theseus-public/src/app/methodology/page.tsx` (if present) — match its prose register when you write the transparency copy.
+4. Read `theseus-public/src/lib/currentsApi.ts` — confirm `listCurrents` so the homepage teaser can fetch the latest 3 opinions at build time / on each runtime request.
+
+## Your task
+
+Wire the currents feature into the rest of the public site: (1) add a "Current events" entry to the root nav with a subtle `live` pulse indicator; (2) add a homepage teaser section showing the last 3 opinions with a link to `/currents`; (3) add a transparency footer that appears on every `/currents*` page explaining how opinions are generated and the firm's disclaimers; (4) add a "copy permalink" affordance on each detail page so users can share exact opinions; (5) add small Open Graph metadata so shared links render correctly.
+
+No new routes, no backend changes, no styling overhaul.
+
+## Prerequisites
+
+- Prompts 10, 11, 12, 13 applied.
+
+## SCOPE
+
+- `theseus-public/src/app/layout.tsx`                                    MODIFY (add nav link with live pulse)
+- `theseus-public/src/app/page.tsx`                                      MODIFY (add teaser block above existing content)
+- `theseus-public/src/app/currents/layout.tsx`                           MODIFY (append transparency footer)
+- `theseus-public/src/app/currents/[id]/page.tsx`                        MODIFY (add generateMetadata + OG tags; import CopyLinkButton)
+- `theseus-public/src/app/currents/[id]/CopyLinkButton.tsx`              CREATE
+- `theseus-public/src/app/currents/[id]/DetailClient.tsx`                MODIFY (mount CopyLinkButton in the header bar)
+- `theseus-public/src/components/CurrentsNavPulse.tsx`                   CREATE (tiny component)
+- `theseus-public/src/__tests__/CurrentsNavPulse.test.tsx`               CREATE
+- `theseus-public/src/__tests__/CopyLinkButton.test.tsx`                 CREATE
+
+Do NOT modify the feed, filter bar, source drawer, or chat. Do NOT touch `theseus-codex` or `current_events_api`.
+
+## Step-by-step
+
+### 1. Nav — add "Current events" with live indicator
+
+Edit `theseus-public/src/app/layout.tsx`. Add, between `<a href="/">Index</a>` and `<a href="/methodology">Methodology</a>`:
+
+```tsx
+<CurrentsNavPulse />
+```
+
+and import at the top:
+
+```tsx
+import { CurrentsNavPulse } from "@/components/CurrentsNavPulse";
+```
+
+`CurrentsNavPulse.tsx`:
+
+```tsx
+"use client";
+
+import Link from "next/link";
+import { usePathname } from "next/navigation";
+
+export function CurrentsNavPulse() {
+  const pathname = usePathname();
+  const active = pathname?.startsWith("/currents");
+  return (
+    <Link
+      href="/currents"
+      aria-label="Current events — live"
+      style={{
+        display: "inline-flex", alignItems: "center", gap: "0.35rem",
+        color: active ? "#d4a017" : undefined,
+        fontWeight: active ? 600 : undefined,
+      }}
+    >
+      Current events
+      <span
+        aria-hidden
+        style={{
+          display: "inline-block",
+          width: 6, height: 6, borderRadius: 50,
+          background: "#d4a017",
+          boxShadow: "0 0 8px rgba(212, 160, 23, 0.55)",
+          animation: "currents-pulse 1.8s ease-in-out infinite",
+        }}
+      />
+    </Link>
+  );
+}
+```
+
+(The `currents-pulse` keyframes live in `globals.css` from prompt 09.)
+
+### 2. Homepage teaser
+
+Edit `theseus-public/src/app/page.tsx`. Above the existing `<h1>Current public map</h1>`, insert a `<CurrentsTeaser />` section. Add a new server helper at the top of the file:
+
+```tsx
+import Link from "next/link";
+import { listCurrents } from "@/lib/currentsApi";
+import { bundle, latestConclusions } from "@/lib/bundle";
+
+export const dynamic = "force-dynamic"; // teaser needs fresh data
+
+async function CurrentsTeaser() {
+  let items: Awaited<ReturnType<typeof listCurrents>>["items"] = [];
+  try {
+    items = (await listCurrents({ limit: 3 })).items;
+  } catch {
+    // If the API is down, we simply omit the teaser.
+    return null;
+  }
+  if (!items.length) return null;
+  return (
+    <section style={{
+      marginTop: 0, marginBottom: "1.6rem",
+      padding: "1rem 1.1rem",
+      border: "1px solid var(--border)",
+      background: "#fbfaf6",
+      borderRadius: 3,
+    }}>
+      <div style={{
+        display: "flex", justifyContent: "space-between", alignItems: "baseline",
+        marginBottom: "0.55rem",
+      }}>
+        <span style={{
+          fontSize: "0.72rem", letterSpacing: "0.16em",
+          textTransform: "uppercase", color: "var(--muted)",
+        }}>
+          Live · current events
+        </span>
+        <Link href="/currents" style={{ fontSize: "0.85rem" }}>See all →</Link>
+      </div>
+      <ul style={{
+        listStyle: "none", padding: 0, margin: 0,
+        display: "flex", flexDirection: "column", gap: "0.5rem",
+      }}>
+        {items.map((op) => (
+          <li key={op.id}>
+            <Link href={`/currents/${op.id}`} style={{
+              display: "flex", justifyContent: "space-between", gap: "0.8rem",
+            }}>
+              <span style={{ fontSize: "0.95rem" }}>{op.headline}</span>
+              <span style={{ fontSize: "0.72rem", color: "var(--muted)", whiteSpace: "nowrap" }}>
+                {op.stance} · {(op.confidence * 100).toFixed(0)}%
+              </span>
+            </Link>
+          </li>
+        ))}
+      </ul>
+    </section>
+  );
+}
+
+export default async function HomePage() {
+  const rows = latestConclusions(bundle);
+  return (
+    <main className="container">
+      <CurrentsTeaser />
+      {/* … existing content unchanged … */}
+    </main>
+  );
+}
+```
+
+If `CurrentsTeaser` throws, render nothing — never break the homepage because a runtime service is down.
+
+### 3. Transparency footer in the currents layout
+
+Append to `theseus-public/src/app/currents/layout.tsx` (inside the shell, after `{children}`):
+
+```tsx
+<footer style={{
+  marginTop: "3rem",
+  paddingTop: "1.1rem",
+  borderTop: "1px solid var(--currents-border)",
+  fontSize: "0.78rem",
+  lineHeight: 1.6,
+  color: "var(--currents-parchment-dim)",
+  fontStyle: "italic",
+}}>
+  <p style={{ margin: 0, maxWidth: "52em" }}>
+    Opinions on this page are generated by Claude Haiku 4.5 from the firm's
+    published Noosphere of conclusions and claims. They are not editorial
+    commentary, not legal or financial advice, and not an exhaustive survey
+    of the firm's thinking. The firm abstains from opining when its sources
+    do not support a position; an abstention is not agreement with the
+    observed event. Citations link to verbatim source passages; when a
+    source is revoked, dependent opinions are marked accordingly. Follow-up
+    answers re-retrieve from the Noosphere on each question — the assistant
+    does not answer from memory.
+  </p>
+</footer>
+```
+
+### 4. Permalink copy button on the detail page
+
+`CopyLinkButton.tsx`:
+
+```tsx
+"use client";
+
+import { useState } from "react";
+
+export function CopyLinkButton({ opinionId }: { opinionId: string }) {
+  const [copied, setCopied] = useState(false);
+  const onClick = async () => {
+    const url = `${window.location.origin}/currents/${encodeURIComponent(opinionId)}`;
+    try {
+      await navigator.clipboard.writeText(url);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1400);
+    } catch {
+      window.prompt("Copy this permalink:", url);
+    }
+  };
+  return (
+    <button onClick={onClick} style={{
+      background: "transparent",
+      border: "1px solid var(--currents-border)",
+      color: "var(--currents-parchment-dim)",
+      padding: "0.32rem 0.6rem",
+      fontSize: "0.75rem",
+      borderRadius: 2,
+      cursor: "pointer",
+      letterSpacing: "0.04em",
+    }}>
+      {copied ? "permalink copied" : "copy permalink"}
+    </button>
+  );
+}
+```
+
+In `DetailClient.tsx`, above the `<OpinionCard>` in a small header row, mount:
+
+```tsx
+<div style={{ display: "flex", justifyContent: "flex-end", marginBottom: "0.4rem" }}>
+  <CopyLinkButton opinionId={opinion.id} />
+</div>
+```
+
+### 5. Open Graph metadata
+
+Add `generateMetadata` to `theseus-public/src/app/currents/[id]/page.tsx`:
+
+```tsx
+import type { Metadata } from "next";
+import { getCurrent } from "@/lib/currentsApi";
+
+export async function generateMetadata({
+  params,
+}: { params: Promise<{ id: string }> }): Promise<Metadata> {
+  const { id } = await params;
+  try {
+    const op = await getCurrent(id);
+    const description = op.body_markdown.slice(0, 220).replace(/\s+/g, " ").trim() + "…";
+    return {
+      title: op.headline,
+      description,
+      openGraph: {
+        title: op.headline,
+        description,
+        type: "article",
+        siteName: "Theseus",
+        url: `/currents/${op.id}`,
+      },
+      twitter: {
+        card: "summary_large_image",
+        title: op.headline,
+        description,
+      },
+    };
+  } catch {
+    return { title: "Current event" };
+  }
+}
+```
+
+No UTM params, no tracking pixels. The footer disclaimer already sets expectations.
+
+### 6. Tests
+
+`__tests__/CurrentsNavPulse.test.tsx`:
+
+- Renders link with text "Current events".
+- Active state when `usePathname()` returns `/currents`.
+- Inactive when pathname is `/`.
+
+`__tests__/CopyLinkButton.test.tsx`:
+
+- On click, `navigator.clipboard.writeText` is called with `${origin}/currents/<id>`.
+- After click, button text becomes "permalink copied", reverts after timeout.
+
+## Verification
+
+```bash
+cd theseus-public
+npm run build
+npx vitest run src/__tests__/CurrentsNavPulse.test.tsx src/__tests__/CopyLinkButton.test.tsx
+
+# Smoke:
+# 1. Homepage shows the teaser (if the API is reachable) OR gracefully omits it if the API is down.
+# 2. Nav shows the pulsing "Current events" link.
+# 3. /currents/<id> has a "copy permalink" button that writes to clipboard.
+# 4. Share a /currents/<id> URL into a link preview tool — expect headline + body excerpt.
+```
+
+## Prohibitions
+
+- Do NOT add analytics, UTM params, or any client-side tracking. The public site is deliberately ad-and-tracking-free.
+- Do NOT remove or alter the existing nav items; only add `CurrentsNavPulse` and keep the rest in place.
+- Do NOT break the homepage when the API is down — `CurrentsTeaser` must fail gracefully.
+- Do NOT add a "share on Twitter" button — we don't promote engagement loops on this surface.
+- Do NOT change the transparency copy without updating the footer in at least one place the user will see BEFORE the opinion (the section layout's header already sets expectations); if you change copy, change both locations consistently.
+
+Do not proceed to any other work. Do not edit anything outside SCOPE.

@@ -1,0 +1,611 @@
+\documentclass[11pt]{article}
+
+% ---- Layout ----
+\usepackage[letterpaper,margin=1in]{geometry}
+\usepackage{setspace}
+\setstretch{1.12}
+\usepackage{parskip}
+
+% ---- Typography ----
+\usepackage[T1]{fontenc}
+\usepackage[utf8]{inputenc}
+\usepackage{mathpazo}           % Palatino with math
+\linespread{1.05}
+\usepackage{microtype}
+
+% ---- Color ----
+\usepackage[dvipsnames,table]{xcolor}
+\definecolor{ink}{HTML}{1A1A1A}
+\definecolor{accent}{HTML}{8C3A2E}
+\definecolor{slate}{HTML}{3A4A5A}
+\definecolor{mist}{HTML}{E6E4DE}
+\definecolor{sand}{HTML}{F5F1E8}
+\definecolor{leaf}{HTML}{4A6A3A}
+\definecolor{gold}{HTML}{A07A30}
+
+% ---- Math / Graphics ----
+\usepackage{amsmath,amssymb,amsthm}
+\usepackage{tikz}
+\usetikzlibrary{arrows.meta,positioning,shapes.geometric,fit,backgrounds,calc,decorations.pathmorphing,cylinder}
+\usepackage{graphicx}
+\usepackage{adjustbox}
+\usepackage{float}
+\usepackage{enumitem}
+\setlist{itemsep=2pt,topsep=4pt}
+
+% ---- Headings ----
+\usepackage{titlesec}
+\titleformat{\section}{\normalfont\Large\bfseries\color{ink}}{\thesection}{0.8em}{}
+\titleformat{\subsection}{\normalfont\large\bfseries\color{slate}}{\thesubsection}{0.6em}{}
+\titleformat{\subsubsection}{\normalfont\normalsize\bfseries\color{slate}}{\thesubsubsection}{0.5em}{}
+
+% ---- Boxes ----
+\usepackage{tcolorbox}
+\tcbuselibrary{breakable,skins}
+\newtcolorbox{intuitionbox}[1][]{
+  enhanced, breakable, sharp corners,
+  colback=sand, colframe=gold, boxrule=0.5pt,
+  left=10pt, right=10pt, top=8pt, bottom=8pt,
+  title={#1}, fonttitle=\bfseries\color{ink}
+}
+\newtcolorbox{componentbox}[1][]{
+  enhanced, breakable, sharp corners,
+  colback=mist, colframe=slate, boxrule=0.5pt,
+  left=10pt, right=10pt, top=8pt, bottom=8pt,
+  title={#1}, fonttitle=\bfseries\color{ink}
+}
+
+% ---- Links ----
+\usepackage{hyperref}
+\hypersetup{colorlinks=true,linkcolor=accent,citecolor=accent,urlcolor=accent}
+
+% ---- Header ----
+\usepackage{fancyhdr}
+\setlength{\headheight}{14pt}
+\pagestyle{fancy}
+\fancyhf{}
+\renewcommand{\headrulewidth}{0pt}
+\fancyfoot[C]{\textcolor{slate}{\small\thepage}}
+\fancyhead[L]{\textcolor{slate}{\small\textsc{Theseus}}}
+\fancyhead[R]{\textcolor{slate}{\small\textit{Product Description}}}
+\renewcommand{\headrulewidth}{0.3pt}
+
+\title{
+  \vspace{-1.5cm}
+  {\Huge\bfseries\color{ink} Theseus: Product Description} \\
+  \vspace{0.3cm}
+  {\Large\color{slate} How the firm's three softwares build a disciplined mind}
+}
+\author{\textsc{Internal Document}}
+\date{April 2026}
+
+\begin{document}
+
+\maketitle
+\thispagestyle{empty}
+
+\vspace{1cm}
+
+\begin{intuitionbox}[Orientation]
+\noindent This document describes the Theseus software system in full: the three applications that make it up (\textsc{Noosphere}, \textsc{Dialectic}, and the \textsc{Founder Portal}), how they are internally constructed, how they talk to one another, and how together they constitute an instrument for disciplined truth-finding. It is written so that an interested non-engineer can read it beginning to end and understand what we have built, why, and what it does when it runs. The reader should expect plain explanations first and technical detail second; diagrams and component breakdowns are provided throughout.
+\end{intuitionbox}
+
+\tableofcontents
+\clearpage
+
+% ============================================================
+\section{What Theseus Is Trying To Do}
+% ============================================================
+
+Theseus is an intellectual-capital firm that takes a specific bet: the scarce resource in serious thinking is not information but \emph{discipline}. There is no shortage of arguments, essays, podcasts, and research reports. What is short is the capacity to hold positions coherently over time, notice when one has quietly changed one's mind, detect when two beliefs one professes are in tension, and decide what to read next on evidentiary rather than tribal grounds. Theseus is not in the business of announcing new substantive truths; it is in the business of building the instrument by which a small group of people can reliably get closer to the truth over many years.
+
+Three software components make up that instrument. \textsc{Dialectic} sits in the room during a conversation and watches what is being said. \textsc{Noosphere} is the long-lived memory and reasoning engine that accumulates everything the firm has ever said or written, evaluates it for internal consistency, and produces synthesized conclusions at honest confidence levels. The \textsc{Founder Portal} is the web interface the founders use to feed material into the system and read what it has produced.
+
+\begin{figure}[H]
+\centering
+\begin{adjustbox}{max width=\textwidth}
+\begin{tikzpicture}[
+    node distance=1.5cm,
+    every node/.style={font=\small},
+    app/.style={rectangle, rounded corners=3pt, draw=slate, fill=mist, minimum width=2.8cm, minimum height=1.2cm, align=center, thick},
+    flow/.style={-Stealth, thick, slate}
+]
+\node[app] (dialectic) {\textbf{Dialectic}\\\scriptsize live conversation};
+\node[app, right=2.5cm of dialectic] (portal) {\textbf{Founder Portal}\\\scriptsize web interface};
+\node[app, below=1.2cm of portal] (noosphere) {\textbf{Noosphere}\\\scriptsize reasoning engine};
+\node[below left=1.2cm and 0.2cm of dialectic, align=center, font=\scriptsize\itshape, slate] (speech) {microphone\\audio};
+\node[below=1.2cm of noosphere, align=center, font=\scriptsize\itshape, slate] (docs) {essays,\\transcripts,\\session files};
+\draw[flow] (speech) -- (dialectic);
+\draw[flow] (dialectic) -- node[above, font=\scriptsize] {session file} (portal);
+\draw[flow] (portal) -- node[right, font=\scriptsize] {upload} (noosphere);
+\draw[flow] (docs) -- (noosphere);
+\draw[flow] (noosphere.north) to[bend right=20] node[above right, font=\scriptsize] {conclusions} (portal.south);
+\end{tikzpicture}
+\end{adjustbox}
+\caption{The three softwares and their relationships. Dialectic produces material in real time from live discussion. The Founder Portal is the human-facing on-ramp and dashboard. Noosphere is the engine behind them.}
+\end{figure}
+
+\begin{intuitionbox}[In plain language]
+Imagine a small think-tank that wants to be honest with itself over decades. It produces podcasts, essays, and recorded conversations constantly. Somewhere on disk, every one of those artifacts is gathering dust. What Theseus does is turn that pile into a living structure: it reads every claim the founders have ever made, checks those claims against each other, notices when two of them contradict, tracks how each founder's position on a topic has evolved, and produces a clean summary of what the firm currently believes, at what confidence, and why. Dialectic makes the instrument work in real-time during conversations; Noosphere is the long memory; the Founder Portal is where you sit to use the whole thing.
+\end{intuitionbox}
+
+\clearpage
+
+% ============================================================
+\section{The System At A Glance}
+% ============================================================
+
+Before descending into each component it is worth seeing the whole pipeline end-to-end on a single page.
+
+\begin{figure}[H]
+\centering
+\begin{adjustbox}{max width=\textwidth, max totalheight=0.78\textheight}
+\begin{tikzpicture}[
+    node distance=0.55cm,
+    every node/.style={font=\small},
+    stage/.style={rectangle, rounded corners=2pt, draw=slate, fill=sand, minimum width=3.2cm, minimum height=0.85cm, align=center},
+    phase/.style={rectangle, rounded corners=2pt, draw=accent, fill=mist, minimum width=3.2cm, minimum height=0.85cm, align=center, very thick},
+    output/.style={rectangle, rounded corners=2pt, draw=leaf, fill=sand, minimum width=3.2cm, minimum height=0.85cm, align=center, very thick},
+    flow/.style={-Stealth, thick, slate}
+]
+\node[stage] (s1) {Raw artifact \\ \scriptsize (audio, essay, session)};
+\node[stage, below=of s1] (s2) {Ingestion \\ \scriptsize normalize, chunk, embed};
+\node[stage, below=of s2] (s3) {Claim extraction \\ \scriptsize LLM-assisted decomposition};
+\node[stage, below=of s3] (s4) {Ontology mapping \\ \scriptsize topics, authors, time};
+\node[phase, below=of s4] (s5) {Six-Layer Coherence \\ \scriptsize NLI, argumentation, probabilistic,\\ geometry, information, LLM judge};
+\node[phase, below=of s5] (s6) {Temporal dynamics \\ \scriptsize position drift over time};
+\node[phase, below=of s6] (s7) {Meta-analysis \\ \scriptsize five-criterion evaluation};
+\node[output, below=of s7] (s8) {Synthesis \\ \scriptsize tiered conclusions};
+\node[output, below=of s8] (s9) {Research Advisor \\ \scriptsize next topics \& readings};
+\foreach \a/\b in {s1/s2,s2/s3,s3/s4,s4/s5,s5/s6,s6/s7,s7/s8,s8/s9} \draw[flow] (\a) -- (\b);
+\end{tikzpicture}
+\end{adjustbox}
+\caption{The full pipeline from raw artifact to firm-level output. Stages in sand are ingestion and preparation; stages with the accent border are reasoning; the two green-bordered stages are the externally useful outputs.}
+\end{figure}
+
+The pipeline is deliberately sequential at the top (material has to be parsed before it can be analyzed) and increasingly parallel toward the bottom (the six coherence layers run against each other, temporal and meta-analytic checks operate over the whole graph). Each stage is implemented as a self-contained Python module inside \texttt{noosphere/}, so components can be upgraded or replaced without rewriting the pipeline.
+
+\clearpage
+
+% ============================================================
+\section{Noosphere: The Reasoning Engine}
+% ============================================================
+
+\textsc{Noosphere} is the heart of the system. It is a Python package, roughly thirteen thousand lines, organized as seventeen cohesive modules. It is not a monolith: each module does one thing and exposes a clean interface that the orchestrator calls in a specific order.
+
+\subsection{Why it exists}
+
+The core problem the engine solves is what we call the \emph{attic problem}. A serious thinker accumulates an attic of claims --- across ten years of essays, hundreds of podcast episodes, thousands of notes. Somewhere in that attic are positions that contradict each other, positions whose evidentiary support has quietly collapsed, and positions that have drifted without anyone noticing. A human cannot keep it all in working memory. Noosphere keeps it for them, and does so in a way that prefers honest uncertainty to false synthesis.
+
+\subsection{Architecture}
+
+\begin{figure}[H]
+\centering
+\begin{adjustbox}{max width=\textwidth}
+\begin{tikzpicture}[
+    node distance=0.45cm,
+    every node/.style={font=\footnotesize},
+    mod/.style={rectangle, rounded corners=1.5pt, draw=slate, fill=sand, minimum width=2.6cm, minimum height=0.75cm, align=center},
+    layer/.style={rectangle, rounded corners=3pt, draw=accent, fill=mist, minimum width=13cm, minimum height=1.6cm, very thick},
+    group/.style={rectangle, rounded corners=2pt, draw=gold, dashed, fill=white, inner sep=4pt}
+]
+% ingestion row
+\node[mod] (models) {\textbf{models.py}\\\scriptsize pydantic types};
+\node[mod, right=of models] (ingester) {\textbf{ingester.py}\\\scriptsize readers, chunkers};
+\node[mod, right=of ingester] (ontology) {\textbf{ontology.py}\\\scriptsize topics, entities};
+\node[mod, right=of ontology] (classifier) {\textbf{classifier.py}\\\scriptsize claim typing};
+
+% coherence row
+\node[mod, below=of models] (coherence) {\textbf{coherence.py}\\\scriptsize six-layer judge};
+\node[mod, right=of coherence] (geometry) {\textbf{geometry.py}\\\scriptsize embedding tests};
+\node[mod, right=of geometry] (inference) {\textbf{inference.py}\\\scriptsize NLI, arguments};
+\node[mod, right=of inference] (temporal) {\textbf{temporal.py}\\\scriptsize drift tracking};
+
+% synthesis row
+\node[mod, below=of coherence] (meta) {\textbf{meta\_analysis.py}\\\scriptsize five criteria};
+\node[mod, right=of meta] (conclusions) {\textbf{conclusions.py}\\\scriptsize tiered output};
+\node[mod, right=of conclusions] (founders) {\textbf{founders.py}\\\scriptsize per-author views};
+\node[mod, right=of founders] (synthesis) {\textbf{synthesis.py}\\\scriptsize assembly};
+
+% outer row
+\node[mod, below=of meta] (research) {\textbf{research\_advisor.py}\\\scriptsize next-steps};
+\node[mod, right=of research] (orchestrator) {\textbf{orchestrator.py}\\\scriptsize drives pipeline};
+\node[mod, right=of orchestrator] (cli) {\textbf{cli.py}\\\scriptsize command-line};
+\node[mod, right=of cli] (main) {\textbf{\_\_main\_\_.py}\\\scriptsize entry point};
+
+\end{tikzpicture}
+\end{adjustbox}
+\caption{The seventeen modules that make up Noosphere, grouped by role. Data types and ingestion along the top row, reasoning in the middle, synthesis and delivery along the bottom.}
+\end{figure}
+
+\subsubsection{The data layer}
+
+Every piece of data that moves through the system is a validated \texttt{pydantic} model defined in \texttt{models.py}. The core types are \texttt{Artifact} (a source document), \texttt{Chunk} (a passage within one), \texttt{Claim} (an atomic assertion extracted from a chunk), \texttt{Entity} (a person, organization, or concept mentioned), \texttt{Topic} (a cluster of related claims), and \texttt{Conclusion} (a synthesized statement with evidence, confidence, and dissent). Because these types are validated at every module boundary, an upstream bug cannot silently corrupt downstream reasoning.
+
+\texttt{ingester.py} is responsible for turning raw files into validated \texttt{Artifact}s and \texttt{Chunk}s. It handles three formats today: Markdown essays, podcast transcripts (plain-text or WebVTT), and Dialectic session files (JSON Lines). Chunking is deliberately sentence-aware rather than blind token-windowing; a chunk is a unit we expect to contain one or two claims, not an arbitrary window.
+
+\subsubsection{The meaning layer}
+
+Once chunks exist they acquire meaning through three parallel processes. \texttt{classifier.py} decides what kind of claim a chunk contains --- empirical, normative, methodological, predictive, or definitional --- because each type will be evaluated differently downstream. \texttt{ontology.py} maps the chunk into the firm's growing ontology of topics and named entities; this is what lets the system eventually say ``the firm has discussed immigration 140 times, and these are the three canonical positions that have emerged.'' And every chunk gets a dense embedding from a sentence-transformers model so that similarity and geometric operations become possible.
+
+\begin{intuitionbox}[What is an embedding, plainly?]
+An embedding is a way of turning a sentence into a list of several hundred numbers such that sentences with similar meanings end up near each other in that high-dimensional space, and sentences with dissimilar meanings end up far apart. It sounds like magic; it is not. Neural networks trained on vast text corpora learn to compress meaning this way because doing so helps them predict the next word. Once you have embeddings, you can ask questions like ``which of our past claims is closest in meaning to this new one?'' or ``are these two positions converging or diverging over time?'' by doing arithmetic in that space.
+\end{intuitionbox}
+
+\subsection{The Six-Layer Coherence Engine}
+
+This is the crown jewel. Noosphere does not simply ask ``does this new claim contradict anything we've said before?'' --- a naive LLM-only check would be too gullible or too confident. Instead it runs the pair of claims through six independent evaluators and takes their joint judgment. The six layers are constructed to fail in \emph{different} ways, so that when they agree, the agreement is load-bearing.
+
+\begin{figure}[H]
+\centering
+\begin{adjustbox}{max width=\textwidth}
+\begin{tikzpicture}[
+    node distance=0.35cm,
+    every node/.style={font=\small},
+    layer/.style={rectangle, rounded corners=2pt, draw=slate, fill=sand, text width=12.4cm, minimum height=1cm, align=left, inner sep=6pt},
+    flow/.style={-Stealth, thick, slate}
+]
+\node[layer, fill=mist] (l1) {\textbf{1. Natural Language Inference.} A DeBERTa-v3 model pretrained on MNLI/ANLI scores entailment, neutrality, and contradiction between two claims.};
+\node[layer, fill=sand, below=of l1] (l2) {\textbf{2. Formal Argumentation.} Claims become nodes in an abstract argumentation framework; attack relations are computed; stable extensions are checked.};
+\node[layer, fill=mist, below=of l2] (l3) {\textbf{3. Probabilistic Consistency.} Claims with numerical or probabilistic commitments are checked for Kolmogorov-axiom violations and conjugacy errors.};
+\node[layer, fill=sand, below=of l3] (l4) {\textbf{4. Embedding Geometry.} Hoyer sparsity and cosine-angle statistics are computed in the embedding space; specific geometric signatures indicate contradiction.};
+\node[layer, fill=mist, below=of l4] (l5) {\textbf{5. Information-Theoretic.} Two-claim joint distributions are tested for compressibility; genuine contradictions resist compression.};
+\node[layer, fill=sand, below=of l5] (l6) {\textbf{6. LLM Judge.} A large model is asked to adjudicate, with the other five layers' output as structured context it must engage with.};
+\end{tikzpicture}
+\end{adjustbox}
+\caption{The six layers of the coherence engine. Each is a separate pass over the same claim-pair; their outputs are then combined by \texttt{coherence.py}.}
+\end{figure}
+
+\subsubsection{Why six, and why these six?}
+
+The simple answer is that every single one has known failure modes, and the six failure modes are not the same.
+
+NLI models are fluent but brittle: they confidently mistake aesthetic disagreement for logical contradiction, or miss contradictions that require two inferential steps. They are the fastest but the most error-prone single layer.
+
+Argumentation theory, following Dung's 1995 formalism and its descendants, handles structured disagreement gracefully but requires the claims to already be well-formed logical objects; it tends to under-fire on claims that are vague but substantively contradictory.
+
+Probabilistic checks catch a specific and common error --- ``X is likely'' and ``X is unlikely'' from the same author on the same evidence --- but are blind to purely qualitative disagreements.
+
+Embedding geometry is a live conjecture of the firm (see \textsc{Geometry\_of\_Unresolution.pdf}): contradictory claims tend to occupy a particular region of embedding space characterized by high Hoyer sparsity and an intermediate cosine angle. This layer is powerful where it fires and silent where it does not; it is calibrated on the firm's own data.
+
+Information-theoretic checks formalize the intuition that two genuinely contradictory claims cannot be compressed together (they carry independent bits of assertion), whereas two redundant claims compress sharply. This layer catches subtle redundancies and framing contradictions that the others miss.
+
+The LLM judge is the final layer because it is the most expensive and the most context-hungry; giving it the other five layers' output first turns it from an unreliable oracle into a constrained referee. It can overrule the others, but only with an argument that cites them.
+
+\begin{figure}[H]
+\centering
+\begin{adjustbox}{max width=\textwidth}
+\begin{tikzpicture}[scale=0.9,
+    every node/.style={font=\footnotesize},
+    pair/.style={rectangle, rounded corners=1pt, draw=slate, fill=mist, minimum width=3.2cm, minimum height=0.7cm},
+    layer/.style={rectangle, rounded corners=1pt, draw=gold, fill=sand, minimum width=2.2cm, minimum height=0.65cm, align=center},
+    verdict/.style={rectangle, rounded corners=2pt, draw=accent, very thick, fill=mist, minimum width=3cm, minimum height=0.8cm, align=center},
+    flow/.style={-Stealth, thick, slate}
+]
+\node[pair] (a) at (0,2.5) {claim A};
+\node[pair] (b) at (0,1.5) {claim B};
+\node[layer] (l1) at (4,3.5) {NLI};
+\node[layer] (l2) at (4,2.7) {argumentation};
+\node[layer] (l3) at (4,1.9) {probabilistic};
+\node[layer] (l4) at (4,1.1) {geometry};
+\node[layer] (l5) at (4,0.3) {information};
+\node[layer] (l6) at (4,-0.5) {LLM judge};
+\node[verdict] (v) at (9,1.5) {coherence\\verdict};
+\foreach \l in {l1,l2,l3,l4,l5,l6} {
+  \draw[flow] (a) -- (\l);
+  \draw[flow] (b) -- (\l);
+  \draw[flow] (\l) -- (v);
+}
+\end{tikzpicture}
+\end{adjustbox}
+\caption{Every candidate pair of claims is sent through all six layers in parallel. The aggregator then produces a calibrated verdict --- cohere, contradict, or unresolved --- together with per-layer scores so the reasoning is auditable.}
+\end{figure}
+
+\subsubsection{What the engine outputs}
+
+The result of coherence checking is not a single number. For each pair of examined claims the engine emits a vector $(s_1, s_2, s_3, s_4, s_5, s_6)$ of per-layer scores, a calibrated aggregate verdict in $\{\textsc{cohere}, \textsc{contradict}, \textsc{unresolved}\}$, a confidence in $[0,1]$, and a natural-language explanation from the LLM judge that references the other five scores. The \textsc{unresolved} verdict is not a bug --- it is the system's honest admission that the evidence does not force a decision, and the \emph{Geometry of Unresolution} document spells out why we treat this as a first-class outcome rather than an error.
+
+\subsection{Temporal Dynamics}
+
+A static coherence check is useful but not enough; positions drift. \texttt{temporal.py} takes every claim's timestamp (either from the artifact metadata or inferred from publication date) and constructs, per topic and per author, a time-series of stance embeddings. It then computes drift velocity (how fast the position is moving), drift acceleration (is it stabilizing or escalating?), and cosine angle to earlier-held positions. When drift crosses a configurable threshold the engine surfaces a ``quiet reversal'' event: the founder has, in effect, changed their mind without flagging it.
+
+\subsection{Meta-Analysis: The Five Criteria}
+
+Before Noosphere will call a cluster of claims a \emph{conclusion} it runs the cluster through \texttt{meta\_analysis.py}, which applies the five criteria developed in \textsc{The\_Meta\_Method.pdf}: \textit{Progressivity} (has our position progressed through genuine critical engagement or just accumulated?), \textit{Severity} (have the most forceful counter-arguments been engaged?), \textit{Coherence} (does the position hold up under the six-layer check?), \textit{Compressibility} (is the position statable without deformation?), and \textit{Domain Sensitivity} (does the confidence claimed match what is epistemically available in this domain?). A cluster that fails on Severity is not published as a conclusion; it is published as an open question.
+
+\subsection{Synthesis and the Research Advisor}
+
+\texttt{synthesis.py} is the final orchestration step. It takes clusters that have passed the five-criterion meta-analysis and assembles them into tiered conclusions: \emph{firm-level} (the whole firm's coherent output), \emph{founder-level} (a specific founder's coherent position), and \emph{open question} (a cluster with real dissent or insufficient severity). Each conclusion carries its evidence chain, its list of dissenting claims, and its confidence.
+
+Finally \texttt{research\_advisor.py} reads the synthesized conclusions together with the original transcript and generates, for each discussion, between three and seven suggested topics and three to five specific readings that would advance the firm's thinking on that topic. The suggestions are deliberately philosophical but anchored in empirical history and current events --- the design goal is to pull the firm toward real things without losing depth.
+
+\begin{componentbox}[Noosphere in one paragraph]
+Raw material comes in as files. It is chunked, embedded, and decomposed into atomic claims. Every claim is typed and placed into the firm's ontology. Pairs of claims are evaluated by six independent coherence layers whose verdicts are combined. Positions are tracked through time to surface drift. Clusters of claims are subjected to a five-criterion meta-analysis before they are allowed to become conclusions. The final conclusions are tiered by the confidence they genuinely support, and a research advisor proposes what the firm should read and discuss next.
+\end{componentbox}
+
+\clearpage
+
+% ============================================================
+\section{Dialectic: The Live Companion}
+% ============================================================
+
+\textsc{Dialectic} is Noosphere's real-time counterpart. Where Noosphere is slow, careful, and works over months of accumulated material, Dialectic is fast, lossy, and works inside a single conversation. It is a desktop application that listens through the microphone, displays a running transcript, and flags contradictions and topic drift as they happen.
+
+\subsection{Why live?}
+
+A great deal of important thinking in the firm happens in conversation, not in writing. If the only reasoning support is retrospective, the system misses the moment --- the moment when one founder says something that contradicts a position they took six months ago but neither party notices. Dialectic exists to close that loop inside the conversation itself.
+
+\subsection{Architecture}
+
+\begin{figure}[H]
+\centering
+\begin{adjustbox}{max width=\textwidth}
+\begin{tikzpicture}[
+    node distance=0.8cm,
+    every node/.style={font=\small},
+    block/.style={rectangle, rounded corners=2pt, draw=slate, fill=mist, minimum width=2.6cm, minimum height=1cm, align=center, thick},
+    flow/.style={-Stealth, thick, slate}
+]
+\node[block] (mic) {microphone \\ \scriptsize sounddevice};
+\node[block, right=of mic] (vad) {VAD \\ \scriptsize silence detection};
+\node[block, right=of vad] (whisper) {\textbf{faster-whisper}\\\scriptsize CTranslate2};
+\node[block, below=of whisper] (analyzer) {\textbf{analyzer}\\\scriptsize claim extraction,\\NLI, topics};
+\node[block, left=of analyzer] (dashboard) {\textbf{PyQt6 dashboard}\\\scriptsize live UI};
+\node[block, left=of dashboard] (session) {session file \\ \scriptsize JSONL};
+\draw[flow] (mic) -- (vad);
+\draw[flow] (vad) -- (whisper);
+\draw[flow] (whisper) -- (analyzer);
+\draw[flow] (analyzer) -- (dashboard);
+\draw[flow] (dashboard) -- (session);
+\end{tikzpicture}
+\end{adjustbox}
+\caption{Dialectic data flow. Audio flows left-to-right through capture and transcription, then into analysis and the dashboard. The session file is the persistence layer and is also the native input format for Noosphere's ingester.}
+\end{figure}
+
+\subsubsection{Audio capture}
+
+\texttt{audio.py} opens a microphone stream via the \texttt{sounddevice} bindings to PortAudio. A ring buffer holds the most recent few seconds of audio; a voice-activity detector (the \texttt{silero-vad} model) slices out speech segments as they complete. Speech segments are pushed onto a thread-safe queue.
+
+\subsubsection{Transcription}
+
+\texttt{transcriber.py} consumes the segment queue with \texttt{faster-whisper}, which is a CTranslate2-optimized re-implementation of OpenAI's Whisper model that runs about four to six times faster at the same quality. On an M-series laptop the system achieves real-time transcription with roughly a 1.5-second lag from word spoken to word displayed. The transcriber emits partial-hypothesis tokens during a segment and a finalized transcription when the segment closes.
+
+\subsubsection{Analysis}
+
+\texttt{analyzer.py} is where claims emerge. Finalized utterances are segmented into discourse units via simple punctuation- and prosody-aware rules and attributed to speakers via either a diarization model or speaker-tagged input. Each discourse unit is embedded (MiniLM L6, chosen for latency), and a running pool of recent claims is maintained. Pairwise NLI is then run across the pool with a DeBERTa-v3 head, and pairs scoring above a configurable contradiction threshold raise an alert. Topic tracking is done via online $k$-means over the embedding pool, so the dashboard can show drift between topic clusters as the conversation progresses.
+
+\subsubsection{The dashboard}
+
+\texttt{dashboard.py} is a PyQt6 application with three synchronized panes. The left pane shows the running transcript with speaker attribution and partial-hypothesis text grayed out until it finalizes. The center pane is a live force-directed graph of the recent claim pool where edges are colored by coherence (blue for entailment, red for contradiction). The right pane is the alert feed where contradictions, topic jumps, and high-salience claims are listed as they occur. Everything updates at roughly one frame per second.
+
+\subsubsection{The session file}
+
+When a session ends Dialectic writes a JSON Lines file: one line per finalized claim with timestamp, speaker, text, embedding, contradiction alerts raised, and the live coherence graph snapshot. This file is a first-class Noosphere input; the ingester's \texttt{source=dialectic} path reads it without further transformation.
+
+\begin{intuitionbox}[Why Dialectic matters]
+The firm's long memory lives in Noosphere, but most of the firm's real thinking happens in conversation. Without Dialectic, those conversations either get fully captured only when a human sits down after the fact and writes a memo (rare), or get lost. With Dialectic, every conversation is already structured the way Noosphere wants its input --- so an afternoon in the podcast studio becomes new material in the firm's long memory by that evening.
+\end{intuitionbox}
+
+\clearpage
+
+% ============================================================
+\section{Founder Portal: The Human Interface}
+% ============================================================
+
+The Founder Portal is the web application the founders actually sit in front of. It is a Next.js 16 / React 19 / Prisma 7 application backed by a SQLite database, authenticated with bcrypt-hashed passwords, and talking to a local Noosphere installation through a thin Python bridge.
+
+\subsection{What the founders do in it}
+
+Three things, primarily: upload material, trigger processing, and read results.
+
+Uploading: a founder drags an artifact into the upload panel. This can be an essay (Markdown or plain text), a transcript (WebVTT or plain text), or a Dialectic session file (JSONL). The portal stores the file, creates an \texttt{Upload} row, and immediately returns.
+
+Triggering: in the background, the portal's \texttt{lib/ingest.ts} module spawns \texttt{python -m noosphere ingest} and \texttt{python -m noosphere synthesize} as child processes. Their stdout and stderr are streamed line-by-line back into the database, so the UI shows live progress bars and log tails while synthesis is running.
+
+Reading: once synthesis completes, several dashboard pages become populated. \emph{Conclusions} lists the current firm-level conclusions with their evidence, confidence, and dissent. \emph{Contradictions} lists pairs of claims the coherence engine flagged, sorted by severity. \emph{Founders} gives a per-founder view including drift events. \emph{Research} shows the research advisor's suggested topics and readings for the most recent sessions. \emph{Open Questions} lists clusters that failed the five-criterion meta-analysis --- the firm's honest list of things it has not yet thought hard enough about.
+
+\subsection{Architecture}
+
+\begin{figure}[H]
+\centering
+\begin{adjustbox}{max width=\textwidth}
+\begin{tikzpicture}[
+    node distance=0.7cm,
+    every node/.style={font=\small},
+    ui/.style={rectangle, rounded corners=2pt, draw=slate, fill=sand, minimum width=2.5cm, minimum height=0.9cm, align=center},
+    api/.style={rectangle, rounded corners=2pt, draw=slate, fill=mist, minimum width=2.5cm, minimum height=0.9cm, align=center},
+    data/.style={cylinder, draw=slate, fill=sand, shape border rotate=90, aspect=0.25, minimum width=2cm, minimum height=1.1cm, align=center},
+    ext/.style={rectangle, rounded corners=2pt, draw=accent, very thick, fill=mist, minimum width=2.5cm, minimum height=0.9cm, align=center},
+    flow/.style={-Stealth, thick, slate}
+]
+\node[ui] (login) {login};
+\node[ui, right=of login] (dash) {dashboard};
+\node[ui, right=of dash] (upload) {upload panel};
+\node[api, below=of login] (auth) {\texttt{lib/auth.ts}};
+\node[api, below=of dash] (db) {\texttt{lib/db.ts}};
+\node[api, below=of upload] (up) {\texttt{api/upload}};
+\node[api, below=of up] (ingest) {\texttt{lib/ingest.ts}};
+\node[data, below=of db] (sqlite) {SQLite};
+\node[ext, right=of ingest] (noosphere) {Noosphere\\CLI};
+\draw[flow] (login) -- (auth);
+\draw[flow] (dash) -- (db);
+\draw[flow] (upload) -- (up);
+\draw[flow] (auth) -- (sqlite);
+\draw[flow] (db) -- (sqlite);
+\draw[flow] (up) -- (ingest);
+\draw[flow] (ingest) -- (noosphere);
+\draw[flow] (noosphere) to[bend right=30] (sqlite);
+\end{tikzpicture}
+\end{adjustbox}
+\caption{The Founder Portal's layered structure. The UI layer on top speaks only to the \texttt{lib/} and \texttt{api/} layers; those layers speak to SQLite and to the Noosphere CLI.}
+\end{figure}
+
+\subsection{Data model}
+
+The Prisma schema defines five core models. \texttt{Founder} holds identity, bcrypt-hashed credentials, and session cookies. \texttt{Upload} holds the file, its format, its status (uploaded / ingesting / synthesizing / complete / failed), and a live log stream. \texttt{Conclusion} holds synthesized output with evidence references, confidence, and tier. \texttt{Contradiction} holds pairs of claims flagged by the coherence engine with all six per-layer scores. \texttt{ResearchSuggestion} holds research-advisor output tied to a session.
+
+\subsection{Security posture}
+
+The portal is intentionally small-surface-area. Authentication uses bcryptjs with a per-founder salt; there is no social login, no third-party identity, no tokens in URL parameters. All uploads are written to disk outside the web root and served only through authenticated endpoints. The Noosphere bridge is a child-process invocation, not a networked service --- there is no port for an attacker to reach. The database is a local SQLite file; backups are the founders' responsibility.
+
+\clearpage
+
+% ============================================================
+\section{How The Three Softwares Work Together}
+% ============================================================
+
+The interesting behavior emerges from the three components interacting, not from any one in isolation.
+
+\begin{figure}[H]
+\centering
+\begin{adjustbox}{max width=\textwidth}
+\begin{tikzpicture}[
+    every node/.style={font=\small},
+    actor/.style={rectangle, rounded corners=2pt, draw=slate, fill=mist, minimum width=2.3cm, minimum height=0.8cm, align=center, thick},
+    phase/.style={font=\footnotesize\itshape, slate},
+    flow/.style={-Stealth, thick, slate}
+]
+% timeline
+\draw[slate, ultra thick] (0,0) -- (14,0);
+% milestones
+\foreach \x/\lbl in {0.5/{Session\\starts}, 4/{Session\\ends}, 7/{Upload}, 10/{Synthesis\\complete}, 13/{Next\\session}} {
+  \filldraw[accent] (\x,0) circle (2pt);
+  \node[phase, above=6pt of {(\x,0)}, align=center] {\lbl};
+}
+% actors
+\node[actor] (d) at (2.25,-1.6) {Dialectic \\ \scriptsize transcribes, flags};
+\node[actor] (f) at (7,-1.6) {Founder Portal \\ \scriptsize receives file};
+\node[actor] (n) at (10,-1.6) {Noosphere \\ \scriptsize synthesizes};
+\node[actor] (r) at (13,-1.6) {Research \\ \scriptsize advisor output};
+\draw[flow] (0.5,0) -- (d);
+\draw[flow] (d) -- (4,0);
+\draw[flow] (4,0) -- (f.north |- 0,0);
+\draw[flow] (f) -- (n);
+\draw[flow] (n) -- (10,0);
+\draw[flow] (10,0) -- (r);
+\draw[flow, dashed] (r) -- (13,0);
+\end{tikzpicture}
+\end{adjustbox}
+\caption{A single cycle. A live conversation is captured by Dialectic; the session file is uploaded through the portal; Noosphere ingests and synthesizes over minutes; the research advisor produces the inputs for the next session.}
+\end{figure}
+
+\subsection{A typical cycle}
+
+On a Tuesday morning the founders record an episode. Dialectic is running. As they talk, claims appear in the left pane, the claim graph grows in the center, and twice during the hour a contradiction alert fires in the right pane --- once because one founder quoted a position from their own 2024 essay that conflicts with what they just said, and once because a new claim conflicted internally with a claim from earlier in the same session. When the recording stops the session file is written to disk.
+
+An hour later someone uploads the session file through the Founder Portal. The upload endpoint streams the file into storage, writes an \texttt{Upload} row, and kicks off the Noosphere ingest. Over the next twenty minutes the six-layer coherence engine runs every new claim against the relevant subset of the firm's archive, the temporal module updates drift estimates, and the five-criterion meta-analysis evaluates any cluster whose shape has changed enough to merit re-evaluation.
+
+When synthesis completes, the Conclusions page has three small changes (two existing conclusions gained new evidence; one moved from firm-level to open-question because a newly-identified dissent failed severity). The Contradictions page has four new entries. The Research Advisor page has the four topic suggestions and five readings for the next discussion. The founders read these over coffee the next morning, and that reading shapes what they talk about on Thursday --- which Dialectic is there to capture, and the cycle closes.
+
+\begin{intuitionbox}[The feedback loop in plain language]
+Dialectic notices things in the moment. The portal is the place humans interact with the system. Noosphere is the long, patient memory. And the research advisor is the instrument that reaches back into the memory to suggest what should happen next. Together they make the firm a feedback loop with itself --- which is the core of what we mean by \emph{discipline}.
+\end{intuitionbox}
+
+\clearpage
+
+% ============================================================
+\section{Building The Mind}
+% ============================================================
+
+This section steps back from the three softwares and explains what they collectively amount to. We call what Theseus builds a \emph{mind}, and the word is not casual.
+
+\subsection{What we mean by ``mind''}
+
+A mind, on our working definition, is a system with four properties. It has \textit{memory} --- it can remember what it has previously believed, when, on what evidence. It has \textit{reflexive consistency} --- it notices when its own beliefs conflict. It has \textit{temporal awareness} --- it knows its beliefs change, and it tracks the change. And it has \textit{deliberative priority} --- it knows what it does not know, and it prioritizes further thought accordingly.
+
+A single human being has all four properties in principle but degrades on all four with time and volume. A group of humans operating a firm collectively has all four only if they have built instruments to maintain them. Theseus is those instruments.
+
+\begin{figure}[H]
+\centering
+\begin{adjustbox}{max width=\textwidth}
+\begin{tikzpicture}[
+    every node/.style={font=\footnotesize},
+    prop/.style={circle, draw=slate, fill=sand, minimum size=1.9cm, align=center, thick},
+    inst/.style={rectangle, rounded corners=2pt, draw=accent, fill=mist, minimum width=2.6cm, minimum height=0.8cm, align=center, very thick},
+    link/.style={slate, thick}
+]
+\node[prop] (mem) at (0,0) {\textbf{Memory}};
+\node[prop] (coh) at (4,0) {\textbf{Reflexive}\\\textbf{Consistency}};
+\node[prop] (tim) at (8,0) {\textbf{Temporal}\\\textbf{Awareness}};
+\node[prop] (del) at (12,0) {\textbf{Deliberative}\\\textbf{Priority}};
+\node[inst] (ing) at (0,-2.4) {Ingester + Ontology};
+\node[inst] (co) at (4,-2.4) {Six-Layer Coherence};
+\node[inst] (te) at (8,-2.4) {Temporal + Drift};
+\node[inst] (ra) at (12,-2.4) {Research Advisor};
+\draw[link] (mem) -- (ing);
+\draw[link] (coh) -- (co);
+\draw[link] (tim) -- (te);
+\draw[link] (del) -- (ra);
+\end{tikzpicture}
+\end{adjustbox}
+\caption{The four properties of a mind and the Noosphere subsystems that maintain each. Every property corresponds to a specific piece of the engine; none is aspirational.}
+\end{figure}
+
+\subsection{The build sequence}
+
+The mind is built in stages, not in one shot. Crudely: first we teach it to read (ingestion and chunking), then to recognize (classification and ontology), then to doubt (the coherence engine), then to remember over time (temporal dynamics), then to evaluate itself (meta-analysis), and finally to plan (the research advisor). Each stage presupposes the ones before and refines the ones before. The 50-prompt Cursor roadmap in the companion document follows this dependency order.
+
+\subsection{What the mind is not}
+
+The mind does not hold beliefs of its own. It does not lobby the founders for positions. It does not generate opinions unprompted. Its role is strictly instrumental: to keep the firm honest about what it has believed, what it currently believes, at what confidence, and what it has not yet thought about carefully enough. The firm's substantive beliefs remain the founders'. The mind's job is to make those beliefs legible, compared, and disciplined.
+
+\begin{intuitionbox}[The load-bearing commitment]
+Theseus does not try to build an AI that thinks for the founders. It builds an AI that keeps the founders honest about what they themselves think. The distinction is not rhetorical --- it determines every design choice in the system, from why the LLM judge is the last layer of the coherence engine rather than the first, to why the research advisor suggests readings rather than producing conclusions, to why \emph{unresolved} is a first-class output of the engine.
+\end{intuitionbox}
+
+\clearpage
+
+% ============================================================
+\section{Engineering Principles}
+% ============================================================
+
+A handful of engineering commitments run through all three softwares. They are worth stating explicitly because they explain many otherwise-surprising design choices.
+
+\textit{Honest uncertainty over false synthesis.} Everywhere the system could choose between forcing a verdict and returning \textsc{unresolved}, it returns \textsc{unresolved}. This is why the engine emits open questions, why the coherence verdict is ternary, why the research advisor's suggestions are plural rather than ranked.
+
+\textit{Independent failure modes.} Any component whose job is to judge runs alongside other components whose judgments fail differently. The six-layer coherence engine is the clearest example, but the principle generalizes --- we pay the cost of redundancy because silent agreement between different failure modes is the cheapest epistemic signal we can buy.
+
+\textit{Data-type validation at every boundary.} Pydantic models are enforced at every module edge. This is ugly boilerplate that pays for itself the first time an ingestion bug would otherwise have silently corrupted a downstream synthesis.
+
+\textit{Local first, network never.} Noosphere runs locally, Dialectic runs locally, the portal runs locally; the only external calls are to LLM APIs for the LLM-judge layer and to sentence-transformers for embeddings, and both of those are replaceable with local models. No component assumes continuous internet; no component phones home.
+
+\textit{Reproducibility over cleverness.} Everything the engine outputs is traceable to the inputs that produced it. A conclusion carries its evidence; a contradiction carries its six per-layer scores; a drift event carries the claim sequence that produced it. The founders should be able to argue with the engine's outputs, and arguing requires knowing what the engine looked at.
+
+\textit{Human in the synthesizing seat.} The engine proposes; the founders dispose. No conclusion is published to the world, no reading is read, no topic is discussed because the engine recommended it. The engine is a speed-reader, a consistency-checker, and a research assistant --- not a decision-maker.
+
+\clearpage
+
+% ============================================================
+\section{Deployment and Operation}
+% ============================================================
+
+In current form the entire stack runs on a single Apple Silicon laptop with 32GB of RAM and an M2 or better chip. Dialectic comfortably handles live transcription in real time; Noosphere synthesis over the firm's full current archive (roughly 180 artifacts, 14{,}000 claims) completes in under thirty minutes on the same machine. The Founder Portal runs as a local \texttt{npm run dev} or \texttt{npm run start} process. Data lives in a single SQLite file.
+
+Scaling beyond the current firm size --- say, to an analogue firm with ten founders and a ten-year archive --- would require three changes: moving the Prisma database from SQLite to Postgres, partitioning Noosphere synthesis by topic so it parallelizes, and replacing the local LLM-judge calls with an authenticated API endpoint against a small dedicated inference server. None of these changes alter the architecture, and the current design anticipates them.
+
+\subsection{Testing}
+
+Each software has its own test regime. Noosphere has a pytest suite in \texttt{noosphere/tests/} with unit tests for each module and end-to-end tests that ingest a small corpus and check synthesis output for structural invariants. Dialectic tests are mostly integration tests --- the audio and transcription modules are hard to unit-test meaningfully, so the suite verifies that a recorded WAV file produces a structurally correct session file. The Founder Portal has Playwright tests for the upload flow and Prisma-backed unit tests for the data layer.
+
+\subsection{What can go wrong}
+
+The most important failure modes worth watching are: embedding model drift when the underlying sentence-transformer is updated (mitigated by pinning versions and re-embedding on upgrade); LLM-judge hallucination producing plausible-but-ungrounded adjudication (mitigated by requiring the judge to cite the other five layers' scores); and temporal bias, where artifacts from a single dense period dominate the firm's apparent position (mitigated by the meta-analysis criteria, which explicitly checks for this).
+
+\clearpage
+
+% ============================================================
+\section{What Comes Next}
+% ============================================================
+
+The companion document \textsc{Theseus\_Implementation\_Prompts.md} turns this product description into a sequence of fifty prompts designed to be fed into Cursor (or a similar LLM-backed development environment) to carry the software from its current state to a production-ready one. The prompts are ordered by dependency: foundations first, then the coherence engine, then the temporal and synthesis layers, then Dialectic, then the portal, then integration and hardening. Each prompt is written to be self-contained enough that Cursor can act on it without referring outside this repository.
+
+\begin{intuitionbox}[What this document is, and what it is not]
+This is the map. The fifty-prompt roadmap is the marching order. The research PDFs in this folder (\textsc{Geometry\_of\_Unresolution}, \textsc{The\_Meta\_Method}, \textsc{Transcript\_Extraction\_Research}, \textsc{Podcast\_Infrastructure\_Research}) are the justifications for why the map looks the way it does. None of these documents alone tell you how to use the software; they tell you how to think about the software. The software itself is in \texttt{noosphere/}, \texttt{dialectic/}, and \texttt{founder-portal/}.
+\end{intuitionbox}
+
+\vspace{2cm}
+\begin{center}
+\textcolor{slate}{\small --- end of product description ---}
+\end{center}
+
+\end{document}

@@ -1,0 +1,317 @@
+# Claude Code Prompt 7 of 8 — GitHub Actions CI/CD for cross-platform desktop builds
+
+**Sequence:** prompt 7 of 8 (Wave 2 — depends on prompts 01–06). When you finish, report back with: files you created/modified, any notable choices, any blockers.
+
+**Before you start — read current state:**
+1. Run `git status` and `git branch`.
+2. Check if `.github/workflows/` already exists. Read any existing workflow files.
+3. Confirm these deliverables from earlier prompts exist:
+   - `dialectic/dialectic.spec` and `dialectic/scripts/build_macos.sh`
+   - `noosphere/noosphere.spec` and `noosphere/scripts/build_macos.sh`
+   - `founder-portal/electron-builder.yml` and `founder-portal/scripts/build_desktop_macos.sh`
+   - `docker-compose.yml`
+4. For every file listed under SCOPE below, check whether it already exists. Do NOT overwrite existing correct work.
+
+## Your task
+
+You are an implementation agent. Your job is to create GitHub Actions workflows that build all three Theseus desktop applications on macOS and Windows, build Docker images for the web services, and publish release artifacts. The workflows should:
+- Build Dialectic (PyInstaller) on macOS and Windows runners
+- Build Noosphere CLI (PyInstaller) on macOS and Windows runners
+- Build Founder Portal (electron-builder) on macOS and Windows runners
+- Build Docker images for Founder Portal and Theseus Public
+- Upload all artifacts to GitHub Releases on tagged commits
+- Run on pushes to `main`, pull requests, and version tags (`v*`)
+
+When you finish, verify all workflow YAML files are syntactically valid. Do not proceed to any other work.
+
+## Prerequisites
+- A GitHub repository exists (or will exist) for the Theseus monorepo.
+- GitHub-hosted runners are available (macos-latest, windows-latest, ubuntu-latest).
+- Secrets for code signing will be configured later (workflows should reference them but gracefully skip if not set).
+
+SCOPE (files you may create or modify — stay within this list)
+- `.github/workflows/build-dialectic.yml`              CREATE
+- `.github/workflows/build-noosphere.yml`              CREATE
+- `.github/workflows/build-founder-portal.yml`         CREATE
+- `.github/workflows/build-docker.yml`                 CREATE
+- `.github/workflows/release.yml`                      CREATE
+- `.github/dependabot.yml`                             CREATE
+
+## Step-by-step
+
+1. **Create `.github/workflows/build-dialectic.yml`**:
+   ```yaml
+   name: Build Dialectic
+   on:
+     push:
+       branches: [main]
+       paths: ['dialectic/**']
+     pull_request:
+       paths: ['dialectic/**']
+     workflow_dispatch:
+
+   jobs:
+     build:
+       strategy:
+         fail-fast: false
+         matrix:
+           include:
+             - os: macos-14
+               platform: macos
+               script: scripts/build_macos.sh
+             - os: windows-latest
+               platform: windows
+               script: scripts/build_windows.ps1
+
+       runs-on: ${{ matrix.os }}
+       defaults:
+         run:
+           working-directory: dialectic
+
+       steps:
+         - uses: actions/checkout@v4
+
+         - uses: actions/setup-python@v5
+           with:
+             python-version: '3.11'
+             cache: 'pip'
+
+         - name: Install dependencies
+           run: |
+             pip install -r requirements.txt
+             pip install pyinstaller pillow
+
+         - name: Generate icons
+           run: python scripts/generate_icons.py
+
+         - name: Build with PyInstaller
+           run: pyinstaller dialectic.spec --noconfirm --clean
+
+         - name: Create macOS DMG
+           if: matrix.platform == 'macos'
+           run: |
+             brew install create-dmg || true
+             bash scripts/build_macos.sh
+           # build_macos.sh handles DMG creation after PyInstaller
+
+         - name: Upload artifact
+           uses: actions/upload-artifact@v4
+           with:
+             name: dialectic-${{ matrix.platform }}
+             path: |
+               dialectic/dist/Dialectic*.dmg
+               dialectic/dist/Dialectic/
+             retention-days: 30
+   ```
+   Adjust as needed — the key is: matrix build on macOS ARM (macos-14) and Windows, PyInstaller, upload artifacts. On macOS, also create the DMG. On Windows, the NSIS installer step runs only if NSIS is installed on the runner.
+
+2. **Create `.github/workflows/build-noosphere.yml`**:
+   - Same structure as Dialectic but for the Noosphere CLI.
+   - Working directory: `noosphere`.
+   - macOS artifact: `dist/noosphere-*-macos.tar.gz`.
+   - Windows artifact: `dist/noosphere/` directory.
+   - No DMG (it's a CLI).
+
+3. **Create `.github/workflows/build-founder-portal.yml`**:
+   ```yaml
+   name: Build Founder Portal Desktop
+   on:
+     push:
+       branches: [main]
+       paths: ['founder-portal/**']
+     pull_request:
+       paths: ['founder-portal/**']
+     workflow_dispatch:
+
+   jobs:
+     build:
+       strategy:
+         fail-fast: false
+         matrix:
+           include:
+             - os: macos-14
+               platform: macos
+               dist-flag: --mac
+             - os: windows-latest
+               platform: windows
+               dist-flag: --win
+
+       runs-on: ${{ matrix.os }}
+       defaults:
+         run:
+           working-directory: founder-portal
+
+       steps:
+         - uses: actions/checkout@v4
+
+         - uses: actions/setup-node@v4
+           with:
+             node-version: '20'
+             cache: 'npm'
+             cache-dependency-path: founder-portal/package-lock.json
+
+         - name: Install dependencies
+           run: npm ci
+
+         - name: Build Next.js
+           run: npm run build
+
+         - name: Compile Electron TypeScript
+           run: npx tsc -p desktop/tsconfig.json
+
+         - name: Generate icons
+           run: node scripts/generate_icons.js
+
+         - name: Build desktop app
+           run: npx electron-builder ${{ matrix.dist-flag }} --config electron-builder.yml
+           env:
+             GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+             # Code signing (macOS)
+             CSC_LINK: ${{ secrets.MAC_CERT_P12_BASE64 }}
+             CSC_KEY_PASSWORD: ${{ secrets.MAC_CERT_PASSWORD }}
+             # Code signing (Windows)
+             WIN_CSC_LINK: ${{ secrets.WIN_CERT_PFX_BASE64 }}
+             WIN_CSC_KEY_PASSWORD: ${{ secrets.WIN_CERT_PASSWORD }}
+
+         - name: Upload artifact
+           uses: actions/upload-artifact@v4
+           with:
+             name: founder-portal-${{ matrix.platform }}
+             path: |
+               founder-portal/dist-electron/*.dmg
+               founder-portal/dist-electron/*.exe
+               founder-portal/dist-electron/*.zip
+             retention-days: 30
+   ```
+   Code signing secrets are optional — if not configured, electron-builder skips signing with a warning.
+
+4. **Create `.github/workflows/build-docker.yml`**:
+   ```yaml
+   name: Build Docker Images
+   on:
+     push:
+       branches: [main]
+       paths:
+         - 'founder-portal/**'
+         - 'theseus-public/**'
+         - 'docker-compose.yml'
+     pull_request:
+       paths:
+         - 'founder-portal/**'
+         - 'theseus-public/**'
+     workflow_dispatch:
+
+   jobs:
+     build:
+       runs-on: ubuntu-latest
+       strategy:
+         matrix:
+           service:
+             - name: founder-portal
+               context: ./founder-portal
+             - name: theseus-public
+               context: ./theseus-public
+       steps:
+         - uses: actions/checkout@v4
+
+         - name: Set up Docker Buildx
+           uses: docker/setup-buildx-action@v3
+
+         - name: Build image
+           uses: docker/build-push-action@v6
+           with:
+             context: ${{ matrix.service.context }}
+             push: false
+             tags: theseus/${{ matrix.service.name }}:latest
+             cache-from: type=gha
+             cache-to: type=gha,mode=max
+
+         - name: Validate docker-compose
+           if: matrix.service.name == 'founder-portal'
+           run: docker compose config
+   ```
+
+5. **Create `.github/workflows/release.yml`** — triggered on version tags to create a GitHub Release with all platform artifacts:
+   ```yaml
+   name: Release
+   on:
+     push:
+       tags: ['v*']
+
+   permissions:
+     contents: write
+
+   jobs:
+     build-dialectic:
+       uses: ./.github/workflows/build-dialectic.yml
+     build-noosphere:
+       uses: ./.github/workflows/build-noosphere.yml
+     build-founder-portal:
+       uses: ./.github/workflows/build-founder-portal.yml
+
+     release:
+       needs: [build-dialectic, build-noosphere, build-founder-portal]
+       runs-on: ubuntu-latest
+       steps:
+         - uses: actions/download-artifact@v4
+           with:
+             path: artifacts
+
+         - name: Create GitHub Release
+           uses: softprops/action-gh-release@v2
+           with:
+             files: artifacts/**/*
+             generate_release_notes: true
+             draft: true
+           env:
+             GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+   ```
+   Note: the reusable workflow calls require the called workflows to have `on: workflow_call` added. Update the three build workflows to also accept `workflow_call` trigger:
+   ```yaml
+   on:
+     push: ...
+     pull_request: ...
+     workflow_call:
+     workflow_dispatch:
+   ```
+
+6. **Create `.github/dependabot.yml`**:
+   ```yaml
+   version: 2
+   updates:
+     - package-ecosystem: npm
+       directory: /founder-portal
+       schedule:
+         interval: weekly
+     - package-ecosystem: npm
+       directory: /theseus-public
+       schedule:
+         interval: weekly
+     - package-ecosystem: pip
+       directory: /noosphere
+       schedule:
+         interval: weekly
+     - package-ecosystem: pip
+       directory: /dialectic
+       schedule:
+         interval: weekly
+     - package-ecosystem: github-actions
+       directory: /
+       schedule:
+         interval: weekly
+   ```
+
+## Verification
+- All YAML files are valid: `python3 -c "import yaml; yaml.safe_load(open('.github/workflows/build-dialectic.yml'))"` for each file.
+- The release workflow references the three build workflows.
+- All build workflows have `workflow_call` trigger for reuse.
+- Code signing env vars are referenced but not required (builds should succeed without them).
+- Docker workflow builds both services.
+
+## Prohibitions
+- Do NOT store any secrets, API keys, or certificates in workflow files.
+- Do NOT modify any application source code or build scripts created by earlier prompts.
+- Do NOT use deprecated GitHub Actions (v2 or v3 — use v4 of checkout, setup-python, upload-artifact, etc.).
+- Do NOT use `actions/create-release` (deprecated) — use `softprops/action-gh-release`.
+- Do NOT pin to `ubuntu-latest` for macOS/Windows builds — use the correct platform runner.
+- Do NOT add `on: push` without path filters (builds should only trigger for relevant changes, except the release workflow).

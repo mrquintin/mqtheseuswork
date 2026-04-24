@@ -1,0 +1,152 @@
+\documentclass[11pt,letterpaper]{article}
+
+\usepackage[margin=1in]{geometry}
+\usepackage[T1]{fontenc}
+\usepackage{lmodern}
+\usepackage{microtype}
+\usepackage{parskip}
+\usepackage{enumitem}
+\usepackage{booktabs}
+\usepackage{longtable}
+\usepackage{array}
+\usepackage{titlesec}
+\usepackage[hidelinks,colorlinks=true,linkcolor=black,urlcolor=black,citecolor=black]{hyperref}
+\usepackage{xcolor}
+\usepackage{fancyhdr}
+
+\titleformat{\section}{\Large\bfseries}{\thesection}{1em}{}
+\titleformat{\subsection}{\large\bfseries}{\thesubsection}{1em}{}
+
+\pagestyle{fancy}
+\fancyhf{}
+\fancyhead[L]{\small The Theseus Guides --- I. Orientation}
+\fancyhead[R]{\small\thepage}
+\renewcommand{\headrulewidth}{0.4pt}
+
+\setlength{\parindent}{0pt}
+
+\newcommand{\file}[1]{\texttt{#1}}
+\newcommand{\mod}[1]{\texttt{#1}}
+
+\title{\textbf{The Theseus Guides}\\[6pt]\large I. Orientation: What Theseus Is, and Why}
+\date{April 2026}
+\author{}
+
+\begin{document}
+\maketitle
+\thispagestyle{empty}
+
+\begin{quote}\itshape
+``Theseus is not about what is true. Theseus is about \textbf{how to determine what is true}.'' \\ \hspace*{\fill}\normalfont --- \file{METHODOLOGICAL\_REORIENTATION.md}
+\end{quote}
+
+\vspace{1em}
+\tableofcontents
+\newpage
+
+% =======================================================================
+\section{The one-sentence definition}
+% =======================================================================
+
+Theseus is an intellectual capital firm whose product is \emph{truth-finding methodology}, not truth claims. It sells, operates, and publishes the instruments by which disciplined groups of people converge on better beliefs --- not the beliefs themselves. Everything downstream of that definition --- the software, the research, the publication rules, the governance apparatus --- is a consequence of it.
+
+The distinction is load-bearing. A firm that sells truth claims is only as good as its last claim. A firm that sells truth-finding methods is insured against the failure of any individual claim: when a claim fails, the method that produced it is either vindicated (it caught the failure) or critiqued (it did not). Either way the firm's product remains intact and becomes more credible by the failure. This is what is meant when the repository's \file{README.md} and the \file{METHODOLOGICAL\_REORIENTATION.md} call the firm's position \emph{second-order} rather than first-order.
+
+% =======================================================================
+\section{The three orders, precisely}
+% =======================================================================
+
+\file{THE\_META\_METHOD.md} identifies three levels of abstraction at which a thinking organization can operate. Understanding these is prerequisite to understanding everything else Theseus does.
+
+\textbf{First order --- Substantive claims.} ``We believe $X$ is true.'' The product is a claim about the world. The vulnerability is the obvious one: when $X$ is false, the firm collapses. A fund running a thesis is only as good as the thesis; a pundit running a prediction is only as good as the prediction.
+
+\textbf{Second order --- Methodology.} ``We have a method for determining whether $X$ is true.'' The product is a procedure: a coherence engine, a contradiction detector, an adversarial generator. A false $X$ does not collapse the firm; the method either catches the falsity or is shown to be miscalibrated. The vulnerability here is subtler: the method itself can be unreliable, and a miscalibrated coherence engine is worse than none at all, because it is \emph{confidently wrong} rather than visibly silent.
+
+\textbf{Third order --- Meta-methodology.} ``We have a theory of what makes a method reliable, and we can evaluate competing methods by that theory.'' The product is not a claim and not a procedure but a \emph{criterion} for evaluating procedures. This is where Theseus is explicitly headed: the firm does not claim to have the right method for every problem; it claims to know what properties a method must have in order to be reliable within a given class of problems, and it can audit any method (its own included) against those properties.
+
+Theseus operates at the boundary between the second and third orders. The existing engineering (Noosphere, Dialectic, the Codex) is a second-order product: it operationalizes specific methods. The active intellectual work (the seven projects described in Guide VI) is third-order: it produces methods for evaluating methods.
+
+% =======================================================================
+\section{What the firm actually does}
+% =======================================================================
+
+Theseus's public surface has several faculties. Each is a domain in which the meta-method is applied rather than a separate product line. The faculties, drawn from \file{THE\_META\_METHOD.md}, are:
+
+\textbf{Investing.} The firm does not invest on a specific thesis (``AI will be transformative,'' ``interest rates will fall''). It invests on \emph{methodological quality} --- selecting companies and founders whose reasoning methods score well on the meta-criteria: progressive, severely tested, coherent with their stated aims, compressible, domain-sensitive. A founder whose thesis is methodologically rigorous is a better investment than one with a more fashionable thesis arrived at via worse methodology, because the former will survive the thesis being wrong.
+
+\textbf{Media.} The media arm does not broadcast specific truths. It models the meta-method in public. Each podcast episode, each essay, each interview is an exhibition of rigorous methodology: making axioms explicit, generating the strongest counter-argument, specifying falsification conditions, acknowledging domain boundaries, updating in response to disconfirming evidence.
+
+\textbf{Research.} The research arm does not chase particular findings. It pursues methodological advances: new methods of inquiry and formal characterizations of when existing methods work and when they fail. The Embedding Geometry Conjecture (Guide III) is a research output of this type --- a method for detecting contradictions, not a claim about what is contradictory.
+
+\textbf{Writing and publishing.} The publishing arm does not produce books of claims. It produces books of \emph{method}: how to think, how to evaluate arguments, how to identify hidden assumptions, how to detect one's own biases. The target is work in the lineage of Descartes' \textit{Discourse on Method} and P\'olya's \textit{How to Solve It} --- texts that survive because they teach the apparatus of thinking itself.
+
+\textbf{Open source.} The open-source arm publishes the apparatus. The coherence engine, the contradiction detector, the adversarial generator, the calibration system --- each is distributed under a licence that permits outside use, audit, and improvement. This is the most direct instantiation of the meta-method: the methodology is made executable, inspectable, and reproducible by anyone.
+
+\textbf{Film} (potential). Film is the narrative instantiation of the method: stories that dramatize the process of inquiry rather than its results. Whether the firm pursues it is an open question; the intellectual position is that if it is pursued, it must be method-dramatizing, not claim-asserting.
+
+% =======================================================================
+\section{The guiding principle}
+% =======================================================================
+
+The \file{README.md} of the repository states it plainly: ``the scarce resource in knowledge work is not information but \emph{discipline}.'' Theseus is instrumentation for that discipline.
+
+Discipline here is not moral discipline. It is the willingness to do five specific, costly things that most knowledge workers routinely skip:
+
+\begin{enumerate}[leftmargin=1.5em,itemsep=0.25em]
+\item Track one's positions over time, so that drift and reversal are visible rather than forgotten.
+\item Submit one's positions to adversarial review, so that the strongest counter-argument is confronted, not the strawman.
+\item Treat contradictions as signals rather than inconveniences, and resolve or retire them explicitly.
+\item Quantify uncertainty honestly, and be scored on calibration (not on appearing certain).
+\item Publish the epistemic process alongside its outputs, so that conclusions can be audited end-to-end.
+\end{enumerate}
+
+Each piece of Theseus software is a way of making one or more of these disciplines cheap enough to actually do. The coherence engine makes (3) cheap. The calibration scoreboard makes (4) cheap. The cryptographic ledger makes (5) cheap. The decay system makes (1) cheap. The adversarial challenge and peer-review swarm make (2) cheap.
+
+This is the difference between instrumentation and exhortation. ``Be rigorous'' is exhortation, and its return on effort is near zero. A piece of instrumentation that makes rigor \emph{cheaper than sloppiness} flips the incentive gradient, and rigor becomes the default.
+
+% =======================================================================
+\section{What Theseus is not}
+% =======================================================================
+
+To keep the orientation tight, a short list of what the firm is not and what its software is not --- each negation taken from an explicit architectural commitment in the codebase.
+
+\textbf{Not a publication platform.} Writes to the public content store bypassing the rigor gate are architecturally impossible. The Rigor Gate (\file{noosphere/noosphere/rigor\_gate/}) runs nine checks on every submission; failures block; founder overrides are public and ledger-recorded. A 100\% pass rate for multiple months would be treated as evidence that the gate is too weak, not that the firm is flawless.
+
+\textbf{Not a chat interface.} The Codex does not run an LLM conversation. It is a seven-tab dashboard that renders views over the epistemic database (see \file{docs/Theseus\_Codex\_User\_Guide.pdf}).
+
+\textbf{Not a truth oracle.} Every firm-tier conclusion carries a confidence value discounted by the producing method's calibration history. Predictions in the interval $[0.45, 0.55]$ are excluded from scoring as honest uncertainty. The system's most important first-class output is \texttt{unresolved} --- the verdict that the coherence layers materially disagreed and no point judgment is warranted.
+
+\textbf{Not a static body of claims.} Every stored object has a decay policy. When re-validation disagrees with a prior verdict, the object is demoted; if its outcome is observed, the object is retired. Retirement is irreversible. Freshness is always derived, never cached.
+
+\textbf{Not anonymous.} Every method invocation and every human epistemic action is recorded in an append-only, Ed25519-signed, Merkle-chained ledger (\file{noosphere/noosphere/ledger/}). External auditors can reconstruct every epistemic judgment the firm has ever made, because that is the point.
+
+% =======================================================================
+\section{How the Guides are organized}
+% =======================================================================
+
+This series consists of six guides, each standing alone but ordered from most abstract (the firm's self-conception) to most concrete (the roadmap of active research).
+
+\begin{enumerate}[leftmargin=1.5em,itemsep=0.2em]
+\item[\textbf{I.}]  \textbf{Orientation} (this document). What Theseus is, the three orders, the faculties, the guiding principle.
+\item[\textbf{II.}]  \textbf{The Meta-Method.} Five formal criteria by which a truth-finding method is judged, their intellectual provenance (Lakatos, Mayo, Laudan, Solomonoff, the No Free Lunch theorems), and the fixed-point argument that terminates the regress.
+\item[\textbf{III.}]  \textbf{Research Foundations.} The empirical substrate: the Quintin Hypothesis, the Embedding Geometry Conjecture, the contradiction-geometry experiment suite, and the Reverse Marxism ideology-flipping framework.
+\item[\textbf{IV.}]  \textbf{Architecture.} Map of the repository and the three principal softwares (Noosphere, Dialectic, Theseus Codex) plus the ancillaries (Theseus Public, the Researcher API, the Ideological Ontology research directory, the deployment infrastructure).
+\item[\textbf{V.}]  \textbf{The Epistemic Pipeline.} End-to-end walk from weekly transcript to public conclusion: ingest, claim extraction, embedding, ontology update, six-layer coherence, cascade graph, ledger write, synthesis, adversarial challenge, peer-review swarm, decay binding, rigor gate, publication, re-ingestion.
+\item[\textbf{VI.}]  \textbf{The Seven Projects.} The methodological research roadmap: Aletheia (method extraction), the Dialectical Crucible (computational Hegelian dialectics), the Calibration Engine (epistemic feedback loop), the Axiom Excavator (hidden assumption mining), the Verisimilitude Engine (theory-proximity metrics), the Epistemic Process Auditor (reasoning quality assurance), and the Belief Revision System (formal AGM updating).
+\end{enumerate}
+
+A reader new to the firm should read I and II end to end, skim III, and dip into IV--VI in the order of their interest. An engineer joining the codebase should start at IV, use V as a traversal map, and treat II--III as reference material.
+
+% =======================================================================
+\section{The conviction underneath}
+% =======================================================================
+
+There is a single conviction under every decision in this repository, and it is worth stating in its own paragraph so nothing that follows is mistaken for engineering fashion or intellectual pose.
+
+\textbf{A method is reliable to the extent that it would detect its own failure.} This is the single principle from which the five meta-criteria in Guide II can be derived, and it is the fixed point that terminates the meta-methodological regress. Severity (Mayo) is the explicit form of this principle. Progressivity (Lakatos) is the same principle applied over time. Compressibility (Solomonoff) is it applied to hypothesis space. Coherence across aims-methods-theories (Laudan) is it applied to the structure of research. Domain sensitivity (No Free Lunch) is it applied to the boundary conditions of reliability.
+
+The firm's wager is that instruments built on this principle --- instruments that make their own failure modes visible, that make refusal a first-class output, that measure calibration rather than confidence, that record every epistemic act --- will outperform instruments optimized for any other property, over any long enough time horizon, on any problem class where truth matters more than comfort.
+
+That wager is testable. The calibration scoreboard tests it monthly.
+
+\end{document}

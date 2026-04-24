@@ -1,0 +1,25 @@
+# Operations: {{ name }} v{{ version }}
+
+## Invocation Statistics
+
+- **Total invocations:** {{ total_invocations }}
+- **Successful:** {{ successful_invocations }}
+- **Failed:** {{ failed_invocations }}
+- **Failure rate:** {{ "%.2f"|format(failure_rate_pct) }}%
+
+{% if error_breakdown %}
+## Error Breakdown
+
+| Error Kind | Count |
+|------------|-------|
+{% for kind, count in error_breakdown.items() -%}
+| {{ kind }} | {{ count }} |
+{% endfor %}
+{% endif %}
+
+{% if first_invocation %}
+## Timeline
+
+- **First invocation:** {{ first_invocation }}
+- **Last invocation:** {{ last_invocation }}
+{% endif %}

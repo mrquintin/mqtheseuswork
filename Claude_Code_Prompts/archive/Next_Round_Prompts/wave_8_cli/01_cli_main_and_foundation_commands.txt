@@ -1,0 +1,74 @@
+WAVE 8 / PROMPT 1 — CLI main + foundation commands (methods, ledger, cascade, eval, inverse, battery, decay)
+
+═══════════════════════════════════════════════════════════════════════════════
+YOUR TASK
+═══════════════════════════════════════════════════════════════════════════════
+You are an implementation agent. Your job is to modify `cli.py` so it uses a plugin-discovery pattern for `cli_commands/`, and to create eight command modules (one per subsystem) wrapping APIs from waves 2–5. The sibling agent in wave 8 will add four more command modules (transfer, docs, interop, gate); do NOT touch those files.
+
+═══════════════════════════════════════════════════════════════════════════════
+PREREQUISITES
+═══════════════════════════════════════════════════════════════════════════════
+- Waves 2–5 are done. The APIs you will wrap live in the subsystem packages already.
+- `cli.py` exists with round-1/round-2 commands; its style and Click version are already chosen.
+
+═══════════════════════════════════════════════════════════════════════════════
+FILES TOUCHED
+═══════════════════════════════════════════════════════════════════════════════
+- `noosphere/noosphere/cli.py`                         MODIFY (add plugin discovery; do not rewrite existing commands)
+- `noosphere/noosphere/cli_commands/__init__.py`       CREATE (plugin base)
+- `noosphere/noosphere/cli_commands/methods.py`        CREATE
+- `noosphere/noosphere/cli_commands/ledger.py`         CREATE
+- `noosphere/noosphere/cli_commands/cascade.py`        CREATE
+- `noosphere/noosphere/cli_commands/eval.py`           CREATE
+- `noosphere/noosphere/cli_commands/inverse.py`        CREATE
+- `noosphere/noosphere/cli_commands/battery.py`        CREATE
+- `noosphere/noosphere/cli_commands/review.py`         CREATE
+- `noosphere/noosphere/cli_commands/decay.py`          CREATE
+- `noosphere/tests/test_cli_commands_foundation.py`    CREATE
+
+═══════════════════════════════════════════════════════════════════════════════
+STEP-BY-STEP
+═══════════════════════════════════════════════════════════════════════════════
+1. In `cli_commands/__init__.py`, implement a plugin loader:
+     def register_commands(root_cli: click.Group) -> None:
+         # import every sibling module; each exposes a top-level Click group named `cli`.
+         # root_cli.add_command(module.cli) for each.
+2. Modify `cli.py` to call `register_commands(cli_root)` at the end of its module setup. Leave existing commands intact.
+3. For each of the eight command modules, define a Click group named `cli` and subcommands wrapping the subsystem API. Keep command bodies under ~40 lines each — they parse args, call the API, render output (Rich by default, `--json` for structured).
+4. Every mutating command writes a ledger entry via the method-registry route (invoking a registered method does this automatically).
+5. Write `tests/test_cli_commands_foundation.py` using Click's `CliRunner` against a seeded in-memory store; invoke each command and assert non-error exit and valid output shape.
+
+═══════════════════════════════════════════════════════════════════════════════
+COMMAND SURFACES
+═══════════════════════════════════════════════════════════════════════════════
+methods.py — subcommands: list, show <name>[@version], run <name>[@version] --input <json>, diff <name>@v1 <name>@v2, extract-candidates.
+
+ledger.py — verify [--since T] [--until T], export --from <id> --to <id> --out F.
+
+cascade.py — explain <node_id>, cut <node_id>, export <conclusion_id> --out F, diagnostics.
+
+eval.py — counterfactual run [--method <ref>] [--since T] [--until T], counterfactual show <run_id>, counterfactual report <run_id>.
+
+inverse.py — run --event <event.json> [--as-of T] [--methods <list>] [--k 50], show <result_id>.
+
+battery.py — fetch <corpus> | --all; run [--corpus <name>] [--methods <list>] [--sample N]; show <run_id>; report <run_id>.
+
+review.py — run <conclusion_id>, rebuttals-pending, reviewer-calibration.
+
+decay.py — status [--tier firm|founder|open] [--freshness fresh|aging|stale|retired], revalidate <object_id>, schedule, retire <object_id> --reason ...
+
+═══════════════════════════════════════════════════════════════════════════════
+HOW TO VERIFY YOU ARE DONE
+═══════════════════════════════════════════════════════════════════════════════
+1. `theseus --help` lists every subgroup above.
+2. Every command supports `--help`, `--json`.
+3. `pytest noosphere/tests/test_cli_commands_foundation.py -v` — green.
+4. Existing round-2 CLI commands unchanged.
+
+═══════════════════════════════════════════════════════════════════════════════
+DO NOT
+═══════════════════════════════════════════════════════════════════════════════
+- Put business logic in command bodies.
+- Touch `cli_commands/transfer.py`, `docs_cmd.py`, `interop.py`, or `gate.py` — those are the sibling agent's files.
+- Rewrite existing CLI commands.
+- Touch any file outside FILES TOUCHED.

@@ -1,0 +1,62 @@
+[
+  {
+    "id": 10001,
+    "title": "Will SpaceX successfully launch Starship to orbit by 2025?",
+    "created_time": "2024-01-01T00:00:00+00:00",
+    "resolve_time": "2024-12-31T00:00:00+00:00",
+    "resolution": 1.0,
+    "community_prediction": {"full": {"q2": 0.72}},
+    "type": "binary",
+    "status": "resolved"
+  },
+  {
+    "id": 10002,
+    "title": "Will the WHO declare a new pandemic before 2025?",
+    "created_time": "2024-02-15T00:00:00+00:00",
+    "resolve_time": "2024-12-31T00:00:00+00:00",
+    "resolution": 0.0,
+    "community_prediction": {"full": {"q2": 0.08}},
+    "type": "binary",
+    "status": "resolved"
+  },
+  {
+    "id": 10003,
+    "title": "What will the global average temperature anomaly be for 2024?",
+    "created_time": "2024-01-10T00:00:00+00:00",
+    "resolve_time": "2025-02-01T00:00:00+00:00",
+    "resolution": 1.45,
+    "community_prediction": {"full": {"q1": 1.3, "q2": 1.4, "q3": 1.5}},
+    "type": "numeric",
+    "status": "resolved"
+  },
+  {
+    "id": 10004,
+    "title": "Will any country adopt Bitcoin as legal tender in 2024?",
+    "created_time": "2024-03-01T00:00:00+00:00",
+    "resolve_time": "2024-12-31T00:00:00+00:00",
+    "resolution": 0.0,
+    "community_prediction": {"full": {"q2": 0.12}},
+    "type": "binary",
+    "status": "resolved"
+  },
+  {
+    "id": 10005,
+    "title": "Will there be a ceasefire in the Russia-Ukraine conflict by mid-2025?",
+    "created_time": "2024-06-01T00:00:00+00:00",
+    "resolve_time": null,
+    "resolution": null,
+    "community_prediction": {"full": {"q2": 0.15}},
+    "type": "binary",
+    "status": "open"
+  },
+  {
+    "id": 10006,
+    "title": "Will the US Federal Reserve cut rates in 2024?",
+    "created_time": "2024-01-05T00:00:00+00:00",
+    "resolve_time": "2024-12-31T00:00:00+00:00",
+    "resolution": 1.0,
+    "community_prediction": {"full": {"q2": 0.80}},
+    "type": "binary",
+    "status": "resolved"
+  }
+]

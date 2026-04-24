@@ -1,0 +1,283 @@
+# Claude Code Prompt 09 of 17 — Currents section: layout, design tokens, and shared SSE hook
+
+**Sequence:** prompt 09 of 17 (Wave 6). Depends on 08. Report back with: the `/currents` layout file, the tokens added, and the SSE hook interface. No feed, filters, detail, or chat yet — those are 10–13.
+
+**Before you start — read current state:**
+1. Read `theseus-public/src/app/layout.tsx` — the existing header/footer, nav, and design language (small caps labels, muted type, `var(--border)`, etc.).
+2. Read `theseus-public/src/app/globals.css` — note color tokens (`--border`, `--muted`, likely `--gold`, `--amber`, `--parchment` if the codex aesthetic is already imported from the founder portal).
+3. Read `theseus-public/src/lib/currentsApi.ts` — confirm prompt 08's client helpers exist.
+4. Read `theseus-codex/src/app/globals.css` (the founder portal) for the canonical gold/parchment/stone palette. This section of the public site will adopt a slightly more luminous variant of that palette — darker background, warmer highlights — so it reads as a live, active surface rather than a published-archive one.
+
+## Your task
+
+Build the foundational shell for the `/currents` section: a route-group layout with a distinct visual language (still on-brand, but live rather than archival), design tokens for stance/confidence/streaming states, and a reusable `useLiveOpinions` React hook that owns the SSE connection lifecycle (reconnect with backoff, de-dupe opinions already in state, heartbeat-aware).
+
+This is infrastructure, not UX surface. Prompt 10 consumes it.
+
+## Prerequisites
+
+- Prompt 08 applied.
+
+## SCOPE
+
+- `theseus-public/src/app/currents/layout.tsx`                              CREATE
+- `theseus-public/src/app/currents/currents.module.css`                     CREATE
+- `theseus-public/src/lib/useLiveOpinions.ts`                               CREATE (client hook)
+- `theseus-public/src/lib/stanceStyles.ts`                                  CREATE (stance → color/icon)
+- `theseus-public/src/app/globals.css`                                      MODIFY (append currents tokens at the bottom; do not touch existing tokens)
+- `theseus-public/src/__tests__/useLiveOpinions.test.tsx`                   CREATE
+
+Do NOT create the `/currents/page.tsx` feed here — that is prompt 10. Do NOT modify the root layout.
+
+## Step-by-step
+
+### 1. Tokens — appended to `globals.css`
+
+```css
+/* ===== currents section tokens ===== */
+:root {
+  --currents-bg: #141210;
+  --currents-bg-elevated: #1b1816;
+  --currents-surface: #221e1a;
+  --currents-border: #2e2823;
+  --currents-gold: #d4a017;
+  --currents-gold-glow: rgba(212, 160, 23, 0.22);
+  --currents-amber: #c9944a;
+  --currents-parchment: #e8ddc9;
+  --currents-parchment-dim: #a39781;
+  --currents-muted: #6f6658;
+  --stance-agrees: #7bae5a;
+  --stance-disagrees: #c06161;
+  --stance-complicates: #c9944a;
+  --stance-insufficient: #6f6658;
+}
+
+.currents-shell {
+  background: var(--currents-bg);
+  color: var(--currents-parchment);
+  min-height: 100vh;
+}
+
+.currents-shell a { color: var(--currents-gold); }
+.currents-shell a:hover { color: var(--currents-amber); text-decoration: underline; }
+
+.currents-pulse {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--currents-gold);
+  box-shadow: 0 0 10px var(--currents-gold-glow);
+  animation: currents-pulse 1.8s ease-in-out infinite;
+}
+@keyframes currents-pulse {
+  0%, 100% { opacity: 0.4; transform: scale(0.9); }
+  50%      { opacity: 1;   transform: scale(1.15); }
+}
+
+.currents-fade-in {
+  animation: currents-fade 260ms ease-out both;
+}
+@keyframes currents-fade {
+  from { opacity: 0; transform: translateY(4px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+```
+
+### 2. `stanceStyles.ts`
+
+```ts
+import type { Stance } from "./currentsTypes";
+
+export const STANCE_LABEL: Record<Stance, string> = {
+  agrees: "aligns with firm view",
+  disagrees: "contradicts firm view",
+  complicates: "complicates firm view",
+  insufficient: "insufficient sources",
+};
+
+export const STANCE_COLOR: Record<Stance, string> = {
+  agrees: "var(--stance-agrees)",
+  disagrees: "var(--stance-disagrees)",
+  complicates: "var(--stance-complicates)",
+  insufficient: "var(--stance-insufficient)",
+};
+
+export function confidenceBand(conf: number): "low" | "medium" | "high" {
+  if (conf < 0.4) return "low";
+  if (conf < 0.75) return "medium";
+  return "high";
+}
+```
+
+### 3. `useLiveOpinions.ts` — SSE hook
+
+```ts
+"use client";
+
+import { useEffect, useReducer, useRef } from "react";
+import type { PublicOpinion } from "./currentsTypes";
+
+type State = {
+  opinions: PublicOpinion[];           // newest first
+  connected: boolean;
+  error: string | null;
+};
+
+type Action =
+  | { type: "seed"; items: PublicOpinion[] }
+  | { type: "opinion"; item: PublicOpinion }
+  | { type: "connected" }
+  | { type: "disconnected"; error: string | null };
+
+function reducer(s: State, a: Action): State {
+  switch (a.type) {
+    case "seed": {
+      const seen = new Set<string>();
+      const merged = [...a.items, ...s.opinions].filter(o => {
+        if (seen.has(o.id)) return false;
+        seen.add(o.id);
+        return true;
+      });
+      merged.sort((x, y) => y.generated_at.localeCompare(x.generated_at));
+      return { ...s, opinions: merged };
+    }
+    case "opinion": {
+      if (s.opinions.some(o => o.id === a.item.id)) return s;   // dedupe
+      return { ...s, opinions: [a.item, ...s.opinions] };
+    }
+    case "connected": return { ...s, connected: true, error: null };
+    case "disconnected": return { ...s, connected: false, error: a.error };
+  }
+}
+
+export interface UseLiveOpinionsResult {
+  opinions: PublicOpinion[];
+  connected: boolean;
+  error: string | null;
+}
+
+export function useLiveOpinions(initial: PublicOpinion[] = []): UseLiveOpinionsResult {
+  const [state, dispatch] = useReducer(reducer, {
+    opinions: initial, connected: false, error: null,
+  });
+  const retryRef = useRef(0);
+
+  useEffect(() => {
+    let cancelled = false;
+    let es: EventSource | null = null;
+    const connect = () => {
+      es = new EventSource("/api/currents/stream");
+      es.addEventListener("opinion", (ev: MessageEvent) => {
+        try { dispatch({ type: "opinion", item: JSON.parse(ev.data) }); } catch {}
+      });
+      es.addEventListener("heartbeat", () => { /* keep-alive */ });
+      es.onopen = () => {
+        retryRef.current = 0;
+        dispatch({ type: "connected" });
+      };
+      es.onerror = () => {
+        if (cancelled) return;
+        dispatch({ type: "disconnected", error: "stream error" });
+        es?.close();
+        const delay = Math.min(30_000, 1000 * 2 ** retryRef.current);
+        retryRef.current += 1;
+        setTimeout(() => { if (!cancelled) connect(); }, delay);
+      };
+    };
+    connect();
+    return () => {
+      cancelled = true;
+      es?.close();
+    };
+  }, []);
+
+  return { opinions: state.opinions, connected: state.connected, error: state.error };
+}
+```
+
+### 4. `currents/layout.tsx`
+
+```tsx
+import type { Metadata } from "next";
+
+import "./currents.module.css";
+
+export const metadata: Metadata = {
+  title: { default: "Current events — Theseus", template: "%s — Theseus currents" },
+  description:
+    "Live commentary on unfolding events, sourced strictly from Theseus's published Noosphere.",
+};
+
+export default function CurrentsLayout({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="currents-shell">
+      <div style={{ maxWidth: "1080px", margin: "0 auto", padding: "2.25rem 1.5rem 3rem" }}>
+        <header style={{
+          display: "flex", alignItems: "baseline", justifyContent: "space-between",
+          gap: "1rem", flexWrap: "wrap",
+          paddingBottom: "1.25rem",
+          borderBottom: "1px solid var(--currents-border)",
+        }}>
+          <div>
+            <div style={{
+              fontSize: "0.72rem", letterSpacing: "0.18em", textTransform: "uppercase",
+              color: "var(--currents-parchment-dim)",
+            }}>
+              Theseus · live
+            </div>
+            <h1 style={{
+              margin: "0.15rem 0 0",
+              fontFamily: "'Cinzel', 'EB Garamond', serif",
+              fontSize: "1.45rem",
+              color: "var(--currents-gold)",
+              letterSpacing: "0.04em",
+            }}>
+              Current events
+            </h1>
+          </div>
+          <p style={{
+            margin: 0, maxWidth: "42em",
+            fontStyle: "italic", fontSize: "0.88rem", lineHeight: 1.5,
+            color: "var(--currents-parchment-dim)",
+          }}>
+            Every opinion below is generated by Claude Haiku from the firm's published
+            Noosphere. No editorial voice, no unsourced commentary — the firm abstains
+            when its knowledge base does not support a position.
+          </p>
+        </header>
+        {children}
+      </div>
+    </div>
+  );
+}
+```
+
+### 5. Tests
+
+`__tests__/useLiveOpinions.test.tsx` (vitest + React Testing Library):
+
+- Mock `EventSource` with a tiny fake that fires events on demand.
+- `seeds from initial prop`.
+- `appends on new opinion event`.
+- `dedupes by id` — fire same opinion twice; state length stays 1.
+- `reconnects with exponential backoff on error` — simulate two errors; assert constructor called 3 times with growing delays (use fake timers).
+- `ignores heartbeat events` — no state change.
+
+## Verification
+
+```bash
+cd theseus-public
+npm run build
+npx vitest run src/__tests__/useLiveOpinions.test.tsx
+```
+
+## Prohibitions
+
+- Do NOT render any feed content here. No opinion cards, no filter bar. Prompt 10 owns them.
+- Do NOT touch the root layout — the section layout is scoped to `/currents`.
+- Do NOT ship a polling fallback. If SSE fails, the banner in prompt 10 will show a disconnected state and reconnect. Polling fragments the UX.
+- Do NOT use `Math.random()` for animation delays or jitter — the ticker must feel steady, not random.
+- Do NOT introduce a state-management library. `useReducer` is sufficient.
+
+Do not proceed to any other work. Do not edit anything outside SCOPE.

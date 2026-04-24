@@ -1,0 +1,101 @@
+# Claude Code Prompt 4 of 12 — Feature: conclusion deletion request system (mirroring the upload deletion request pattern)
+
+**Sequence:** prompt 4 of 12 (Wave 2 — independent of prompts 03 and 05). When you finish, report back with: files you created/modified, any notable choices, any blockers.
+
+**Before you start — read current state:**
+1. Read `theseus-codex/prisma/schema.prisma` — note the existing `DeletionRequest` model (lines 221–237) and its fields. This is the pattern to mirror.
+2. Read `theseus-codex/src/app/api/deletion-requests/route.ts` — understand how the upload deletion request API works (POST to create, GET to list, PATCH to accept/decline).
+3. Read `theseus-codex/src/lib/uploadDeleteCascade.ts` — understand the cascade logic when an upload is deleted.
+4. Read `theseus-codex/prisma/schema.prisma` — note the `Conclusion` model and the `ConclusionSource` bridge table.
+5. Read `theseus-codex/src/app/(authed)/conclusions/[id]/page.tsx` — the conclusion detail page where a deletion request button could live.
+
+## The problem
+
+Founders cannot delete or request deletion of individual conclusions from the model. Currently, conclusions can only be removed indirectly by deleting the upload that sourced them — but:
+
+1. A conclusion may be sourced from multiple uploads (via the `ConclusionSource` M:N table), so deleting one upload may not remove the conclusion.
+2. A founder may want to remove a specific misattributed or incorrect conclusion without deleting the entire upload.
+3. The conclusion may have been extracted incorrectly (e.g., from a prompt or question — see prompt 01) and persists even if future ingestion is fixed.
+
+The system needs a way for founders to request deletion of specific conclusions, following the same peer-review pattern as upload deletion requests: the requesting founder submits a reason, and either the conclusion's attributed founder (if any) or an admin approves/declines.
+
+## SCOPE (files you may create or modify — stay within this list)
+- `theseus-codex/prisma/schema.prisma`                                                MODIFY (add ConclusionDeletionRequest model)
+- `theseus-codex/prisma/migrations/`                                                   CREATE (new migration)
+- `theseus-codex/src/app/api/conclusion-deletion-requests/route.ts`                   CREATE
+- `theseus-codex/src/app/api/conclusion-deletion-requests/[id]/route.ts`              CREATE
+- `theseus-codex/src/app/(authed)/conclusions/[id]/page.tsx`                          MODIFY (add request-deletion button)
+
+## Step-by-step
+
+1. **Add the `ConclusionDeletionRequest` model** to `schema.prisma`, mirroring `DeletionRequest`:
+   ```prisma
+   model ConclusionDeletionRequest {
+     id           String    @id @default(cuid())
+     conclusionId String
+     requesterId  String
+     status       String    @default("pending")  // pending | accepted | declined | cancelled
+     reason       String?
+     decision     String?   // note from reviewer when accepting/declining
+     createdAt    DateTime  @default(now())
+     respondedAt  DateTime?
+
+     conclusion  Conclusion @relation(fields: [conclusionId], references: [id], onDelete: Cascade)
+     requester   Founder    @relation(fields: [requesterId], references: [id])
+
+     @@index([conclusionId])
+     @@index([requesterId])
+     @@index([status])
+   }
+   ```
+   Also add the reverse relations to `Conclusion` and `Founder`:
+   - On `Conclusion`: `deletionRequests ConclusionDeletionRequest[]`
+   - On `Founder`: `conclusionDeletionRequests ConclusionDeletionRequest[]`
+
+2. **Generate and apply the Prisma migration:**
+   ```bash
+   npx prisma migrate dev --name add_conclusion_deletion_requests
+   ```
+
+3. **Create the API route `POST /api/conclusion-deletion-requests`:**
+   - Authenticate the founder.
+   - Accept `{ conclusionId, reason }`.
+   - Verify the conclusion exists and belongs to the founder's org.
+   - Prevent duplicate pending requests from the same founder for the same conclusion.
+   - Create the `ConclusionDeletionRequest` row.
+   - Create an `AuditEvent` with action `conclusion_deletion_request`.
+
+4. **Create the API route `PATCH /api/conclusion-deletion-requests/[id]`:**
+   - Accept `{ action: "accept" | "decline" | "cancel", decision?: string }`.
+   - For `accept`: soft-delete the conclusion. This means:
+     - Hard-delete all `ConclusionSource` rows for this conclusion.
+     - Hard-delete the `Conclusion` row itself.
+     - Hard-delete any `Contradiction` rows where `claimAId` or `claimBId` match this conclusion ID.
+     - Hard-delete any `OpenQuestion` rows where `claimAId` or `claimBId` match this conclusion ID.
+     - Create an `AuditEvent` with the cascade counts.
+   - For `decline`: set `status = "declined"`, `decision`, `respondedAt`.
+   - For `cancel`: only the requester can cancel their own pending request.
+
+5. **Who can accept/decline?** Unlike upload deletion where the owner decides, conclusions may not have a clear single owner. Use this rule:
+   - The `attributedFounder` (if set) can accept/decline.
+   - Any founder with `role = "admin"` can accept/decline.
+   - The requester themselves can cancel.
+
+6. **Add a "Request deletion" button** to the conclusion detail page (`conclusions/[id]/page.tsx`). Place it in the nav area at the bottom of the page, next to the "← All conclusions" link:
+   ```tsx
+   <form action={requestDeletion}>
+     <input type="hidden" name="conclusionId" value={id} />
+     <button type="submit" className="btn" style={{
+       fontSize: "0.65rem",
+       color: "var(--ember)",
+       borderColor: "var(--ember)",
+     }}>
+       Request deletion
+     </button>
+   </form>
+   ```
+   The server action should POST to `/api/conclusion-deletion-requests`.
+
+7. **Do NOT change** the upload deletion system, the contradictions page, the dashboard, or any Noosphere code.
+
+Do not proceed to any other work. Do not edit anything outside SCOPE.

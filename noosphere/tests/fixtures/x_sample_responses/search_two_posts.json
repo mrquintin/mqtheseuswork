@@ -1,0 +1,25 @@
+{
+  "data": [
+    {
+      "id": "1780000000000000101",
+      "text": "Keyword-search hit one: debate about AI safety governance frameworks.",
+      "created_at": "2026-04-20T12:10:00Z",
+      "author_id": "200001",
+      "conversation_id": "1780000000000000101"
+    },
+    {
+      "id": "1780000000000000102",
+      "text": "Keyword-search hit two: counterpoint about deployment-time oversight.",
+      "created_at": "2026-04-20T12:12:00Z",
+      "author_id": "200002",
+      "conversation_id": "1780000000000000102"
+    }
+  ],
+  "includes": {
+    "users": [
+      {"id": "200001", "username": "bob"},
+      {"id": "200002", "username": "carol"}
+    ]
+  },
+  "meta": {"result_count": 2}
+}

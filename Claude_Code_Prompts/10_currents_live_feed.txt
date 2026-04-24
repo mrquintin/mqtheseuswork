@@ -1,0 +1,321 @@
+# Claude Code Prompt 10 of 17 — Live feed: streaming ticker + opinion cards with stance, confidence, citations
+
+**Sequence:** prompt 10 of 17 (Wave 6). Depends on 08, 09. Report back with: screenshots or a description of the card layout, and the exact animation used when a new opinion arrives.
+
+**Before you start — read current state:**
+1. Read `theseus-public/src/app/currents/layout.tsx` — confirm prompt 09's shell exists.
+2. Read `theseus-public/src/lib/useLiveOpinions.ts` — confirm the hook interface.
+3. Read `theseus-public/src/lib/stanceStyles.ts` — confirm the stance maps.
+4. Read `theseus-public/src/lib/currentsApi.ts` — confirm `listCurrents` exists.
+5. Read the existing static conclusion rendering in `theseus-public/src/components/ConclusionView.tsx` — mimic its careful markdown rendering choices (no dangerouslySetInnerHTML unless via a hardened renderer).
+
+## Your task
+
+Build `/currents/page.tsx` — the live feed. Server-renders an initial page of opinions via `listCurrents`, then hydrates with the `useLiveOpinions` hook which subscribes to the SSE stream. New opinions slide in at the top with the `currents-fade-in` animation. Each card shows:
+
+- A colored stance pill (agrees/disagrees/complicates), confidence dot, age (relative time), author handle and source link.
+- The `headline` in a larger serif face.
+- The `body_markdown` rendered with minimal safe markdown (paragraphs, inline emphasis, nothing else).
+- A "Sources" row with up to 3 citation chips (more → "+N"), each chip clickable to open the source drawer (drawer is prompt 12; for now, the chip navigates to `/currents/{id}`).
+- An "Ask a follow-up" button that navigates to `/currents/{id}#ask`.
+
+A live banner at the top shows "live" with the `currents-pulse` indicator when connected; "reconnecting" when not.
+
+## Prerequisites
+
+- Prompts 08, 09 applied.
+
+## SCOPE
+
+- `theseus-public/src/app/currents/page.tsx`                             CREATE (server component, initial data)
+- `theseus-public/src/app/currents/FeedClient.tsx`                       CREATE (client component)
+- `theseus-public/src/app/currents/OpinionCard.tsx`                      CREATE
+- `theseus-public/src/app/currents/LiveBanner.tsx                        CREATE
+- `theseus-public/src/lib/safeMarkdown.ts`                               CREATE (or reuse if exists)
+- `theseus-public/src/lib/relativeTime.ts`                               CREATE
+- `theseus-public/src/__tests__/OpinionCard.test.tsx`                    CREATE
+- `theseus-public/src/__tests__/relativeTime.test.ts`                    CREATE
+
+Do NOT build the filter bar, topic clusters, detail page, source drawer, or chat panel. Those are 11–13.
+
+## Step-by-step
+
+### 1. `safeMarkdown.ts`
+
+Render only paragraphs, bold, italic, inline code, and links. No images, no raw HTML, no headers. If `marked` or `remark` already exists in the repo, use it with strict config; otherwise implement a tiny hand-rolled renderer (the `body_markdown` is ≤ 800 chars by contract).
+
+```ts
+export function renderSafeMarkdown(md: string): React.ReactNode { ... }
+```
+
+Escape `<` `>` `&` aggressively. Links get `rel="noopener nofollow ugc"` and `target="_blank"`.
+
+### 2. `relativeTime.ts`
+
+```ts
+export function relativeTime(iso: string, now = Date.now()): string {
+  const t = new Date(iso).getTime();
+  const s = Math.max(1, Math.round((now - t) / 1000));
+  if (s < 60) return `${s}s ago`;
+  const m = Math.round(s / 60); if (m < 60) return `${m}m ago`;
+  const h = Math.round(m / 60); if (h < 24) return `${h}h ago`;
+  const d = Math.round(h / 24); return `${d}d ago`;
+}
+```
+
+### 3. `OpinionCard.tsx`
+
+```tsx
+"use client";
+
+import Link from "next/link";
+import type { PublicOpinion } from "@/lib/currentsTypes";
+import { STANCE_COLOR, STANCE_LABEL, confidenceBand } from "@/lib/stanceStyles";
+import { renderSafeMarkdown } from "@/lib/safeMarkdown";
+import { relativeTime } from "@/lib/relativeTime";
+
+export function OpinionCard({ op }: { op: PublicOpinion }) {
+  const stanceColor = STANCE_COLOR[op.stance];
+  const band = confidenceBand(op.confidence);
+  const visibleCites = op.citations.slice(0, 3);
+  const moreCites = op.citations.length - visibleCites.length;
+
+  return (
+    <article
+      className="currents-fade-in"
+      style={{
+        background: "var(--currents-bg-elevated)",
+        border: "1px solid var(--currents-border)",
+        borderLeft: `3px solid ${stanceColor}`,
+        borderRadius: 3,
+        padding: "1.1rem 1.25rem",
+        marginBottom: "0.9rem",
+      }}
+    >
+      {/* metadata row */}
+      <div style={{
+        display: "flex", justifyContent: "space-between", alignItems: "center",
+        gap: "0.75rem", marginBottom: "0.55rem",
+        fontSize: "0.72rem",
+        color: "var(--currents-parchment-dim)",
+        letterSpacing: "0.04em",
+        textTransform: "uppercase",
+      }}>
+        <div style={{ display: "flex", gap: "0.6rem", alignItems: "center" }}>
+          <span style={{
+            background: stanceColor,
+            color: "#000",
+            padding: "0.12rem 0.5rem",
+            borderRadius: 2,
+            fontWeight: 600,
+            letterSpacing: "0.02em",
+          }}>
+            {STANCE_LABEL[op.stance]}
+          </span>
+          <span title={`confidence ${op.confidence.toFixed(2)}`}>
+            conf · {band}
+          </span>
+          {op.topic_hint && <span>topic · {op.topic_hint}</span>}
+        </div>
+        <span>{relativeTime(op.generated_at)}</span>
+      </div>
+
+      {/* headline */}
+      <h2 style={{
+        margin: 0,
+        fontFamily: "'EB Garamond', serif",
+        fontSize: "1.15rem",
+        lineHeight: 1.3,
+        color: "var(--currents-parchment)",
+      }}>
+        <Link href={`/currents/${op.id}`} style={{ color: "inherit" }}>
+          {op.headline}
+        </Link>
+      </h2>
+
+      {/* body */}
+      <div style={{
+        margin: "0.55rem 0 0.7rem",
+        fontSize: "0.93rem",
+        lineHeight: 1.55,
+        color: "var(--currents-parchment)",
+      }}>
+        {renderSafeMarkdown(op.body_markdown)}
+      </div>
+
+      {/* uncertainty notes */}
+      {op.uncertainty_notes.length > 0 && (
+        <div style={{
+          fontSize: "0.75rem",
+          color: "var(--currents-amber)",
+          fontStyle: "italic",
+          marginBottom: "0.5rem",
+        }}>
+          {op.uncertainty_notes.slice(0, 3).map((n, i) => (
+            <span key={i}>{n}{i < op.uncertainty_notes.length - 1 ? " · " : ""}</span>
+          ))}
+        </div>
+      )}
+
+      {/* source strip + actions */}
+      <div style={{
+        display: "flex", justifyContent: "space-between", alignItems: "center",
+        gap: "0.6rem", flexWrap: "wrap",
+        paddingTop: "0.6rem",
+        borderTop: "1px solid var(--currents-border)",
+      }}>
+        <div style={{ display: "flex", gap: "0.35rem", flexWrap: "wrap" }}>
+          {visibleCites.map((c) => (
+            <Link
+              key={c.source_id}
+              href={`/currents/${op.id}#src-${encodeURIComponent(c.source_id)}`}
+              style={{
+                fontSize: "0.72rem",
+                padding: "0.18rem 0.55rem",
+                border: "1px solid var(--currents-border)",
+                borderRadius: 2,
+                color: "var(--currents-parchment-dim)",
+                textDecoration: "none",
+              }}
+              title={c.quoted_span}
+            >
+              {c.source_kind === "conclusion" ? "⸺ conclusion" : "⸺ claim"}
+            </Link>
+          ))}
+          {moreCites > 0 && (
+            <span style={{ fontSize: "0.72rem", color: "var(--currents-muted)" }}>
+              +{moreCites} more
+            </span>
+          )}
+        </div>
+        <div style={{ display: "flex", gap: "0.8rem", fontSize: "0.78rem" }}>
+          <a href={op.event_source_url} target="_blank" rel="noopener noreferrer"
+             style={{ color: "var(--currents-parchment-dim)" }}>
+            {op.event_author_handle} ↗
+          </a>
+          <Link href={`/currents/${op.id}#ask`} style={{ color: "var(--currents-gold)" }}>
+            Ask a follow-up →
+          </Link>
+        </div>
+      </div>
+    </article>
+  );
+}
+```
+
+### 4. `LiveBanner.tsx`
+
+Simple pill at the top of the feed:
+
+```tsx
+<div style={{ display: "flex", alignItems: "center", gap: "0.5rem", padding: "0.5rem 0 1.2rem",
+             fontSize: "0.72rem", color: "var(--currents-parchment-dim)",
+             letterSpacing: "0.1em", textTransform: "uppercase" }}>
+  <span className={connected ? "currents-pulse" : undefined}
+        style={{ background: connected ? undefined : "var(--currents-muted)" }} />
+  <span>{connected ? "live" : "reconnecting…"}</span>
+  {lastOpinionAt && <span>· last update {relativeTime(lastOpinionAt)}</span>}
+</div>
+```
+
+### 5. `FeedClient.tsx`
+
+```tsx
+"use client";
+
+import { useLiveOpinions } from "@/lib/useLiveOpinions";
+import type { PublicOpinion } from "@/lib/currentsTypes";
+import { OpinionCard } from "./OpinionCard";
+import { LiveBanner } from "./LiveBanner";
+
+export function FeedClient({ seed }: { seed: PublicOpinion[] }) {
+  const { opinions, connected } = useLiveOpinions(seed);
+  const lastOpinionAt = opinions[0]?.generated_at ?? null;
+
+  return (
+    <>
+      <LiveBanner connected={connected} lastOpinionAt={lastOpinionAt} />
+      {opinions.length === 0 ? (
+        <EmptyState />
+      ) : (
+        opinions.map(op => <OpinionCard key={op.id} op={op} />)
+      )}
+    </>
+  );
+}
+
+function EmptyState() {
+  return (
+    <div style={{
+      border: "1px dashed var(--currents-border)",
+      padding: "2rem",
+      borderRadius: 3,
+      color: "var(--currents-parchment-dim)",
+      fontStyle: "italic",
+      textAlign: "center",
+    }}>
+      No opinions yet. The firm abstains when its knowledge base does not support a position.
+      Keep this page open — new items will arrive as events break.
+    </div>
+  );
+}
+```
+
+### 6. `page.tsx` — server component that seeds initial data
+
+```tsx
+import { listCurrents } from "@/lib/currentsApi";
+import { FeedClient } from "./FeedClient";
+
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
+
+export default async function CurrentsPage() {
+  let seed = [];
+  try {
+    const resp = await listCurrents({ limit: 20 });
+    seed = resp.items;
+  } catch (err) {
+    // Surface the failure clearly rather than rendering an empty page.
+    console.error("currents_initial_fetch_failed", err);
+  }
+  return <FeedClient seed={seed} />;
+}
+```
+
+### 7. Tests
+
+`__tests__/OpinionCard.test.tsx`:
+
+- Renders stance pill, headline, sanitized markdown.
+- Shows `+N more` when citations exceed 3.
+- `href` on the "Ask a follow-up" link points to `/currents/<id>#ask`.
+- Markdown containing `<script>` tags is fully escaped.
+
+`__tests__/relativeTime.test.ts`:
+
+- 5s, 59s, 60s, 90m, 25h, 8d return expected strings.
+
+## Verification
+
+```bash
+cd theseus-public
+npm run build
+npx vitest run src/__tests__/OpinionCard.test.tsx src/__tests__/relativeTime.test.ts
+
+# Smoke:
+# 1. Start current_events_api on port 8088 (see prompt 07 verification).
+# 2. Seed a couple of opinions (e.g., via `python -m current_events_api.seed_fixtures` if prompt 17 has added it, or by hand).
+# 3. npm run dev and open http://localhost:3001/currents
+# 4. Publish a new opinion through the bus; assert a card slides in at the top.
+```
+
+## Prohibitions
+
+- Do NOT render `body_markdown` via `dangerouslySetInnerHTML` without the `safeMarkdown` sanitizer. The LLM is not a trusted author.
+- Do NOT add polling. The live banner plus SSE is the model.
+- Do NOT implement filters, topic clusters, or the source drawer in this prompt — those are 11 and 12.
+- Do NOT load more than the first page via SSR — the hook handles live updates and prompt 11 will add "load more" pagination.
+- Do NOT hardcode the 3-citation limit in `PublicOpinion`; that's a display choice on the card, the full list is already in state and exposed on the detail page.
+
+Do not proceed to any other work. Do not edit anything outside SCOPE.

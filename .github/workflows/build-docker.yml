@@ -1,0 +1,49 @@
+name: Build Docker Images
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'theseus-codex/**'
+      - 'theseus-public/**'
+      - 'docker-compose.yml'
+      - '.github/workflows/build-docker.yml'
+  pull_request:
+    paths:
+      - 'theseus-codex/**'
+      - 'theseus-public/**'
+      - 'docker-compose.yml'
+      - '.github/workflows/build-docker.yml'
+  workflow_call:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        service:
+          - name: theseus-codex
+            context: ./theseus-codex
+          - name: theseus-public
+            context: ./theseus-public
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build image
+        uses: docker/build-push-action@v6
+        with:
+          context: ${{ matrix.service.context }}
+          push: false
+          tags: theseus/${{ matrix.service.name }}:latest
+          cache-from: type=gha,scope=${{ matrix.service.name }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.service.name }}
+
+      - name: Validate docker-compose
+        if: matrix.service.name == 'theseus-codex'
+        run: docker compose config

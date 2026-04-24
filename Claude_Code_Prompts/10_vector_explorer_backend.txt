@@ -1,0 +1,149 @@
+# Claude Code Prompt 10 of 12 — Vector space explorer: backend API for conclusion embeddings and axis computation
+
+**Sequence:** prompt 10 of 12 (Wave 4 — vector explorer; independent of Waves 1–3). When you finish, report back with: files you created/modified, any notable choices, any blockers.
+
+**Before you start — read current state:**
+1. Read `noosphere/noosphere/models.py` — note the `Claim` model and whether it stores embeddings. Look for `embedding` fields.
+2. Read `noosphere/noosphere/methods/` — check for existing embedding methods.
+3. Read `noosphere/noosphere/ingester.py` — look for where embeddings are generated during ingestion (search for `embed` or `embedding`).
+4. Read `theseus-codex/prisma/schema.prisma` — note the `Conclusion` model. Check whether there is an `embedding` column.
+5. Read `theseus-codex/src/app/api/` — understand the existing API route patterns.
+
+## The problem
+
+The founder wants to "explore the ideas and questions that they have transcribed and put into the codex in the vector embedding space on a set of axes." This means:
+
+1. Conclusions need vector embeddings (they may already have them in Noosphere, but they need to be accessible from the Codex).
+2. The system needs to compute meaningful semantic axes — dimensions along which conclusions can be plotted.
+3. An API endpoint needs to serve the projected coordinates so the frontend can render a visualization.
+
+This prompt handles the backend: embedding storage, axis computation, and the API endpoint. Prompt 11 handles the frontend visualization.
+
+## SCOPE (files you may create or modify — stay within this list)
+- `theseus-codex/prisma/schema.prisma`                                           MODIFY (add embedding field if missing)
+- `theseus-codex/prisma/migrations/`                                              CREATE (if schema changes)
+- `theseus-codex/src/app/api/conclusions/embeddings/route.ts`                    CREATE
+- `theseus-codex/src/lib/embeddingAxes.ts`                                       CREATE
+
+## Step-by-step
+
+1. **Check if conclusions already have embeddings.** If the `Conclusion` model in the Prisma schema does NOT have an embedding column, add one:
+   ```prisma
+   model Conclusion {
+     // ... existing fields ...
+
+     /// JSON-serialized float[] embedding from Noosphere's sentence-level encoder.
+     /// Null for conclusions ingested before this field was added; backfill on demand.
+     embeddingJson String?
+   }
+   ```
+   Generate a migration if the field is added.
+
+   **If Noosphere already stores embeddings** (check `claim_extractor.py` and `ingester.py` for embedding generation), ensure the `codex_bridge.py` bridge propagates them into this field during ingestion. If it doesn't, add the propagation.
+
+2. **Create `theseus-codex/src/lib/embeddingAxes.ts`** — a utility that takes an array of embedding vectors and computes meaningful axes:
+
+   ```typescript
+   /**
+    * Compute 2D or 3D projection axes for a set of conclusion embeddings.
+    *
+    * Approach: PCA (Principal Component Analysis) on the embedding matrix.
+    * The top 2–3 principal components become the axes. Each axis is labeled
+    * by examining which conclusions load most heavily on it and generating
+    * a descriptive label.
+    */
+
+   export interface ProjectedConclusion {
+     id: string;
+     text: string;
+     x: number;
+     y: number;
+     z?: number;
+     topicHint: string;
+     confidenceTier: string;
+   }
+
+   export interface SemanticAxis {
+     index: number;
+     label: string;           // e.g., "Concrete ↔ Abstract"
+     varianceExplained: number;
+     positivePole: string[];  // sample conclusion texts at the positive end
+     negativePole: string[];  // sample conclusion texts at the negative end
+   }
+
+   export interface EmbeddingProjection {
+     conclusions: ProjectedConclusion[];
+     axes: SemanticAxis[];
+   }
+   ```
+
+   Implement PCA using basic linear algebra (no external library required for 2D projection of relatively small matrices — the org won't have more than a few thousand conclusions):
+   - Center the embedding matrix (subtract mean vector).
+   - Compute covariance matrix.
+   - Extract top 2 eigenvectors via power iteration (sufficient for visualization).
+   - Project each conclusion onto the 2D plane.
+   - Label each axis by examining the conclusions at the extremes of that axis.
+
+   If the linear algebra is too complex for a from-scratch implementation, use a simpler approach:
+   - Import a lightweight library or use the Noosphere Python backend to compute the projection.
+   - Create a small API bridge that calls a Python script for the PCA computation.
+
+3. **Create the API route `GET /api/conclusions/embeddings`:**
+   - Authenticate via `requireTenantContext()`.
+   - Fetch all conclusions with non-null `embeddingJson` for the org.
+   - Parse the embedding vectors from JSON.
+   - Run the PCA projection.
+   - Return the `EmbeddingProjection` response.
+   - Cache aggressively: the projection only changes when new conclusions are ingested.
+
+   ```typescript
+   import { NextResponse } from "next/server";
+   import { requireTenantContext } from "@/lib/tenant";
+   import { db } from "@/lib/db";
+   import { computeProjection } from "@/lib/embeddingAxes";
+
+   export async function GET() {
+     const tenant = await requireTenantContext();
+     if (!tenant) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+
+     const conclusions = await db.conclusion.findMany({
+       where: {
+         organizationId: tenant.organizationId,
+         embeddingJson: { not: null },
+       },
+       select: {
+         id: true,
+         text: true,
+         topicHint: true,
+         confidenceTier: true,
+         embeddingJson: true,
+       },
+     });
+
+     if (conclusions.length < 3) {
+       return NextResponse.json({
+         conclusions: [],
+         axes: [],
+         error: "Need at least 3 conclusions with embeddings for visualization",
+       });
+     }
+
+     const projection = computeProjection(conclusions);
+     return NextResponse.json(projection);
+   }
+   ```
+
+4. **Ensure the ingestion pipeline stores embeddings.** Check `noosphere/noosphere/codex_bridge.py` — if it creates Conclusion rows in the Codex database, verify it also writes the embedding. If not, add the embedding write:
+   - The embedding likely already exists on the Noosphere Claim object.
+   - Serialize it as JSON and pass it to the Prisma create call.
+   - If the bridge doesn't have access to the embedding, note this as a blocker — the embedding may need to be added to the bridge's data contract.
+
+5. **Axis labeling.** For each PCA axis, generate a descriptive label:
+   - Look at the 3 conclusions with the highest positive loading and the 3 with the most negative loading.
+   - If the positive-end conclusions cluster around one topic and the negative-end around another, the axis label is `"Topic A ↔ Topic B"`.
+   - As a simple heuristic, use the `topicHint` field of the extreme conclusions.
+   - If an LLM call is warranted for better labels, note it but implement the heuristic first.
+
+6. **Do NOT change** the contradictions page, the dashboard, or the ingestion extraction logic. This prompt is exclusively about the embedding projection backend.
+
+Do not proceed to any other work. Do not edit anything outside SCOPE.

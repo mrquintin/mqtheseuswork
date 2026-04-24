@@ -1,0 +1,194 @@
+# Claude Code Prompt 2 of 8 — Founder Portal: Electron main process and Next.js server integration
+
+**Sequence:** prompt 2 of 8 (Wave 1 — independent of other Wave 1 prompts). When you finish, report back with: files you created/modified, any notable choices, any blockers.
+
+**Before you start — read current state:**
+1. Run `git status` and `git branch`.
+2. Read `founder-portal/package.json`, `founder-portal/next.config.ts`, `founder-portal/src/app/layout.tsx`, and `founder-portal/prisma/schema.prisma` to understand the existing app structure.
+3. Confirm that `next.config.ts` has `output: "standalone"` — this is critical for Electron bundling.
+4. Read `founder-portal/src/middleware.ts` to understand auth routing.
+5. For every file listed under SCOPE below, check whether it already exists. Do NOT overwrite existing correct work.
+
+## Your task
+
+You are an implementation agent. Your job is to add Electron desktop-app support to the Founder Portal. The Founder Portal is a Next.js 16 / React 19 web application with a SQLite database (via Prisma 7 + better-sqlite3). You will create an Electron main process that:
+- Starts the Next.js standalone server as a child process
+- Opens a BrowserWindow pointing to the local server
+- Manages the SQLite database location in the platform-appropriate app-data directory
+- Handles app lifecycle (graceful shutdown, single-instance lock, dock/taskbar behavior)
+
+When you finish, verify the Electron main process compiles and the dev workflow launches. Do not proceed to any other work.
+
+## Prerequisites
+- Node.js 20+ and npm are available.
+- The Founder Portal builds successfully with `npm run build`.
+- `output: "standalone"` is set in `next.config.ts`.
+
+SCOPE (files you may create or modify — stay within this list)
+- `founder-portal/desktop/main.ts`                    CREATE
+- `founder-portal/desktop/preload.ts`                  CREATE
+- `founder-portal/desktop/next-server.ts`              CREATE
+- `founder-portal/desktop/db-path.ts`                  CREATE
+- `founder-portal/desktop/tsconfig.json`               CREATE
+- `founder-portal/desktop/dev.ts`                      CREATE
+- `founder-portal/package.json`                        MODIFY (add electron deps + scripts)
+- `founder-portal/assets/icon.png`                     CREATE (placeholder 512×512)
+- `founder-portal/tests/desktop/electron-main.test.ts` CREATE
+
+## Step-by-step
+
+1. **Create `founder-portal/desktop/db-path.ts`** — resolves the SQLite database path per platform:
+   ```typescript
+   import { app } from 'electron';
+   import path from 'path';
+   import fs from 'fs';
+
+   export function getDbPath(): string {
+     const userDataDir = app.getPath('userData');
+     const dbDir = path.join(userDataDir, 'data');
+     fs.mkdirSync(dbDir, { recursive: true });
+     return path.join(dbDir, 'founder-portal.db');
+   }
+
+   export function getDatabaseUrl(): string {
+     return `file:${getDbPath()}`;
+   }
+   ```
+
+2. **Create `founder-portal/desktop/next-server.ts`** — manages the Next.js standalone server lifecycle:
+   ```typescript
+   import { ChildProcess, fork } from 'child_process';
+   import path from 'path';
+   import { app } from 'electron';
+   import net from 'net';
+
+   let serverProcess: ChildProcess | null = null;
+
+   async function findFreePort(startPort: number = 3000): Promise<number> { /* ... */ }
+
+   export async function startNextServer(dbUrl: string): Promise<number> {
+     const port = await findFreePort(3000);
+     const standaloneDir = path.join(app.getAppPath(), '.next', 'standalone');
+     const serverScript = path.join(standaloneDir, 'server.js');
+
+     serverProcess = fork(serverScript, [], {
+       env: {
+         ...process.env,
+         PORT: String(port),
+         HOSTNAME: '127.0.0.1',
+         DATABASE_URL: dbUrl,
+         NODE_ENV: 'production',
+       },
+       stdio: 'pipe',
+     });
+
+     // Wait for server to be ready (poll the port)
+     await waitForServer(port, 30_000);
+     return port;
+   }
+
+   export function stopNextServer(): void { /* graceful kill */ }
+   ```
+   Implement `waitForServer` by polling `net.connect` to the port with exponential backoff (max 30s). Implement `stopNextServer` with SIGTERM, then SIGKILL after 5s timeout. Handle `serverProcess.on('exit')` to detect crashes.
+
+3. **Create `founder-portal/desktop/preload.ts`** — minimal context bridge:
+   ```typescript
+   import { contextBridge, ipcRenderer } from 'electron';
+
+   contextBridge.exposeInMainWorld('electronAPI', {
+     platform: process.platform,
+     versions: {
+       electron: process.versions.electron,
+       node: process.versions.node,
+       chrome: process.versions.chrome,
+     },
+     onDeepLink: (callback: (url: string) => void) =>
+       ipcRenderer.on('deep-link', (_event, url) => callback(url)),
+   });
+   ```
+
+4. **Create `founder-portal/desktop/main.ts`** — the Electron main process:
+   - Import `app`, `BrowserWindow`, `shell` from `electron`.
+   - Enforce single instance with `app.requestSingleInstanceLock()`.
+   - On `app.whenReady()`:
+     a. Call `getDatabaseUrl()` to resolve the DB path.
+     b. If this is the first launch (DB file doesn't exist), run Prisma migrations programmatically OR copy a seed database. For simplicity, shell out to `npx prisma migrate deploy` with the correct DATABASE_URL, or bundle a pre-migrated empty DB.
+     c. Call `startNextServer(dbUrl)` to get the port.
+     d. Create a `BrowserWindow` with:
+        - `width: 1400, height: 900, minWidth: 1024, minHeight: 700`
+        - `webPreferences: { preload: path.join(__dirname, 'preload.js'), contextIsolation: true, nodeIntegration: false }`
+        - `titleBarStyle: 'hiddenInset'` on macOS for native look
+     e. Load `http://127.0.0.1:${port}`.
+     f. Open external links in the system browser via `shell.openExternal`.
+   - On `app.on('window-all-closed')`: quit on all platforms (macOS too — this is a work app, not a general utility).
+   - On `app.on('before-quit')`: call `stopNextServer()`.
+   - On `app.on('second-instance')`: focus the existing window.
+
+5. **Create `founder-portal/desktop/dev.ts`** — development helper that starts Next.js dev server and Electron concurrently:
+   ```typescript
+   // Starts `next dev` then launches Electron pointing at localhost:3000
+   // Used via: npm run desktop:dev
+   ```
+   Use `child_process.spawn` for `next dev`, wait for the dev server to be ready, then spawn `electron .`.
+
+6. **Create `founder-portal/desktop/tsconfig.json`**:
+   ```json
+   {
+     "compilerOptions": {
+       "target": "ES2022",
+       "module": "commonjs",
+       "moduleResolution": "node",
+       "esModuleInterop": true,
+       "outDir": "../dist-desktop",
+       "rootDir": ".",
+       "strict": true,
+       "skipLibCheck": true,
+       "resolveJsonModule": true
+     },
+     "include": ["./**/*.ts"]
+   }
+   ```
+
+7. **Update `founder-portal/package.json`**:
+   - Add to `devDependencies`: `"electron": "^35.0.0"`, `"electron-builder": "^26.0.0"`, `"tsx": "^4.0.0"` (if not already present).
+   - Add `"main": "dist-desktop/main.js"` at the top level.
+   - Add scripts:
+     ```json
+     "desktop:build-ts": "tsc -p desktop/tsconfig.json",
+     "desktop:dev": "tsx desktop/dev.ts",
+     "desktop:build": "npm run build && npm run desktop:build-ts",
+     "desktop:start": "npm run desktop:build && electron ."
+     ```
+   - Do NOT remove or modify any existing scripts.
+
+8. **Create `founder-portal/assets/icon.png`** — generate a simple 512×512 placeholder PNG programmatically. This will be replaced with final artwork later.
+
+9. **Create `founder-portal/tests/desktop/electron-main.test.ts`**:
+   - Test `getDbPath()` returns a path ending in `founder-portal.db` (mock `app.getPath`).
+   - Test `findFreePort()` returns a number between 1024 and 65535.
+   - Test that `getDatabaseUrl()` returns a string starting with `file:`.
+   - Use vitest (already in the project).
+
+10. **Run verification:**
+    ```bash
+    cd founder-portal
+    npm install
+    npx tsc -p desktop/tsconfig.json --noEmit   # type-check only
+    npx vitest run tests/desktop/
+    ```
+
+## Verification
+- `npx tsc -p desktop/tsconfig.json --noEmit` passes with no errors.
+- `desktop/main.ts`, `desktop/preload.ts`, `desktop/next-server.ts`, `desktop/db-path.ts`, `desktop/dev.ts` all exist.
+- `package.json` has `"main": "dist-desktop/main.js"` and all four `desktop:*` scripts.
+- `electron` and `electron-builder` are in `devDependencies`.
+- Tests pass.
+
+## Prohibitions
+- Do NOT modify any existing Next.js pages, components, API routes, or middleware.
+- Do NOT change `next.config.ts` (it already has `output: "standalone"`).
+- Do NOT modify the Prisma schema.
+- Do NOT add `nodeIntegration: true` in the BrowserWindow — the app must run with context isolation.
+- Do NOT run `electron-builder` or produce actual platform packages (that is prompt 06's job).
+- Do NOT install Electron globally — it must be a devDependency.
+- Do NOT embed the Next.js dev server in production mode — production uses the standalone build, dev mode uses the dev script.

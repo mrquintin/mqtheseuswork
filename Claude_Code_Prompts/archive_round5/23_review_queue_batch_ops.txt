@@ -1,0 +1,173 @@
+# Claude Code Prompt 23 of 25 — Feature: add batch operations to the review queue
+
+**Sequence:** prompt 23 of 25 (Wave 6 — independent of prompts 22, 24, 25). When you finish, report back with: files you created/modified, any notable choices, any blockers.
+
+**Before you start — read current state:**
+1. Read `theseus-codex/src/app/(authed)/q/review/ReviewQueue.tsx` — understand the current per-item resolution flow.
+2. Read `theseus-codex/src/app/api/review/[id]/route.ts` — understand the single-item resolution API.
+
+## The problem
+
+Each review item must be resolved individually — click a verdict button, wait for the response, page reloads (or item disappears if prompt 06 has been applied), find the next item. When there are dozens of items in the queue, many with the same aggregator verdict (e.g., all leaning "cohere"), confirming each one individually is tedious. There is no way to select multiple items and confirm or resolve them in batch.
+
+## Your task
+
+Add batch selection and batch resolution to the review queue. Users should be able to select multiple items, then apply a single verdict to all selected items.
+
+## SCOPE (files you may create or modify — stay within this list)
+- `theseus-codex/src/app/(authed)/q/review/ReviewQueue.tsx`    MODIFY
+- `theseus-codex/src/app/api/review/batch/route.ts`             CREATE
+
+## Step-by-step
+
+1. **Add selection state** to ReviewQueue:
+   ```typescript
+   const [selected, setSelected] = useState<Set<string>>(new Set());
+   const [batchMode, setBatchMode] = useState(false);
+   ```
+
+2. **Add a batch mode toggle** at the top of the queue:
+   ```tsx
+   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "1rem" }}>
+     <button
+       type="button"
+       className="btn"
+       onClick={() => { setBatchMode(!batchMode); setSelected(new Set()); }}
+       style={{ fontSize: "0.65rem" }}
+     >
+       {batchMode ? "Exit batch mode" : "Batch mode"}
+     </button>
+     {batchMode && (
+       <span style={{ fontSize: "0.7rem", color: "var(--parchment-dim)" }}>
+         {selected.size} selected
+       </span>
+     )}
+   </div>
+   ```
+
+3. **Add checkboxes** to each review item when in batch mode:
+   ```tsx
+   {batchMode && (
+     <input
+       type="checkbox"
+       checked={selected.has(it.id)}
+       onChange={(e) => {
+         const next = new Set(selected);
+         e.target.checked ? next.add(it.id) : next.delete(it.id);
+         setSelected(next);
+       }}
+       style={{ marginRight: "0.75rem" }}
+     />
+   )}
+   ```
+
+4. **Add "select all" and batch action bar** when in batch mode with items selected:
+   ```tsx
+   {batchMode && (
+     <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap", marginBottom: "1rem" }}>
+       <button type="button" className="btn" onClick={() => setSelected(new Set(visible.map(i => i.id)))} style={{ fontSize: "0.6rem" }}>
+         Select all
+       </button>
+       <button type="button" className="btn" onClick={() => setSelected(new Set())} style={{ fontSize: "0.6rem" }}>
+         Select none
+       </button>
+       {selected.size > 0 && (
+         <>
+           <button type="button" className="btn" onClick={() => batchResolve("cohere", false)} style={{ fontSize: "0.6rem" }}>
+             Confirm all as cohere
+           </button>
+           <button type="button" className="btn" onClick={() => batchResolve("contradict", false)} style={{ fontSize: "0.6rem" }}>
+             Confirm all as contradict
+           </button>
+           <button type="button" className="btn-solid btn" onClick={() => batchResolve("cohere", true)} style={{ fontSize: "0.6rem" }}>
+             Overrule all → cohere
+           </button>
+         </>
+       )}
+     </div>
+   )}
+   ```
+
+5. **Create the batch resolution function**:
+   ```typescript
+   async function batchResolve(verdict: "cohere" | "contradict" | "unresolved", overrule: boolean) {
+     setMsg("");
+     const ids = Array.from(selected);
+     const res = await fetch("/api/review/batch", {
+       method: "POST",
+       headers: { "Content-Type": "application/json" },
+       body: JSON.stringify({ ids, verdict, overrule, note: `Batch ${overrule ? "overrule" : "confirm"} via portal` }),
+     });
+     if (!res.ok) {
+       const data = await res.json();
+       setMsg(data.error || "Batch resolution failed");
+       return;
+     }
+     // Remove resolved items from view (if prompt 06 pattern is applied)
+     setResolved((prev) => { const next = new Set(prev); ids.forEach((id) => next.add(id)); return next; });
+     setSelected(new Set());
+     setLastAction({ id: "batch", verdict });
+   }
+   ```
+
+6. **Create `api/review/batch/route.ts`**:
+   ```typescript
+   import { NextResponse } from "next/server";
+   import { getFounder } from "@/lib/auth";
+   import { db } from "@/lib/db";
+   import { pushReviewResolutionToNoosphere } from "@/lib/pushReviewToNoosphere";
+
+   export async function POST(req: Request) {
+     const founder = await getFounder();
+     if (!founder) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+
+     const { ids, verdict, overrule, note } = await req.json() as {
+       ids: string[];
+       verdict: "cohere" | "contradict" | "unresolved";
+       overrule: boolean;
+       note: string;
+     };
+
+     if (!ids?.length || !verdict) {
+       return NextResponse.json({ error: "ids and verdict required" }, { status: 400 });
+     }
+
+     // Update all items in a transaction
+     await db.$transaction(
+       ids.map((id) =>
+         db.reviewItem.update({
+           where: { id },
+           data: {
+             status: "done",
+             humanVerdict: verdict,
+             humanOverrule: overrule,
+             resolutionNote: note,
+             resolvedAt: new Date(),
+             resolvedByFounderId: founder.id,
+           },
+         })
+       )
+     );
+
+     // Sync to Noosphere (fire-and-forget for batch)
+     const items = await db.reviewItem.findMany({ where: { id: { in: ids } } });
+     for (const item of items) {
+       if (item.noosphereId) {
+         pushReviewResolutionToNoosphere({
+           reviewId: item.noosphereId,
+           verdict,
+           overrule,
+           aggregatorVerdict: item.aggregatorVerdict,
+           founderId: founder.noosphereId || founder.id,
+           note,
+         }).catch(() => {}); // fire-and-forget
+       }
+     }
+
+     return NextResponse.json({ ok: true, count: ids.length });
+   }
+   ```
+
+7. **Do NOT change** the single-item resolution flow — batch mode is an addition, not a replacement.
+
+Do not proceed to any other work. Do not edit anything outside SCOPE.

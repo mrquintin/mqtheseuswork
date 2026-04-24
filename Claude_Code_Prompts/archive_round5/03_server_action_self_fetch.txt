@@ -1,0 +1,68 @@
+# Claude Code Prompt 3 of 25 — Bug fix: replace self-fetching server actions with direct calls
+
+**Sequence:** prompt 3 of 25 (Wave 1 — independent of prompts 01 and 02). When you finish, report back with: files you created/modified, any notable choices, any blockers.
+
+**Before you start — read current state:**
+1. Read `theseus-codex/src/app/(authed)/peer-review/[conclusionId]/page.tsx` — note the `runReview()` server action that calls `fetch(\`${base}/api/round3/review/run\`)`.
+2. Read `theseus-codex/src/app/(authed)/decay/page.tsx` — note the `revalidate()` server action in `RevalidateRow` that calls `fetch(\`${base}/api/round3/decay/revalidate\`)`.
+3. Read `theseus-codex/src/app/api/round3/review/run/route.ts` — understand what the API route actually does (calls `withGated` then `callNoosphereJson`).
+4. Read `theseus-codex/src/app/api/round3/decay/revalidate/route.ts` (if it exists) — understand the decay revalidation API.
+5. Read `theseus-codex/src/lib/api/round3.ts` — understand `submitToRigorGate` and `callNoosphereJson` from `pythonRuntime.ts`.
+6. Read `theseus-codex/src/lib/pythonRuntime.ts` — understand `callNoosphereJson`.
+
+## The bug
+
+Two server actions make HTTP requests back to their own server:
+
+```typescript
+// peer-review/[conclusionId]/page.tsx
+async function runReview() {
+  "use server";
+  const base = process.env.PORTAL_API_BASE || "http://localhost:3000";
+  const res = await fetch(`${base}/api/round3/review/run`, { ... });
+}
+
+// decay/page.tsx
+async function revalidate() {
+  "use server";
+  const base = process.env.PORTAL_API_BASE || "http://localhost:3000";
+  const res = await fetch(`${base}/api/round3/decay/revalidate`, { ... });
+}
+```
+
+This has three problems:
+1. **Auth cookies are not forwarded.** The server action runs on the server, so the browser's session cookie is not attached to the outgoing fetch. The API route calls `getFounder()` (via `withGated`), which reads cookies — so this likely returns 401 in production.
+2. **Requires `PORTAL_API_BASE` env var.** The default `http://localhost:3000` breaks in any deployment where the server listens on a different port, hostname, or behind a reverse proxy.
+3. **Unnecessary round-trip.** A server action already runs on the server. It should call the underlying logic directly instead of HTTP-fetching itself.
+
+## Your task
+
+Replace the self-fetching pattern with direct function calls. The server action should call the same underlying functions that the API route calls — `submitToRigorGate` and `callNoosphereJson` — without going through HTTP.
+
+## SCOPE (files you may modify — stay within this list)
+- `theseus-codex/src/app/(authed)/peer-review/[conclusionId]/page.tsx`    MODIFY
+- `theseus-codex/src/app/(authed)/decay/page.tsx`                          MODIFY
+
+## Step-by-step
+
+1. **In `peer-review/[conclusionId]/page.tsx`**, rewrite the `runReview` server action:
+   - Import `getFounder` from `@/lib/auth`, `submitToRigorGate` from `@/lib/api/round3`, and `callNoosphereJson` from `@/lib/pythonRuntime`.
+   - Inside the server action: call `getFounder()` to get the authenticated founder. If no founder, redirect to `/login`.
+   - Call `submitToRigorGate("peer_review.run", founder.name)`. If not approved, throw or redirect with an error query param.
+   - Call `callNoosphereJson(["peer-review", "--conclusion-id", conclusionId], "Peer review run failed")`.
+   - Call `revalidatePath(...)` and `redirect(...)` with the ledger entry ID as before.
+   - Remove the `PORTAL_API_BASE` reference and the `fetch()` call entirely.
+
+2. **In `decay/page.tsx`**, rewrite the `revalidate` server action in the `RevalidateRow` component using the same pattern:
+   - Import `getFounder`, `submitToRigorGate`, and `callNoosphereJson`.
+   - Call the rigor gate and then the Noosphere CLI directly.
+   - The Noosphere command for decay revalidation: check the existing API route to see what CLI args it uses, and replicate them.
+   - Remove the `PORTAL_API_BASE` reference and the `fetch()` call.
+
+3. **Do NOT modify** the API routes themselves — they may still be needed for external callers or the client-side code. Only modify the server actions.
+
+4. **Do NOT change** any page layout, styling, or rendering logic. Only the server action implementations.
+
+5. **Verify** by reading both modified files and confirming no `fetch()` calls to `localhost` or `PORTAL_API_BASE` remain.
+
+Do not proceed to any other work. Do not edit anything outside SCOPE.

@@ -1,0 +1,141 @@
+# Claude Code Prompt 9 of 12 — Contradictions: add dismissal/resolution mechanism
+
+**Sequence:** prompt 9 of 12 (Wave 3 — contradictions overhaul; apply AFTER prompts 06–08). When you finish, report back with: files you created/modified, any notable choices, any blockers.
+
+**Before you start — read current state:**
+1. Read `theseus-codex/prisma/schema.prisma` — note the `Contradiction` model (lines 431–458). It has NO status, dismissed, or resolved field. Contradictions persist indefinitely once created.
+2. Read `theseus-codex/src/app/(authed)/contradictions/page.tsx` — the page AFTER prompts 06–08 have been applied. It now shows claim text, layer explanations, and severity grouping, but contradictions cannot be dismissed or resolved.
+3. Read `theseus-codex/src/app/api/` — check for any existing contradiction-related API routes.
+
+## The problem
+
+Contradictions currently persist forever once detected. There is no way for a founder to:
+- **Dismiss** a false positive (the system flagged a contradiction that isn't one)
+- **Resolve** a genuine contradiction by recording how it was addressed (e.g., "I updated my position" or "these claims are compatible in context X")
+- **Hide** contradictions they've already reviewed from the active list
+
+The founder needs a workflow where contradictions can be triaged, similar to how issues are triaged in a bug tracker: review → resolve with a note, or dismiss as false positive.
+
+## SCOPE (files you may create or modify — stay within this list)
+- `theseus-codex/prisma/schema.prisma`                                           MODIFY (add fields to Contradiction)
+- `theseus-codex/prisma/migrations/`                                              CREATE (new migration)
+- `theseus-codex/src/app/api/contradictions/[id]/route.ts`                       CREATE
+- `theseus-codex/src/app/(authed)/contradictions/page.tsx`                       MODIFY
+- `theseus-codex/src/app/(authed)/contradictions/contradiction-actions.tsx`      CREATE (client component)
+
+## Step-by-step
+
+1. **Add resolution fields to the `Contradiction` model** in `schema.prisma`:
+   ```prisma
+   model Contradiction {
+     // ... existing fields ...
+
+     // ── Resolution tracking ────────────────────────────────────────────
+     // A contradiction starts as "active". A founder can resolve it
+     // (acknowledged and addressed) or dismiss it (false positive).
+     // Resolved/dismissed contradictions are hidden from the main view
+     // but preserved for audit.
+     status       String    @default("active")  // active | resolved | dismissed
+     resolution   String?   // founder's note explaining the resolution
+     resolvedById String?
+     resolvedAt   DateTime?
+
+     resolvedBy Founder? @relation("ContradictionResolver", fields: [resolvedById], references: [id])
+
+     // ... existing relations ...
+   }
+   ```
+   Add the reverse relation on `Founder`:
+   - `resolvedContradictions Contradiction[] @relation("ContradictionResolver")`
+
+2. **Generate and apply the Prisma migration:**
+   ```bash
+   npx prisma migrate dev --name add_contradiction_resolution
+   ```
+
+3. **Create the API route `PATCH /api/contradictions/[id]`:**
+   - Authenticate the founder via `requireTenantContext()`.
+   - Accept `{ action: "resolve" | "dismiss", resolution?: string }`.
+   - Verify the contradiction belongs to the founder's organization.
+   - For `resolve`: set `status = "resolved"`, `resolution`, `resolvedById`, `resolvedAt = now()`.
+   - For `dismiss`: set `status = "dismissed"`, `resolution` (optional note), `resolvedById`, `resolvedAt = now()`.
+   - Create an `AuditEvent` recording the action.
+   - Return the updated contradiction.
+
+4. **Create a client component `contradiction-actions.tsx`** with resolve/dismiss buttons and a resolution note input:
+   ```tsx
+   "use client";
+   import { useState } from "react";
+
+   export default function ContradictionActions({
+     contradictionId,
+     status,
+   }: {
+     contradictionId: string;
+     status: string;
+   }) {
+     const [showForm, setShowForm] = useState(false);
+     const [action, setAction] = useState<"resolve" | "dismiss">("resolve");
+     const [note, setNote] = useState("");
+     const [submitting, setSubmitting] = useState(false);
+
+     if (status !== "active") {
+       return (
+         <span className="mono" style={{
+           fontSize: "0.6rem",
+           color: status === "resolved" ? "var(--gold)" : "var(--parchment-dim)",
+           textTransform: "uppercase",
+           letterSpacing: "0.1em",
+         }}>
+           {status}
+         </span>
+       );
+     }
+
+     // ... render resolve/dismiss buttons, expandable note input, submit handler
+   }
+   ```
+
+   The submit handler should:
+   ```typescript
+   const res = await fetch(`/api/contradictions/${contradictionId}`, {
+     method: "PATCH",
+     headers: { "Content-Type": "application/json" },
+     body: JSON.stringify({ action, resolution: note || undefined }),
+   });
+   if (res.ok) {
+     window.location.reload(); // simple approach for server component page
+   }
+   ```
+
+5. **Filter the contradictions query** to show only active contradictions by default, with a toggle to show resolved/dismissed:
+   ```typescript
+   // Default: only active
+   const rows = await db.contradiction.findMany({
+     where: {
+       organizationId: tenant.organizationId,
+       status: showResolved ? undefined : "active",
+       ...(end ? { createdAt: { lte: end } } : {}),
+     },
+     orderBy: { severity: "desc" },
+     take: 50,
+   });
+   ```
+
+   Add a query parameter `?showResolved=true` and a toggle link at the top of the page:
+   ```tsx
+   <Link href={showResolved ? "/contradictions" : "/contradictions?showResolved=true"}
+     className="mono" style={{
+       fontSize: "0.6rem",
+       color: "var(--amber-dim)",
+       textDecoration: "none",
+     }}>
+     {showResolved ? "Hide resolved" : `Show resolved (${resolvedCount})`}
+   </Link>
+   ```
+
+6. **Add the `ContradictionActions` component** to each contradiction card in the expanded details section, below the layer breakdown and claim text.
+
+7. **Do NOT change** the CoherenceRadar, the Noosphere coherence engine, or any other page. This prompt is exclusively about adding resolution/dismissal to the contradictions page.
+
+Do not proceed to any other work. Do not edit anything outside SCOPE.

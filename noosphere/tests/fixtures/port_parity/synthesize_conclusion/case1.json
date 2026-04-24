@@ -1,0 +1,14 @@
+{
+  "text": "Network effects create durable moats in platform businesses, but only when switching costs are high and the network is dense.",
+  "speaker_id": "founder_001",
+  "speaker_name": "Test Founder",
+  "episode_id": "episode_003",
+  "episode_date": "2025-02-10",
+  "domain": "technology",
+  "method_used": "induction",
+  "confidence_expressed": 0.75,
+  "is_prediction": false,
+  "falsification_condition": null,
+  "resolution_date": null,
+  "methodological_context": "Arrived at by analyzing 50 platform companies over 5 years."
+}

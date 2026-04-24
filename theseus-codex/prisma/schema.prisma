@@ -1,0 +1,697 @@
+generator client {
+  provider = "prisma-client-js"
+  // No custom `output` — Prisma 7 puts types alongside the runtime at
+  // `node_modules/.prisma/client` automatically when you leave this blank,
+  // and `@prisma/client` re-exports them. Explicitly setting
+  // `output = "../node_modules/.prisma/client"` used to work on Prisma 6
+  // but in Prisma 7 it only emits the WASM runtime (no .d.ts files),
+  // which breaks every `import { PrismaClient } from "@prisma/client"`.
+}
+
+// Postgres everywhere (Supabase / Neon / local Docker Postgres). Prisma bakes
+// the provider into the generated migrations, so you can't switch to SQLite
+// per-env with the same migration history. Use a local Postgres container
+// (see `docker-compose.dev.yml`) for offline dev, or point DATABASE_URL at
+// your Supabase project for both dev and prod.
+datasource db {
+  provider = "postgresql"
+}
+
+// ── Multi-tenant root (cloud: Postgres + RLS; local dev: SQLite) ─────────────
+
+model Organization {
+  id        String    @id @default(cuid())
+  /// URL-safe tenant key (login, subdomains, worker routing)
+  slug      String    @unique
+  name      String
+  /// Soft-delete grace window (hard-delete after policy window)
+  deletedAt DateTime?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  founders             Founder[]
+  sessions             Session[]
+  uploads              Upload[]
+  conclusions          Conclusion[]
+  contradictions       Contradiction[]
+  driftEvents          DriftEvent[]
+  researchSuggestions  ResearchSuggestion[]
+  reviewItems          ReviewItem[]
+  openQuestions        OpenQuestion[]
+  auditEvents          AuditEvent[]
+  publicationReviews   PublicationReview[]
+  publishedConclusions PublishedConclusion[]
+  publicResponses      PublicResponse[]
+  apiKeys              ApiKey[]
+}
+
+// ── Founders (portal users) — maps to FounderProfile in noosphere/models.py ─
+
+model Founder {
+  id             String       @id @default(cuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+
+  name         String
+  username     String
+  email        String
+  passwordHash String
+  // Role ladder — see src/lib/roles.ts for the predicate helpers and
+  // the full description of each tier:
+  //   admin   → full read + write + can change other founders' roles
+  //   founder → full read + write
+  //   viewer  → read-only; every write API returns 403 and every UI
+  //              affordance for writes is hidden
+  // Default "founder" preserves prior behaviour: anyone added via
+  // scripts/add-founder.ts is read+write unless explicitly seeded
+  // with ADD_FOUNDER_ROLE=viewer or =admin. Validation lives at the
+  // application layer; the column stays TEXT so adding a future tier
+  // is a docstring + helper change, not a migration.
+  role         String  @default("founder") // admin | founder | viewer
+  bio          String?
+  avatar       String?
+
+  /// Maps to FounderProfile.id in Noosphere
+  noosphereId String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  sessions                   Session[]
+  uploads                    Upload[]
+  auditEvents                AuditEvent[]
+  deletionRequests           DeletionRequest[]
+  attributedConclusions      Conclusion[]         @relation("ConclusionFounder")
+  researchSuggestions        ResearchSuggestion[]
+  reviewResolutions          ReviewItem[]         @relation("ReviewResolver")
+  publicationReviews         PublicationReview[]  @relation("PublicationReviewer")
+  apiKeys                    ApiKey[]
+  conclusionDeletionRequests ConclusionDeletionRequest[]
+  dashboardDismissals        DashboardDismissal[]
+  resolvedContradictions     Contradiction[]      @relation("ContradictionResolver")
+
+  @@unique([organizationId, email])
+  @@unique([organizationId, username])
+  @@index([organizationId])
+}
+
+/// Browser session (server-side row; cookie carries signed opaque token)
+model Session {
+  id             String   @id @default(cuid())
+  organizationId String
+  founderId      String
+  token          String   @unique
+  expiresAt      DateTime
+  createdAt      DateTime @default(now())
+
+  founder      Founder      @relation(fields: [founderId], references: [id], onDelete: Cascade)
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+
+  @@index([organizationId])
+  @@index([founderId])
+}
+
+// ── Uploads ────────────────────────────────────────────────────────────────
+
+model Upload {
+  id             String @id @default(cuid())
+  organizationId String
+  founderId      String
+
+  title          String
+  description    String?
+  sourceType     String   @default("written") // written | annotation | external | transcript
+  originalName   String
+  mimeType       String
+  filePath       String
+  fileSize       Int
+  textContent    String?
+  status         String   @default("pending") // pending | processing | ingested | failed
+  processLog     String   @default("") // streamed CLI stdout/stderr
+  claimsCount    Int?
+  methodCount    Int?
+  substCount     Int?
+  principleCount Int?
+  errorMessage   String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  // ── Public blog fields ─────────────────────────────────────────────
+  // An Upload becomes a public blog post when `publishedAt IS NOT NULL`.
+  // Default is null → the upload remains a private founder artifact.
+  // `slug` is the URL-safe identifier used for `/post/:slug`; it's
+  // generated from `title` at publish time and guaranteed unique across
+  // the whole table (not per-org — the blog is a single public surface).
+  // `blogExcerpt` is the card/list summary shown on the index; if null
+  // we derive one from the first ~280 chars of `textContent`.
+  // `authorBio` lets the founder override the displayed byline (e.g.
+  // for guest posts or co-authored work); otherwise we show
+  // Founder.name.
+  publishedAt DateTime?
+  slug        String?   @unique
+  blogExcerpt String?
+  authorBio   String?
+
+  // ── Soft delete ────────────────────────────────────────────────────
+  // `deletedAt` is the single source of truth for "this upload has
+  // been removed". Every query that surfaces uploads to the UI must
+  // filter by `deletedAt IS NULL`; we keep the row around so the audit
+  // trail (AuditEvent pointing at this upload) stays intact, and so a
+  // DB-level restore is possible if a deletion turns out to be a
+  // mistake. Only the uploader can set this directly; peers must go
+  // through a DeletionRequest, which the owner accepts (setting
+  // `deletedAt=now`) or declines.
+  deletedAt DateTime?
+
+  // ── Visibility inside the firm ─────────────────────────────────────
+  // Three-level visibility ladder. Every value still lets Noosphere
+  // run ingestion — conclusions, contradictions, open questions, and
+  // research suggestions are always extracted. The levels only
+  // control *who reads the upload's metadata and contents*.
+  //
+  // "org"          → visible to every founder in the organization AND
+  //                   eligible for blog publication. The default;
+  //                   library, dashboard, peer deletion requests, and
+  //                   the blog's publishAsPost toggle all apply.
+  //
+  // "semi-private" → visible to every founder in the organization,
+  //                   but never publishable to the public blog. The
+  //                   intermediate level, for material the firm wants
+  //                   to discuss internally but that must never leak
+  //                   outside. /api/publish rejects the flip; the
+  //                   public blog index + /post/[slug] both filter
+  //                   it out; /library and /dashboard render it with
+  //                   a "semi-private" badge so peers know the
+  //                   constraint.
+  //
+  // "private"      → only the uploader can see the row anywhere in
+  //                   the UI; Noosphere still ingests it so the owner
+  //                   gets their own conclusions/contradictions, but
+  //                   nobody else can see the file, read it, or open
+  //                   a deletion request against it. Blog-publishing
+  //                   a private upload is rejected at the API layer
+  //                   — flip visibility first.
+  //
+  // Column stays TEXT with default "org" so no migration is needed
+  // when new levels are introduced; validation happens at the API
+  // layer.
+  visibility String @default("org")
+
+  // ── Podcast / audio playback ───────────────────────────────────────
+  // When an audio upload is stored in a public CDN-addressable
+  // location (Supabase Storage in our case), we persist the public
+  // URL here so /post/[slug] can render a <audio controls> player
+  // alongside the transcript. `audioDurationSec` is optional
+  // metadata derived from ffprobe / client-side duration detection
+  // when available; the UI falls back to the player's own duration
+  // readout if it's null. Both fields are null for non-audio rows
+  // and for audio rows uploaded before Supabase Storage was
+  // configured — the blog post still renders, just text-only.
+  audioUrl         String?
+  audioDurationSec Int?
+
+  founder             Founder              @relation(fields: [founderId], references: [id])
+  organization        Organization         @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  auditEvents         AuditEvent[]
+  deletionRequests    DeletionRequest[]
+  // ── Provenance back-refs ─────────────────────────────────────────
+  // Derived entities (Conclusions via the M:N join, Contradictions,
+  // OpenQuestions, ResearchSuggestions directly) point back here so
+  // the delete path can cascade-clean any artifact whose source has
+  // been removed. `conclusionSources` is the many-to-many bridge —
+  // the same text can be extracted from multiple uploads, and each
+  // upload holds its own row in the bridge. The direct sourceUpload
+  // relations on the other three entities are one-per-row: a
+  // contradiction / open-question / research suggestion is an output
+  // of exactly one ingestion run, even when it references claims from
+  // multiple uploads.
+  conclusionSources   ConclusionSource[]
+  contradictions      Contradiction[]      @relation("ContradictionSourceUpload")
+  openQuestions       OpenQuestion[]       @relation("OpenQuestionSourceUpload")
+  researchSuggestions ResearchSuggestion[] @relation("ResearchSuggestionSourceUpload")
+
+  @@index([organizationId])
+  @@index([founderId])
+  @@index([publishedAt])
+  @@index([deletedAt])
+  @@index([visibility])
+}
+
+// ── DeletionRequest ───────────────────────────────────────────────────
+// Peer-to-peer "please delete this" workflow. A founder who doesn't own
+// an upload but wants it removed opens a request against that upload;
+// the owner reviews it (accept → soft-delete the upload, decline → log
+// reason and keep). The requester can cancel their own request at any
+// time before the owner responds.
+//
+// Enforcement:
+//   * Requester.organizationId must equal Upload.organizationId (done
+//     at route-handler level, not schema — cross-org requests are
+//     structurally unreachable via UI anyway).
+//   * Requester.id MUST NOT equal Upload.founderId (an owner deletes
+//     their own upload directly via DELETE /api/uploads/:id; opening
+//     a request against yourself is noise).
+//   * At most one ACTIVE (status=pending) request per (upload, requester)
+//     pair — the unique partial-index is added in the migration SQL.
+
+model DeletionRequest {
+  id          String    @id @default(cuid())
+  uploadId    String
+  requesterId String
+  status      String    @default("pending") // pending | accepted | declined | cancelled
+  reason      String?
+  decision    String? // optional note from the owner when accepting/declining
+  createdAt   DateTime  @default(now())
+  respondedAt DateTime?
+
+  upload    Upload  @relation(fields: [uploadId], references: [id], onDelete: Cascade)
+  requester Founder @relation(fields: [requesterId], references: [id])
+
+  @@index([uploadId])
+  @@index([requesterId])
+  @@index([status])
+}
+
+// ── Conclusion — mirrors noosphere.models.Conclusion ───────────────────────
+
+model Conclusion {
+  id             String @id @default(cuid())
+  organizationId String
+
+  /// Stable id if synced from / produced for Noosphere
+  noosphereId String? @unique
+  text        String
+
+  // ── Dedup key ──────────────────────────────────────────────────────
+  // `normalizedText` is `LOWER(TRIM(REGEXP_REPLACE(text, '\s+', ' ')))`
+  // computed once at ingest time. The ingest pipeline checks for an
+  // existing Conclusion in the same org with a matching normalizedText;
+  // if one exists, it adds the current upload as an ADDITIONAL source
+  // via ConclusionSource rather than inserting a duplicate row. That's
+  // what makes deletion correct: when two uploads produced the same
+  // claim and we delete one, the conclusion stays — it's still
+  // supported by the other source.
+  //
+  // Nullable so the column can be added to an existing DB without a
+  // rewrite; the migration back-fills every existing row. Indexed
+  // `(organizationId, normalizedText)` because every lookup is scoped
+  // to a single org.
+  normalizedText         String?
+  confidenceTier         String // firm | founder | open (ConfidenceTier)
+  rationale              String   @default("")
+  supportingPrincipleIds String   @default("[]") // JSON string[]
+  evidenceChainClaimIds  String   @default("[]")
+  dissentClaimIds        String   @default("[]")
+  confidence             Float    @default(0)
+  topicHint              String   @default("") // UI filter / display
+  createdAt              DateTime @default(now())
+
+  /// JSON-serialized float[] embedding produced by Noosphere's sentence
+  /// encoder at ingest time. Null for conclusions ingested before this
+  /// column was added; the semantic explorer backfills on demand.
+  embeddingJson String?
+
+  attributedFounderId String?
+  attributedFounder   Founder?            @relation("ConclusionFounder", fields: [attributedFounderId], references: [id])
+  organization        Organization        @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  publicationReviews  PublicationReview[]
+  sources             ConclusionSource[]
+  deletionRequests    ConclusionDeletionRequest[]
+  dashboardDismissals DashboardDismissal[]
+
+  @@index([organizationId])
+  @@index([organizationId, normalizedText])
+}
+
+/// Many-to-many bridge Conclusion ↔ Upload.
+///
+/// Every conclusion that came out of the ingest pipeline has at least
+/// one row here tying it back to the upload it was extracted from.
+/// When the SAME normalized text appears in multiple uploads, the
+/// ingest pipeline reuses the existing Conclusion row and adds a new
+/// ConclusionSource row per additional upload, so the upstream count
+/// can drop from 2 → 1 → 0 as uploads are deleted.
+///
+/// Delete semantics (enforced by the app-side delete handlers, NOT by
+/// FK cascade — we soft-delete uploads, so the FK's ON DELETE CASCADE
+/// would not fire anyway):
+///
+///   * When an upload is soft-deleted, every ConclusionSource row
+///     with that uploadId is hard-deleted.
+///   * After that, any Conclusion with zero remaining rows is
+///     hard-deleted too (the claim's last source is gone).
+///   * Conclusions with sources from other uploads remain, just
+///     with one fewer row.
+///
+/// The FK cascade below still serves as a safety net for the rare
+/// case of a hard-delete (org takedown, privacy-law purge).
+model ConclusionSource {
+  conclusionId String
+  uploadId     String
+  createdAt    DateTime @default(now())
+
+  conclusion Conclusion @relation(fields: [conclusionId], references: [id], onDelete: Cascade)
+  upload     Upload     @relation(fields: [uploadId], references: [id], onDelete: Cascade)
+
+  @@id([conclusionId, uploadId])
+  @@index([conclusionId])
+  @@index([uploadId])
+}
+
+// ── Publication (SP10) — review queue + versioned public snapshots ───────────
+
+/// Internal gate before a conclusion may appear on the public site.
+model PublicationReview {
+  id             String @id @default(cuid())
+  organizationId String
+  conclusionId   String
+
+  /// queued | in_review | needs_revision | declined | published
+  status        String @default("queued")
+  /// JSON: { metaAnalysisOk, adversarialEngagedOk, clarityOk, noLeakageOk }
+  checklistJson String @default("{}")
+  reviewerNotes String @default("")
+  declineReason String @default("")
+  revisionAsk   String @default("")
+
+  reviewerFounderId String?
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  target       Conclusion   @relation(fields: [conclusionId], references: [id], onDelete: Cascade)
+  reviewer     Founder?     @relation("PublicationReviewer", fields: [reviewerFounderId], references: [id])
+
+  @@index([organizationId])
+  @@index([conclusionId])
+  @@index([status])
+}
+
+/// Immutable-ish public snapshot (new row per material revision).
+model PublishedConclusion {
+  id                 String @id @default(cuid())
+  organizationId     String
+  sourceConclusionId String
+
+  slug    String
+  version Int    @default(1)
+
+  /// Headline discounted confidence (SP05); stated founder/model confidence alongside in JSON.
+  discountedConfidence      Float
+  statedConfidence          Float  @default(0)
+  calibrationDiscountReason String @default("")
+
+  /// Full page payload: evidence, exit conditions, adversarial, voice map, timeline, citations.
+  payloadJson String @default("{}")
+
+  /// Zenodo DOI for this revision (minted on first publish of revision).
+  doi            String @default("")
+  zenodoRecordId String @default("")
+
+  publishedAt DateTime @default(now())
+
+  organization Organization     @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  responses    PublicResponse[]
+
+  @@unique([slug, version])
+  @@index([organizationId])
+  @@index([slug])
+}
+
+/// Structured reader responses — moderation queue (SP10).
+model PublicResponse {
+  id             String @id @default(cuid())
+  organizationId String
+
+  publishedConclusionId String
+
+  /// counter_evidence | counter_argument | clarification | agreement_extension
+  kind           String
+  body           String
+  citationUrl    String  @default("")
+  submitterEmail String  @default("")
+  orcid          String  @default("")
+  pseudonymous   Boolean @default(false)
+
+  /// pending | approved | rejected | engaged
+  status        String @default("pending")
+  moderatorNote String @default("")
+
+  createdAt DateTime @default(now())
+
+  organization Organization        @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  published    PublishedConclusion @relation(fields: [publishedConclusionId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId])
+  @@index([publishedConclusionId])
+  @@index([status])
+}
+
+// ── ContradictionFinding + scores — mirrors pipeline outputs ────────────────
+
+model Contradiction {
+  id             String @id @default(cuid())
+  organizationId String
+
+  claimAId     String
+  claimBId     String
+  severity     Float
+  sixLayerJson String?
+  narrative    String   @default("")
+  createdAt    DateTime @default(now())
+
+  // ── Source tracking ───────────────────────────────────────────────
+  // The upload whose ingestion run produced this contradiction row.
+  // Nullable so the column can be backfilled from `noosphereId` patterns
+  // on existing rows; the ingest pipeline sets it on every new row.
+  // When the source upload is deleted the contradiction is hard-deleted
+  // in the same transaction (see src/app/api/upload/[id]/delete/route.ts);
+  // cross-upload contradictions (where claimA and claimB come from
+  // different uploads) additionally die if EITHER of their referenced
+  // Conclusions has already been orphan-deleted.
+  sourceUploadId String?
+  sourceUpload   Upload? @relation("ContradictionSourceUpload", fields: [sourceUploadId], references: [id])
+
+  // ── Resolution tracking ────────────────────────────────────────────
+  // A contradiction starts "active". A founder can resolve it
+  // (acknowledged + addressed with a note) or dismiss it (false
+  // positive). Non-active rows are hidden from the main view by
+  // default but preserved for audit.
+  status       String    @default("active") // active | resolved | dismissed
+  resolution   String?
+  resolvedById String?
+  resolvedAt   DateTime?
+  resolvedBy   Founder?  @relation("ContradictionResolver", fields: [resolvedById], references: [id])
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+
+  @@index([organizationId])
+  @@index([sourceUploadId])
+  @@index([status])
+}
+
+// ── ConclusionDeletionRequest ─────────────────────────────────────────
+// Peer-to-peer "please delete this conclusion" workflow, mirroring
+// DeletionRequest for uploads. A founder opens a request; the
+// conclusion's attributed founder (or an admin) accepts or declines.
+// On accept: hard-delete the Conclusion (and its ConclusionSource rows
+// via FK cascade) so it's purged from the model.
+
+model ConclusionDeletionRequest {
+  id           String    @id @default(cuid())
+  conclusionId String
+  requesterId  String
+  status       String    @default("pending") // pending | accepted | declined | cancelled
+  reason       String?
+  decision     String?
+  createdAt    DateTime  @default(now())
+  respondedAt  DateTime?
+
+  conclusion Conclusion @relation(fields: [conclusionId], references: [id], onDelete: Cascade)
+  requester  Founder    @relation(fields: [requesterId], references: [id])
+
+  @@index([conclusionId])
+  @@index([requesterId])
+  @@index([status])
+}
+
+// ── DashboardDismissal ─────────────────────────────────────────────────
+// Per-founder UI preference. Dismissing a conclusion from the dashboard
+// hides it from *this* founder's homepage only — other founders in the
+// same org still see it. Not a deletion.
+
+model DashboardDismissal {
+  id           String   @id @default(cuid())
+  founderId    String
+  conclusionId String
+  createdAt    DateTime @default(now())
+
+  founder    Founder    @relation(fields: [founderId], references: [id])
+  conclusion Conclusion @relation(fields: [conclusionId], references: [id], onDelete: Cascade)
+
+  @@unique([founderId, conclusionId])
+  @@index([founderId])
+  @@index([conclusionId])
+}
+
+// ── DriftEvent — mirrors noosphere.models.DriftEvent ───────────────────────
+
+model DriftEvent {
+  id             String @id @default(cuid())
+  organizationId String
+
+  noosphereId                 String?  @unique
+  targetId                    String
+  targetKind                  String   @default("principle")
+  episodeId                   String   @default("")
+  observedAt                  DateTime
+  driftScore                  Float    @default(0)
+  notes                       String   @default("")
+  claimSequenceIdsJson        String   @default("[]")
+  naturalLanguageSummary      String   @default("")
+  earliestInconsistentClaimId String   @default("")
+  authorTopicKey              String   @default("")
+  topicId                     String   @default("")
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+
+  @@index([organizationId])
+}
+
+// ── ResearchSuggestion — mirrors noosphere.models.ResearchSuggestion ───────
+
+model ResearchSuggestion {
+  id             String @id @default(cuid())
+  organizationId String
+
+  noosphereId  String?  @unique
+  title        String
+  summary      String   @default("")
+  rationale    String   @default("")
+  readingUris  String   @default("[]") // JSON string[]
+  sessionLabel String   @default("")
+  createdAt    DateTime @default(now())
+
+  // ── Source tracking ───────────────────────────────────────────────
+  // The upload whose ingestion run generated this suggestion. Unlike
+  // Conclusion, ResearchSuggestion is NOT deduplicated across uploads
+  // — if two uploads both happen to prompt the same "read X" suggestion
+  // they each get their own row. When the source upload is deleted
+  // the suggestion goes with it.
+  sourceUploadId String?
+  sourceUpload   Upload? @relation("ResearchSuggestionSourceUpload", fields: [sourceUploadId], references: [id])
+
+  suggestedForFounderId String?
+  suggestedForFounder   Founder?     @relation(fields: [suggestedForFounderId], references: [id])
+  organization          Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+
+  @@index([organizationId])
+  @@index([sourceUploadId])
+}
+
+// ── ReviewItem — mirrors noosphere.models.ReviewItem (+ portal resolution) ─
+
+model ReviewItem {
+  id             String @id @default(cuid())
+  organizationId String
+
+  noosphereId       String?   @unique
+  claimAId          String
+  claimBId          String
+  reason            String    @default("")
+  layerVerdictsJson String    @default("{}") // dict str -> str
+  severity          Float     @default(0)
+  status            String    @default("open") // open | done | dismissed
+  aggregatorVerdict String?
+  priorScoresJson   String?
+  humanVerdict      String?
+  humanOverrule     Boolean   @default(false)
+  resolutionNote    String    @default("")
+  createdAt         DateTime  @default(now())
+  resolvedAt        DateTime?
+
+  resolvedByFounderId String?
+  resolvedByFounder   Founder?     @relation("ReviewResolver", fields: [resolvedByFounderId], references: [id])
+  organization        Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+
+  @@index([organizationId])
+}
+
+// ── OpenQuestionCandidate — mirrors conclusions.OpenQuestionCandidate ───────
+
+model OpenQuestion {
+  id             String @id @default(cuid())
+  organizationId String
+
+  noosphereId              String?  @unique
+  summary                  String
+  claimAId                 String
+  claimBId                 String
+  unresolvedReason         String   @default("")
+  layerDisagreementSummary String   @default("")
+  createdAt                DateTime @default(now())
+
+  // ── Source tracking ───────────────────────────────────────────────
+  // The upload whose ingestion produced this open question. Cascaded
+  // with the upload's soft-delete; also disappears if either of its
+  // referenced Conclusions has been orphan-deleted (a question about
+  // a claim that no longer exists in the Codex has no meaning).
+  sourceUploadId String?
+  sourceUpload   Upload? @relation("OpenQuestionSourceUpload", fields: [sourceUploadId], references: [id])
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+
+  @@index([organizationId])
+  @@index([sourceUploadId])
+}
+
+model AuditEvent {
+  id             String   @id @default(cuid())
+  organizationId String
+  founderId      String
+  uploadId       String?
+  action         String
+  detail         String?
+  createdAt      DateTime @default(now())
+
+  founder      Founder      @relation(fields: [founderId], references: [id])
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  upload       Upload?      @relation(fields: [uploadId], references: [id], onDelete: SetNull)
+
+  @@index([organizationId])
+}
+
+// ── API keys for machine-to-machine auth (Dialectic auto-sync, scripts, etc.) ─
+//
+// Store the *hash* of the key, never the plaintext. The plaintext is returned
+// once at creation time. Revocation = set `revokedAt`. The key plaintext
+// should look like `tcx_<founderId>_<64-hex-random>` so the client can send
+// the founderId bits without a DB lookup for routing, and the random tail is
+// the secret. `authenticateApiKey()` in src/lib/apiKeyAuth.ts implements
+// the verification (bcrypt compare against `keyHash`).
+model ApiKey {
+  id             String @id @default(cuid())
+  organizationId String
+  /// Founder the key acts on behalf of — uploads are attributed to them.
+  founderId      String
+
+  /// Human label shown in the management UI (e.g. "Dialectic on laptop").
+  label   String
+  /// Short prefix of the plaintext (first 12 chars) — shown in UI for identification.
+  prefix  String
+  /// bcrypt hash of the full plaintext key. Never store plaintext.
+  keyHash String
+  /// Comma-separated scopes (e.g. "upload:write"). Empty = full founder scope.
+  scopes  String @default("")
+
+  createdAt  DateTime  @default(now())
+  lastUsedAt DateTime?
+  revokedAt  DateTime?
+
+  founder      Founder      @relation(fields: [founderId], references: [id], onDelete: Cascade)
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+
+  @@index([organizationId])
+  @@index([founderId])
+  @@index([prefix])
+}

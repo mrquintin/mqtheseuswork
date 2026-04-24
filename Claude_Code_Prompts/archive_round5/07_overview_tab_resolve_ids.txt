@@ -1,0 +1,84 @@
+# Claude Code Prompt 7 of 25 — UX: resolve opaque IDs in the Overview tab to actual text
+
+**Sequence:** prompt 7 of 25 (Wave 3 — independent of prompts 08–11). When you finish, report back with: files you created/modified, any notable choices, any blockers.
+
+**Before you start — read current state:**
+1. Read `theseus-codex/src/app/(authed)/conclusions/[id]/page.tsx` — note the `OverviewTab` component and the `MetaBlock` component.
+2. Note that `supportingPrincipleIds`, `evidenceChainClaimIds`, and `dissentClaimIds` are JSON-serialized string arrays stored on the `Conclusion` model.
+3. Read `theseus-codex/prisma/schema.prisma` — look for any tables that store principles or claims with text. Check if these IDs reference `Conclusion` records, a separate table, or Noosphere-only data.
+4. Check `noosphere/noosphere/models.py` — look at the `Principle` and `Claim` models to understand what these IDs reference and what fields are available.
+5. Read `theseus-codex/src/lib/api/round3.ts` — check if there's already a function to resolve IDs to text.
+
+## The problem
+
+The Overview tab for a conclusion shows three "MetaBlock" boxes:
+- "Supporting principles: 3"
+- "Evidence chain claims: 5"
+- "Dissenting claims: 2"
+
+These are just counts. The user cannot see WHAT the supporting principles say, WHAT the evidence chain claims are, or WHAT the dissenting claims argue. The IDs are parsed from JSON strings but never resolved to text. This is the most important tab for understanding a conclusion, and it shows the least useful information.
+
+## Your task
+
+Replace the count-only MetaBlocks with expandable sections that show the actual text of each principle, evidence claim, and dissenting claim. Keep the counts visible as summary labels, but add the ability to see the underlying content.
+
+## SCOPE (files you may create or modify — stay within this list)
+- `theseus-codex/src/app/(authed)/conclusions/[id]/page.tsx`    MODIFY
+- `theseus-codex/src/lib/api/round3.ts`                          MODIFY (add resolver functions if needed)
+
+## Step-by-step
+
+1. **Determine the data source.** The IDs in `supportingPrincipleIds` etc. may reference:
+   - Rows in the `Conclusion` table itself (if claims and conclusions are stored together)
+   - A separate `principle` or `claim` table accessible via raw SQL
+   - Noosphere-only records
+
+   Check the Prisma schema and do exploratory raw SQL queries. The most likely scenario is that:
+   - `supportingPrincipleIds` references principles (possibly stored in Noosphere only)
+   - `evidenceChainClaimIds` references claims/conclusions
+   - `dissentClaimIds` references claims/conclusions
+
+2. **Add resolver functions** in `round3.ts` (or in the page file if simpler). For each ID type, create a batch resolver that takes a list of IDs and returns `{ id, text }[]`. If the data is in the Codex DB:
+   ```typescript
+   export async function resolveConclusionTexts(ids: string[]): Promise<{ id: string; text: string }[]> {
+     if (ids.length === 0) return [];
+     const rows = await db.conclusion.findMany({
+       where: { id: { in: ids } },
+       select: { id: true, text: true },
+     });
+     return rows;
+   }
+   ```
+   If the data is only in Noosphere, use a raw SQL query against the Noosphere tables, or provide a graceful fallback showing the IDs with a "Noosphere connection required for full text" note.
+
+3. **In the conclusion detail page**, after fetching the conclusion, resolve all three ID arrays:
+   ```typescript
+   const supportIds = tryParse(conclusion.supportingPrincipleIds);
+   const evidenceIds = tryParse(conclusion.evidenceChainClaimIds);
+   const dissentIds = tryParse(conclusion.dissentClaimIds);
+
+   const [supportTexts, evidenceTexts, dissentTexts] = await Promise.all([
+     resolveTexts(supportIds as string[]),
+     resolveTexts(evidenceIds as string[]),
+     resolveTexts(dissentIds as string[]),
+   ]);
+   ```
+   Pass these resolved arrays to the OverviewTab.
+
+4. **Redesign the OverviewTab** to show actual content. Replace each MetaBlock with an expandable section:
+   ```tsx
+   <ExpandableSection label="Supporting principles" count={supportTexts.length}>
+     {supportTexts.map((p) => (
+       <div key={p.id} style={{ ... }}>
+         <p>{p.text}</p>
+       </div>
+     ))}
+   </ExpandableSection>
+   ```
+   The section should show the count in the header and expand/collapse to show the items. For the expandable behavior, use a `<details>` / `<summary>` element (no client component needed) or a simple client-side toggle. Match the existing visual style (var(--gold), var(--parchment), Cinzel font for labels).
+
+5. **For IDs that can't be resolved** (not found in DB), show the truncated ID with a note. Do not silently drop them.
+
+6. **Keep the conclusion text blockquote** at the top of the overview tab — it's the one useful piece of the current design. Add the expandable sections below it.
+
+Do not proceed to any other work. Do not edit anything outside SCOPE.

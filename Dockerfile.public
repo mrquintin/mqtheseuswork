@@ -1,0 +1,25 @@
+# ---- deps ----
+FROM node:20-alpine AS deps
+WORKDIR /app
+COPY theseus-public/package*.json ./
+RUN npm ci --omit=optional
+
+# ---- build ----
+FROM node:20-alpine AS builder
+WORKDIR /app
+COPY --from=deps /app/node_modules ./node_modules
+COPY theseus-public ./
+ENV NEXT_BUILD_TARGET=standalone
+ENV NEXT_TELEMETRY_DISABLED=1
+RUN npm run build
+
+# ---- runner ----
+FROM node:20-alpine AS runner
+WORKDIR /app
+ENV NODE_ENV=production NEXT_TELEMETRY_DISABLED=1
+COPY --from=builder /app/.next/standalone ./
+COPY --from=builder /app/.next/static ./.next/static
+COPY --from=builder /app/public ./public
+EXPOSE 3001
+ENV PORT=3001
+CMD ["node", "server.js"]

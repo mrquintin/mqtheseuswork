@@ -1,0 +1,3 @@
+A short answer grounded only in the sources we have.
+
+[[CITE: source_kind=conclusion source_id=fake_nonexistent quoted="this quote is totally made up and not present"]]

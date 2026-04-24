@@ -1,0 +1,400 @@
+# Claude Code Prompt 13 of 17 — Follow-up chat panel: streaming, citation chips, rate-limit UX
+
+**Sequence:** prompt 13 of 17 (Wave 6). Depends on 08, 10, 12. Parallel-safe with 11 and 12. Report back with: the streaming token-rendering approach, how session IDs persist across refreshes, and the rate-limit user-facing copy.
+
+**Before you start — read current state:**
+1. Read `theseus-public/src/lib/currentsApi.ts` — confirm `streamFollowup` and `listFollowupMessages` exist.
+2. Read `theseus-public/src/app/currents/[id]/AuditTrail.tsx` — note the `#ask` anchor where this component mounts.
+3. Read `theseus-public/src/lib/currentsTypes.ts` — confirm `PublicFollowupMessage`.
+4. Read `theseus-public/src/lib/safeMarkdown.ts` (from prompt 10) — reuse for rendering assistant content. User content is rendered as plain text (never markdown).
+
+## Your task
+
+Build the follow-up chat panel that mounts below the opinion on `/currents/[id]`. Session IDs are persisted in `sessionStorage` keyed by `opinion.id` (anonymous, device-scoped) so a refresh preserves conversation history. On mount, if a session id exists, load the history via `listFollowupMessages`. On send, POST to `/api/currents/[id]/follow-up`, consume the SSE stream, append tokens to a growing assistant bubble, and finalize with validated citation chips.
+
+UX rules the panel must observe:
+- User input is rate-limited client-side to 1 message / 2s (the server enforces the real cap; this prevents accidental double-submits).
+- Rate-limit 429 / `refused` / `done` frames render a clear copy, not a silent failure.
+- An inline "Sources" row below each assistant bubble shows chip-style citations. Clicking a chip scrolls the source drawer (prompt 12) to that source — they share the `#src-<id>` anchor.
+- The chat scrolls to the latest message on new tokens.
+- Show a typing dots animation while the first token is pending.
+- The input textarea auto-grows up to 6 lines; Enter sends, Shift+Enter newlines.
+
+## Prerequisites
+
+- Prompts 08, 10, 12 applied.
+
+## SCOPE
+
+- `theseus-public/src/app/currents/[id]/FollowupChat.tsx`                CREATE
+- `theseus-public/src/app/currents/[id]/AuditTrail.tsx`                  MODIFY (mount `<FollowupChat ...>` inside the `#ask` region)
+- `theseus-public/src/app/currents/[id]/DetailClient.tsx`                MODIFY ONLY to pass props through; no new logic here
+- `theseus-public/src/lib/followupSession.ts`                            CREATE (session-id storage helpers)
+- `theseus-public/src/__tests__/FollowupChat.test.tsx`                   CREATE
+- `theseus-public/src/__tests__/followupSession.test.ts`                 CREATE
+
+Do NOT touch `SourceDrawer`, `OpinionCard`, or `FilterBar`. Do NOT add persistent user accounts.
+
+## Step-by-step
+
+### 1. `followupSession.ts` — sessionStorage helpers
+
+```ts
+const PREFIX = "theseus.followup.session.";
+
+export function loadSessionId(opinionId: string): string | null {
+  if (typeof sessionStorage === "undefined") return null;
+  return sessionStorage.getItem(PREFIX + opinionId);
+}
+
+export function saveSessionId(opinionId: string, sessionId: string): void {
+  if (typeof sessionStorage === "undefined") return;
+  sessionStorage.setItem(PREFIX + opinionId, sessionId);
+}
+
+export function clearSessionId(opinionId: string): void {
+  if (typeof sessionStorage === "undefined") return;
+  sessionStorage.removeItem(PREFIX + opinionId);
+}
+```
+
+sessionStorage (not localStorage): a session stops at tab close. Intentional — follow-ups are short-lived and the server TTL is 24h anyway.
+
+### 2. `FollowupChat.tsx` — the panel
+
+```tsx
+"use client";
+
+import { useCallback, useEffect, useRef, useState } from "react";
+import { listFollowupMessages, streamFollowup } from "@/lib/currentsApi";
+import type { PublicFollowupMessage, PublicCitation, PublicOpinion } from "@/lib/currentsTypes";
+import { renderSafeMarkdown } from "@/lib/safeMarkdown";
+import { loadSessionId, saveSessionId } from "@/lib/followupSession";
+
+const MIN_INTERVAL_MS = 2000;
+
+export function FollowupChat({ opinionId }: { opinionId: string }) {
+  const [sessionId, setSessionId] = useState<string | null>(null);
+  const [messages, setMessages] = useState<PublicFollowupMessage[]>([]);
+  const [pending, setPending] = useState<{ draft: string; text: string; citations: PublicCitation[] } | null>(null);
+  const [input, setInput] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const lastSentAtRef = useRef(0);
+  const listEndRef = useRef<HTMLDivElement | null>(null);
+
+  // Load history on mount if we have a session id
+  useEffect(() => {
+    const sid = loadSessionId(opinionId);
+    if (!sid) return;
+    setSessionId(sid);
+    listFollowupMessages(opinionId, sid)
+      .then(setMessages)
+      .catch((e) => setError(typeof e === "string" ? e : "Failed to load conversation history."));
+  }, [opinionId]);
+
+  // Auto-scroll
+  useEffect(() => {
+    listEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [messages, pending?.text]);
+
+  const send = useCallback(async () => {
+    const text = input.trim();
+    if (!text) return;
+    const now = Date.now();
+    if (now - lastSentAtRef.current < MIN_INTERVAL_MS) {
+      setError("Slow down — wait a couple of seconds between messages.");
+      return;
+    }
+    lastSentAtRef.current = now;
+    setError(null);
+    setInput("");
+    setBusy(true);
+    // Optimistic user bubble
+    const optimistic: PublicFollowupMessage = {
+      id: `local-${crypto.randomUUID()}`,
+      role: "user",
+      created_at: new Date().toISOString(),
+      content: text,
+      citations: [],
+      refused: false,
+      refusal_reason: null,
+    };
+    setMessages((m) => [...m, optimistic]);
+    setPending({ draft: "", text: "", citations: [] });
+
+    try {
+      for await (const frame of streamFollowup(opinionId, { question: text, session_id: sessionId ?? undefined })) {
+        switch (frame.kind) {
+          case "meta":
+            if (frame.data?.session_id) {
+              setSessionId(frame.data.session_id);
+              saveSessionId(opinionId, frame.data.session_id);
+            }
+            break;
+          case "token":
+            setPending((p) => p && ({ ...p, text: p.text + String(frame.data) }));
+            break;
+          case "citation":
+            setPending((p) => p && ({ ...p, citations: [...p.citations, frame.data as PublicCitation] }));
+            break;
+          case "done": {
+            setPending((p) => {
+              if (!p) return null;
+              const finalMsg: PublicFollowupMessage = {
+                id: `local-assistant-${crypto.randomUUID()}`,
+                role: "assistant",
+                created_at: new Date().toISOString(),
+                content: p.text,
+                citations: p.citations,
+                refused: !!frame.data?.refused,
+                refusal_reason: frame.data?.refusal_reason ?? null,
+              };
+              setMessages((m) => [...m, finalMsg]);
+              return null;
+            });
+            break;
+          }
+          case "error":
+            setError(String(frame.data?.error ?? "Chat error."));
+            setPending(null);
+            break;
+        }
+      }
+    } catch (e: any) {
+      if (e?.status === 429) {
+        setError("You've hit the follow-up rate limit. Try again in a few minutes.");
+      } else {
+        setError("Connection error. Try again.");
+      }
+      setPending(null);
+    } finally {
+      setBusy(false);
+    }
+  }, [input, opinionId, sessionId]);
+
+  return (
+    <section aria-label="Follow-up" style={{
+      marginTop: "1.1rem",
+      border: "1px solid var(--currents-border)",
+      background: "var(--currents-bg-elevated)",
+      borderRadius: 3,
+      padding: "0.9rem 1rem 1rem",
+    }}>
+      <h3 style={{
+        margin: "0 0 0.2rem",
+        fontSize: "0.78rem",
+        color: "var(--currents-gold)",
+        letterSpacing: "0.1em",
+        textTransform: "uppercase",
+      }}>
+        Ask a follow-up
+      </h3>
+      <p style={{
+        margin: "0 0 0.8rem", fontSize: "0.78rem",
+        color: "var(--currents-parchment-dim)", lineHeight: 1.5,
+      }}>
+        Questions get answered only from Theseus's Noosphere. Each question
+        triggers a fresh retrieval — the assistant isn't reasoning from memory.
+      </p>
+
+      <div style={{
+        maxHeight: "420px", overflowY: "auto",
+        paddingRight: "0.25rem",
+      }}>
+        {messages.map((m) => (
+          <MessageBubble key={m.id} m={m} />
+        ))}
+        {pending && (
+          <AssistantStreamingBubble text={pending.text} citations={pending.citations} />
+        )}
+        <div ref={listEndRef} />
+      </div>
+
+      {error && (
+        <div style={{
+          marginTop: "0.6rem", color: "var(--stance-disagrees)",
+          fontSize: "0.78rem", fontStyle: "italic",
+        }}>
+          {error}
+        </div>
+      )}
+
+      <form
+        onSubmit={(e) => { e.preventDefault(); if (!busy) void send(); }}
+        style={{ display: "flex", gap: "0.5rem", alignItems: "flex-end", marginTop: "0.7rem" }}
+      >
+        <textarea
+          value={input}
+          onChange={(e) => setInput(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" && !e.shiftKey) {
+              e.preventDefault();
+              if (!busy) void send();
+            }
+          }}
+          rows={1}
+          placeholder="What do you want to know?"
+          style={{
+            flex: 1, resize: "vertical", minHeight: "2.1rem", maxHeight: "8rem",
+            background: "var(--currents-surface)",
+            border: "1px solid var(--currents-border)",
+            color: "var(--currents-parchment)",
+            padding: "0.45rem 0.6rem", borderRadius: 2, fontSize: "0.9rem",
+          }}
+        />
+        <button
+          type="submit"
+          disabled={busy || !input.trim()}
+          style={{
+            background: "var(--currents-gold)", color: "#000",
+            border: "none", padding: "0.5rem 0.9rem",
+            fontSize: "0.82rem", fontWeight: 600, borderRadius: 2,
+            cursor: busy ? "not-allowed" : "pointer",
+            opacity: busy || !input.trim() ? 0.55 : 1,
+          }}
+        >
+          {busy ? "…" : "Ask"}
+        </button>
+      </form>
+    </section>
+  );
+}
+
+function MessageBubble({ m }: { m: PublicFollowupMessage }) {
+  const isUser = m.role === "user";
+  return (
+    <div style={{
+      margin: "0.35rem 0",
+      padding: "0.55rem 0.8rem",
+      borderRadius: 3,
+      background: isUser ? "transparent" : "var(--currents-surface)",
+      border: isUser ? "1px dashed var(--currents-border)" : "1px solid var(--currents-border)",
+      color: "var(--currents-parchment)",
+      fontSize: "0.9rem", lineHeight: 1.55,
+    }}>
+      <div style={{
+        fontSize: "0.65rem", textTransform: "uppercase",
+        letterSpacing: "0.05em",
+        color: isUser ? "var(--currents-parchment-dim)" : "var(--currents-gold)",
+        marginBottom: "0.2rem",
+      }}>
+        {isUser ? "you" : "theseus"}
+      </div>
+      {isUser ? (
+        <span>{m.content}</span>
+      ) : (
+        <>
+          <div>{renderSafeMarkdown(m.content)}</div>
+          {m.refused && (
+            <div style={{
+              marginTop: "0.35rem", fontSize: "0.72rem",
+              color: "var(--currents-amber)", fontStyle: "italic",
+            }}>
+              ({m.refusal_reason || "sources did not support an answer"})
+            </div>
+          )}
+          {m.citations.length > 0 && <CitationChips cites={m.citations} />}
+        </>
+      )}
+    </div>
+  );
+}
+
+function AssistantStreamingBubble({ text, citations }: { text: string; citations: PublicCitation[] }) {
+  return (
+    <div className="currents-fade-in" style={{
+      margin: "0.35rem 0", padding: "0.55rem 0.8rem",
+      border: "1px solid var(--currents-gold)",
+      borderRadius: 3, background: "var(--currents-surface)",
+      fontSize: "0.9rem", lineHeight: 1.55,
+    }}>
+      <div style={{
+        fontSize: "0.65rem", textTransform: "uppercase",
+        letterSpacing: "0.05em", color: "var(--currents-gold)", marginBottom: "0.2rem",
+      }}>
+        theseus (typing…)
+      </div>
+      {text ? renderSafeMarkdown(text) : <TypingDots />}
+      {citations.length > 0 && <CitationChips cites={citations} />}
+    </div>
+  );
+}
+
+function CitationChips({ cites }: { cites: PublicCitation[] }) {
+  return (
+    <div style={{ marginTop: "0.4rem", display: "flex", gap: "0.3rem", flexWrap: "wrap" }}>
+      {cites.map((c) => (
+        <a
+          key={c.source_id + c.quoted_span.slice(0, 20)}
+          href={`#src-${encodeURIComponent(c.source_id)}`}
+          title={c.quoted_span}
+          style={{
+            fontSize: "0.68rem", padding: "0.12rem 0.4rem",
+            border: "1px solid var(--currents-border)", borderRadius: 2,
+            color: "var(--currents-parchment-dim)", textDecoration: "none",
+          }}
+        >
+          ⸺ {c.source_kind}
+        </a>
+      ))}
+    </div>
+  );
+}
+
+function TypingDots() {
+  return (
+    <span style={{ display: "inline-flex", gap: 3 }}>
+      <span className="currents-pulse" style={{ width: 5, height: 5 }} />
+      <span className="currents-pulse" style={{ width: 5, height: 5, animationDelay: "0.2s" }} />
+      <span className="currents-pulse" style={{ width: 5, height: 5, animationDelay: "0.4s" }} />
+    </span>
+  );
+}
+```
+
+### 3. Mount the chat in `AuditTrail`
+
+Replace the commented line `{/* The chat component (prompt 13) mounts here. */}` with `<FollowupChat opinionId={op.id} />`. Import the component and accept the `opinionId` off `op.id`.
+
+### 4. Tests
+
+`__tests__/followupSession.test.ts`:
+
+- `saveSessionId` / `loadSessionId` / `clearSessionId` round-trip.
+- Absent `sessionStorage` (jsdom switch) → calls are no-ops, not crashes.
+
+`__tests__/FollowupChat.test.tsx`:
+
+- Mount; input disabled while `busy`; becomes enabled after `done` frame.
+- Stream yields `meta` → session id saved; 3 `token` frames → visible text grows; `done` frame → final assistant message persists in list.
+- `error` frame renders the error line.
+- Rate-limit 429 on POST → renders the rate-limit copy.
+- Pressing Enter without Shift calls `send`; Shift+Enter inserts newline.
+- `listFollowupMessages` is called on mount when a session id exists in storage.
+
+## Verification
+
+```bash
+cd theseus-public
+npm run build
+npx vitest run src/__tests__/FollowupChat.test.tsx src/__tests__/followupSession.test.ts
+
+# Smoke:
+# 1. Open /currents/<id>#ask with a running backend.
+# 2. Ask "what does this mean for retirement policy?"
+# 3. Watch tokens stream in, watch citation chips appear at the end.
+# 4. Click a chip → source drawer scrolls and flashes.
+# 5. Refresh the page; prior conversation is restored.
+```
+
+## Prohibitions
+
+- Do NOT render user messages via `renderSafeMarkdown`. The user is untrusted; plain-text rendering is deliberate.
+- Do NOT implement your own SSE parser here — reuse `streamFollowup` from prompt 08.
+- Do NOT persist session IDs in `localStorage` (cross-tab leakage) or cookies (no identifiers on this public surface).
+- Do NOT auto-ask follow-ups on mount. The user initiates.
+- Do NOT swallow `error` frames silently — always show them.
+- Do NOT rely on `citation` frames arriving before `done`. Accumulate both; the `done` handler finalizes.
+
+Do not proceed to any other work. Do not edit anything outside SCOPE.

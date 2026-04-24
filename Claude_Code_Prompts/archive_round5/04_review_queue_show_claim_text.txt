@@ -1,0 +1,60 @@
+# Claude Code Prompt 4 of 25 — UX: show actual claim text in the coherence review queue
+
+**Sequence:** prompt 4 of 25 (Wave 2 — independent of prompts 05 and 06). When you finish, report back with: files you created/modified, any notable choices, any blockers.
+
+**Before you start — read current state:**
+1. Read `theseus-codex/src/app/(authed)/q/review/page.tsx` and `theseus-codex/src/app/(authed)/q/review/ReviewQueue.tsx`.
+2. Read `theseus-codex/prisma/schema.prisma` — note the `ReviewItem` model has `claimAId` and `claimBId` fields but no claim text.
+3. Read `theseus-codex/prisma/schema.prisma` — look for a `Claim` or similar model that stores claim text. If none exists, the claim text lives in Noosphere only.
+4. Check if `theseus-codex/src/lib/api/round3.ts` has any function that resolves claim IDs to text.
+5. Read `noosphere/noosphere/models.py` — look at the Claim model to understand what fields are available.
+
+## The problem
+
+The coherence review queue at `/q/review` shows each review item with:
+```
+pair abc12345… / def67890…
+```
+
+These are truncated UUIDs of `claimAId` and `claimBId`. The human reviewer has no way to see what the actual claims say without leaving the page and manually looking them up. The `reason` field provides narrative context, but the claims themselves — the two statements allegedly in tension — are invisible. This makes the review queue nearly useless for its intended purpose of human-in-the-loop judgment.
+
+## Your task
+
+Display the actual text of both claims (claim A and claim B) in each review queue item, so the human reviewer can see the two statements and judge whether they cohere, contradict, or are unresolved.
+
+## SCOPE (files you may create or modify — stay within this list)
+- `theseus-codex/src/app/(authed)/q/review/page.tsx`         MODIFY
+- `theseus-codex/src/app/(authed)/q/review/ReviewQueue.tsx`   MODIFY
+- `theseus-codex/src/lib/api/round3.ts`                       MODIFY (add a claim-text resolver if needed)
+
+## Step-by-step
+
+1. **Determine where claim text lives.** Check the Prisma schema for a Claim table, or check if `Conclusion` records are what `claimAId` / `claimBId` reference (they may be conclusion IDs, not a separate claim table). If claims are stored in a table (e.g., `conclusion` where `id` matches `claimAId`), you can join or batch-query them. If claims are only in Noosphere's SQLite, add a raw SQL query or a Noosphere bridge call to resolve them.
+
+2. **Add a claim-text resolution function** in `round3.ts` if one doesn't exist. Something like:
+   ```typescript
+   export async function resolveClaimTexts(
+     claimIds: string[],
+     organizationId: string,
+   ): Promise<Map<string, string>> {
+     // Query the appropriate table to get id → text mapping
+     // Return a Map for O(1) lookups
+   }
+   ```
+   If claims are actually conclusions, query the `Conclusion` table. If they're in a separate `claim` table (check the DB), query that.
+
+3. **In `page.tsx`**, after fetching the review items, resolve all unique claim IDs to their text:
+   - Collect all `claimAId` and `claimBId` values into a deduplicated set.
+   - Call the resolution function once with all IDs (batch, not N+1).
+   - Pass the resulting text map to `ReviewQueue` as a new prop.
+
+4. **In `ReviewQueue.tsx`**, update the `Row` type to either include claim text directly, or accept a `claimTexts: Record<string, string>` prop. Then render the actual claim text prominently in each review item card:
+   - Show claim A text and claim B text as distinct, clearly-labeled blocks above the `reason` field.
+   - Keep the truncated IDs as secondary metadata (they're useful for debugging).
+   - Style the claims to be visually prominent — they are the core content the reviewer needs to judge.
+
+5. **Handle missing text gracefully.** If a claim ID can't be resolved (deleted, or in Noosphere only), show the truncated ID with a note like "Claim text unavailable — may require Noosphere connection".
+
+6. **Do NOT change** the verdict buttons, the resolution logic, the severity display, or the tally/detail sections. Only add claim text display.
+
+Do not proceed to any other work. Do not edit anything outside SCOPE.

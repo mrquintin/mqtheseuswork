@@ -1,0 +1,319 @@
+# Claude Code Prompt 07 of 17 — FastAPI service: REST + SSE for currents and follow-ups
+
+**Sequence:** prompt 07 of 17 (Wave 5). Depends on 01, 05, 06. Report back with: exact endpoint list, the default port, CORS config, and how the service resolves the noosphere `Store`.
+
+**Before you start — read current state:**
+1. Check for existing services: `ls Theseus/researcher_api Theseus/dialectic 2>/dev/null`. If they exist, read their entry points (`main.py`, `app.py`, or `__init__.py`) to learn the repo's FastAPI conventions.
+2. Read `noosphere/noosphere/currents/__init__.py` — confirm the full set of exports from prompts 01–06 is in place.
+3. Read `noosphere/noosphere/store.py` — note how the Store is constructed (likely `Store(engine_or_url=...)`).
+4. Check if any SSE helper already exists: `grep -rn "EventSourceResponse\|text/event-stream" Theseus/`. If yes, reuse.
+5. Check for a pyproject at `researcher_api/` or similar — if the repo has a pattern for service packages, follow it exactly.
+
+## Your task
+
+Create a new FastAPI app `current_events_api/` that exposes:
+
+- `GET /health` — liveness
+- `GET /v1/currents` — paginated list of `EventOpinion`s with filters
+- `GET /v1/currents/{opinion_id}` — opinion detail with joined citations
+- `GET /v1/currents/{opinion_id}/sources` — full Conclusion/Claim text for every citation
+- `GET /v1/currents/stream` — SSE stream emitting newly-generated opinions (for the live ticker)
+- `POST /v1/currents/{opinion_id}/follow-up` — start a session or continue one (SSE stream of the answer)
+- `GET /v1/currents/{opinion_id}/follow-up/{session_id}/messages` — replay chat history (for permalinks and refresh)
+
+Per-IP rate limiting (sliding window), structured JSON logging, graceful shutdown. The service does NOT own the noosphere Store directory — it reads the path from `NOOSPHERE_DATA_DIR` env var.
+
+## Prerequisites
+
+- Prompts 01–06 applied.
+- A persisted Noosphere store reachable via filesystem.
+
+## SCOPE
+
+- `current_events_api/pyproject.toml`                     CREATE
+- `current_events_api/current_events_api/__init__.py`     CREATE
+- `current_events_api/current_events_api/main.py`         CREATE (FastAPI app)
+- `current_events_api/current_events_api/deps.py`         CREATE (Store + budget singletons)
+- `current_events_api/current_events_api/routes/currents.py`  CREATE
+- `current_events_api/current_events_api/routes/followup.py`  CREATE
+- `current_events_api/current_events_api/routes/stream.py`    CREATE
+- `current_events_api/current_events_api/schemas.py`      CREATE (Pydantic response models)
+- `current_events_api/current_events_api/rate_limit.py`   CREATE
+- `current_events_api/current_events_api/sse.py`          CREATE
+- `current_events_api/current_events_api/event_bus.py`    CREATE (in-process pub/sub for new opinions)
+- `current_events_api/tests/test_routes_currents.py`      CREATE
+- `current_events_api/tests/test_routes_followup.py`      CREATE
+- `current_events_api/tests/test_rate_limit.py`           CREATE
+- `current_events_api/tests/conftest.py`                  CREATE
+
+Do NOT modify anything in `noosphere/` (the package is a read dependency for this service). Do NOT touch `theseus-public`.
+
+## Step-by-step
+
+### 1. `schemas.py` — public wire format
+
+The API shape is NOT the internal Pydantic shape. Strip internal-only fields (`generator_tokens_prompt`, `generator_tokens_completion`, `client_fingerprint`, `revoked_reason`), expose only what the UI needs:
+
+```python
+class PublicCitation(BaseModel):
+    source_kind: Literal["conclusion", "claim"]
+    source_id: str
+    quoted_span: str
+    relevance_score: float
+
+class PublicOpinion(BaseModel):
+    id: str
+    event_id: str
+    event_source_url: str
+    event_author_handle: str
+    event_captured_at: datetime
+    topic_hint: Optional[str]
+    stance: Literal["agrees", "disagrees", "complicates", "insufficient"]
+    confidence: float
+    headline: str
+    body_markdown: str
+    uncertainty_notes: list[str]
+    generated_at: datetime
+    citations: list[PublicCitation]
+    revoked: bool = False
+
+class PublicSource(BaseModel):
+    source_kind: Literal["conclusion", "claim"]
+    source_id: str
+    full_text: str
+    topic_hint: Optional[str]
+    origin: Optional[str]
+    permalink: Optional[str]     # e.g., /c/<slug>/v/<version> for conclusions
+
+class PublicFollowupMessage(BaseModel):
+    id: str
+    role: Literal["user", "assistant", "system"]
+    created_at: datetime
+    content: str
+    citations: list[PublicCitation]
+    refused: bool = False
+    refusal_reason: Optional[str] = None
+```
+
+### 2. `main.py` — the app
+
+```python
+from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
+from current_events_api.routes import currents, followup, stream
+from current_events_api.deps import lifespan
+
+app = FastAPI(title="Theseus Current Events API", version="1.0", lifespan=lifespan)
+
+# CORS: allow only the public site origin(s). Read from env.
+import os
+origins = [o for o in os.environ.get("CURRENTS_CORS_ORIGINS", "").split(",") if o]
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=origins or ["http://localhost:3001"],
+    allow_methods=["GET", "POST"],
+    allow_headers=["content-type", "x-client-id"],
+)
+
+app.include_router(currents.router, prefix="/v1")
+app.include_router(followup.router, prefix="/v1")
+app.include_router(stream.router, prefix="/v1")
+
+@app.get("/health")
+def health():
+    return {"ok": True}
+```
+
+### 3. `deps.py` — lifespan, Store, budget, event bus
+
+```python
+from contextlib import asynccontextmanager
+from noosphere.store import Store
+from noosphere.currents.budget import HourlyBudgetGuard
+from current_events_api.event_bus import OpinionBus
+
+_state = {}
+
+@asynccontextmanager
+async def lifespan(app):
+    data_dir = os.environ["NOOSPHERE_DATA_DIR"]
+    _state["store"] = Store(engine_or_url=f"sqlite:///{data_dir}/noosphere.db")
+    _state["budget"] = HourlyBudgetGuard()   # per-process; see prompt 15 for persistence
+    _state["bus"] = OpinionBus()
+    yield
+    # Shutdown hooks if any
+
+def get_store() -> Store: return _state["store"]
+def get_budget() -> HourlyBudgetGuard: return _state["budget"]
+def get_bus() -> "OpinionBus": return _state["bus"]
+```
+
+### 4. `event_bus.py` — in-process pub/sub
+
+```python
+import asyncio
+from typing import AsyncIterator
+
+class OpinionBus:
+    def __init__(self):
+        self._subs: list[asyncio.Queue[dict]] = []
+
+    def publish(self, payload: dict) -> None:
+        for q in list(self._subs):
+            try:
+                q.put_nowait(payload)
+            except asyncio.QueueFull:
+                pass
+
+    async def subscribe(self) -> AsyncIterator[dict]:
+        q: asyncio.Queue[dict] = asyncio.Queue(maxsize=64)
+        self._subs.append(q)
+        try:
+            while True:
+                yield await q.get()
+        finally:
+            self._subs.remove(q)
+```
+
+The scheduler (prompt 15) publishes to this bus when a new opinion is written. The bus is in-process; if you later run multiple replicas, swap in Redis pub/sub — but for now a single-process service matches the research-preview scale.
+
+### 5. `routes/currents.py`
+
+```python
+@router.get("/currents", response_model=PaginatedOpinions)
+def list_currents(
+    cursor: Optional[str] = None,
+    limit: int = Query(20, ge=1, le=50),
+    topic: Optional[str] = None,
+    stance: Optional[str] = None,
+    since: Optional[datetime] = None,
+    store: Store = Depends(get_store),
+): ...
+
+@router.get("/currents/{opinion_id}", response_model=PublicOpinion)
+def get_current(opinion_id: str, store: Store = Depends(get_store)): ...
+
+@router.get("/currents/{opinion_id}/sources", response_model=list[PublicSource])
+def get_sources(opinion_id: str, store: Store = Depends(get_store)): ...
+```
+
+`PublicSource.permalink` for conclusions resolves from `Conclusion.slug` + `version` — the public site path is `/c/<slug>/v/<version>`. Claims have no public permalink; set `None`.
+
+Implement cursor pagination as opaque base64 of `generated_at + id`; descending time order.
+
+### 6. `routes/followup.py`
+
+```python
+@router.post("/currents/{opinion_id}/follow-up")
+async def follow_up(
+    opinion_id: str,
+    body: FollowupRequest,        # {"question": "...", "session_id": "optional"}
+    request: Request,             # for IP + UA
+    store: Store = Depends(get_store),
+    budget: HourlyBudgetGuard = Depends(get_budget),
+):
+    # Compute fingerprint. Check rate limit BEFORE opening the SSE stream.
+    # Get or create session. Stream via EventSourceResponse.
+    ...
+
+@router.get("/currents/{opinion_id}/follow-up/{session_id}/messages",
+            response_model=list[PublicFollowupMessage])
+def list_messages(opinion_id: str, session_id: str, store: Store = Depends(get_store)): ...
+```
+
+Stream shape (SSE events):
+
+- `event: meta` — JSON `{"session_id": "...", "message_id": "..."}`
+- `event: token` — plain text delta in `data:`
+- `event: citation` — JSON citation object
+- `event: done` — JSON `{"refused": bool, "refusal_reason": "..."}`
+- `event: error` — JSON `{"error": "..."}`
+
+### 7. `routes/stream.py`
+
+```python
+@router.get("/currents/stream")
+async def stream_currents(bus: OpinionBus = Depends(get_bus)):
+    async def gen():
+        async for payload in bus.subscribe():
+            yield format_sse("opinion", payload)
+    return StreamingResponse(gen(), media_type="text/event-stream")
+```
+
+`payload` is a `PublicOpinion.model_dump()`. The scheduler publishes full opinions, not just IDs — the UI renders without a second round trip.
+
+Also emit `event: heartbeat` every 15s to keep proxies from buffering.
+
+### 8. `rate_limit.py` — sliding-window per IP
+
+Memory-backed (fine for single replica; swap to Redis later). Limits:
+
+- `GET /v1/currents*`: 120/min per IP
+- `POST /v1/currents/*/follow-up`: 10/min per IP (+ the engine's own daily/session caps applied inside `answer_followup`)
+- `GET /v1/currents/stream`: 1 concurrent connection per IP
+
+Return `429` with `Retry-After` on breach.
+
+### 9. `sse.py` — tiny helper
+
+```python
+def format_sse(event: str, data: dict | str) -> str:
+    body = data if isinstance(data, str) else json.dumps(data, default=str)
+    return f"event: {event}\ndata: {body}\n\n"
+```
+
+### 10. `pyproject.toml`
+
+Declare deps: `fastapi`, `uvicorn[standard]`, `sse-starlette` (or roll your own via `StreamingResponse`), and a PATH-INSTALL of the local `noosphere` package:
+
+```toml
+[project]
+name = "current-events-api"
+version = "0.1.0"
+dependencies = [
+  "fastapi>=0.115",
+  "uvicorn[standard]>=0.30",
+  "pydantic>=2.8",
+  "sse-starlette>=2.1",
+  "noosphere",   # installed via pip install -e ../noosphere in docker build
+]
+```
+
+### 11. Tests
+
+Use `httpx.AsyncClient(transport=ASGITransport(app=app))` against a test app where `get_store` is overridden to a tmp-path store seeded with fixtures.
+
+- `test_list_currents_returns_seeded` — seed 3 opinions → `/v1/currents` returns 3.
+- `test_list_currents_filters_by_topic_and_stance` — mixed seed; topic=X filters correctly.
+- `test_get_current_returns_citations` — citations array matches the store.
+- `test_get_sources_resolves_conclusions_and_claims` — full text + permalink for conclusions, permalink=None for claims.
+- `test_stream_currents_emits_on_publish` — subscribe, publish 2 opinions through bus, assert 2 `event: opinion` SSE frames received.
+- `test_followup_stream_happy_path` — mock `answer_followup` to yield 3 chunks; SSE frames in order: meta → token × N → done.
+- `test_followup_rate_limit_429` — 11 rapid POSTs from same IP → 11th gets 429.
+- `test_stream_heartbeat` — open stream for 16s with no publishes, assert at least one heartbeat seen.
+- `test_cors_rejects_unknown_origin` — request with `Origin` not in env list → no `Access-Control-Allow-Origin` header.
+- `test_health_ok` — `/health` returns 200.
+
+## Verification
+
+```bash
+cd current_events_api
+pip install -e .
+pytest -q
+uvicorn current_events_api.main:app --host 127.0.0.1 --port 8088 &
+sleep 1
+curl -s http://127.0.0.1:8088/health | jq .
+# Expect: {"ok": true}
+kill %1
+```
+
+## Prohibitions
+
+- Do NOT invent a new persistence layer — use the existing noosphere Store.
+- Do NOT add auth middleware. This is a public read+light-write surface; rate limiting is the control.
+- Do NOT expose internal fields (token counts, client fingerprints, revoked_reason) in the public JSON responses.
+- Do NOT block the event loop with sync DB calls if you can avoid it. If the Store is sync, wrap it in `asyncio.to_thread(...)` in hot paths (especially the stream endpoint).
+- Do NOT let the SSE endpoint loop without heartbeats — silent streams get killed by intermediate proxies and the UX degrades invisibly.
+- Do NOT import `answer_followup` and call it outside an async context — it's an async generator.
+
+Do not proceed to any other work. Do not edit anything outside SCOPE.

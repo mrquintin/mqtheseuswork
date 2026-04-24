@@ -1,0 +1,563 @@
+# Claude Code Prompt 15 of 17 — Scheduler + budget guard: the 5-minute loop that ties ingest → enrich → opine → publish
+
+**Sequence:** prompt 15 of 17 (Wave 7). Depends on 01, 02, 03, 04, 05, 07. Report back with: the per-cycle log line format, the exact budget-exhaustion backoff strategy, and a screenshot or paste of one full cycle's logs.
+
+**Before you start — read current state:**
+1. Read `noosphere/currents/x_ingestor.py` — confirm `ingest_once(store, cfg) -> IngestReport` exists and returns the list of newly-persisted event IDs.
+2. Read `noosphere/currents/enrich.py` — confirm `enrich_event(store, event_id)` and that it sets `is_near_duplicate` and `topic_id`.
+3. Read `noosphere/currents/relevance.py` — prompt 03 added `check_relevance(...) -> RelevanceResult` (a dataclass). This prompt **adds an enum `RelevanceDecision`** alongside it and a thin wrapper so the scheduler can branch on a discrete decision. If `RelevanceDecision` already exists, reuse it.
+4. Read `noosphere/currents/opinion_generator.py` — confirm `generate_opinion(store, event_id, *, budget)` exists. This prompt **defines the return-type enum `OpinionOutcome`** if prompt 05 did not already export one. If prompt 05 already returns an `OpinionOutcome` with members covering `PUBLISHED | ABSTAINED_BUDGET | ABSTAINED_INSUFFICIENT_SOURCES | ABSTAINED_NEAR_DUPLICATE | ABSTAINED_CITATION_FABRICATION`, reuse it as-is; do not fork.
+5. Read `current_events_api/app.py` — confirm the module-level `OPINION_BUS` exists and that the FastAPI service reads from it. The scheduler must be able to publish to the **same** bus instance; if the scheduler runs in a separate process (likely — see prompt 16), confirm whether `OPINION_BUS` is process-local (in-memory asyncio.Queue) or is backed by a durable cross-process channel.
+6. Read `noosphere/store.py` — confirm how the Store is opened (SQLite path from `NOOSPHERE_DATA_DIR`).
+
+If step 5 reveals that `OPINION_BUS` is process-local (it is, per prompt 07), the scheduler needs a way to hand new opinions to the API process. The design below uses a **polling publisher** inside the API process that tails a DB cursor — no separate IPC, no Redis, no extra infra. The scheduler only writes to the database; the API reads new rows and fans out to SSE clients.
+
+## Your task
+
+Ship the scheduler that drives the current-events pipeline on a fixed cadence, the budget guard wiring that enforces hourly token ceilings with persistence across restarts, and the in-process publisher inside `current_events_api` that tails the opinions table and pushes new rows to the `OpinionBus`. Also add a `noosphere.currents.scheduler` CLI so operators can run `python -m noosphere.currents.scheduler --once` for one cycle or `--loop` for the standing service.
+
+Provide observability: structured per-cycle log lines, a Prometheus-compatible text metrics endpoint on the API service, and a human-readable status file written by the scheduler.
+
+## Prerequisites
+
+- Prompts 01–07 applied. The API service (prompt 07) must already be wired to read from `OPINION_BUS`.
+
+## SCOPE
+
+- `noosphere/currents/scheduler.py`                                        CREATE (core loop + CLI)
+- `noosphere/currents/budget.py`                                           MODIFY (add `load`, persistent writes; see step 1)
+- `noosphere/currents/relevance.py`                                        MODIFY (add `RelevanceDecision` enum + `check_relevance` wrapper if missing)
+- `noosphere/currents/opinion_generator.py`                                MODIFY (add `OpinionOutcome` enum if missing; typing-only — do NOT change logic)
+- `noosphere/currents/publisher.py`                                        CREATE (cursor-tailer used inside the API process)
+- `current_events_api/app.py`                                              MODIFY (start the publisher task on startup, swap `HourlyBudgetGuard()` → `HourlyBudgetGuard.load(path)`, add `/metrics` route)
+- `current_events_api/metrics.py`                                          CREATE (tiny Prometheus text renderer — no new deps)
+- `noosphere/currents/status.py`                                           CREATE (writes `noosphere_data/currents_status.json`)
+- `noosphere/currents/__main__.py`                                         CREATE (argparse entrypoint dispatching to `scheduler.main`)
+- `tests/test_scheduler_cycle.py`                                          CREATE
+- `tests/test_budget_persistence.py`                                       CREATE
+- `tests/test_publisher_tail.py`                                           CREATE
+
+Do NOT modify the ingestor, enrich, relevance, generator, or API route handlers. Do NOT touch `theseus-public`.
+
+## Step-by-step
+
+### 0. Type definitions the scheduler depends on (add if not already present)
+
+Before writing the loop, ensure the two enums the scheduler branches on exist and are exported.
+
+In `noosphere/currents/relevance.py` — prompt 03 defined `RelevanceResult`; add an enum at the top of the same module and a thin wrapper:
+
+```python
+from enum import Enum
+from dataclasses import dataclass
+
+class RelevanceDecision(str, Enum):
+    OPINE = "OPINE"
+    ABSTAIN_INSUFFICIENT_SOURCES = "ABSTAIN_INSUFFICIENT_SOURCES"
+    ABSTAIN_NEAR_DUPLICATE = "ABSTAIN_NEAR_DUPLICATE"
+
+def check_relevance(store, event_id: str) -> RelevanceDecision:
+    """Wrapper around the existing RelevanceResult logic that returns a discrete decision.
+
+    If the underlying function already returns RelevanceDecision, this wrapper is a no-op.
+    """
+    result = _existing_relevance_check(store, event_id)  # whatever prompt 03 named it
+    if getattr(result, "is_near_duplicate", False):
+        return RelevanceDecision.ABSTAIN_NEAR_DUPLICATE
+    if not result.passed:
+        return RelevanceDecision.ABSTAIN_INSUFFICIENT_SOURCES
+    return RelevanceDecision.OPINE
+```
+
+If prompt 03 already exports a function named `check_relevance` returning a `RelevanceDecision`, this step is a no-op — confirm and move on. Do NOT duplicate logic.
+
+In `noosphere/currents/opinion_generator.py` — add near the top (only if not already present):
+
+```python
+from enum import Enum
+
+class OpinionOutcome(str, Enum):
+    PUBLISHED = "PUBLISHED"
+    ABSTAINED_BUDGET = "ABSTAINED_BUDGET"
+    ABSTAINED_INSUFFICIENT_SOURCES = "ABSTAINED_INSUFFICIENT_SOURCES"
+    ABSTAINED_NEAR_DUPLICATE = "ABSTAINED_NEAR_DUPLICATE"
+    ABSTAINED_CITATION_FABRICATION = "ABSTAINED_CITATION_FABRICATION"
+```
+
+Update `generate_opinion`'s return type annotation to `OpinionOutcome`. The internal branches in prompt 05 already return one of these values (or a string equivalent) — convert to the enum at return sites. Do NOT change behavior, only typing.
+
+### 1. Budget persistence
+
+Edit `noosphere/currents/budget.py` so `HourlyBudgetGuard` writes its counters to `NOOSPHERE_DATA_DIR/currents_budget.json` after every `charge()`. The file format:
+
+```json
+{
+  "window_start_iso": "2026-04-20T14:00:00Z",
+  "prompt_tokens": 812345,
+  "completion_tokens": 244120,
+  "max_prompt_tokens": 1500000,
+  "max_completion_tokens": 400000
+}
+```
+
+On construction, `HourlyBudgetGuard.load(path)` reads the file if present, compares `window_start_iso` to the current UTC hour; if the hour has rolled over, reset counters to zero and update `window_start_iso`. Never carry balances across hour boundaries. Writes are atomic (`tempfile + os.replace`).
+
+`HourlyBudgetGuard.remaining_prompt_tokens()` and `.remaining_completion_tokens()` expose headroom so the scheduler can log them.
+
+If either remaining figure drops below `PER_OPINION_BUDGET_RESERVE = 12_000` prompt tokens / `3_000` completion tokens (two standard opinions' worth), the guard raises `BudgetExhausted` on the next `authorize()` call. Callers in `opinion_generator.py` already handle this exception by returning `OpinionOutcome.ABSTAINED_BUDGET`.
+
+### 2. The scheduler loop
+
+Create `noosphere/currents/scheduler.py`:
+
+```python
+from __future__ import annotations
+
+import argparse
+import asyncio
+import logging
+import signal
+import time
+from dataclasses import dataclass, asdict
+from pathlib import Path
+
+from noosphere.store import Store, open_store
+from noosphere.currents.x_ingestor import ingest_once, IngestorConfig
+from noosphere.currents.enrich import enrich_event
+from noosphere.currents.relevance import check_relevance, RelevanceDecision
+from noosphere.currents.opinion_generator import generate_opinion, OpinionOutcome
+from noosphere.currents.budget import HourlyBudgetGuard, BudgetExhausted
+from noosphere.currents.status import write_status
+
+logger = logging.getLogger("currents.scheduler")
+
+CYCLE_SECONDS = 300  # 5 minutes
+MAX_EVENTS_PER_CYCLE = 40  # hard cap so one bad cycle cannot drain the budget
+MAX_OPINIONS_PER_CYCLE = 12
+SHORT_BACKOFF_SECONDS = 30
+LONG_BACKOFF_SECONDS = CYCLE_SECONDS  # full cycle skip on budget exhaustion
+
+
+@dataclass
+class CycleReport:
+    cycle_id: str
+    started_at: str
+    duration_ms: int
+    ingested: int
+    enriched: int
+    abstained_insufficient: int
+    abstained_near_duplicate: int
+    abstained_budget: int
+    opined: int
+    errors: list[str]
+    remaining_prompt_tokens: int
+    remaining_completion_tokens: int
+
+
+async def run_cycle(
+    store: Store,
+    ingestor_cfg: IngestorConfig,
+    budget: HourlyBudgetGuard,
+) -> CycleReport:
+    from uuid import uuid4
+    from datetime import datetime, timezone
+
+    started = time.monotonic()
+    started_at = datetime.now(timezone.utc).isoformat()
+    cycle_id = f"cyc_{uuid4().hex[:10]}"
+    errors: list[str] = []
+
+    # 1. Ingest
+    try:
+        ingest_report = await ingest_once(store, ingestor_cfg)
+        new_event_ids = ingest_report.new_event_ids[:MAX_EVENTS_PER_CYCLE]
+    except Exception as e:
+        logger.exception("ingest_failed", extra={"cycle_id": cycle_id})
+        errors.append(f"ingest:{type(e).__name__}")
+        new_event_ids = []
+
+    ingested = len(new_event_ids)
+    enriched = 0
+    abstained_insufficient = 0
+    abstained_near_duplicate = 0
+    abstained_budget = 0
+    opined = 0
+
+    for event_id in new_event_ids:
+        # 2. Enrich
+        try:
+            enrich_event(store, event_id)
+            enriched += 1
+        except Exception as e:
+            logger.exception("enrich_failed", extra={"cycle_id": cycle_id, "event_id": event_id})
+            errors.append(f"enrich:{event_id}:{type(e).__name__}")
+            continue
+
+        if opined >= MAX_OPINIONS_PER_CYCLE:
+            break
+
+        # 3. Relevance gate
+        try:
+            decision = check_relevance(store, event_id)
+        except Exception as e:
+            logger.exception("relevance_failed", extra={"cycle_id": cycle_id, "event_id": event_id})
+            errors.append(f"relevance:{event_id}:{type(e).__name__}")
+            continue
+
+        if decision == RelevanceDecision.ABSTAIN_NEAR_DUPLICATE:
+            abstained_near_duplicate += 1
+            continue
+        if decision == RelevanceDecision.ABSTAIN_INSUFFICIENT_SOURCES:
+            abstained_insufficient += 1
+            continue
+
+        # 4. Generate
+        try:
+            outcome = await generate_opinion(store, event_id, budget=budget)
+        except BudgetExhausted:
+            abstained_budget += 1
+            logger.warning("budget_exhausted_mid_cycle", extra={"cycle_id": cycle_id})
+            break
+        except Exception as e:
+            logger.exception("generate_failed", extra={"cycle_id": cycle_id, "event_id": event_id})
+            errors.append(f"generate:{event_id}:{type(e).__name__}")
+            continue
+
+        if outcome is OpinionOutcome.PUBLISHED:
+            opined += 1
+        elif outcome is OpinionOutcome.ABSTAINED_BUDGET:
+            abstained_budget += 1
+        # other ABSTAINED_* outcomes are counted via the relevance branch
+
+    duration_ms = int((time.monotonic() - started) * 1000)
+    report = CycleReport(
+        cycle_id=cycle_id,
+        started_at=started_at,
+        duration_ms=duration_ms,
+        ingested=ingested,
+        enriched=enriched,
+        abstained_insufficient=abstained_insufficient,
+        abstained_near_duplicate=abstained_near_duplicate,
+        abstained_budget=abstained_budget,
+        opined=opined,
+        errors=errors,
+        remaining_prompt_tokens=budget.remaining_prompt_tokens(),
+        remaining_completion_tokens=budget.remaining_completion_tokens(),
+    )
+    logger.info("cycle_complete", extra={"report": asdict(report)})
+    write_status(report)
+    return report
+
+
+async def loop(store: Store, ingestor_cfg: IngestorConfig, budget: HourlyBudgetGuard) -> None:
+    stop = asyncio.Event()
+
+    def _handle_sigterm(*_):
+        logger.info("shutdown_signal_received")
+        stop.set()
+
+    for sig in (signal.SIGTERM, signal.SIGINT):
+        try:
+            asyncio.get_running_loop().add_signal_handler(sig, _handle_sigterm)
+        except NotImplementedError:
+            pass  # Windows / non-main thread
+
+    while not stop.is_set():
+        t0 = time.monotonic()
+        try:
+            report = await run_cycle(store, ingestor_cfg, budget)
+        except Exception:
+            logger.exception("cycle_crashed")
+            await asyncio.wait_for(stop.wait(), timeout=SHORT_BACKOFF_SECONDS) if stop.is_set() else await asyncio.sleep(SHORT_BACKOFF_SECONDS)
+            continue
+
+        elapsed = time.monotonic() - t0
+        sleep_for = max(5.0, CYCLE_SECONDS - elapsed)
+        if report.abstained_budget and report.opined == 0:
+            sleep_for = LONG_BACKOFF_SECONDS  # back off a full cycle on budget exhaustion
+        try:
+            await asyncio.wait_for(stop.wait(), timeout=sleep_for)
+        except asyncio.TimeoutError:
+            pass
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(prog="noosphere.currents")
+    sub = parser.add_subparsers(dest="cmd", required=True)
+    sub.add_parser("once", help="Run exactly one pipeline cycle and exit")
+    sub.add_parser("loop", help="Run the standing 5-minute scheduler loop")
+    args = parser.parse_args(argv)
+
+    logging.basicConfig(
+        level=logging.INFO,
+        format='{"ts":"%(asctime)s","level":"%(levelname)s","name":"%(name)s","msg":"%(message)s"}',
+    )
+
+    store = open_store()  # reads NOOSPHERE_DATA_DIR from env
+    ingestor_cfg = IngestorConfig.from_env()
+    budget = HourlyBudgetGuard.load(Path(store.data_dir) / "currents_budget.json")
+
+    if args.cmd == "once":
+        asyncio.run(run_cycle(store, ingestor_cfg, budget))
+        return 0
+    if args.cmd == "loop":
+        asyncio.run(loop(store, ingestor_cfg, budget))
+        return 0
+    return 2
+```
+
+Create `noosphere/currents/__main__.py`:
+
+```python
+from noosphere.currents.scheduler import main
+import sys
+sys.exit(main())
+```
+
+So operators can run:
+
+```bash
+python -m noosphere.currents once
+python -m noosphere.currents loop
+```
+
+### 3. Status file for humans and liveness probes
+
+Create `noosphere/currents/status.py`:
+
+```python
+from __future__ import annotations
+import json, os, tempfile
+from dataclasses import asdict
+from pathlib import Path
+from noosphere.store import data_dir  # returns NOOSPHERE_DATA_DIR path
+
+def write_status(report) -> None:
+    path = Path(data_dir()) / "currents_status.json"
+    payload = {"last_cycle": asdict(report)}
+    tmp = tempfile.NamedTemporaryFile("w", dir=path.parent, delete=False)
+    try:
+        json.dump(payload, tmp, indent=2)
+        tmp.flush()
+        os.replace(tmp.name, path)
+    finally:
+        try: os.unlink(tmp.name)
+        except FileNotFoundError: pass
+```
+
+### 4. The in-process publisher (API side)
+
+`current_events_api` runs in a different process from the scheduler (see prompt 16's compose file). The `OpinionBus` in-memory queue is therefore empty unless something inside the API process puts items on it. Create `noosphere/currents/publisher.py`:
+
+```python
+from __future__ import annotations
+
+import asyncio
+import logging
+from datetime import datetime, timezone
+from noosphere.store import Store
+
+logger = logging.getLogger("currents.publisher")
+
+TAIL_INTERVAL_SECONDS = 2.0
+
+
+class OpinionTailer:
+    """Poll the DB for new opinions, push onto the in-process OpinionBus.
+
+    Each API process runs its own tailer; each maintains its own cursor. It is
+    deliberately at-least-once for SSE clients — duplicate frames are harmless
+    because the client de-dupes by opinion id (see useLiveOpinions in
+    theseus-public).
+    """
+
+    def __init__(self, store: Store, bus, *, interval: float = TAIL_INTERVAL_SECONDS) -> None:
+        self._store = store
+        self._bus = bus
+        self._interval = interval
+        self._last_generated_at: datetime | None = None
+        self._task: asyncio.Task | None = None
+
+    async def start(self) -> None:
+        # Initialize cursor to "now" so we don't replay historic opinions at startup.
+        self._last_generated_at = datetime.now(timezone.utc)
+        self._task = asyncio.create_task(self._run(), name="opinion_tailer")
+
+    async def stop(self) -> None:
+        if self._task:
+            self._task.cancel()
+            try: await self._task
+            except asyncio.CancelledError: pass
+
+    async def _run(self) -> None:
+        while True:
+            try:
+                rows = self._store.list_event_opinions_since(self._last_generated_at, limit=64)
+                for op in rows:
+                    await self._bus.publish(op.to_public_dict())
+                    self._last_generated_at = op.generated_at
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                logger.exception("tailer_poll_failed")
+            await asyncio.sleep(self._interval)
+```
+
+This requires `Store.list_event_opinions_since(since_ts, limit)` — if it does not already exist on the Store (check — prompt 01 likely added `get_event_opinion` but maybe not this paginated tail), add it: return published (non-abstained) opinions with `generated_at > since_ts`, ordered ascending, limit N. Index on `generated_at` should already exist for the feed queries.
+
+### 5. Wire the tailer into the FastAPI app + share the persisted budget
+
+Edit `current_events_api/app.py`. Prompt 07 instantiated `HourlyBudgetGuard()` parameterlessly — swap to the persisting load-path so follow-up token spend is counted against the same hourly ceiling as scheduler-side generation. Both processes read and write the same `currents_budget.json`; atomic writes + hourly reset make at-least-once double-counting harmless at the granularity that matters.
+
+```python
+from pathlib import Path
+from noosphere.currents.publisher import OpinionTailer
+from noosphere.currents.budget import HourlyBudgetGuard
+# existing imports ...
+
+# existing module globals
+# OPINION_BUS = OpinionBus()
+
+_TAILER: OpinionTailer | None = None
+
+def _init_budget() -> HourlyBudgetGuard:
+    # replaces prompt 07's `_state["budget"] = HourlyBudgetGuard()`
+    return HourlyBudgetGuard.load(Path(STORE.data_dir) / "currents_budget.json")
+
+@app.on_event("startup")
+async def _startup() -> None:
+    global _TAILER
+    _state["budget"] = _init_budget()
+    _TAILER = OpinionTailer(STORE, OPINION_BUS)
+    await _TAILER.start()
+
+@app.on_event("shutdown")
+async def _shutdown() -> None:
+    if _TAILER:
+        await _TAILER.stop()
+```
+
+### 6. `/metrics` endpoint
+
+Create `current_events_api/metrics.py`:
+
+```python
+from __future__ import annotations
+from dataclasses import dataclass
+
+@dataclass
+class CurrentsMetrics:
+    opinions_published_total: int = 0
+    opinions_abstained_budget_total: int = 0
+    opinions_abstained_insufficient_sources_total: int = 0
+    followup_sessions_active: int = 0
+    sse_feed_clients: int = 0
+    sse_followup_clients: int = 0
+
+    def render(self) -> str:
+        lines = [
+            "# HELP currents_opinions_published_total Total event opinions published",
+            "# TYPE currents_opinions_published_total counter",
+            f"currents_opinions_published_total {self.opinions_published_total}",
+            "# HELP currents_opinions_abstained_budget_total Abstained due to budget exhaustion",
+            "# TYPE currents_opinions_abstained_budget_total counter",
+            f"currents_opinions_abstained_budget_total {self.opinions_abstained_budget_total}",
+            "# HELP currents_opinions_abstained_insufficient_sources_total Abstained due to insufficient sources",
+            "# TYPE currents_opinions_abstained_insufficient_sources_total counter",
+            f"currents_opinions_abstained_insufficient_sources_total {self.opinions_abstained_insufficient_sources_total}",
+            "# HELP currents_followup_sessions_active Active follow-up sessions (last 30m)",
+            "# TYPE currents_followup_sessions_active gauge",
+            f"currents_followup_sessions_active {self.followup_sessions_active}",
+            "# HELP currents_sse_feed_clients Live feed SSE clients",
+            "# TYPE currents_sse_feed_clients gauge",
+            f"currents_sse_feed_clients {self.sse_feed_clients}",
+            "# HELP currents_sse_followup_clients Follow-up SSE clients",
+            "# TYPE currents_sse_followup_clients gauge",
+            f"currents_sse_followup_clients {self.sse_followup_clients}",
+        ]
+        return "\n".join(lines) + "\n"
+```
+
+Add route in `app.py`:
+
+```python
+from fastapi.responses import PlainTextResponse
+from current_events_api.metrics import CurrentsMetrics
+
+@app.get("/metrics", include_in_schema=False)
+async def metrics() -> PlainTextResponse:
+    m = CurrentsMetrics(
+        opinions_published_total=STORE.count_event_opinions(status="PUBLISHED"),
+        opinions_abstained_budget_total=STORE.count_event_opinions(abstention_reason="BUDGET"),
+        opinions_abstained_insufficient_sources_total=STORE.count_event_opinions(abstention_reason="INSUFFICIENT_SOURCES"),
+        followup_sessions_active=STORE.count_active_followup_sessions(window_minutes=30),
+        sse_feed_clients=OPINION_BUS.feed_client_count(),
+        sse_followup_clients=OPINION_BUS.followup_client_count(),
+    )
+    return PlainTextResponse(m.render(), media_type="text/plain; version=0.0.4")
+```
+
+If the bus from prompt 07 doesn't expose client counts, add cheap `feed_client_count()` / `followup_client_count()` methods that return `len(self._subscribers)`. `/metrics` is not authenticated but is not linked from the UI; scrape internally only.
+
+### 7. Tests
+
+`tests/test_scheduler_cycle.py`:
+
+- Build an in-memory Store with 1 seeded ingest event ID.
+- Monkeypatch `ingest_once` to return that event ID; monkeypatch `enrich_event` to be a no-op; monkeypatch `check_relevance` to return `OPINE`; monkeypatch `generate_opinion` to return `PUBLISHED`.
+- Call `await run_cycle(store, cfg, budget)` and assert `report.ingested == 1`, `report.opined == 1`, `report.errors == []`.
+- Second test: monkeypatch `generate_opinion` to raise `BudgetExhausted`; assert `report.abstained_budget == 1`, loop breaks after first event even with 5 event IDs seeded.
+
+`tests/test_budget_persistence.py`:
+
+- Construct a `HourlyBudgetGuard`, call `charge(100, 50)`, let it write its JSON.
+- Re-load from the same path; assert counters match.
+- Overwrite `window_start_iso` in the file to a prior hour; re-load; assert counters reset to 0.
+
+`tests/test_publisher_tail.py`:
+
+- Build an in-memory Store. Start `OpinionTailer` with a fake bus (records `publish()` calls).
+- Insert one opinion row with `generated_at` newer than the tailer's cursor.
+- Wait one `_interval`; assert the fake bus received exactly one call with that opinion's id.
+
+## Verification
+
+```bash
+cd /Users/michaelquintin/Desktop/Theseus
+
+# Unit tests
+pytest -q tests/test_scheduler_cycle.py tests/test_budget_persistence.py tests/test_publisher_tail.py
+
+# One-shot dry run against real Store + mock ingestor
+X_BEARER_TOKEN=dummy ANTHROPIC_API_KEY=dummy NOOSPHERE_DATA_DIR=./noosphere_data \
+  python -m noosphere.currents once
+
+# Expect one JSON log line like:
+# {"ts":"...","level":"INFO","name":"currents.scheduler","msg":"cycle_complete",
+#  "report":{"cycle_id":"cyc_...","ingested":N,"opined":M, ...}}
+# And a fresh noosphere_data/currents_status.json.
+
+# Live loop (in a separate shell):
+python -m noosphere.currents loop
+# Kill with Ctrl+C — expect "shutdown_signal_received" then clean exit.
+
+# Metrics endpoint (with API service running on :8088):
+curl -s http://localhost:8088/metrics | head
+```
+
+## Observability invariants
+
+- Every cycle emits exactly one `cycle_complete` log line with the full `CycleReport` payload. No per-event log lines at `INFO` — those are `DEBUG`.
+- On any exception the scheduler logs `*_failed` at `ERROR` with a stacktrace and continues. The loop never crashes the process.
+- `currents_status.json` is always up to date after the most recent cycle (successful or otherwise). Use this as the liveness signal in prompt 16's health probe — if the file is older than 2× `CYCLE_SECONDS`, the scheduler is unhealthy.
+- `/metrics` is always-available and cheap (simple COUNT queries, no joins).
+
+## Prohibitions
+
+- Do NOT introduce Redis, Kafka, Celery, or any other broker. The pipeline is one process writing to SQLite; the API process tails it. If the project needs scale, that's a later prompt after measurement.
+- Do NOT run the scheduler inside the API process. They have different failure modes — the API should be restartable on its own and the scheduler's crashes should not knock down serving.
+- Do NOT carry budget balances across hour boundaries. The ceiling is a blast radius cap, not a rolling quota.
+- Do NOT add a global retry-until-success around `generate_opinion`. It already does up-to-2 retries internally (prompt 05); the scheduler marks failures and moves on.
+- Do NOT publish to the SSE bus from the scheduler process. Only the API process publishes to its own in-memory bus via the tailer; otherwise clients miss frames during restarts of either side.
+
+Do not proceed to any other work. Do not edit anything outside SCOPE.

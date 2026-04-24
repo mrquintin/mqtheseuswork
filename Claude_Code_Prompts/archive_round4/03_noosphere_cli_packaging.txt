@@ -1,0 +1,160 @@
+# Claude Code Prompt 3 of 8 — Noosphere: PyInstaller CLI packaging config
+
+**Sequence:** prompt 3 of 8 (Wave 1 — independent of other Wave 1 prompts). When you finish, report back with: files you created/modified, any notable choices, any blockers.
+
+**Before you start — read current state:**
+1. Run `git status` and `git branch`.
+2. Read `noosphere/noosphere/__main__.py`, `noosphere/noosphere/typer_cli.py`, and `noosphere/noosphere/cli.py` to understand the CLI entry points.
+3. Read `noosphere/requirements.txt` for the full dependency list.
+4. Scan `noosphere/noosphere/` for any file that uses `Path(__file__)` or relative path resolution — run `grep -rn "Path(__file__)" noosphere/noosphere/` and `grep -rn "__file__" noosphere/noosphere/config*.py noosphere/noosphere/store*.py`.
+5. Read `noosphere/alembic.ini` and `noosphere/alembic/env.py` to understand how database migrations work.
+6. For every file listed under SCOPE below, check whether it already exists. Do NOT overwrite existing correct work.
+
+## Your task
+
+You are an implementation agent. Your job is to make the Noosphere CLI packageable as a standalone executable via PyInstaller. Users should be able to install a single `noosphere` binary (or app directory) and run `noosphere ingest`, `noosphere ask`, etc. without needing Python installed.
+
+Key challenges:
+- Noosphere has heavy ML dependencies (sentence-transformers, torch, scipy, scikit-learn, spacy, transformers).
+- It uses Alembic for database migrations (migration scripts must be bundled).
+- It uses a data directory for the knowledge graph, embeddings, and SQLite database.
+- Some modules discover plugins or load models at runtime.
+
+When you finish, verify the spec file syntax and the path resolver. Do not proceed to any other work.
+
+## Prerequisites
+- The existing Theseus repo is at the root of your worktree.
+- `noosphere/` contains a working CLI launched via `python -m noosphere`.
+- Python 3.11+ is available.
+
+SCOPE (files you may create or modify — stay within this list)
+- `noosphere/pyproject.toml`                           CREATE (if not exists) or MODIFY
+- `noosphere/noosphere.spec`                           CREATE
+- `noosphere/noosphere/frozen_support.py`              CREATE
+- `noosphere/noosphere/__main__.py`                    MODIFY (minimal — add freeze_support)
+- `noosphere/scripts/build_hooks/`                     CREATE directory
+- `noosphere/scripts/build_hooks/hook-noosphere.py`    CREATE (PyInstaller runtime hook)
+- `noosphere/tests/test_frozen_support.py`             CREATE
+
+## Step-by-step
+
+1. **Create `noosphere/noosphere/frozen_support.py`** — centralized path resolution for frozen mode:
+   ```python
+   import sys
+   import os
+   from pathlib import Path
+
+   def is_frozen() -> bool:
+       return getattr(sys, 'frozen', False) and hasattr(sys, '_MEIPASS')
+
+   def bundle_dir() -> Path:
+       """Root of the PyInstaller bundle (or the source tree in dev)."""
+       if is_frozen():
+           return Path(sys._MEIPASS)
+       return Path(__file__).resolve().parent.parent
+
+   def data_dir() -> Path:
+       """User-writable directory for Noosphere data (graph, DB, embeddings).
+       Respects THESEUS_DATA_DIR env var, else uses platform default."""
+       env = os.environ.get("THESEUS_DATA_DIR")
+       if env:
+           d = Path(env)
+       elif sys.platform == "darwin":
+           d = Path.home() / "Library" / "Application Support" / "Noosphere"
+       elif sys.platform == "win32":
+           d = Path(os.environ.get("APPDATA", Path.home())) / "Noosphere"
+       else:
+           d = Path.home() / ".noosphere"
+       d.mkdir(parents=True, exist_ok=True)
+       return d
+
+   def alembic_dir() -> Path:
+       """Location of Alembic migration scripts — inside the bundle when frozen."""
+       return bundle_dir() / "alembic"
+
+   def alembic_ini() -> Path:
+       return bundle_dir() / "alembic.ini"
+   ```
+
+2. **Update `noosphere/noosphere/__main__.py`** — add freeze support at the very top:
+   ```python
+   import multiprocessing
+   import sys
+   if getattr(sys, 'frozen', False):
+       multiprocessing.freeze_support()
+   ```
+   Do NOT change the existing import of `main` from `typer_cli` or the `if __name__` guard.
+
+3. **Create `noosphere/scripts/build_hooks/hook-noosphere.py`** — a PyInstaller runtime hook that sets environment variables before any noosphere code runs:
+   ```python
+   import os
+   import sys
+   # Ensure the bundled Alembic config is found
+   os.environ.setdefault('NOOSPHERE_FROZEN', '1')
+   ```
+
+4. **Create `noosphere/noosphere.spec`** — the PyInstaller spec file:
+   - Entry point: `noosphere/noosphere/__main__.py`.
+   - `datas`:
+     - `('alembic', 'alembic')` — bundle migration scripts
+     - `('alembic.ini', '.')` — bundle alembic config
+     - Sentence-transformers model cache is NOT bundled (too large) — models download on first run. Document this in a comment.
+   - `hiddenimports`: `typer`, `rich`, `click`, `anthropic`, `openai`, `sqlmodel`, `sqlalchemy`, `alembic`, `pydantic`, `pydantic_settings`, `structlog`, `sentence_transformers`, `torch`, `numpy`, `scipy`, `sklearn`, `spacy`, `networkx`, `hdbscan`, `umap`, `transformers`, `pynacl`, `zstandard`, `yaml`, `matplotlib`. Also add `noosphere.noosphere.*` submodules and `noosphere.noosphere.coherence.*`, `noosphere.noosphere.methods.*`, `noosphere.noosphere.cascade.*`, etc. (all subpackages). Use a collect approach:
+     ```python
+     from PyInstaller.utils.hooks import collect_submodules
+     hiddenimports = collect_submodules('noosphere.noosphere')
+     hiddenimports += collect_submodules('sentence_transformers')
+     hiddenimports += [...]
+     ```
+   - `excludes`: `tensorflow`, `tensorboard`, `jupyter`, `IPython`, `pytest`, `matplotlib.backends` (keep core matplotlib for any plotting).
+   - `runtime_hooks`: `['scripts/build_hooks/hook-noosphere.py']`.
+   - `console=True` (this IS a CLI tool — it needs a terminal).
+   - Name: `noosphere`.
+   - Single-directory mode (NOT onefile — torch is too large).
+   - On macOS, do NOT create a `.app` bundle (it's a CLI, not a GUI).
+
+5. **Create or update `noosphere/pyproject.toml`**:
+   - If it exists, add the `[project.scripts]` entry: `noosphere = "noosphere.noosphere.__main__:main"`.
+   - If it doesn't exist, create it with:
+     ```toml
+     [project]
+     name = "noosphere"
+     version = "0.1.0"
+     description = "The Brain of the Firm — epistemological engine for Theseus"
+     requires-python = ">=3.11"
+     license = {text = "Proprietary"}
+
+     [project.scripts]
+     noosphere = "noosphere.noosphere.__main__:main"
+
+     [build-system]
+     requires = ["setuptools>=68.0"]
+     build-backend = "setuptools.backends._legacy:_Backend"
+     ```
+
+6. **Create `noosphere/tests/test_frozen_support.py`**:
+   - Test `is_frozen()` returns `False` in normal Python.
+   - Test `bundle_dir()` returns the noosphere root.
+   - Test `data_dir()` returns a writable directory.
+   - Test `data_dir()` respects `THESEUS_DATA_DIR` env var (use monkeypatch).
+   - Test `alembic_dir()` points to the real alembic directory in dev mode.
+   - Mock `sys.frozen = True` and `sys._MEIPASS = '/tmp/fake'` to verify frozen-mode paths.
+
+7. **Run tests:**
+   ```bash
+   cd noosphere && python -m pytest tests/test_frozen_support.py -v
+   ```
+
+## Verification
+- `python -c "from noosphere.noosphere.frozen_support import is_frozen, bundle_dir, data_dir; print(bundle_dir()); print(data_dir())"` succeeds.
+- `python -c "exec(open('noosphere/noosphere.spec').read())"` does not crash on syntax.
+- `noosphere/scripts/build_hooks/hook-noosphere.py` exists.
+- All tests pass.
+
+## Prohibitions
+- Do NOT run the full PyInstaller build (prompt 05 handles platform builds).
+- Do NOT bundle ML model weights into the spec — they are too large (2GB+). Models must download on first use.
+- Do NOT modify any existing noosphere module logic (coherence, extraction, synthesis, etc.).
+- Do NOT modify `requirements.txt`.
+- Do NOT change the Typer CLI command structure or any CLI argument definitions.
+- Do NOT modify `alembic.ini` or any migration scripts.

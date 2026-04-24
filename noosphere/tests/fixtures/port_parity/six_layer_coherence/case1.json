@@ -1,0 +1,10 @@
+{
+  "claim_a_text": "Technological progress is the primary driver of long-term economic growth.",
+  "claim_a_id": "parity-claim-001",
+  "claim_b_text": "Institutional quality, not technology, determines whether nations prosper or stagnate.",
+  "claim_b_id": "parity-claim-002",
+  "claim_a_embedding": null,
+  "claim_b_embedding": null,
+  "skip_llm_judge": true,
+  "skip_probabilistic_llm": true
+}

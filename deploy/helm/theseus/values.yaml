@@ -1,0 +1,14 @@
+portal:
+  image: theseus/theseus-codex:latest
+  replicas: 1
+  port: 3000
+
+ingestWorker:
+  image: theseus/ingest-worker:latest
+  replicas: 1
+
+redis:
+  url: redis://redis:6379
+
+database:
+  url: postgresql://theseus:theseus@postgres:5432/theseus?schema=public

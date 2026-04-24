@@ -1,0 +1,93 @@
+# OS
+.DS_Store
+Thumbs.db
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+.venv/
+*.egg-info/
+dist/
+build/
+.eggs/
+
+# Node / Next.js
+node_modules/
+.next/
+out/
+.env
+.env.local
+.env.*.local
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Database
+*.db
+*.sqlite
+*.sqlite3
+
+# Logs
+*.log
+
+# Model files (too large for git)
+*.bin
+*.pt
+*.onnx
+
+# ... but DO commit the compact sculpture meshes. These are tiny (60–110 KB
+# each, total ~500 KB for six), baked by scripts/process-sculptures.ts
+# from raw STL photogrammetry (which is NOT committed — those are
+# hundreds of MB). The Codex fetches them at runtime from /sculptures/
+# to render rotating amber ASCII busts. Without this negation pattern
+# the `*.bin` rule above sweeps them up and Vercel deploys without them,
+# producing 404s on every sculpture URL.
+!theseus-codex/public/sculptures/*.mesh.bin
+
+# Large media files (exceed GitHub's 100 MB limit; keep locally only)
+*.m4a
+*.mp3
+*.wav
+*.flac
+*.aac
+*.ogg
+*.mp4
+*.mov
+*.avi
+*.mkv
+*.webm
+Podcast talks/
+
+# Experiment results (regenerable)
+noosphere/noosphere_data/
+# Local runtime ledger and blob store for Noosphere when run from the repo
+# root; never committed — pure per-session state.
+noosphere_data/
+
+# Prisma
+theseus-codex/prisma/*.db
+
+# Reference-only materials (starting-material snapshots, original prototypes).
+# Kept on disk for provenance but never tracked by git.
+reference/
+
+# Raw STL sculpture scans (hundreds of MB each). We keep source meshes
+# in-repo for local processing, but never commit them; only the compact
+# generated `.mesh.bin` outputs under `public/sculptures/` are tracked.
+theseus-codex/assets/sculptures/raw-stl/
+
+# macOS auto-saved screenshots (never commit)
+Screenshot *.png
+Screenshot *.jpg
+Screenshot *.jpeg
+
+# macOS Finder duplicate of theseus-codex (e.g. "theseus-codex 2", " 3")
+theseus-codex [0-9]*/

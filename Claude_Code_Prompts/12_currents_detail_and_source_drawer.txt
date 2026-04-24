@@ -1,0 +1,364 @@
+# Claude Code Prompt 12 of 17 — /currents/[id] detail page + interactive source drawer
+
+**Sequence:** prompt 12 of 17 (Wave 6). Depends on 10. Parallel-safe with 11 and 13. Report back with: the source drawer interaction (keyboard nav, click-outside behavior), and the URL schema for deep-linked citations.
+
+**Before you start — read current state:**
+1. Read `theseus-public/src/lib/currentsApi.ts` — confirm `getCurrent` and `getSources` exist.
+2. Read `theseus-public/src/app/currents/OpinionCard.tsx` — the citation chips link `/currents/{id}#src-{source_id}`. The detail page opens the drawer to that source on load if the hash is present.
+3. Read the existing static conclusion page at `theseus-public/src/app/c/[slug]/page.tsx` (if it exists at this path — otherwise find the slug-based route) — the drawer's "full conclusion" link navigates there.
+4. Re-read `theseus-public/src/app/currents/currents.module.css` — reuse the design tokens.
+
+## Your task
+
+Build the `/currents/[id]` page. The top shows the full `OpinionCard` (re-used) in a single-item layout with the full citations list (not truncated to 3). Below, a two-column split: left is an "audit trail" (opinion metadata, generation time, token budget used, uncertainty notes, a prominent "Ask a follow-up" jump link anchored to `#ask` — the chat component in prompt 13 will render there). Right is the source drawer — a scrollable panel where each citation is rendered with the full source text, the verbatim quoted span highlighted, the source kind/id/origin, and (for conclusions) a permalink to the canonical `/c/<slug>/v/<version>` page.
+
+Deep links: `/currents/<id>#src-<source_id>` scrolls the drawer to that source and highlights it briefly.
+
+## Prerequisites
+
+- Prompts 08, 09, 10 applied. Prompt 11 is allowed to be concurrent — no shared files.
+
+## SCOPE
+
+- `theseus-public/src/app/currents/[id]/page.tsx`                        CREATE
+- `theseus-public/src/app/currents/[id]/DetailClient.tsx`                CREATE
+- `theseus-public/src/app/currents/[id]/SourceDrawer.tsx`                CREATE
+- `theseus-public/src/app/currents/[id]/SourceCard.tsx`                  CREATE
+- `theseus-public/src/app/currents/[id]/AuditTrail.tsx                   CREATE
+- `theseus-public/src/lib/highlight.ts`                                  CREATE (substring → <mark> without innerHTML)
+- `theseus-public/src/__tests__/highlight.test.ts`                       CREATE
+- `theseus-public/src/__tests__/SourceDrawer.test.tsx`                   CREATE
+
+Do NOT build the chat panel (prompt 13), the filter bar, or the homepage teaser.
+
+## Step-by-step
+
+### 1. `highlight.ts` — safe, React-node based
+
+```ts
+import React from "react";
+
+/** Returns a React fragment with the first case-insensitive, whitespace-normalized
+ *  occurrence of `needle` wrapped in <mark>. Never uses innerHTML. */
+export function highlightFirst(haystack: string, needle: string): React.ReactNode {
+  if (!needle) return haystack;
+  const normalize = (s: string) => s.toLowerCase().replace(/\s+/g, " ");
+  const hayNorm = normalize(haystack);
+  const needleNorm = normalize(needle);
+  const idx = hayNorm.indexOf(needleNorm);
+  if (idx < 0) return haystack;
+  // Map normalized index back to the original string (approximate: advance char-by-char).
+  let origStart = -1, consumed = 0;
+  for (let i = 0; i < haystack.length; i++) {
+    const ch = haystack[i];
+    const normCh = normalize(ch);
+    if (normCh.length === 0) continue;
+    if (consumed === idx) { origStart = i; break; }
+    consumed += normCh.length;
+  }
+  if (origStart < 0) return haystack;
+  // Advance origEnd until we've consumed `needleNorm.length` normalized chars.
+  let origEnd = origStart, consumed2 = 0;
+  while (origEnd < haystack.length && consumed2 < needleNorm.length) {
+    const ch = haystack[origEnd];
+    const n = normalize(ch);
+    if (n.length > 0) consumed2 += n.length;
+    origEnd += 1;
+  }
+  return React.createElement(React.Fragment, null,
+    haystack.slice(0, origStart),
+    React.createElement("mark", {
+      style: {
+        background: "var(--currents-gold-glow)",
+        color: "var(--currents-parchment)",
+        padding: "0 0.15rem",
+        borderRadius: 1,
+      },
+    }, haystack.slice(origStart, origEnd)),
+    haystack.slice(origEnd),
+  );
+}
+```
+
+### 2. `SourceCard.tsx`
+
+Shows one citation with its full source text, highlighted quote, and, for conclusions, a permalink.
+
+```tsx
+import Link from "next/link";
+import type { PublicSource, PublicCitation } from "@/lib/currentsTypes";
+import { highlightFirst } from "@/lib/highlight";
+
+export function SourceCard({
+  source, citation, scrollTargetRef, active,
+}: {
+  source: PublicSource;
+  citation: PublicCitation;
+  scrollTargetRef?: React.Ref<HTMLDivElement>;
+  active: boolean;
+}) {
+  return (
+    <div
+      ref={scrollTargetRef}
+      id={`src-${citation.source_id}`}
+      style={{
+        padding: "0.9rem 1rem",
+        marginBottom: "0.75rem",
+        border: `1px solid ${active ? "var(--currents-gold)" : "var(--currents-border)"}`,
+        borderRadius: 3,
+        background: "var(--currents-surface)",
+        transition: "border-color 400ms",
+      }}
+    >
+      <header style={{
+        display: "flex", justifyContent: "space-between", gap: "0.5rem",
+        fontSize: "0.7rem", color: "var(--currents-parchment-dim)",
+        textTransform: "uppercase", letterSpacing: "0.04em",
+        marginBottom: "0.35rem",
+      }}>
+        <span>
+          {source.source_kind}
+          {source.origin && ` · ${source.origin}`}
+          {source.topic_hint && ` · ${source.topic_hint}`}
+        </span>
+        {source.permalink && (
+          <Link href={source.permalink} style={{ color: "var(--currents-gold)" }}>
+            full conclusion →
+          </Link>
+        )}
+      </header>
+      <div style={{
+        fontSize: "0.86rem",
+        lineHeight: 1.55,
+        color: "var(--currents-parchment)",
+        fontFamily: "'EB Garamond', serif",
+      }}>
+        {highlightFirst(source.full_text, citation.quoted_span)}
+      </div>
+      <footer style={{
+        marginTop: "0.4rem",
+        fontSize: "0.7rem",
+        color: "var(--currents-muted)",
+      }}>
+        id {source.source_id} · retrieval score {citation.relevance_score.toFixed(2)}
+      </footer>
+    </div>
+  );
+}
+```
+
+### 3. `SourceDrawer.tsx`
+
+Renders the list of source cards. If URL hash matches a card, scroll it into view and flash `active` for 1.4s.
+
+```tsx
+"use client";
+
+import { useEffect, useRef, useState } from "react";
+import type { PublicCitation, PublicSource } from "@/lib/currentsTypes";
+import { SourceCard } from "./SourceCard";
+
+export function SourceDrawer({ citations, sources }: {
+  citations: PublicCitation[];
+  sources: PublicSource[];
+}) {
+  const [activeId, setActiveId] = useState<string | null>(null);
+  const refs = useRef(new Map<string, HTMLDivElement>());
+
+  useEffect(() => {
+    const scrollToHash = () => {
+      const h = window.location.hash;
+      if (!h.startsWith("#src-")) return;
+      const id = decodeURIComponent(h.slice(5));
+      const el = refs.current.get(id);
+      if (!el) return;
+      el.scrollIntoView({ behavior: "smooth", block: "center" });
+      setActiveId(id);
+      setTimeout(() => setActiveId(null), 1400);
+    };
+    scrollToHash();
+    window.addEventListener("hashchange", scrollToHash);
+    return () => window.removeEventListener("hashchange", scrollToHash);
+  }, []);
+
+  const sourcesById = new Map(sources.map(s => [s.source_id, s]));
+  return (
+    <aside aria-label="Sources" style={{
+      background: "var(--currents-bg-elevated)",
+      border: "1px solid var(--currents-border)",
+      borderRadius: 3,
+      padding: "1rem",
+      maxHeight: "calc(100vh - 4rem)",
+      overflowY: "auto",
+      position: "sticky",
+      top: "1rem",
+    }}>
+      <h3 style={{
+        margin: "0 0 0.7rem",
+        fontSize: "0.78rem",
+        color: "var(--currents-parchment-dim)",
+        letterSpacing: "0.1em",
+        textTransform: "uppercase",
+      }}>
+        Sources cited ({citations.length})
+      </h3>
+      {citations.map(c => {
+        const src = sourcesById.get(c.source_id);
+        if (!src) return (
+          <div key={c.source_id} style={{
+            padding: "0.6rem", border: "1px dashed var(--currents-border)",
+            color: "var(--currents-amber)", fontSize: "0.78rem", marginBottom: "0.5rem",
+          }}>
+            Missing source (id {c.source_id}). It may have been revoked since this opinion was generated.
+          </div>
+        );
+        return (
+          <SourceCard
+            key={c.source_id}
+            citation={c}
+            source={src}
+            active={activeId === c.source_id}
+            scrollTargetRef={(el) => { if (el) refs.current.set(c.source_id, el); }}
+          />
+        );
+      })}
+    </aside>
+  );
+}
+```
+
+### 4. `AuditTrail.tsx`
+
+Left column — opinion metadata, uncertainty notes verbose, abstention link when `stance === "insufficient"`, a prominent "Ask a follow-up" call-to-action anchor:
+
+```tsx
+import type { PublicOpinion } from "@/lib/currentsTypes";
+
+export function AuditTrail({ op }: { op: PublicOpinion }) {
+  return (
+    <section>
+      {/* metadata grid */}
+      <dl style={{
+        display: "grid", gridTemplateColumns: "max-content 1fr", gap: "0.35rem 0.9rem",
+        fontSize: "0.8rem", color: "var(--currents-parchment-dim)",
+        padding: "0.8rem",
+        border: "1px solid var(--currents-border)",
+        background: "var(--currents-bg-elevated)",
+        borderRadius: 3,
+      }}>
+        <dt>event captured</dt><dd>{op.event_captured_at}</dd>
+        <dt>opinion generated</dt><dd>{op.generated_at}</dd>
+        <dt>author</dt>
+          <dd><a href={op.event_source_url} target="_blank" rel="noopener noreferrer">
+            {op.event_author_handle} ↗
+          </a></dd>
+        <dt>stance</dt><dd>{op.stance}</dd>
+        <dt>confidence</dt><dd>{(op.confidence * 100).toFixed(0)}%</dd>
+        <dt>sources cited</dt><dd>{op.citations.length}</dd>
+        <dt>revoked</dt><dd>{op.revoked ? "yes" : "no"}</dd>
+      </dl>
+
+      {op.uncertainty_notes.length > 0 && (
+        <div style={{
+          marginTop: "0.8rem",
+          padding: "0.75rem 1rem",
+          border: "1px solid var(--currents-amber)",
+          color: "var(--currents-amber)",
+          borderRadius: 3,
+          background: "rgba(201, 148, 74, 0.06)",
+          fontSize: "0.82rem", lineHeight: 1.55,
+        }}>
+          <strong style={{ display: "block", fontSize: "0.72rem", textTransform: "uppercase",
+                           letterSpacing: "0.05em", marginBottom: "0.3rem" }}>
+            Uncertainty notes
+          </strong>
+          <ul style={{ margin: 0, paddingLeft: "1rem" }}>
+            {op.uncertainty_notes.map((n, i) => <li key={i}>{n}</li>)}
+          </ul>
+        </div>
+      )}
+
+      <div id="ask" style={{ marginTop: "1rem" }} />
+      {/* The chat component (prompt 13) mounts here. */}
+    </section>
+  );
+}
+```
+
+### 5. `DetailClient.tsx` + `page.tsx`
+
+```tsx
+// page.tsx (server)
+import { getCurrent, getSources } from "@/lib/currentsApi";
+import { DetailClient } from "./DetailClient";
+
+export const dynamic = "force-dynamic";
+
+export default async function Page({ params }: { params: Promise<{ id: string }> }) {
+  const { id } = await params;
+  const [opinion, sources] = await Promise.all([getCurrent(id), getSources(id)]);
+  return <DetailClient opinion={opinion} sources={sources} />;
+}
+```
+
+```tsx
+// DetailClient.tsx
+"use client";
+import { OpinionCard } from "../OpinionCard";
+import { AuditTrail } from "./AuditTrail";
+import { SourceDrawer } from "./SourceDrawer";
+
+export function DetailClient({ opinion, sources }) {
+  return (
+    <>
+      <OpinionCard op={opinion} />
+      <div style={{
+        display: "grid", gridTemplateColumns: "minmax(0, 1fr) minmax(280px, 420px)",
+        gap: "1.25rem", marginTop: "1.25rem",
+      }}>
+        <AuditTrail op={opinion} />
+        <SourceDrawer citations={opinion.citations} sources={sources} />
+      </div>
+    </>
+  );
+}
+```
+
+On narrow viewports (< 900 px), stack the columns.
+
+### 6. Tests
+
+`__tests__/highlight.test.ts`:
+
+- `highlightFirst("ABC def ABC", "def")` returns a fragment where "def" is wrapped in `<mark>`.
+- Case and whitespace insensitive: `highlightFirst("Hello  world", "hello world")` highlights the full "Hello  world".
+- No match → returns the original string (no `<mark>`).
+
+`__tests__/SourceDrawer.test.tsx`:
+
+- Mount with two citations and two sources; both cards render.
+- Missing-source citation renders the "Missing source" warning instead of crashing.
+- Hash `#src-<id>` triggers `scrollIntoView` on mount (spy).
+- Hash change while mounted updates active card (spy on `scrollIntoView`).
+
+## Verification
+
+```bash
+cd theseus-public
+npm run build
+npx vitest run src/__tests__/highlight.test.ts src/__tests__/SourceDrawer.test.tsx
+
+# Smoke:
+# Visit /currents/<known_id>#src-<a_citation_source_id>
+# Expect the drawer to scroll to that source and flash its border gold briefly.
+```
+
+## Prohibitions
+
+- Do NOT compute the highlight via `dangerouslySetInnerHTML` or regex-replaced HTML — keep React-node based.
+- Do NOT render `full_text` through `safeMarkdown`. Sources are plain text from the Noosphere (conclusion and claim fields are plain; markdown rendering would misinterpret quotes).
+- Do NOT hit the API for both `opinion` and `sources` sequentially — `Promise.all` them.
+- Do NOT gate the page behind an auth check. This is public.
+- Do NOT embed the chat UI here — it comes in prompt 13 and mounts at `#ask`.
+
+Do not proceed to any other work. Do not edit anything outside SCOPE.

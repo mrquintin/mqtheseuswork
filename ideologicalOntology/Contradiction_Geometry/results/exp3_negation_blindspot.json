@@ -1,0 +1,459 @@
+{
+  "pairs": [
+    {
+      "original": "The door is open.",
+      "styles": {
+        "simple": {
+          "sentence": "The door is not open.",
+          "cosine_sim": 0.8936924934387207,
+          "hoyer_sparsity": 0.21635975850672665,
+          "l2_distance": 0.4611021876335144
+        },
+        "antonym": {
+          "sentence": "The door is closed.",
+          "cosine_sim": 0.6579915285110474,
+          "hoyer_sparsity": 0.21396522057697273,
+          "l2_distance": 0.8270532488822937
+        },
+        "indirect": {
+          "sentence": "The door is shut tight.",
+          "cosine_sim": 0.5408092141151428,
+          "hoyer_sparsity": 0.22927524034372607,
+          "l2_distance": 0.9583223462104797
+        },
+        "scalar": {
+          "sentence": "The door is barely ajar.",
+          "cosine_sim": 0.7556924819946289,
+          "hoyer_sparsity": 0.21676189464760137,
+          "l2_distance": 0.6990099549293518
+        },
+        "modal": {
+          "sentence": "The door cannot be open.",
+          "cosine_sim": 0.6045937538146973,
+          "hoyer_sparsity": 0.21216831750146617,
+          "l2_distance": 0.8892765045166016
+        },
+        "quantifier": {
+          "sentence": "No door in this building is open.",
+          "cosine_sim": 0.43846869468688965,
+          "hoyer_sparsity": 0.22313516698395355,
+          "l2_distance": 1.059746503829956
+        }
+      }
+    },
+    {
+      "original": "The economy is growing.",
+      "styles": {
+        "simple": {
+          "sentence": "The economy is not growing.",
+          "cosine_sim": 0.6324809789657593,
+          "hoyer_sparsity": 0.2369061877485028,
+          "l2_distance": 0.8573436737060547
+        },
+        "antonym": {
+          "sentence": "The economy is shrinking.",
+          "cosine_sim": 0.6004505753517151,
+          "hoyer_sparsity": 0.24142614941856524,
+          "l2_distance": 0.8939233422279358
+        },
+        "indirect": {
+          "sentence": "The economy is in recession.",
+          "cosine_sim": 0.6249503493309021,
+          "hoyer_sparsity": 0.22871402051644,
+          "l2_distance": 0.8660827875137329
+        },
+        "scalar": {
+          "sentence": "The economy is stagnant.",
+          "cosine_sim": 0.5696905255317688,
+          "hoyer_sparsity": 0.23450108232072872,
+          "l2_distance": 0.9276955127716064
+        },
+        "modal": {
+          "sentence": "The economy cannot grow.",
+          "cosine_sim": 0.5054091215133667,
+          "hoyer_sparsity": 0.22548779193169516,
+          "l2_distance": 0.9945762753486633
+        },
+        "quantifier": {
+          "sentence": "No sector of the economy is growing.",
+          "cosine_sim": 0.4041628837585449,
+          "hoyer_sparsity": 0.21777030528637506,
+          "l2_distance": 1.0916383266448975
+        }
+      }
+    },
+    {
+      "original": "She is happy.",
+      "styles": {
+        "simple": {
+          "sentence": "She is not happy.",
+          "cosine_sim": 0.5112990140914917,
+          "hoyer_sparsity": 0.20595705633408498,
+          "l2_distance": 0.9886363744735718
+        },
+        "antonym": {
+          "sentence": "She is sad.",
+          "cosine_sim": 0.47408390045166016,
+          "hoyer_sparsity": 0.22153669010437932,
+          "l2_distance": 1.025588870048523
+        },
+        "indirect": {
+          "sentence": "She is in distress.",
+          "cosine_sim": 0.37255966663360596,
+          "hoyer_sparsity": 0.22253503305922842,
+          "l2_distance": 1.120214581489563
+        },
+        "scalar": {
+          "sentence": "She is slightly content.",
+          "cosine_sim": 0.8690192103385925,
+          "hoyer_sparsity": 0.2193864898653344,
+          "l2_distance": 0.5118218064308167
+        },
+        "modal": {
+          "sentence": "She cannot be happy.",
+          "cosine_sim": 0.45099878311157227,
+          "hoyer_sparsity": 0.2160520872299104,
+          "l2_distance": 1.047856092453003
+        },
+        "quantifier": {
+          "sentence": "Nobody in her family is happy.",
+          "cosine_sim": 0.2317049503326416,
+          "hoyer_sparsity": 0.20851667571939686,
+          "l2_distance": 1.2395926713943481
+        }
+      }
+    },
+    {
+      "original": "The experiment succeeded.",
+      "styles": {
+        "simple": {
+          "sentence": "The experiment did not succeed.",
+          "cosine_sim": 0.6162176728248596,
+          "hoyer_sparsity": 0.21653140894754036,
+          "l2_distance": 0.8761076927185059
+        },
+        "antonym": {
+          "sentence": "The experiment failed.",
+          "cosine_sim": 0.6238649487495422,
+          "hoyer_sparsity": 0.21413144446474905,
+          "l2_distance": 0.8673350811004639
+        },
+        "indirect": {
+          "sentence": "The experiment produced no usable results.",
+          "cosine_sim": 0.4914672374725342,
+          "hoyer_sparsity": 0.21471429910217096,
+          "l2_distance": 1.008496642112732
+        },
+        "scalar": {
+          "sentence": "The experiment barely produced results.",
+          "cosine_sim": 0.5611644983291626,
+          "hoyer_sparsity": 0.22469894248489408,
+          "l2_distance": 0.9368410110473633
+        },
+        "modal": {
+          "sentence": "The experiment could not succeed.",
+          "cosine_sim": 0.5214640498161316,
+          "hoyer_sparsity": 0.21245492518425577,
+          "l2_distance": 0.9783005714416504
+        },
+        "quantifier": {
+          "sentence": "None of the experiments succeeded.",
+          "cosine_sim": 0.4280061721801758,
+          "hoyer_sparsity": 0.22030807565551017,
+          "l2_distance": 1.0695736408233643
+        }
+      }
+    },
+    {
+      "original": "The government supports free trade.",
+      "styles": {
+        "simple": {
+          "sentence": "The government does not support free trade.",
+          "cosine_sim": 0.5697212219238281,
+          "hoyer_sparsity": 0.2205495572656732,
+          "l2_distance": 0.9276624321937561
+        },
+        "antonym": {
+          "sentence": "The government opposes free trade.",
+          "cosine_sim": 0.6072930693626404,
+          "hoyer_sparsity": 0.21958470185522577,
+          "l2_distance": 0.886235773563385
+        },
+        "indirect": {
+          "sentence": "The government has imposed tariffs and trade barriers.",
+          "cosine_sim": 0.6445315480232239,
+          "hoyer_sparsity": 0.24315007963612187,
+          "l2_distance": 0.8431706428527832
+        },
+        "scalar": {
+          "sentence": "The government is ambivalent about free trade.",
+          "cosine_sim": 0.6464263796806335,
+          "hoyer_sparsity": 0.23081888047681737,
+          "l2_distance": 0.8409203886985779
+        },
+        "modal": {
+          "sentence": "The government cannot support free trade.",
+          "cosine_sim": 0.5318720936775208,
+          "hoyer_sparsity": 0.22484981493973574,
+          "l2_distance": 0.9676032066345215
+        },
+        "quantifier": {
+          "sentence": "No government supports free trade.",
+          "cosine_sim": 0.6926847696304321,
+          "hoyer_sparsity": 0.221454220778614,
+          "l2_distance": 0.7839837074279785
+        }
+      }
+    },
+    {
+      "original": "Private property is sacred.",
+      "styles": {
+        "simple": {
+          "sentence": "Private property is not sacred.",
+          "cosine_sim": 0.9691575169563293,
+          "hoyer_sparsity": 0.2242803124788663,
+          "l2_distance": 0.24836495518684387
+        },
+        "antonym": {
+          "sentence": "Private property is illegitimate.",
+          "cosine_sim": 0.7040539383888245,
+          "hoyer_sparsity": 0.2398960042660537,
+          "l2_distance": 0.7693453431129456
+        },
+        "indirect": {
+          "sentence": "Property claims are social constructs with no inherent sanctity.",
+          "cosine_sim": 0.5832757949829102,
+          "hoyer_sparsity": 0.23260614428048124,
+          "l2_distance": 0.9129340052604675
+        },
+        "scalar": {
+          "sentence": "Private property is merely tolerated.",
+          "cosine_sim": 0.6751306056976318,
+          "hoyer_sparsity": 0.2188289829427581,
+          "l2_distance": 0.8060639500617981
+        },
+        "modal": {
+          "sentence": "Private property cannot be considered sacred.",
+          "cosine_sim": 0.9000012874603271,
+          "hoyer_sparsity": 0.21217088797395756,
+          "l2_distance": 0.4472106695175171
+        },
+        "quantifier": {
+          "sentence": "No form of property is sacred.",
+          "cosine_sim": 0.8356231451034546,
+          "hoyer_sparsity": 0.24376263751122204,
+          "l2_distance": 0.5733704566955566
+        }
+      }
+    },
+    {
+      "original": "All humans are equal.",
+      "styles": {
+        "simple": {
+          "sentence": "Not all humans are equal.",
+          "cosine_sim": 0.8548017740249634,
+          "hoyer_sparsity": 0.22050743007761991,
+          "l2_distance": 0.5388845205307007
+        },
+        "antonym": {
+          "sentence": "Humans are fundamentally unequal.",
+          "cosine_sim": 0.7876313328742981,
+          "hoyer_sparsity": 0.23089092510858986,
+          "l2_distance": 0.6517188549041748
+        },
+        "indirect": {
+          "sentence": "Natural hierarchies exist among people.",
+          "cosine_sim": 0.346885085105896,
+          "hoyer_sparsity": 0.23514120137309763,
+          "l2_distance": 1.142904281616211
+        },
+        "scalar": {
+          "sentence": "Humans are approximately equal in some respects.",
+          "cosine_sim": 0.7800769209861755,
+          "hoyer_sparsity": 0.2191889204935659,
+          "l2_distance": 0.6632091403007507
+        },
+        "modal": {
+          "sentence": "Humans cannot be truly equal.",
+          "cosine_sim": 0.8356325626373291,
+          "hoyer_sparsity": 0.21324434584716606,
+          "l2_distance": 0.5733542442321777
+        },
+        "quantifier": {
+          "sentence": "No two humans are truly equal.",
+          "cosine_sim": 0.8360801339149475,
+          "hoyer_sparsity": 0.22651283923964924,
+          "l2_distance": 0.5725730657577515
+        }
+      }
+    },
+    {
+      "original": "The market is efficient.",
+      "styles": {
+        "simple": {
+          "sentence": "The market is not efficient.",
+          "cosine_sim": 0.7058313488960266,
+          "hoyer_sparsity": 0.2127079025186164,
+          "l2_distance": 0.7670315504074097
+        },
+        "antonym": {
+          "sentence": "The market is wasteful.",
+          "cosine_sim": 0.5986242890357971,
+          "hoyer_sparsity": 0.23575076036362452,
+          "l2_distance": 0.8959639668464661
+        },
+        "indirect": {
+          "sentence": "Resources are systematically misallocated.",
+          "cosine_sim": 0.2323143482208252,
+          "hoyer_sparsity": 0.24327967429089595,
+          "l2_distance": 1.2391010522842407
+        },
+        "scalar": {
+          "sentence": "The market is sometimes efficient.",
+          "cosine_sim": 0.9329732060432434,
+          "hoyer_sparsity": 0.2350930764158978,
+          "l2_distance": 0.36613330245018005
+        },
+        "modal": {
+          "sentence": "The market cannot be efficient.",
+          "cosine_sim": 0.5721315145492554,
+          "hoyer_sparsity": 0.21433029907276327,
+          "l2_distance": 0.9250605702400208
+        },
+        "quantifier": {
+          "sentence": "No market is truly efficient.",
+          "cosine_sim": 0.7045536637306213,
+          "hoyer_sparsity": 0.23077753871091425,
+          "l2_distance": 0.7686954140663147
+        }
+      }
+    },
+    {
+      "original": "Democracy produces good outcomes.",
+      "styles": {
+        "simple": {
+          "sentence": "Democracy does not produce good outcomes.",
+          "cosine_sim": 0.8381764888763428,
+          "hoyer_sparsity": 0.2190871012221015,
+          "l2_distance": 0.5688997507095337
+        },
+        "antonym": {
+          "sentence": "Democracy produces terrible outcomes.",
+          "cosine_sim": 0.8201148509979248,
+          "hoyer_sparsity": 0.22694639226652977,
+          "l2_distance": 0.5998086333274841
+        },
+        "indirect": {
+          "sentence": "The democratic process leads to mediocre governance.",
+          "cosine_sim": 0.5483456254005432,
+          "hoyer_sparsity": 0.2252406695624538,
+          "l2_distance": 0.9504256248474121
+        },
+        "scalar": {
+          "sentence": "Democracy sometimes produces acceptable outcomes.",
+          "cosine_sim": 0.8395956754684448,
+          "hoyer_sparsity": 0.22840784868191039,
+          "l2_distance": 0.5663997530937195
+        },
+        "modal": {
+          "sentence": "Democracy cannot produce good outcomes.",
+          "cosine_sim": 0.750985860824585,
+          "hoyer_sparsity": 0.22959062303801647,
+          "l2_distance": 0.7057113647460938
+        },
+        "quantifier": {
+          "sentence": "No democratic system produces good outcomes.",
+          "cosine_sim": 0.7209736704826355,
+          "hoyer_sparsity": 0.22310796281675305,
+          "l2_distance": 0.7470293045043945
+        }
+      }
+    },
+    {
+      "original": "Violence is never justified.",
+      "styles": {
+        "simple": {
+          "sentence": "Violence is not never justified.",
+          "cosine_sim": 0.9732373952865601,
+          "hoyer_sparsity": 0.2309109890744254,
+          "l2_distance": 0.23135517537593842
+        },
+        "antonym": {
+          "sentence": "Violence is sometimes necessary.",
+          "cosine_sim": 0.7222290635108948,
+          "hoyer_sparsity": 0.21462854528377776,
+          "l2_distance": 0.7453467845916748
+        },
+        "indirect": {
+          "sentence": "There are circumstances where force is the only option.",
+          "cosine_sim": 0.42971622943878174,
+          "hoyer_sparsity": 0.22352430795834402,
+          "l2_distance": 1.0679736137390137
+        },
+        "scalar": {
+          "sentence": "Violence is rarely justified.",
+          "cosine_sim": 0.918764591217041,
+          "hoyer_sparsity": 0.2197903396545367,
+          "l2_distance": 0.4030768871307373
+        },
+        "modal": {
+          "sentence": "It cannot be said that violence is never justified.",
+          "cosine_sim": 0.9057762622833252,
+          "hoyer_sparsity": 0.2345108643965987,
+          "l2_distance": 0.43410545587539673
+        },
+        "quantifier": {
+          "sentence": "Every society has justified violence at some point.",
+          "cosine_sim": 0.7482432126998901,
+          "hoyer_sparsity": 0.22295716176392502,
+          "l2_distance": 0.7095869779586792
+        }
+      }
+    }
+  ],
+  "style_summary": {
+    "simple": {
+      "mean_cosine": 0.7564615905284882,
+      "std_cosine": 0.16124247817467577,
+      "mean_hoyer": 0.22037977041741574,
+      "mean_l2": 0.6465388312935829,
+      "n": 10
+    },
+    "antonym": {
+      "mean_cosine": 0.6596337497234345,
+      "std_cosine": 0.0968008736784405,
+      "mean_hoyer": 0.2258756833708468,
+      "mean_l2": 0.8162319898605347,
+      "n": 10
+    },
+    "indirect": {
+      "mean_cosine": 0.48148550987243655,
+      "std_cosine": 0.1266353365170356,
+      "mean_hoyer": 0.22981806701229596,
+      "mean_l2": 1.0109625577926635,
+      "n": 10
+    },
+    "scalar": {
+      "mean_cosine": 0.7548534095287323,
+      "std_cosine": 0.13013776656334217,
+      "mean_hoyer": 0.22474764579840448,
+      "mean_l2": 0.6721171706914901,
+      "n": 10
+    },
+    "modal": {
+      "mean_cosine": 0.6578865289688111,
+      "std_cosine": 0.16464102967089395,
+      "mean_hoyer": 0.21948599571155655,
+      "mean_l2": 0.7963054955005646,
+      "n": 10
+    },
+    "quantifier": {
+      "mean_cosine": 0.6040501296520233,
+      "std_cosine": 0.19922056468393348,
+      "mean_hoyer": 0.22383025844663132,
+      "mean_l2": 0.8615790069103241,
+      "n": 10
+    }
+  },
+  "blindspot_confirmed": true
+}

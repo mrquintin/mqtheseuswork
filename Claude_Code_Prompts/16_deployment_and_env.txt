@@ -1,0 +1,448 @@
+# Claude Code Prompt 16 of 17 — Deployment + env: Dockerfiles, compose, secrets, migrations, health probes
+
+**Sequence:** prompt 16 of 17 (Wave 7). Depends on 07, 08, 15. Report back with: the final list of env vars, the full compose output of `docker compose ps`, and the URL each service is reachable at locally.
+
+**Before you start — read current state:**
+1. Read the repo root for an existing `Dockerfile`, `docker-compose.yml`, or `.env.example`. If any exist, extend them — do not replace.
+2. Read `theseus-public/next.config.ts` — confirm prompt 08 already removed `output: "export"`. If it is still set, STOP and note that the dependency is unmet.
+3. Read `theseus-public/package.json` — confirm `"start": "next start"` exists. If the project was previously static-only, `start` may be missing; add it if so.
+4. Read `current_events_api/app.py` for its ASGI entrypoint (typically `app`) and any `if __name__ == "__main__"` uvicorn bootstrap.
+5. Read `noosphere/store.py` — confirm the SQLite path layout: there should be a single `NOOSPHERE_DATA_DIR` with `noosphere.db`, `currents_budget.json`, `currents_status.json`, and an `embeddings/` subdirectory (or similar).
+6. Read `alembic.ini` and the Alembic migrations folder — note the command to run migrations on startup (`alembic upgrade head`).
+7. Read any existing `vercel.json` or `netlify.toml`. The previous deploy target was likely one of these for the static export; the move to a hybrid runtime may require reconfiguration or a container target.
+
+## Your task
+
+Package the three processes — `current_events_api` (FastAPI), `noosphere.currents` scheduler, `theseus-public` (Next.js hybrid) — into a reproducible deployment. Provide: per-service Dockerfiles, a `docker-compose.yml` that wires them with a shared data volume, an authoritative `.env.example`, a migration-runner init container, `/healthz` endpoints, and a README section documenting the two deploy modes (containers everywhere vs. hybrid where theseus-public stays on Vercel).
+
+No new cloud dependencies. The design invariants from earlier prompts (no Redis, no Kafka, SQLite is authoritative, in-process OpinionBus) are preserved.
+
+## Prerequisites
+
+- Prompts 07, 08, 15 applied.
+- `X_BEARER_TOKEN` and `ANTHROPIC_API_KEY` available in the operator's secret store. These two secrets are the ONLY external credentials the system needs. If the operator does not have an X bearer token yet, the `currents-scheduler` service will still boot but every cycle will log `ingest_failed:MissingCredentials` — the API surface keeps working on whatever historic opinions are in the DB.
+
+## SCOPE
+
+- `Dockerfile.api`                                                         CREATE (FastAPI service)
+- `Dockerfile.scheduler`                                                   CREATE (scheduler loop)
+- `Dockerfile.public`                                                      CREATE (Next.js hybrid)
+- `Dockerfile.migrate`                                                     CREATE (one-shot Alembic runner)
+- `docker-compose.yml`                                                     CREATE (or MODIFY if exists)
+- `.env.example`                                                           CREATE
+- `ops/healthz.py`                                                         CREATE (shared probe helpers)
+- `current_events_api/app.py`                                              MODIFY (add `/healthz` + `/readyz`)
+- `theseus-public/src/app/api/healthz/route.ts`                            CREATE
+- `theseus-public/next.config.ts`                                          MODIFY (add `output: "standalone"` for container builds)
+- `README.md` (at repo root)                                               MODIFY (add "Running currents locally" + "Deploying" sections)
+- `ops/deploy-vercel.md`                                                   CREATE (deployment notes for the Vercel-compatible mode)
+
+Do NOT commit any real secrets. Do NOT add a Redis/Postgres service. Do NOT rewrite the existing Alembic config.
+
+## Step-by-step
+
+### 1. `.env.example` — the full canonical list
+
+Create at repo root:
+
+```dotenv
+# --- Secrets (set these in your deployment's secret store; DO NOT commit) ---
+X_BEARER_TOKEN=
+ANTHROPIC_API_KEY=
+
+# --- Noosphere storage ---
+# Absolute path inside the container. Host-mounted volume from compose.
+NOOSPHERE_DATA_DIR=/data/noosphere
+
+# --- Current events API ---
+# Public-facing port (localhost by default). Put this behind your reverse proxy.
+CURRENTS_API_HOST=0.0.0.0
+CURRENTS_API_PORT=8088
+# Comma-separated list of CORS origins allowed to call the API directly
+# (the theseus-public route handlers are the usual caller and speak server-to-server,
+#  so this list is typically just your public origin for direct-browser calls).
+CURRENTS_CORS_ORIGINS=http://localhost:3001
+
+# --- LLM generator ---
+CURRENTS_LLM_MODEL=claude-haiku-4-5
+CURRENTS_LLM_MAX_PROMPT_TOKENS_PER_HOUR=1500000
+CURRENTS_LLM_MAX_COMPLETION_TOKENS_PER_HOUR=400000
+
+# --- Ingestor ---
+# Comma-separated X user IDs (not handles) for the curated follow list.
+CURRENTS_X_CURATED_ACCOUNTS=
+# Comma-separated query strings for `/2/tweets/search/recent`.
+CURRENTS_X_SEARCH_QUERIES=
+# Max events persisted per ingest cycle.
+CURRENTS_INGEST_MAX_EVENTS_PER_CYCLE=40
+
+# --- theseus-public ---
+# URL the Next.js route handlers use to reach the API.
+# In docker-compose, this is `http://currents-api:8088`.
+# In hybrid deploys (Vercel + external API), this is your public API URL.
+CURRENTS_API_URL=http://currents-api:8088
+# Public origin of the theseus-public site itself, used for OG links and share URLs.
+PUBLIC_SITE_ORIGIN=http://localhost:3001
+```
+
+### 2. `Dockerfile.migrate`
+
+```dockerfile
+FROM python:3.12-slim AS base
+WORKDIR /app
+ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1
+COPY pyproject.toml poetry.lock* requirements*.txt ./
+RUN pip install --no-cache-dir -r requirements.txt
+COPY noosphere ./noosphere
+COPY alembic ./alembic
+COPY alembic.ini .
+CMD ["alembic", "upgrade", "head"]
+```
+
+(Adjust the `requirements.txt` vs `pyproject.toml` path to whatever the repo actually uses; the skeleton above assumes pip-installed requirements.)
+
+### 3. `Dockerfile.api`
+
+```dockerfile
+FROM python:3.12-slim
+WORKDIR /app
+ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+COPY noosphere ./noosphere
+COPY current_events_api ./current_events_api
+EXPOSE 8088
+# One worker — OPINION_BUS is in-memory. Scale horizontally only with a real pub/sub.
+CMD ["uvicorn", "current_events_api.app:app", "--host", "0.0.0.0", "--port", "8088", "--workers", "1"]
+```
+
+**Single-worker invariant:** the in-process `OpinionBus` fans out within one process. Multiple workers would each tail the DB independently and only serve the subset of clients bound to their worker — that's fine for at-least-once delivery but doubles token work. If the API ever needs horizontal scale, move the tailer + bus behind a real pub/sub; the current design does not support it.
+
+### 4. `Dockerfile.scheduler`
+
+```dockerfile
+FROM python:3.12-slim
+WORKDIR /app
+ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+COPY noosphere ./noosphere
+CMD ["python", "-m", "noosphere.currents", "loop"]
+```
+
+### 5. `Dockerfile.public`
+
+```dockerfile
+FROM node:20-alpine AS deps
+WORKDIR /app
+COPY theseus-public/package*.json ./
+RUN npm ci
+
+FROM node:20-alpine AS builder
+WORKDIR /app
+COPY --from=deps /app/node_modules ./node_modules
+COPY theseus-public ./
+RUN npm run build
+
+FROM node:20-alpine AS runner
+WORKDIR /app
+ENV NODE_ENV=production
+# Uses Next's standalone output to minimize image size.
+COPY --from=builder /app/.next/standalone ./
+COPY --from=builder /app/.next/static ./.next/static
+COPY --from=builder /app/public ./public
+EXPOSE 3001
+CMD ["node", "server.js"]
+```
+
+Modify `theseus-public/next.config.ts`:
+
+```ts
+const nextConfig = {
+  output: "standalone", // required by Dockerfile.public
+  // ...existing config...
+};
+```
+
+If the operator targets Vercel rather than containers for theseus-public, they should not set `output: "standalone"` (Vercel prefers native). Make this conditional on an env var:
+
+```ts
+output: process.env.NEXT_BUILD_TARGET === "standalone" ? "standalone" : undefined,
+```
+
+### 6. `docker-compose.yml`
+
+```yaml
+services:
+  currents-migrate:
+    build:
+      context: .
+      dockerfile: Dockerfile.migrate
+    env_file: .env
+    volumes:
+      - currents-data:/data/noosphere
+    restart: "no"
+
+  currents-api:
+    build:
+      context: .
+      dockerfile: Dockerfile.api
+    env_file: .env
+    depends_on:
+      currents-migrate:
+        condition: service_completed_successfully
+    ports:
+      - "8088:8088"
+    volumes:
+      - currents-data:/data/noosphere
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request,sys;sys.exit(0 if urllib.request.urlopen('http://localhost:8088/healthz',timeout=2).status==200 else 1)"]
+      interval: 15s
+      timeout: 3s
+      retries: 3
+    restart: unless-stopped
+
+  currents-scheduler:
+    build:
+      context: .
+      dockerfile: Dockerfile.scheduler
+    env_file: .env
+    depends_on:
+      currents-migrate:
+        condition: service_completed_successfully
+    volumes:
+      - currents-data:/data/noosphere
+    healthcheck:
+      # Liveness: currents_status.json updated within 2 cycle-intervals (600s)
+      test: ["CMD", "python", "-c", "import json,os,sys,time; p=os.environ['NOOSPHERE_DATA_DIR']+'/currents_status.json'; s=os.stat(p); sys.exit(0 if (time.time()-s.st_mtime)<600 else 1)"]
+      interval: 60s
+      timeout: 5s
+      retries: 3
+      start_period: 120s
+    restart: unless-stopped
+
+  theseus-public:
+    build:
+      context: .
+      dockerfile: Dockerfile.public
+      args:
+        NEXT_BUILD_TARGET: standalone
+    env_file: .env
+    environment:
+      CURRENTS_API_URL: http://currents-api:8088
+    depends_on:
+      currents-api:
+        condition: service_healthy
+    ports:
+      - "3001:3001"
+    restart: unless-stopped
+
+volumes:
+  currents-data:
+```
+
+### 7. Health + readiness endpoints
+
+Create `ops/healthz.py`:
+
+```python
+from __future__ import annotations
+import os, time, json
+from pathlib import Path
+
+def data_dir_ok() -> tuple[bool, str]:
+    p = os.environ.get("NOOSPHERE_DATA_DIR")
+    if not p: return False, "NOOSPHERE_DATA_DIR unset"
+    if not Path(p).is_dir(): return False, f"{p} not a directory"
+    return True, "ok"
+
+def scheduler_liveness(max_age_seconds: int = 600) -> tuple[bool, str]:
+    p = Path(os.environ["NOOSPHERE_DATA_DIR"]) / "currents_status.json"
+    if not p.exists(): return False, "no status file yet"
+    age = time.time() - p.stat().st_mtime
+    if age > max_age_seconds: return False, f"status {int(age)}s old"
+    try:
+        last = json.loads(p.read_text())["last_cycle"]
+    except Exception as e:
+        return False, f"status unreadable: {e}"
+    return True, f"last cycle {last.get('cycle_id')} {int(age)}s ago"
+```
+
+Modify `current_events_api/app.py`:
+
+```python
+from fastapi.responses import JSONResponse
+from ops.healthz import data_dir_ok, scheduler_liveness
+
+@app.get("/healthz", include_in_schema=False)
+async def healthz():
+    return {"status": "ok"}
+
+@app.get("/readyz", include_in_schema=False)
+async def readyz():
+    checks = {
+        "data_dir": data_dir_ok(),
+        "scheduler": scheduler_liveness(),
+    }
+    status = all(ok for ok, _ in checks.values())
+    return JSONResponse(
+        status_code=200 if status else 503,
+        content={"ok": status, "checks": {k: {"ok": v[0], "detail": v[1]} for k, v in checks.items()}},
+    )
+```
+
+`/readyz` returns 503 if the scheduler has fallen silent — this is the right signal for a load balancer to drain traffic when the ingest pipeline is wedged.
+
+Create `theseus-public/src/app/api/healthz/route.ts`:
+
+```ts
+import { NextResponse } from "next/server";
+
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+
+export async function GET() {
+  // Shallow: the public site is stateless beyond its upstream API.
+  return NextResponse.json({ status: "ok" });
+}
+```
+
+### 8. Migrations
+
+The `currents-migrate` init container runs `alembic upgrade head` and exits. Compose gates both `currents-api` and `currents-scheduler` on `service_completed_successfully` so neither starts against an unmigrated DB.
+
+If this is the first deploy and the existing Noosphere SQLite file lives outside the new volume, document (in README) a one-time copy:
+
+```bash
+docker compose run --rm -v "$(pwd)/noosphere_data:/src:ro" currents-migrate \
+  sh -c "cp -r /src/* /data/noosphere/ && alembic upgrade head"
+```
+
+### 9. README updates
+
+Append to `README.md`:
+
+```markdown
+## Running currents locally
+
+    cp .env.example .env
+    # Fill in X_BEARER_TOKEN and ANTHROPIC_API_KEY; optionally set CURRENTS_X_*
+    docker compose up --build
+
+Services:
+- theseus-public: http://localhost:3001
+- current_events_api: http://localhost:8088 (health: /healthz, ready: /readyz, metrics: /metrics)
+- scheduler: no port; inspect `docker compose logs -f currents-scheduler`
+
+The scheduler runs one 5-minute cycle immediately on startup, then every 5 minutes.
+You can force a one-shot cycle for testing:
+
+    docker compose run --rm currents-scheduler python -m noosphere.currents once
+
+## Deploying
+
+Two supported modes:
+
+1. **All-in-containers** — `docker-compose.yml` as-is, run behind a reverse proxy
+   that terminates TLS and forwards `:3001` and `:8088`. Single host is enough
+   for the expected traffic; SQLite is authoritative and backed up via a volume
+   snapshot.
+
+2. **Hybrid (Vercel + host)** — deploy `theseus-public` to Vercel, the API and
+   scheduler to a small VM. See `ops/deploy-vercel.md` for the exact Vercel
+   configuration and the `CURRENTS_API_URL` that Vercel needs to reach your API.
+```
+
+### 10. `ops/deploy-vercel.md`
+
+```markdown
+# Deploying theseus-public on Vercel with an external currents API
+
+Since we dropped `output: "export"` in prompt 08, theseus-public now requires a
+runtime. Vercel is a native target.
+
+## Required environment variables (set in Vercel project settings)
+
+- `CURRENTS_API_URL` — the publicly reachable URL of `current_events_api`
+  (e.g. `https://currents-api.theseus.example`). TLS is mandatory.
+- `PUBLIC_SITE_ORIGIN` — `https://theseus.example` (used for OG URLs).
+
+## Routing
+
+The Next.js route handlers under `/api/currents/*` proxy to `CURRENTS_API_URL`,
+including the SSE streams. Vercel's Node runtime keeps long-lived connections
+open under the Fluid pricing tier — confirm your plan supports it, or consider
+serving the SSE endpoint directly from the API host and pointing `EventSource`
+at that hostname instead. (That's a larger change and NOT in scope here.)
+
+## Caching
+
+`GET /api/currents/feed` uses `export const dynamic = "force-dynamic"` so Vercel
+will not cache opinion lists. Do not add `revalidate` — live data must be live.
+
+## Build
+
+No special build step. `npm run build && npm run start` as usual. Do NOT set
+`NEXT_BUILD_TARGET=standalone` on Vercel — standalone output is only for the
+containerized mode.
+```
+
+### 11. Requirements file
+
+Ensure `requirements.txt` contains:
+
+```
+fastapi>=0.110
+uvicorn[standard]>=0.27
+sse-starlette>=1.8
+anthropic>=0.30
+httpx>=0.27
+sqlalchemy>=2.0
+alembic>=1.13
+pydantic>=2.6
+numpy
+```
+
+If the repo uses `pyproject.toml` instead, add these to the appropriate dependencies array.
+
+## Verification
+
+```bash
+cd /Users/michaelquintin/Desktop/Theseus
+
+# 1. Build every image without pushing
+docker compose build
+
+# 2. Start
+docker compose up -d
+
+# 3. Confirm all services healthy
+docker compose ps
+# Expect: currents-migrate Exit 0; currents-api, currents-scheduler, theseus-public Up (healthy)
+
+# 4. Probes
+curl -s http://localhost:8088/healthz     # {"status":"ok"}
+curl -s http://localhost:8088/readyz      # 200 once scheduler has run at least once
+curl -s http://localhost:8088/metrics | head
+curl -s http://localhost:3001/api/healthz # {"status":"ok"}
+
+# 5. Force one ingest cycle
+docker compose run --rm currents-scheduler python -m noosphere.currents once
+
+# 6. Tear down cleanly, preserving volume
+docker compose down
+
+# 7. Tear down AND wipe data (destructive)
+docker compose down -v
+```
+
+## Prohibitions
+
+- Do NOT introduce any external data store (Redis, Postgres, Kafka, S3). The entire system runs on SQLite on a mounted volume.
+- Do NOT scale `currents-api` beyond `--workers 1` without first replacing the in-process `OpinionBus`. Multiple workers = split-brain SSE fan-out.
+- Do NOT bake secrets into images or commit `.env`. `.env.example` is committed; `.env` must be in `.gitignore`.
+- Do NOT expose `/metrics` or `/readyz` to the public internet without auth; they leak cardinality and internal state. Behind the reverse proxy, restrict both to internal IPs.
+- Do NOT skip the `currents-migrate` gate. Starting `currents-api` against an unmigrated DB will 500 every request.
+- Do NOT set `revalidate` or ISR flags on `/api/currents/*`. Live feed is live.
+
+Do not proceed to any other work. Do not edit anything outside SCOPE.

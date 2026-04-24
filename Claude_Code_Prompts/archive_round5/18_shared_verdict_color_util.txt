@@ -1,0 +1,83 @@
+# Claude Code Prompt 18 of 25 — Refactor: extract shared verdict color utility
+
+**Sequence:** prompt 18 of 25 (Wave 5 — independent of prompts 17, 19–21). When you finish, report back with: files you created/modified, any notable choices, any blockers.
+
+**Before you start — read current state:**
+1. Read `theseus-codex/src/app/(authed)/conclusions/[id]/peer-review-tab.tsx` — note the `verdictColor` function.
+2. Read `theseus-codex/src/app/(authed)/peer-review/[conclusionId]/page.tsx` — note the identical `verdictColor` function.
+3. Search for other `verdictColor` or similar color-mapping functions across the codebase: `grep -r "verdictColor\|verdict.*color\|statusColor" theseus-codex/src/`.
+4. Read `theseus-codex/src/app/(authed)/decay/page.tsx` — note the `statusColor` function.
+
+## The problem
+
+The same `verdictColor` function is defined identically in at least two files:
+```typescript
+function verdictColor(verdict: string): string {
+  switch (verdict) {
+    case "endorse": return "var(--gold)";
+    case "challenge": return "var(--ember)";
+    default: return "var(--parchment-dim)";
+  }
+}
+```
+
+The decay page has a similar but different `statusColor` function. These color-mapping utilities should be shared.
+
+## Your task
+
+Extract verdict and status color mapping into a shared utility module and update all consumers.
+
+## SCOPE (files you may create or modify — stay within this list)
+- `theseus-codex/src/lib/colors.ts`                                              CREATE
+- `theseus-codex/src/app/(authed)/conclusions/[id]/peer-review-tab.tsx`          MODIFY
+- `theseus-codex/src/app/(authed)/peer-review/[conclusionId]/page.tsx`           MODIFY
+- `theseus-codex/src/app/(authed)/decay/page.tsx`                                MODIFY
+- Any other files found by the grep in step 3 of "Before you start"              MODIFY
+
+## Step-by-step
+
+1. **Create `theseus-codex/src/lib/colors.ts`** with shared color-mapping functions:
+   ```typescript
+   /**
+    * Shared color utilities for verdict and status displays.
+    * Uses CSS custom properties defined in the global stylesheet.
+    */
+
+   /** Peer review verdicts: endorse | challenge | abstain */
+   export function peerVerdictColor(verdict: string): string {
+     switch (verdict) {
+       case "endorse": return "var(--gold)";
+       case "challenge": return "var(--ember)";
+       case "abstain":
+       default: return "var(--parchment-dim)";
+     }
+   }
+
+   /** Coherence review verdicts: cohere | contradict | unresolved */
+   export function coherenceVerdictColor(verdict: string): string {
+     switch (verdict) {
+       case "cohere": return "var(--amber)";
+       case "contradict": return "var(--ember)";
+       case "unresolved":
+       default: return "var(--parchment-dim)";
+     }
+   }
+
+   /** Decay status: healthy | decaying | expired */
+   export function decayStatusColor(status: string): string {
+     switch (status) {
+       case "healthy": return "var(--gold)";
+       case "decaying": return "var(--parchment)";
+       case "expired": return "var(--ember)";
+       default: return "var(--parchment-dim)";
+     }
+   }
+   ```
+
+2. **Update all consumers** to import from `@/lib/colors` and remove the local function definitions.
+
+3. **Check for any other color-mapping functions** that should be consolidated. Common patterns to look for: `severityColor`, `tierColor`, `gateStatusColor`.
+
+4. **Do NOT change** any rendering logic, styling, or behavior. Only move the functions and update imports.
+
+Do not proceed to any other work. Do not edit anything outside SCOPE.

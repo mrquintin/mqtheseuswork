@@ -1,0 +1,86 @@
+# Claude Code Prompt 10 of 25 — UX: improve cascade tab tree visualization
+
+**Sequence:** prompt 10 of 25 (Wave 3 — independent of prompts 07–09, 11). When you finish, report back with: files you created/modified, any notable choices, any blockers.
+
+**Before you start — read current state:**
+1. Read `theseus-codex/src/app/(authed)/conclusions/[id]/cascade-tab.tsx` — note the recursive `renderNodes` function.
+2. Read `theseus-codex/src/app/(authed)/cascade/[conclusionId]/page.tsx` — see how the standalone cascade page renders (it may have its own tree renderer).
+
+## The problem
+
+The cascade tab renders a tree structure using only `paddingLeft` for indentation and a `borderLeft` on non-root nodes. At depth 3+, the tree becomes unreadable — there are no connecting lines, no visual indication of parent-child relationships, and nodes blend into an undifferentiated stack of indented text.
+
+## Your task
+
+Add proper tree visualization with connecting lines so the hierarchical structure is clear at any depth. Use CSS-only techniques (border + pseudo-element patterns or nested border styles) — no JavaScript canvas or SVG needed.
+
+## SCOPE (files you may modify — stay within this list)
+- `theseus-codex/src/app/(authed)/conclusions/[id]/cascade-tab.tsx`    MODIFY
+
+## Step-by-step
+
+1. **Add tree connector styling.** The classic tree-view pattern uses left borders on container divs and horizontal "branch" lines for each node. A clean approach with inline styles:
+   - Each depth level gets a container with `borderLeft: "1px solid var(--border)"` and `marginLeft` for indentation.
+   - Each node within that container gets a horizontal connector: a small pseudo-element or a `::before` style. Since inline styles can't do pseudo-elements, use a small `<span>` that acts as the branch connector:
+   ```tsx
+   {depth > 0 && (
+     <span style={{
+       display: "inline-block",
+       width: "1rem",
+       borderBottom: "1px solid var(--border)",
+       marginRight: "0.5rem",
+       verticalAlign: "middle",
+     }} />
+   )}
+   ```
+
+2. **Color-code by node kind.** The cascade nodes have a `kind` field (e.g., "principle", "claim", "conclusion", "evidence"). Use subtle color variations:
+   ```typescript
+   function kindColor(kind: string): string {
+     switch (kind) {
+       case "principle": return "var(--gold)";
+       case "claim": return "var(--amber)";
+       case "evidence": return "var(--parchment)";
+       case "conclusion": return "var(--gold-dim)";
+       default: return "var(--parchment-dim)";
+     }
+   }
+   ```
+   Apply this to the kind label and the left border.
+
+3. **Add expand/collapse for deep trees.** If a node has children, wrap the children in a `<details open>` element so they default to expanded but can be collapsed:
+   ```tsx
+   {node.children.length > 0 && (
+     <details open style={{ marginTop: "0.25rem" }}>
+       <summary style={{
+         cursor: "pointer",
+         fontSize: "0.6rem",
+         color: "var(--parchment-dim)",
+       }}>
+         {node.children.length} child node{node.children.length > 1 ? "s" : ""}
+       </summary>
+       {renderNodes(node.children, depth + 1)}
+     </details>
+   )}
+   ```
+
+4. **Add confidence bar.** The confidence percentage is currently shown as text. Add a small inline visual indicator — a thin bar or background fill — to make confidence levels scannable at a glance:
+   ```tsx
+   <div style={{
+     width: "3rem",
+     height: "3px",
+     background: "var(--border)",
+     borderRadius: 2,
+     overflow: "hidden",
+   }}>
+     <div style={{
+       width: `${(node.confidence * 100).toFixed(0)}%`,
+       height: "100%",
+       background: "var(--gold)",
+     }} />
+   </div>
+   ```
+
+5. **Do NOT change** the data fetching logic, the `fetchCascade` function, or the `CascadeNode` type. Only change the rendering.
+
+Do not proceed to any other work. Do not edit anything outside SCOPE.

@@ -1,0 +1,240 @@
+# Claude Code Prompt 4 of 8 — Deployment configs: Docker, static export, and hosting
+
+**Sequence:** prompt 4 of 8 (Wave 1 — independent of other Wave 1 prompts). When you finish, report back with: files you created/modified, any notable choices, any blockers.
+
+**Before you start — read current state:**
+1. Run `git status` and `git branch`.
+2. Read `founder-portal/next.config.ts` (confirm `output: "standalone"`).
+3. Read `theseus-public/next.config.ts` (confirm `output: "export"`).
+4. Read `founder-portal/package.json` and `theseus-public/package.json` for build scripts.
+5. Check if `founder-portal/Dockerfile`, `theseus-public/Dockerfile`, or `docker-compose.yml` already exist at the repo root or in any subdirectory. Do NOT overwrite existing correct work.
+6. Read `founder-portal/prisma/schema.prisma` to understand the database provider.
+
+## Your task
+
+You are an implementation agent. Your job is to create deployment configurations for the web-facing Theseus applications:
+- **Founder Portal**: A Docker container running the Next.js standalone server with SQLite, suitable for self-hosted deployment or cloud VMs.
+- **Theseus Public**: Static export already works (`output: "export"`); create a Dockerfile for nginx-based serving plus a Vercel/Netlify config for managed hosting.
+- **docker-compose.yml**: A root-level compose file that starts all web services together.
+
+When you finish, verify the Dockerfiles build successfully. Do not proceed to any other work.
+
+## Prerequisites
+- Docker is available on the build machine.
+- Both Next.js apps build successfully with `npm run build`.
+
+SCOPE (files you may create or modify — stay within this list)
+- `founder-portal/Dockerfile`                          CREATE
+- `founder-portal/.dockerignore`                       CREATE
+- `theseus-public/Dockerfile`                          CREATE
+- `theseus-public/.dockerignore`                       CREATE
+- `theseus-public/vercel.json`                         CREATE
+- `theseus-public/netlify.toml`                        CREATE
+- `docker-compose.yml`                                 CREATE (at repo root)
+- `founder-portal/scripts/docker-entrypoint.sh`        CREATE
+
+## Step-by-step
+
+1. **Create `founder-portal/Dockerfile`** — multi-stage build optimized for Next.js standalone:
+   ```dockerfile
+   # Stage 1: Install dependencies
+   FROM node:20-alpine AS deps
+   WORKDIR /app
+   COPY package.json package-lock.json ./
+   RUN npm ci --production=false
+
+   # Stage 2: Build
+   FROM node:20-alpine AS builder
+   WORKDIR /app
+   COPY --from=deps /app/node_modules ./node_modules
+   COPY . .
+   RUN npx prisma generate
+   RUN npm run build
+
+   # Stage 3: Production
+   FROM node:20-alpine AS runner
+   WORKDIR /app
+   ENV NODE_ENV=production
+   RUN addgroup --system --gid 1001 nodejs && adduser --system --uid 1001 nextjs
+
+   COPY --from=builder /app/.next/standalone ./
+   COPY --from=builder /app/.next/static ./.next/static
+   COPY --from=builder /app/public ./public
+   COPY --from=builder /app/prisma ./prisma
+   COPY --from=builder /app/node_modules/.prisma ./node_modules/.prisma
+   COPY --from=builder /app/node_modules/@prisma ./node_modules/@prisma
+   COPY scripts/docker-entrypoint.sh /app/docker-entrypoint.sh
+   RUN chmod +x /app/docker-entrypoint.sh
+
+   # SQLite database volume
+   RUN mkdir -p /app/data && chown nextjs:nodejs /app/data
+   VOLUME ["/app/data"]
+
+   USER nextjs
+   EXPOSE 3000
+   ENV PORT=3000
+   ENV HOSTNAME="0.0.0.0"
+   ENV DATABASE_URL="file:/app/data/founder-portal.db"
+
+   ENTRYPOINT ["/app/docker-entrypoint.sh"]
+   CMD ["node", "server.js"]
+   ```
+
+2. **Create `founder-portal/scripts/docker-entrypoint.sh`**:
+   ```bash
+   #!/bin/sh
+   set -e
+   # Run Prisma migrations on startup
+   npx prisma migrate deploy 2>/dev/null || echo "Migration skipped (prisma CLI not in standalone, using seed DB)"
+   exec "$@"
+   ```
+   Actually — the standalone output strips devDependencies, so `npx prisma` won't be available. Instead, copy the Prisma CLI binary into the production stage, OR pre-run migrations in the builder stage and copy the resulting DB as a seed. Choose the approach that's simpler: bundle `prisma` as a production dependency temporarily in the Dockerfile by installing it in the runner stage:
+   ```dockerfile
+   RUN npm install -g prisma@7
+   ```
+   Or better: run `npx prisma migrate deploy` in the builder stage to produce a blank migrated DB, then COPY it as a seed:
+   ```dockerfile
+   # In builder stage:
+   RUN DATABASE_URL="file:/tmp/seed.db" npx prisma migrate deploy
+   # In runner stage:
+   COPY --from=builder /tmp/seed.db /app/data/founder-portal.db
+   ```
+   The entrypoint then only runs migrations if the DB already exists (for upgrades):
+   ```bash
+   #!/bin/sh
+   set -e
+   if [ ! -f /app/data/founder-portal.db ]; then
+     cp /app/seed.db /app/data/founder-portal.db
+   fi
+   exec "$@"
+   ```
+   Pick whichever approach is cleanest. Document the choice in a comment.
+
+3. **Create `founder-portal/.dockerignore`**:
+   ```
+   node_modules
+   .next
+   .git
+   *.md
+   dev.db
+   .env*
+   dist-desktop
+   ```
+
+4. **Create `theseus-public/Dockerfile`** — static site served by nginx:
+   ```dockerfile
+   FROM node:20-alpine AS builder
+   WORKDIR /app
+   COPY package.json package-lock.json ./
+   RUN npm ci
+   COPY . .
+   RUN npm run build
+
+   FROM nginx:1.27-alpine
+   COPY --from=builder /app/out /usr/share/nginx/html
+   COPY <<EOF /etc/nginx/conf.d/default.conf
+   server {
+       listen 80;
+       root /usr/share/nginx/html;
+       index index.html;
+       location / {
+           try_files \$uri \$uri.html \$uri/ =404;
+       }
+       error_page 404 /404.html;
+       gzip on;
+       gzip_types text/plain text/css application/json application/javascript text/xml;
+   }
+   EOF
+   EXPOSE 80
+   ```
+
+5. **Create `theseus-public/.dockerignore`**:
+   ```
+   node_modules
+   out
+   .next
+   .git
+   *.md
+   ```
+
+6. **Create `theseus-public/vercel.json`**:
+   ```json
+   {
+     "$schema": "https://openapi.vercel.sh/vercel.json",
+     "buildCommand": "npm run build",
+     "outputDirectory": "out",
+     "framework": "nextjs",
+     "headers": [
+       {
+         "source": "/(.*)",
+         "headers": [
+           { "key": "X-Content-Type-Options", "value": "nosniff" },
+           { "key": "X-Frame-Options", "value": "DENY" }
+         ]
+       }
+     ]
+   }
+   ```
+
+7. **Create `theseus-public/netlify.toml`**:
+   ```toml
+   [build]
+   command = "npm run build"
+   publish = "out"
+
+   [[headers]]
+   for = "/*"
+   [headers.values]
+   X-Content-Type-Options = "nosniff"
+   X-Frame-Options = "DENY"
+
+   [[redirects]]
+   from = "/*"
+   to = "/404.html"
+   status = 404
+   ```
+
+8. **Create `docker-compose.yml`** at the repo root:
+   ```yaml
+   services:
+     founder-portal:
+       build: ./founder-portal
+       ports:
+         - "3000:3000"
+       volumes:
+         - portal-data:/app/data
+       restart: unless-stopped
+
+     theseus-public:
+       build: ./theseus-public
+       ports:
+         - "8080:80"
+       restart: unless-stopped
+
+   volumes:
+     portal-data:
+   ```
+
+9. **Verify Dockerfiles build:**
+   ```bash
+   cd founder-portal && docker build -t theseus-founder-portal . --no-cache
+   cd ../theseus-public && docker build -t theseus-public . --no-cache
+   cd .. && docker compose config  # validate compose file
+   ```
+   If Docker is not available in the build environment, at minimum validate the Dockerfile syntax by reading each file and confirming it follows multi-stage build conventions.
+
+## Verification
+- `founder-portal/Dockerfile` exists and uses multi-stage build with standalone output.
+- `theseus-public/Dockerfile` exists and uses nginx for static serving.
+- `docker-compose.yml` references both services.
+- `theseus-public/vercel.json` and `theseus-public/netlify.toml` exist.
+- `.dockerignore` files exclude `node_modules`, `.next`, `.git`.
+- If Docker is available: both images build. If not: files are syntactically correct.
+
+## Prohibitions
+- Do NOT modify `next.config.ts` in either project.
+- Do NOT modify any application source code.
+- Do NOT modify `package.json` in either project (no new deps needed for Docker).
+- Do NOT add Docker-specific code paths inside the application.
+- Do NOT expose database files outside the volume mount.
+- Do NOT use `docker-compose` v1 syntax — use `services:` (v2/v3 format).

@@ -1,0 +1,45 @@
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  # `secrets: inherit` is required for reusable workflows called via
+  # `workflow_call` — without it, APPLE_*, WIN_*, and any other signing
+  # secrets silently resolve to empty strings and code-signing/notarization
+  # steps are skipped.
+  #
+  # Note: the Theseus Codex is a web application (Next.js), not a
+  # downloadable installer — its build workflow has been removed.
+  build-dialectic:
+    uses: ./.github/workflows/build-dialectic.yml
+    secrets: inherit
+  build-noosphere:
+    uses: ./.github/workflows/build-noosphere.yml
+    secrets: inherit
+
+  release:
+    needs: [build-dialectic, build-noosphere]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: List downloaded artifacts
+        run: ls -R artifacts
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: artifacts/**/*
+          generate_release_notes: true
+          draft: true
+          fail_on_unmatched_files: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

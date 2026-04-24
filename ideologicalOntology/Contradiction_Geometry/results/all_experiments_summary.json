@@ -1,0 +1,981 @@
+{
+  "exp1": {
+    "contradiction": {
+      "mean": 0.620463490486145,
+      "std": 0.18749649822711945,
+      "min": 0.1810474991798401,
+      "max": 0.977713942527771,
+      "n": 70
+    },
+    "entailment": {
+      "mean": 0.6431599259376526,
+      "std": 0.1276288777589798,
+      "n": 41
+    },
+    "neutral": {
+      "mean": 0.053239576518535614,
+      "std": 0.05374686419963837,
+      "n": 41
+    },
+    "tests": {
+      "contradiction_vs_neutral_U": 2868.0,
+      "contradiction_vs_neutral_p": 1.0428007488514597e-18,
+      "contradiction_higher_than_neutral": true,
+      "contradiction_vs_entailment_U": 1378.0,
+      "contradiction_vs_entailment_p": 0.7299330830574036
+    },
+    "paradox_confirmed": true
+  },
+  "exp2": {
+    "hoyer_sparsity": {
+      "contradiction": {
+        "mean": 0.22624821521683355,
+        "std": 0.011524286324388797
+      },
+      "entailment": {
+        "mean": 0.2243984793284314,
+        "std": 0.011529293016662999
+      },
+      "neutral": {
+        "mean": 0.2287379367079875,
+        "std": 0.010473896551875616
+      }
+    },
+    "tests": {
+      "contra_vs_entail_U": 1654.0,
+      "contra_vs_entail_p": 0.09093272087365878,
+      "contra_sparser_than_entail": true,
+      "contra_vs_neutral_U": 1310.0,
+      "contra_vs_neutral_p": 0.7784009813157097
+    },
+    "pca": {
+      "n_components_90pct": 42,
+      "top_10_variance": 0.49358880519866943,
+      "top_20_variance": 0.6835029125213623,
+      "total_dimensions": 70
+    },
+    "signal_concentration": {
+      "top_20_dims": [
+        299,
+        286,
+        195,
+        319,
+        651,
+        554,
+        113,
+        358,
+        418,
+        336,
+        277,
+        258,
+        528,
+        394,
+        270,
+        58,
+        237,
+        538,
+        638,
+        739
+      ],
+      "top_20_ratios": [
+        1.8953567743301392,
+        1.786726713180542,
+        1.7348302602767944,
+        1.7032718658447266,
+        1.6980464458465576,
+        1.6199570894241333,
+        1.5591994524002075,
+        1.5212663412094116,
+        1.5071656703948975,
+        1.5053483247756958,
+        1.4874130487442017,
+        1.4833885431289673,
+        1.479915976524353,
+        1.4772307872772217,
+        1.4717767238616943,
+        1.4689539670944214,
+        1.4598535299301147,
+        1.4593217372894287,
+        1.4587844610214233,
+        1.4574131965637207
+      ],
+      "contra_mean_abs_diff": 0.023729512467980385,
+      "entail_mean_abs_diff": 0.023472798988223076
+    }
+  },
+  "exp3": {
+    "pairs": [
+      {
+        "original": "The door is open.",
+        "styles": {
+          "simple": {
+            "sentence": "The door is not open.",
+            "cosine_sim": 0.8936924934387207,
+            "hoyer_sparsity": 0.21635975850672665,
+            "l2_distance": 0.4611021876335144
+          },
+          "antonym": {
+            "sentence": "The door is closed.",
+            "cosine_sim": 0.6579915285110474,
+            "hoyer_sparsity": 0.21396522057697273,
+            "l2_distance": 0.8270532488822937
+          },
+          "indirect": {
+            "sentence": "The door is shut tight.",
+            "cosine_sim": 0.5408092141151428,
+            "hoyer_sparsity": 0.22927524034372607,
+            "l2_distance": 0.9583223462104797
+          },
+          "scalar": {
+            "sentence": "The door is barely ajar.",
+            "cosine_sim": 0.7556924819946289,
+            "hoyer_sparsity": 0.21676189464760137,
+            "l2_distance": 0.6990099549293518
+          },
+          "modal": {
+            "sentence": "The door cannot be open.",
+            "cosine_sim": 0.6045937538146973,
+            "hoyer_sparsity": 0.21216831750146617,
+            "l2_distance": 0.8892765045166016
+          },
+          "quantifier": {
+            "sentence": "No door in this building is open.",
+            "cosine_sim": 0.43846869468688965,
+            "hoyer_sparsity": 0.22313516698395355,
+            "l2_distance": 1.059746503829956
+          }
+        }
+      },
+      {
+        "original": "The economy is growing.",
+        "styles": {
+          "simple": {
+            "sentence": "The economy is not growing.",
+            "cosine_sim": 0.6324809789657593,
+            "hoyer_sparsity": 0.2369061877485028,
+            "l2_distance": 0.8573436737060547
+          },
+          "antonym": {
+            "sentence": "The economy is shrinking.",
+            "cosine_sim": 0.6004505753517151,
+            "hoyer_sparsity": 0.24142614941856524,
+            "l2_distance": 0.8939233422279358
+          },
+          "indirect": {
+            "sentence": "The economy is in recession.",
+            "cosine_sim": 0.6249503493309021,
+            "hoyer_sparsity": 0.22871402051644,
+            "l2_distance": 0.8660827875137329
+          },
+          "scalar": {
+            "sentence": "The economy is stagnant.",
+            "cosine_sim": 0.5696905255317688,
+            "hoyer_sparsity": 0.23450108232072872,
+            "l2_distance": 0.9276955127716064
+          },
+          "modal": {
+            "sentence": "The economy cannot grow.",
+            "cosine_sim": 0.5054091215133667,
+            "hoyer_sparsity": 0.22548779193169516,
+            "l2_distance": 0.9945762753486633
+          },
+          "quantifier": {
+            "sentence": "No sector of the economy is growing.",
+            "cosine_sim": 0.4041628837585449,
+            "hoyer_sparsity": 0.21777030528637506,
+            "l2_distance": 1.0916383266448975
+          }
+        }
+      },
+      {
+        "original": "She is happy.",
+        "styles": {
+          "simple": {
+            "sentence": "She is not happy.",
+            "cosine_sim": 0.5112990140914917,
+            "hoyer_sparsity": 0.20595705633408498,
+            "l2_distance": 0.9886363744735718
+          },
+          "antonym": {
+            "sentence": "She is sad.",
+            "cosine_sim": 0.47408390045166016,
+            "hoyer_sparsity": 0.22153669010437932,
+            "l2_distance": 1.025588870048523
+          },
+          "indirect": {
+            "sentence": "She is in distress.",
+            "cosine_sim": 0.37255966663360596,
+            "hoyer_sparsity": 0.22253503305922842,
+            "l2_distance": 1.120214581489563
+          },
+          "scalar": {
+            "sentence": "She is slightly content.",
+            "cosine_sim": 0.8690192103385925,
+            "hoyer_sparsity": 0.2193864898653344,
+            "l2_distance": 0.5118218064308167
+          },
+          "modal": {
+            "sentence": "She cannot be happy.",
+            "cosine_sim": 0.45099878311157227,
+            "hoyer_sparsity": 0.2160520872299104,
+            "l2_distance": 1.047856092453003
+          },
+          "quantifier": {
+            "sentence": "Nobody in her family is happy.",
+            "cosine_sim": 0.2317049503326416,
+            "hoyer_sparsity": 0.20851667571939686,
+            "l2_distance": 1.2395926713943481
+          }
+        }
+      },
+      {
+        "original": "The experiment succeeded.",
+        "styles": {
+          "simple": {
+            "sentence": "The experiment did not succeed.",
+            "cosine_sim": 0.6162176728248596,
+            "hoyer_sparsity": 0.21653140894754036,
+            "l2_distance": 0.8761076927185059
+          },
+          "antonym": {
+            "sentence": "The experiment failed.",
+            "cosine_sim": 0.6238649487495422,
+            "hoyer_sparsity": 0.21413144446474905,
+            "l2_distance": 0.8673350811004639
+          },
+          "indirect": {
+            "sentence": "The experiment produced no usable results.",
+            "cosine_sim": 0.4914672374725342,
+            "hoyer_sparsity": 0.21471429910217096,
+            "l2_distance": 1.008496642112732
+          },
+          "scalar": {
+            "sentence": "The experiment barely produced results.",
+            "cosine_sim": 0.5611644983291626,
+            "hoyer_sparsity": 0.22469894248489408,
+            "l2_distance": 0.9368410110473633
+          },
+          "modal": {
+            "sentence": "The experiment could not succeed.",
+            "cosine_sim": 0.5214640498161316,
+            "hoyer_sparsity": 0.21245492518425577,
+            "l2_distance": 0.9783005714416504
+          },
+          "quantifier": {
+            "sentence": "None of the experiments succeeded.",
+            "cosine_sim": 0.4280061721801758,
+            "hoyer_sparsity": 0.22030807565551017,
+            "l2_distance": 1.0695736408233643
+          }
+        }
+      },
+      {
+        "original": "The government supports free trade.",
+        "styles": {
+          "simple": {
+            "sentence": "The government does not support free trade.",
+            "cosine_sim": 0.5697212219238281,
+            "hoyer_sparsity": 0.2205495572656732,
+            "l2_distance": 0.9276624321937561
+          },
+          "antonym": {
+            "sentence": "The government opposes free trade.",
+            "cosine_sim": 0.6072930693626404,
+            "hoyer_sparsity": 0.21958470185522577,
+            "l2_distance": 0.886235773563385
+          },
+          "indirect": {
+            "sentence": "The government has imposed tariffs and trade barriers.",
+            "cosine_sim": 0.6445315480232239,
+            "hoyer_sparsity": 0.24315007963612187,
+            "l2_distance": 0.8431706428527832
+          },
+          "scalar": {
+            "sentence": "The government is ambivalent about free trade.",
+            "cosine_sim": 0.6464263796806335,
+            "hoyer_sparsity": 0.23081888047681737,
+            "l2_distance": 0.8409203886985779
+          },
+          "modal": {
+            "sentence": "The government cannot support free trade.",
+            "cosine_sim": 0.5318720936775208,
+            "hoyer_sparsity": 0.22484981493973574,
+            "l2_distance": 0.9676032066345215
+          },
+          "quantifier": {
+            "sentence": "No government supports free trade.",
+            "cosine_sim": 0.6926847696304321,
+            "hoyer_sparsity": 0.221454220778614,
+            "l2_distance": 0.7839837074279785
+          }
+        }
+      },
+      {
+        "original": "Private property is sacred.",
+        "styles": {
+          "simple": {
+            "sentence": "Private property is not sacred.",
+            "cosine_sim": 0.9691575169563293,
+            "hoyer_sparsity": 0.2242803124788663,
+            "l2_distance": 0.24836495518684387
+          },
+          "antonym": {
+            "sentence": "Private property is illegitimate.",
+            "cosine_sim": 0.7040539383888245,
+            "hoyer_sparsity": 0.2398960042660537,
+            "l2_distance": 0.7693453431129456
+          },
+          "indirect": {
+            "sentence": "Property claims are social constructs with no inherent sanctity.",
+            "cosine_sim": 0.5832757949829102,
+            "hoyer_sparsity": 0.23260614428048124,
+            "l2_distance": 0.9129340052604675
+          },
+          "scalar": {
+            "sentence": "Private property is merely tolerated.",
+            "cosine_sim": 0.6751306056976318,
+            "hoyer_sparsity": 0.2188289829427581,
+            "l2_distance": 0.8060639500617981
+          },
+          "modal": {
+            "sentence": "Private property cannot be considered sacred.",
+            "cosine_sim": 0.9000012874603271,
+            "hoyer_sparsity": 0.21217088797395756,
+            "l2_distance": 0.4472106695175171
+          },
+          "quantifier": {
+            "sentence": "No form of property is sacred.",
+            "cosine_sim": 0.8356231451034546,
+            "hoyer_sparsity": 0.24376263751122204,
+            "l2_distance": 0.5733704566955566
+          }
+        }
+      },
+      {
+        "original": "All humans are equal.",
+        "styles": {
+          "simple": {
+            "sentence": "Not all humans are equal.",
+            "cosine_sim": 0.8548017740249634,
+            "hoyer_sparsity": 0.22050743007761991,
+            "l2_distance": 0.5388845205307007
+          },
+          "antonym": {
+            "sentence": "Humans are fundamentally unequal.",
+            "cosine_sim": 0.7876313328742981,
+            "hoyer_sparsity": 0.23089092510858986,
+            "l2_distance": 0.6517188549041748
+          },
+          "indirect": {
+            "sentence": "Natural hierarchies exist among people.",
+            "cosine_sim": 0.346885085105896,
+            "hoyer_sparsity": 0.23514120137309763,
+            "l2_distance": 1.142904281616211
+          },
+          "scalar": {
+            "sentence": "Humans are approximately equal in some respects.",
+            "cosine_sim": 0.7800769209861755,
+            "hoyer_sparsity": 0.2191889204935659,
+            "l2_distance": 0.6632091403007507
+          },
+          "modal": {
+            "sentence": "Humans cannot be truly equal.",
+            "cosine_sim": 0.8356325626373291,
+            "hoyer_sparsity": 0.21324434584716606,
+            "l2_distance": 0.5733542442321777
+          },
+          "quantifier": {
+            "sentence": "No two humans are truly equal.",
+            "cosine_sim": 0.8360801339149475,
+            "hoyer_sparsity": 0.22651283923964924,
+            "l2_distance": 0.5725730657577515
+          }
+        }
+      },
+      {
+        "original": "The market is efficient.",
+        "styles": {
+          "simple": {
+            "sentence": "The market is not efficient.",
+            "cosine_sim": 0.7058313488960266,
+            "hoyer_sparsity": 0.2127079025186164,
+            "l2_distance": 0.7670315504074097
+          },
+          "antonym": {
+            "sentence": "The market is wasteful.",
+            "cosine_sim": 0.5986242890357971,
+            "hoyer_sparsity": 0.23575076036362452,
+            "l2_distance": 0.8959639668464661
+          },
+          "indirect": {
+            "sentence": "Resources are systematically misallocated.",
+            "cosine_sim": 0.2323143482208252,
+            "hoyer_sparsity": 0.24327967429089595,
+            "l2_distance": 1.2391010522842407
+          },
+          "scalar": {
+            "sentence": "The market is sometimes efficient.",
+            "cosine_sim": 0.9329732060432434,
+            "hoyer_sparsity": 0.2350930764158978,
+            "l2_distance": 0.36613330245018005
+          },
+          "modal": {
+            "sentence": "The market cannot be efficient.",
+            "cosine_sim": 0.5721315145492554,
+            "hoyer_sparsity": 0.21433029907276327,
+            "l2_distance": 0.9250605702400208
+          },
+          "quantifier": {
+            "sentence": "No market is truly efficient.",
+            "cosine_sim": 0.7045536637306213,
+            "hoyer_sparsity": 0.23077753871091425,
+            "l2_distance": 0.7686954140663147
+          }
+        }
+      },
+      {
+        "original": "Democracy produces good outcomes.",
+        "styles": {
+          "simple": {
+            "sentence": "Democracy does not produce good outcomes.",
+            "cosine_sim": 0.8381764888763428,
+            "hoyer_sparsity": 0.2190871012221015,
+            "l2_distance": 0.5688997507095337
+          },
+          "antonym": {
+            "sentence": "Democracy produces terrible outcomes.",
+            "cosine_sim": 0.8201148509979248,
+            "hoyer_sparsity": 0.22694639226652977,
+            "l2_distance": 0.5998086333274841
+          },
+          "indirect": {
+            "sentence": "The democratic process leads to mediocre governance.",
+            "cosine_sim": 0.5483456254005432,
+            "hoyer_sparsity": 0.2252406695624538,
+            "l2_distance": 0.9504256248474121
+          },
+          "scalar": {
+            "sentence": "Democracy sometimes produces acceptable outcomes.",
+            "cosine_sim": 0.8395956754684448,
+            "hoyer_sparsity": 0.22840784868191039,
+            "l2_distance": 0.5663997530937195
+          },
+          "modal": {
+            "sentence": "Democracy cannot produce good outcomes.",
+            "cosine_sim": 0.750985860824585,
+            "hoyer_sparsity": 0.22959062303801647,
+            "l2_distance": 0.7057113647460938
+          },
+          "quantifier": {
+            "sentence": "No democratic system produces good outcomes.",
+            "cosine_sim": 0.7209736704826355,
+            "hoyer_sparsity": 0.22310796281675305,
+            "l2_distance": 0.7470293045043945
+          }
+        }
+      },
+      {
+        "original": "Violence is never justified.",
+        "styles": {
+          "simple": {
+            "sentence": "Violence is not never justified.",
+            "cosine_sim": 0.9732373952865601,
+            "hoyer_sparsity": 0.2309109890744254,
+            "l2_distance": 0.23135517537593842
+          },
+          "antonym": {
+            "sentence": "Violence is sometimes necessary.",
+            "cosine_sim": 0.7222290635108948,
+            "hoyer_sparsity": 0.21462854528377776,
+            "l2_distance": 0.7453467845916748
+          },
+          "indirect": {
+            "sentence": "There are circumstances where force is the only option.",
+            "cosine_sim": 0.42971622943878174,
+            "hoyer_sparsity": 0.22352430795834402,
+            "l2_distance": 1.0679736137390137
+          },
+          "scalar": {
+            "sentence": "Violence is rarely justified.",
+            "cosine_sim": 0.918764591217041,
+            "hoyer_sparsity": 0.2197903396545367,
+            "l2_distance": 0.4030768871307373
+          },
+          "modal": {
+            "sentence": "It cannot be said that violence is never justified.",
+            "cosine_sim": 0.9057762622833252,
+            "hoyer_sparsity": 0.2345108643965987,
+            "l2_distance": 0.43410545587539673
+          },
+          "quantifier": {
+            "sentence": "Every society has justified violence at some point.",
+            "cosine_sim": 0.7482432126998901,
+            "hoyer_sparsity": 0.22295716176392502,
+            "l2_distance": 0.7095869779586792
+          }
+        }
+      }
+    ],
+    "style_summary": {
+      "simple": {
+        "mean_cosine": 0.7564615905284882,
+        "std_cosine": 0.16124247817467577,
+        "mean_hoyer": 0.22037977041741574,
+        "mean_l2": 0.6465388312935829,
+        "n": 10
+      },
+      "antonym": {
+        "mean_cosine": 0.6596337497234345,
+        "std_cosine": 0.0968008736784405,
+        "mean_hoyer": 0.2258756833708468,
+        "mean_l2": 0.8162319898605347,
+        "n": 10
+      },
+      "indirect": {
+        "mean_cosine": 0.48148550987243655,
+        "std_cosine": 0.1266353365170356,
+        "mean_hoyer": 0.22981806701229596,
+        "mean_l2": 1.0109625577926635,
+        "n": 10
+      },
+      "scalar": {
+        "mean_cosine": 0.7548534095287323,
+        "std_cosine": 0.13013776656334217,
+        "mean_hoyer": 0.22474764579840448,
+        "mean_l2": 0.6721171706914901,
+        "n": 10
+      },
+      "modal": {
+        "mean_cosine": 0.6578865289688111,
+        "std_cosine": 0.16464102967089395,
+        "mean_hoyer": 0.21948599571155655,
+        "mean_l2": 0.7963054955005646,
+        "n": 10
+      },
+      "quantifier": {
+        "mean_cosine": 0.6040501296520233,
+        "std_cosine": 0.19922056468393348,
+        "mean_hoyer": 0.22383025844663132,
+        "mean_l2": 0.8615790069103241,
+        "n": 10
+      }
+    },
+    "blindspot_confirmed": true
+  },
+  "exp4": {
+    "subspace_dims": {
+      "1": {
+        "mean_f1": 0.3003478260869565,
+        "std_f1": 0.190561085770962,
+        "variance_explained": 0.0522388219833374
+      },
+      "2": {
+        "mean_f1": 0.45313876088069627,
+        "std_f1": 0.2693058546540611,
+        "variance_explained": 0.09518153965473175
+      },
+      "3": {
+        "mean_f1": 0.4548556173041298,
+        "std_f1": 0.22081196443638962,
+        "variance_explained": 0.1322741061449051
+      },
+      "5": {
+        "mean_f1": 0.3724047088177523,
+        "std_f1": 0.17837566160664528,
+        "variance_explained": 0.19639089703559875
+      },
+      "10": {
+        "mean_f1": 0.4151321398124467,
+        "std_f1": 0.1841177834406337,
+        "variance_explained": 0.31633663177490234
+      },
+      "20": {
+        "mean_f1": 0.4977762022923313,
+        "std_f1": 0.17652875665176684,
+        "variance_explained": 0.48362699151039124
+      },
+      "50": {
+        "mean_f1": 0.5388940092165899,
+        "std_f1": 0.0812382356219538,
+        "variance_explained": 0.764517068862915
+      }
+    },
+    "full_space_f1": {
+      "mean": 0.5925254286544609,
+      "std": 0.10834854199856996
+    },
+    "minimum_useful_dims": 50
+  },
+  "exp5": {
+    "alpha_sweep": {
+      "1.0": {
+        "exact_hit_rate": 0.8,
+        "top3_hit_rate": 0.9285714285714286,
+        "mean_cosine_with_target": 0.6451451182365417,
+        "std_cosine_with_target": 0.178579643368721
+      },
+      "2.0": {
+        "exact_hit_rate": 0.8428571428571429,
+        "top3_hit_rate": 0.9285714285714286,
+        "mean_cosine_with_target": 0.6303987503051758,
+        "std_cosine_with_target": 0.17363807559013367
+      },
+      "3.0": {
+        "exact_hit_rate": 0.8285714285714286,
+        "top3_hit_rate": 0.9142857142857143,
+        "mean_cosine_with_target": 0.5981853008270264,
+        "std_cosine_with_target": 0.1740322858095169
+      },
+      "5.0": {
+        "exact_hit_rate": 0.7142857142857143,
+        "top3_hit_rate": 0.9,
+        "mean_cosine_with_target": 0.5315987467765808,
+        "std_cosine_with_target": 0.18411582708358765
+      },
+      "8.0": {
+        "exact_hit_rate": 0.5571428571428572,
+        "top3_hit_rate": 0.7,
+        "mean_cosine_with_target": 0.4544314444065094,
+        "std_cosine_with_target": 0.19327370822429657
+      }
+    },
+    "c_hat_method": "mean_direction",
+    "best_alpha": 1.0
+  },
+  "exp6": {
+    "train_domain": "general",
+    "train_accuracy": 1.0,
+    "test_domains": {
+      "general": {
+        "accuracy": 1.0,
+        "f1": 1.0,
+        "n_samples": 45,
+        "n_contradictions": 15
+      },
+      "political": {
+        "accuracy": 0.6571428571428571,
+        "f1": 0.5,
+        "n_samples": 35,
+        "n_contradictions": 15
+      },
+      "philosophical": {
+        "accuracy": 0.5483870967741935,
+        "f1": 0.3,
+        "n_samples": 31,
+        "n_contradictions": 15
+      },
+      "empirical": {
+        "accuracy": 0.5161290322580645,
+        "f1": 0.2857142857142857,
+        "n_samples": 31,
+        "n_contradictions": 15
+      }
+    },
+    "combined_features": {
+      "general": {
+        "accuracy": 1.0,
+        "f1": 1.0
+      },
+      "political": {
+        "accuracy": 0.6285714285714286,
+        "f1": 0.43478260869565216
+      },
+      "philosophical": {
+        "accuracy": 0.5483870967741935,
+        "f1": 0.3
+      },
+      "empirical": {
+        "accuracy": 0.5161290322580645,
+        "f1": 0.2857142857142857
+      }
+    }
+  },
+  "exp7": {
+    "three_class": {
+      "f1_macro_mean": 0.6376963598116101,
+      "f1_macro_std": 0.0940602101532168
+    },
+    "classification_report": {
+      "contradiction": {
+        "precision": 1.0,
+        "recall": 1.0,
+        "f1-score": 1.0,
+        "support": 70.0
+      },
+      "entailment": {
+        "precision": 1.0,
+        "recall": 1.0,
+        "f1-score": 1.0,
+        "support": 41.0
+      },
+      "neutral": {
+        "precision": 1.0,
+        "recall": 1.0,
+        "f1-score": 1.0,
+        "support": 41.0
+      },
+      "accuracy": 1.0,
+      "macro avg": {
+        "precision": 1.0,
+        "recall": 1.0,
+        "f1-score": 1.0,
+        "support": 152.0
+      },
+      "weighted avg": {
+        "precision": 1.0,
+        "recall": 1.0,
+        "f1-score": 1.0,
+        "support": 152.0
+      }
+    },
+    "pragmatic": {
+      "mean_cosine": 0.3289544880390167,
+      "mean_hoyer": 0.23012067588634447,
+      "pairs": [
+        {
+          "a": "He is a lifelong bachelor.",
+          "b": "His wife called him.",
+          "cosine": 0.28968071937561035,
+          "hoyer": 0.2468517028277459
+        },
+        {
+          "a": "She is an only child.",
+          "b": "Her brother visited yesterday.",
+          "cosine": 0.4087437391281128,
+          "hoyer": 0.22500454310331447
+        },
+        {
+          "a": "The company went bankrupt last year.",
+          "b": "The company reported record profits last year.",
+          "cosine": 0.3821067214012146,
+          "hoyer": 0.21718473737243446
+        },
+        {
+          "a": "He has never left the country.",
+          "b": "He described his trip to Paris.",
+          "cosine": 0.18104761838912964,
+          "hoyer": 0.2348163936130055
+        },
+        {
+          "a": "The building was demolished in 2019.",
+          "b": "The building hosted an event in 2023.",
+          "cosine": 0.4742767810821533,
+          "hoyer": 0.2271918723894572
+        },
+        {
+          "a": "She is a strict vegan.",
+          "b": "She ordered the steak.",
+          "cosine": 0.4014837145805359,
+          "hoyer": 0.23724741797173438
+        },
+        {
+          "a": "He is completely deaf.",
+          "b": "He described the sound of the orchestra.",
+          "cosine": 0.2320023775100708,
+          "hoyer": 0.20796231048542116
+        },
+        {
+          "a": "The river has been dry for decades.",
+          "b": "The flood from the river destroyed the town.",
+          "cosine": 0.29323267936706543,
+          "hoyer": 0.2245562812616221
+        },
+        {
+          "a": "She has never learned to read.",
+          "b": "She reviewed the manuscript carefully.",
+          "cosine": 0.2306033968925476,
+          "hoyer": 0.23687784114908392
+        },
+        {
+          "a": "He is a committed pacifist.",
+          "b": "He enlisted in the army to fight.",
+          "cosine": 0.39636707305908203,
+          "hoyer": 0.24351365868962577
+        }
+      ]
+    },
+    "pca_variance_explained": [
+      0.05705449357628822,
+      0.04631699249148369
+    ]
+  },
+  "exp8": {
+    "linear_f1": {
+      "mean": 0.6983027277382117,
+      "std": 0.07208712059905185
+    },
+    "mlp_f1": {
+      "mean": 0.6372317337834579,
+      "std": 0.12707268763042315,
+      "hidden_layers": [
+        64,
+        32
+      ]
+    },
+    "rbf_svm_f1": {
+      "mean": 0.7358763298251618,
+      "std": 0.07158657722316693
+    },
+    "improvement_mlp_over_linear": -0.061070993954753794,
+    "manifold_evidence": "none",
+    "subtypes": {
+      "negation": {
+        "n": 2,
+        "linear_accuracy": 1.0,
+        "mean_hoyer": 0.20682212743045705
+      },
+      "antonym": {
+        "n": 9,
+        "linear_accuracy": 1.0,
+        "mean_hoyer": 0.22769892982261147
+      },
+      "factual": {
+        "n": 9,
+        "linear_accuracy": 1.0,
+        "mean_hoyer": 0.22122350500539792
+      },
+      "scalar": {
+        "n": 1,
+        "linear_accuracy": 1.0,
+        "mean_hoyer": 0.23354957908683377
+      },
+      "quantifier": {
+        "n": 1,
+        "linear_accuracy": 1.0,
+        "mean_hoyer": 0.2154755873717033
+      },
+      "ideological": {
+        "n": 15,
+        "linear_accuracy": 1.0,
+        "mean_hoyer": 0.2339010578790912
+      },
+      "metaphysical": {
+        "n": 7,
+        "linear_accuracy": 1.0,
+        "mean_hoyer": 0.2257849059107789
+      },
+      "ethical": {
+        "n": 2,
+        "linear_accuracy": 1.0,
+        "mean_hoyer": 0.22391105696527724
+      },
+      "epistemic": {
+        "n": 2,
+        "linear_accuracy": 1.0,
+        "mean_hoyer": 0.22632555175784624
+      },
+      "linguistic": {
+        "n": 2,
+        "linear_accuracy": 1.0,
+        "mean_hoyer": 0.22963175059787866
+      },
+      "aesthetic": {
+        "n": 1,
+        "linear_accuracy": 1.0,
+        "mean_hoyer": 0.21124251899248508
+      },
+      "existential": {
+        "n": 1,
+        "linear_accuracy": 1.0,
+        "mean_hoyer": 0.24035133490709737
+      },
+      "causal": {
+        "n": 7,
+        "linear_accuracy": 1.0,
+        "mean_hoyer": 0.21449016818132477
+      },
+      "theoretical": {
+        "n": 1,
+        "linear_accuracy": 1.0,
+        "mean_hoyer": 0.23142486936666176
+      },
+      "world_knowledge": {
+        "n": 7,
+        "linear_accuracy": 1.0,
+        "mean_hoyer": 0.23318196071941483
+      },
+      "temporal": {
+        "n": 3,
+        "linear_accuracy": 1.0,
+        "mean_hoyer": 0.22297772554385611
+      }
+    }
+  },
+  "exp9": {
+    "levels": {
+      "0": {
+        "n": 8,
+        "c_hat_mean": 0.05466281622648239,
+        "c_hat_std": 0.021329613402485847,
+        "c_hat_lr_mean": 0.02893991644825968,
+        "c_hat_lr_std": 0.02378808730564038,
+        "cosine_mean": 0.7048987150192261,
+        "hoyer_mean": 0.22904373716497053,
+        "l2_mean": 0.7600811719894409
+      },
+      "1": {
+        "n": 8,
+        "c_hat_mean": 0.23116451501846313,
+        "c_hat_std": 0.1337289810180664,
+        "c_hat_lr_mean": 0.17488982235626704,
+        "c_hat_lr_std": 0.10313521390929135,
+        "cosine_mean": 0.5357457399368286,
+        "hoyer_mean": 0.22353262629293422,
+        "l2_mean": 0.9548118114471436
+      },
+      "2": {
+        "n": 8,
+        "c_hat_mean": 0.20940108597278595,
+        "c_hat_std": 0.11651481688022614,
+        "c_hat_lr_mean": 0.16387592135123175,
+        "c_hat_lr_std": 0.09279440654776992,
+        "cosine_mean": 0.5486417412757874,
+        "hoyer_mean": 0.22384223434937073,
+        "l2_mean": 0.944324791431427
+      },
+      "3": {
+        "n": 8,
+        "c_hat_mean": 0.20118099451065063,
+        "c_hat_std": 0.12608502805233002,
+        "c_hat_lr_mean": 0.14907390031272544,
+        "c_hat_lr_std": 0.09689666251256067,
+        "cosine_mean": 0.5293145179748535,
+        "hoyer_mean": 0.2296919246448819,
+        "l2_mean": 0.9542514085769653
+      },
+      "4": {
+        "n": 8,
+        "c_hat_mean": 0.14320552349090576,
+        "c_hat_std": 0.04819604754447937,
+        "c_hat_lr_mean": 0.07338108666053514,
+        "c_hat_lr_std": 0.03729425892557339,
+        "cosine_mean": 0.5663100481033325,
+        "hoyer_mean": 0.23349271630821355,
+        "l2_mean": 0.9212023019790649
+      }
+    },
+    "correlations": {
+      "c_hat_vs_intensity": {
+        "r": 0.1753211378697238,
+        "p": 0.27921897922806455
+      },
+      "c_hat_lr_vs_intensity": {
+        "r": 0.09216597581391411,
+        "p": 0.5716446728837957
+      },
+      "cosine_vs_intensity": {
+        "r": -0.29015504697313,
+        "p": 0.06933888806558286
+      },
+      "hoyer_vs_intensity": {
+        "r": 0.2251274730793385,
+        "p": 0.16250818520410087
+      },
+      "l2_vs_intensity": {
+        "r": 0.29672445828315264,
+        "p": 0.06299016345468009
+      }
+    },
+    "monotonically_increasing": false
+  }
+}

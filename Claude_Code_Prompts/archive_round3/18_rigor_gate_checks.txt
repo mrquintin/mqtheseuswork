@@ -1,0 +1,90 @@
+# Claude Code Prompt 18 of 26 — Implement nine concrete rigor-gate checks
+
+**Sequence:** prompt 18 of 26. Complete prompts 1..17 before starting this one. When you finish, report back with: files you created/modified, any notable choices, any blockers. I'll then paste the next prompt.
+
+**Parallelism (optional):** prompts 16, 17, 18, 19 touch disjoint files and could run in parallel Claude Code sessions if you want.
+
+**Before you start — read current state:**
+1. Run `git status` and `git branch` to see the current branch state.
+2. If you see stray branches matching `round3/*` or a `.orchestrator/` directory from a prior automated run, tell me and stop; we'll clean them up before continuing.
+3. For every file listed under SCOPE below, check whether it already exists and what it contains. If parts of the work described here are already done (from a previous attempt), INSPECT what is there and only add the missing pieces. Do NOT overwrite existing, correct work. Do NOT duplicate types or tests that already exist.
+4. If you find partial work that is clearly broken or half-finished, ask me whether to complete it or discard and restart that piece.
+## Your task
+You are an implementation agent. Your job is to implement nine concrete gate checks that populate the rigor-gate check registry. Each check is a registered method returning a `CheckResult`. If a check's upstream subsystem is not importable, return `pass_=True` with `detail="subsystem_not_yet_live"` (the "stub-pass" pattern).
+
+ 
+
+## Prerequisites
+- Wave 5 is done: `rigor_gate.checks.register` API exists.
+- Upstream subsystems (peer_review, decay, cascade, ledger) are importable.
+
+SCOPE (files you may create or modify — stay within this list)
+- `noosphere/noosphere/rigor_gate/checks/provenance_complete.py`   CREATE
+- `noosphere/noosphere/rigor_gate/checks/unresolved_honesty.py`    CREATE
+- `noosphere/noosphere/rigor_gate/checks/swarm_clean.py`           CREATE
+- `noosphere/noosphere/rigor_gate/checks/freshness.py`             CREATE
+- `noosphere/noosphere/rigor_gate/checks/copyright_clean.py`       CREATE
+- `noosphere/noosphere/rigor_gate/checks/tenant_isolation.py`      CREATE
+- `noosphere/noosphere/rigor_gate/checks/personal_info_scrub.py`   CREATE
+- `noosphere/noosphere/rigor_gate/checks/no_hidden_claim.py`       CREATE
+- `noosphere/noosphere/rigor_gate/checks/dialectic_consent.py`     CREATE
+- `noosphere/tests/test_check_provenance_complete.py`              CREATE
+- `noosphere/tests/test_check_unresolved_honesty.py`               CREATE
+- `noosphere/tests/test_check_swarm_clean.py`                      CREATE
+- `noosphere/tests/test_check_freshness.py`                        CREATE
+- `noosphere/tests/test_check_copyright_clean.py`                  CREATE
+- `noosphere/tests/test_check_tenant_isolation.py`                 CREATE
+- `noosphere/tests/test_check_personal_info_scrub.py`              CREATE
+- `noosphere/tests/test_check_no_hidden_claim.py`                  CREATE
+- `noosphere/tests/test_check_dialectic_consent.py`                CREATE
+
+## Step-by-step
+1. Create `checks/<name>.py` with a function `run(submission: RigorSubmission) -> CheckResult`, decorated as a registered method (name=f"gate_check_{name}").
+2. At module bottom, call `rigor_gate.checks.register(name, run)`.
+3. Guard upstream-subsystem imports in try/except; stub-pass on ImportError.
+4. Write ≥ 3 tests per check: one passing, one failing, one stub-pass (achieved by monkey-patching the import to fail).
+
+CHECK SPECIFICATIONS
+provenance_complete.py
+  For each load-bearing claim in submission payload, walk the cascade via `cascade.traverse.explain`; fail if any claim lacks a path to a corpus artifact or cited external source.
+
+unresolved_honesty.py
+  Parse confidence assertions in the payload; for each, look up the latest `CounterfactualEvalRun` for the producing method; fail if the payload reports a confidence that is not the calibration-discounted value (beyond a small tolerance).
+
+swarm_clean.py
+  For each firm-tier conclusion cited in the payload, call `peer_review.swarm.latest_report(conclusion_id)`; fail if there is any unresolved `blocker` finding.
+
+freshness.py
+  For every object referenced in the payload, call `decay.freshness.compute_freshness(object_id)`.
+  public_site intended_venue requires all `fresh`.
+  rss / api: `fresh | aging` with a visible banner marker included in conditions.
+  stale / retired: always fail.
+
+copyright_clean.py
+  Scan payload text for verbatim substrings of ≥ 20 consecutive words from any ingested artifact. Fail on any hit.
+
+tenant_isolation.py
+  Collect every referenced object's `tenant_id`; fail if any differs from the submission's `author.tenant_id`.
+
+personal_info_scrub.py
+  Run PII filters (email regex, phone regex, address patterns, names not in a curated public-figures whitelist); fail on any hit not pre-declared in `author_attestation.acknowledgments`.
+
+no_hidden_claim.py
+  LLM-based: given the payload text and the set of traced claims, ask whether any assertion in the payload is not traceable. Fail if so.
+
+dialectic_consent.py
+  Only relevant when `submission.kind == "dialectic_summary"`. For every identified speaker, look up consent records; fail if any speaker lacks public-release consent at the published granularity.
+
+## How to verify
+1. `pytest noosphere/tests/test_check_*.py -v` — green.
+2. After `import noosphere.noosphere.rigor_gate.checks`, `rigor_gate.checks.all_checks()` contains all nine names.
+3. Running `Gate(store).submit(seeded_submission)` invokes all nine checks and returns a coherent `RigorVerdict`.
+
+## Do not
+- Silently weaken a check. If a check is not yet implementable, stub-pass with a VISIBLE marker.
+- Drop the visible marker on stub-pass; the refusal dashboard must be able to tell real passes from stub passes.
+- Touch any file outside FILES TOUCHED.
+
+---
+
+**When you're finished:** report back with (a) files you created/modified, (b) any non-obvious choices you made, (c) any blockers. I'll paste the next prompt after I've reviewed your summary.

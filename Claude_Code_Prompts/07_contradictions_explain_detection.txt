@@ -1,0 +1,155 @@
+# Claude Code Prompt 7 of 12 — Contradictions: explain how each contradiction was detected
+
+**Sequence:** prompt 7 of 12 (Wave 3 — contradictions overhaul; depends on prompt 06 being applied first for tenant scoping and claim text resolution). When you finish, report back with: files you created/modified, any notable choices, any blockers.
+
+**Before you start — read current state:**
+1. Read `theseus-codex/src/app/(authed)/contradictions/page.tsx` — note the expanded details section. Currently it shows: the `narrative` field (a text summary), the CoherenceRadar visualization, and the raw `sixLayerJson` as a pretty-printed JSON blob.
+2. Read the `LAYER_KEYS` constant (lines 21–28) — the six layers are: `s1_consistency`, `s2_argumentation`, `s3_probabilistic`, `s4_geometric`, `s5_compression`, `s6_llm_judge`.
+3. Read `noosphere/noosphere/coherence/engine.py` — understand the six-layer coherence system. Note what each layer measures.
+
+## The problem
+
+The contradictions tab currently shows a raw JSON blob of six-layer scores alongside a radar chart. The founder said the UI for "how the contradiction was detected, in terms of where the contradiction lies, just doesn't work." The raw JSON is opaque to anyone who isn't a developer. The founder needs a human-readable explanation of:
+
+1. Which layers flagged the contradiction and how strongly
+2. What each layer actually measures (in plain language)
+3. Which layer(s) contributed most to the detection
+
+## SCOPE (files you may modify — stay within this list)
+- `theseus-codex/src/app/(authed)/contradictions/page.tsx`    MODIFY
+
+## Step-by-step
+
+1. **Define a layer description map** that translates each layer key into a human-readable name and explanation:
+   ```typescript
+   const LAYER_DESCRIPTIONS: Record<string, { name: string; explanation: string }> = {
+     s1_consistency: {
+       name: "Logical consistency",
+       explanation: "Checks whether the two claims can both be true simultaneously using formal logical rules.",
+     },
+     s2_argumentation: {
+       name: "Argumentation analysis",
+       explanation: "Examines the argumentative structure — whether one claim undermines the premises or conclusions of the other.",
+     },
+     s3_probabilistic: {
+       name: "Probabilistic coherence",
+       explanation: "Measures whether believing both claims at their stated confidence levels is statistically coherent.",
+     },
+     s4_geometric: {
+       name: "Semantic geometry",
+       explanation: "Analyzes the geometric relationship between the claims in the embedding space — how their meaning vectors relate.",
+     },
+     s5_compression: {
+       name: "Information compression",
+       explanation: "Tests whether the two claims compress well together (coherent) or resist joint compression (contradictory).",
+     },
+     s6_llm_judge: {
+       name: "LLM adjudication",
+       explanation: "An independent language model assessment of whether these claims are in genuine tension.",
+     },
+   };
+   ```
+
+2. **Create a `LayerBreakdown` component** that replaces the raw JSON display with a structured, readable breakdown:
+   ```tsx
+   function LayerBreakdown({ sixLayerJson }: { sixLayerJson: string }) {
+     let parsed: Record<string, unknown>;
+     try {
+       parsed = JSON.parse(sixLayerJson);
+     } catch {
+       return <p>No layer data available.</p>;
+     }
+
+     // Sort layers by score descending so the strongest signals appear first
+     const layers = LAYER_KEYS
+       .map((key) => ({
+         key,
+         score: typeof parsed[key] === "number" ? (parsed[key] as number) : 0,
+         ...LAYER_DESCRIPTIONS[key],
+       }))
+       .sort((a, b) => b.score - a.score);
+
+     const topLayer = layers[0];
+
+     return (
+       <div>
+         <div style={{
+           marginBottom: "0.75rem",
+           padding: "0.5rem 0.75rem",
+           background: "rgba(180,80,40,0.08)",
+           borderLeft: "3px solid var(--ember)",
+           borderRadius: 2,
+           fontSize: "0.8rem",
+           color: "var(--parchment)",
+         }}>
+           Primary signal: <strong>{topLayer.name}</strong> ({(topLayer.score * 100).toFixed(0)}%)
+           — {topLayer.explanation}
+         </div>
+
+         <div style={{ display: "flex", flexDirection: "column", gap: "0.35rem" }}>
+           {layers.map((layer) => (
+             <div key={layer.key} style={{
+               display: "grid",
+               gridTemplateColumns: "10rem 3rem 1fr",
+               gap: "0.5rem",
+               alignItems: "center",
+               fontSize: "0.75rem",
+             }}>
+               <span className="mono" style={{
+                 color: layer.score > 0.5 ? "var(--ember)" : "var(--parchment-dim)",
+                 fontSize: "0.65rem",
+               }}>
+                 {layer.name}
+               </span>
+               <span className="mono" style={{
+                 color: layer.score > 0.5 ? "var(--ember)" : "var(--parchment-dim)",
+                 textAlign: "right",
+               }}>
+                 {(layer.score * 100).toFixed(0)}%
+               </span>
+               <div style={{
+                 height: "4px",
+                 background: "var(--stone-mid)",
+                 borderRadius: 2,
+                 overflow: "hidden",
+               }}>
+                 <div style={{
+                   width: `${layer.score * 100}%`,
+                   height: "100%",
+                   background: layer.score > 0.5 ? "var(--ember)" : "var(--parchment-dim)",
+                   borderRadius: 2,
+                 }} />
+               </div>
+             </div>
+           ))}
+         </div>
+       </div>
+     );
+   }
+   ```
+
+3. **Replace the raw JSON `<pre>` block** in the expanded details section with the `LayerBreakdown` component. Keep the CoherenceRadar — place the LayerBreakdown next to it (replacing the `<pre>` in the current grid):
+   ```tsx
+   <div style={{
+     display: "grid",
+     gridTemplateColumns: "220px 1fr",
+     gap: "1.25rem",
+     alignItems: "start",
+   }}>
+     <CoherenceRadar values={extractLayerValues(c.sixLayerJson)} size={220} />
+     <LayerBreakdown sixLayerJson={c.sixLayerJson!} />
+   </div>
+   ```
+
+4. **Add a "Show raw JSON" toggle** so developers can still access the raw data if needed:
+   - This requires a small client component. Create a `JsonToggle` component that wraps the `<pre>` block:
+   ```tsx
+   // Add "use client" component inline or as a separate small file
+   // at theseus-codex/src/app/(authed)/contradictions/json-toggle.tsx
+   ```
+   - The toggle should default to hidden, with a small "View raw JSON" link that expands the pre block.
+   - If you create a separate file, add it to SCOPE.
+
+5. **Do NOT change** the CoherenceRadar component itself, the six-layer engine in Noosphere, or the narrative field display. Only modify how the six-layer scores are presented to the user.
+
+Do not proceed to any other work. Do not edit anything outside SCOPE.

@@ -1,0 +1,560 @@
+/* ═════════════════════════════════════════════════════════════════════════
+ * Theseus Codex — "Amber Oracle" aesthetic
+ *
+ * Terminal-inspired amber CRT on charcoal, classical Roman typography,
+ * subtle scan-line phosphor glow. Text-first (EB Garamond for body,
+ * Cinzel for display), monospace (IBM Plex Mono) for numeric / terminal
+ * accents, with box-drawing characters as UI chrome.
+ *
+ * Palette shift from prior version: gold-amber is now the dominant accent
+ * with a stronger CRT-orange fallback (`--amber`), and the whole UI sits
+ * over a near-black charcoal rather than warm stone, so the phosphor glow
+ * actually looks like phosphor.
+ *
+ * Scan-line overlay + amber vignette are provided by <CRTOverlay /> in
+ * the root layout — don't add them here so they can be disabled per-user
+ * via prefers-reduced-motion or a future user preference.
+ * ═════════════════════════════════════════════════════════════════════════ */
+
+@import url('https://fonts.googleapis.com/css2?family=EB+Garamond:ital,wght@0,400;0,500;0,600;1,400;1,500&family=Cinzel:wght@400;500;600;700&family=Cinzel+Decorative:wght@400;700&family=Inter:wght@300;400;500&family=IBM+Plex+Mono:ital,wght@0,300;0,400;0,500;0,600;1,400&display=swap');
+@import "tailwindcss";
+
+/* ── Theseus Design Tokens — Amber Oracle ────────────────────────────────── */
+
+:root {
+  /* Charcoal / void palette. Slight warm tint so amber reads as "glow" not "sun". */
+  --stone:        #08070a;   /* the void behind the terminal */
+  --stone-light:  #120f0b;   /* card surfaces */
+  --stone-mid:    #1b1612;   /* raised surfaces, input backgrounds */
+
+  /* Amber CRT palette. Primary gold-amber with a hotter ember for action states. */
+  --amber:        #e9a338;   /* primary amber — links, active nav, highlights */
+  --amber-dim:    #a8762a;   /* secondary amber — metadata, inactive nav */
+  --amber-deep:   #5e4617;   /* tertiary amber — disabled, subtle borders */
+  --amber-glow:   rgba(233, 163, 56, 0.35);  /* used for drop-shadows */
+
+  /* Parchment — used sparingly now; amber dominates. */
+  --parchment:    #efe2c7;
+  --parchment-dim:#9c8f72;
+
+  /* Legacy aliases so existing inline styles keep working. */
+  --gold:         var(--amber);
+  --gold-dim:     var(--amber-dim);
+  --ember:        #c94a1f;
+  --border:       #3a2d12;
+  --success:      #7ea83a;
+  --info:         #3a7aa8;
+
+  /* Phosphor glow presets. */
+  --glow-sm: 0 0 6px var(--amber-glow);
+  --glow-md: 0 0 14px var(--amber-glow), 0 0 2px var(--amber);
+  --glow-lg: 0 0 28px var(--amber-glow), 0 0 4px var(--amber);
+}
+
+[data-theme="light"] {
+  /* Light mode = ink-on-parchment (the scholarly codex, not the terminal). */
+  --stone:        #f2e8d9;
+  --stone-light:  #ede0cc;
+  --stone-mid:    #e4d4ba;
+  --amber:        #7a5218;
+  --amber-dim:    #9a6c28;
+  --amber-deep:   #c1a670;
+  --amber-glow:   rgba(122, 82, 24, 0.18);
+  --parchment:    #2a2318;
+  --parchment-dim:#5a4e3a;
+  --gold:         var(--amber);
+  --gold-dim:     var(--amber-dim);
+  --ember:        #8b3a2a;
+  --border:       #cbbfa8;
+  --success:      #3a6a2a;
+  --info:         #2a4a6a;
+  --glow-sm: 0 0 6px var(--amber-glow);
+  --glow-md: 0 0 14px var(--amber-glow);
+  --glow-lg: 0 0 22px var(--amber-glow);
+}
+
+html { transition: background 0.25s, color 0.25s; }
+
+@theme inline {
+  --color-background: var(--stone);
+  --color-foreground: var(--parchment);
+}
+
+* { box-sizing: border-box; }
+
+html, html[data-theme] {
+  background: var(--stone);
+  color: var(--parchment);
+}
+
+body {
+  background: var(--stone);
+  color: var(--parchment);
+  font-family: 'EB Garamond', Georgia, serif;
+  font-size: 17px;
+  line-height: 1.7;
+  min-height: 100vh;
+  /* Faint amber tint on body text itself, so the whole UI feels bathed in
+     phosphor. Not so strong that body text becomes hard to read. */
+  text-shadow: 0 0 1px rgba(233, 163, 56, 0.05);
+}
+
+h1, h2, h3, h4 {
+  font-family: 'Cinzel', 'Palatino Linotype', serif;
+  font-weight: 500;
+  letter-spacing: 0.05em;
+}
+
+/* ── Mono utility class for terminal-style text (timestamps, IDs, numbers) ── */
+.mono, code, pre, kbd {
+  font-family: 'IBM Plex Mono', 'JetBrains Mono', Menlo, monospace;
+  font-feature-settings: "tnum" 1, "ss01" 1;  /* tabular figures */
+}
+
+/* ── Scrollbar — CRT-thin, amber on hover ───────────────────────────────── */
+::-webkit-scrollbar { width: 6px; }
+::-webkit-scrollbar-track { background: var(--stone); }
+::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: var(--amber-dim); }
+::selection { background: var(--amber-dim); color: var(--stone); text-shadow: none; }
+
+/* ── Form elements ───────────────────────────────────────────────────────── */
+input, textarea, select {
+  background: var(--stone-mid);
+  border: 1px solid var(--border);
+  color: var(--parchment);
+  font-family: 'EB Garamond', Georgia, serif;
+  font-size: 1rem;
+  padding: 0.6rem 0.9rem;
+  border-radius: 2px;
+  outline: none;
+  transition: border-color 0.2s, box-shadow 0.2s;
+  width: 100%;
+}
+
+input:focus, textarea:focus, select:focus {
+  border-color: var(--amber);
+  box-shadow: var(--glow-sm);
+}
+
+input::placeholder, textarea::placeholder {
+  color: var(--parchment-dim);
+  opacity: 0.5;
+}
+
+/* ── Buttons — amber with phosphor glow on hover ─────────────────────────── */
+.btn {
+  font-family: 'Cinzel', serif;
+  font-size: 0.75rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  padding: 0.6rem 1.4rem;
+  border: 1px solid var(--amber-dim);
+  background: transparent;
+  color: var(--amber);
+  cursor: pointer;
+  transition: all 0.2s;
+  border-radius: 1px;
+  text-shadow: 0 0 1px var(--amber-glow);
+}
+
+.btn:hover {
+  background: var(--amber-dim);
+  color: var(--stone);
+  box-shadow: var(--glow-md);
+  text-shadow: none;
+}
+
+.btn:focus-visible {
+  outline: none;
+  box-shadow: var(--glow-lg);
+}
+
+.btn-solid {
+  background: var(--amber-dim);
+  color: var(--stone);
+  border-color: var(--amber-dim);
+  text-shadow: none;
+}
+
+.btn-solid:hover {
+  background: var(--amber);
+  border-color: var(--amber);
+  box-shadow: var(--glow-lg);
+}
+
+/* ── Cards ───────────────────────────────────────────────────────────────── */
+.portal-card {
+  background: var(--stone-light);
+  border: 1px solid var(--border);
+  border-radius: 2px;
+  padding: 1.5rem;
+  transition: border-color 0.2s, box-shadow 0.2s, transform 0.15s;
+  position: relative;
+}
+
+.portal-card:hover {
+  border-color: var(--amber-dim);
+  box-shadow: var(--glow-sm);
+}
+
+/* ── Upload zone ─────────────────────────────────────────────────────────── */
+.upload-zone {
+  border: 2px dashed var(--border);
+  border-radius: 2px;
+  padding: 3rem 2rem;
+  text-align: center;
+  transition: all 0.2s;
+  cursor: pointer;
+}
+
+.upload-zone:hover, .upload-zone.dragover {
+  border-color: var(--amber);
+  background: var(--stone-light);
+  box-shadow: var(--glow-md);
+}
+
+/* ── Status badges ───────────────────────────────────────────────────────── */
+.badge {
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 0.65rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  padding: 0.2rem 0.6rem;
+  border-radius: 1px;
+  display: inline-block;
+}
+
+.badge-pending    { background: var(--stone-mid); color: var(--parchment-dim); border: 1px solid var(--border); }
+.badge-processing { background: transparent; color: var(--info); border: 1px solid var(--info); }
+.badge-ingested   { background: transparent; color: var(--success); border: 1px solid var(--success); }
+.badge-failed     { background: transparent; color: var(--ember); border: 1px solid var(--ember); box-shadow: 0 0 4px rgba(201, 74, 31, 0.4); }
+
+/* ── Stat card ───────────────────────────────────────────────────────────── */
+.stat-card {
+  background: var(--stone-light);
+  border: 1px solid var(--border);
+  border-radius: 2px;
+  padding: 1.2rem;
+  text-align: center;
+}
+
+.stat-value {
+  font-family: 'Cinzel', serif;
+  font-size: 2rem;
+  color: var(--amber);
+  font-weight: 500;
+  text-shadow: var(--glow-sm);
+}
+
+.stat-label {
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 0.65rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--parchment-dim);
+  margin-top: 0.3rem;
+}
+
+/* ── Ornament & classical flourishes ─────────────────────────────────────── */
+.ornament::before {
+  content: '— ✦ —';
+  color: var(--amber-dim);
+  font-family: 'Cinzel', serif;
+  font-size: 0.75rem;
+  letter-spacing: 0.3em;
+}
+
+/* Greek-key (meander) divider, SVG-based, can be applied to any hr or div.
+   Renders as a repeating pattern across the full container width. */
+.meander {
+  height: 18px;
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 36 18' preserveAspectRatio='xMinYMin slice'><path d='M0 4 L12 4 L12 14 L24 14 L24 4 L36 4' fill='none' stroke='%23a8762a' stroke-width='1' stroke-linecap='square' stroke-linejoin='miter'/></svg>");
+  background-repeat: repeat-x;
+  background-size: 36px 18px;
+  border: 0;
+  opacity: 0.7;
+  margin: 1.5rem 0;
+}
+
+/* Box-drawing-character ascii frame. Applied via:
+     <div class="ascii-frame" data-label="CORNER TAG">...</div>
+   The ::before and ::after render the corner characters at top-left and
+   bottom-right; the data-label becomes a small label inset into the top
+   border, like a UI panel from a 1980s terminal. */
+.ascii-frame {
+  position: relative;
+  border: 1px solid var(--amber-dim);
+  padding: 1.25rem 1.5rem;
+  font-family: inherit;
+  background: var(--stone-light);
+  /* subtle inner glow as if the frame is lit from behind */
+  box-shadow: inset 0 0 24px rgba(233, 163, 56, 0.03);
+}
+
+.ascii-frame::before {
+  content: '╔';
+  position: absolute;
+  top: -11px; left: -7px;
+  color: var(--amber-dim);
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 1rem;
+  background: var(--stone);
+  padding: 0 2px;
+  line-height: 1;
+}
+
+.ascii-frame::after {
+  content: '╝';
+  position: absolute;
+  bottom: -11px; right: -7px;
+  color: var(--amber-dim);
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 1rem;
+  background: var(--stone);
+  padding: 0 2px;
+  line-height: 1;
+}
+
+.ascii-frame[data-label]::before {
+  content: '╔═══ ' attr(data-label) ' ';
+  padding: 0 6px 0 4px;
+  letter-spacing: 0.1em;
+  font-size: 0.7rem;
+  color: var(--amber-dim);
+}
+
+/* Amber glow utility — apply to any element that should look "lit". */
+.glow-sm { box-shadow: var(--glow-sm); }
+.glow-md { box-shadow: var(--glow-md); }
+.glow-lg { box-shadow: var(--glow-lg); }
+.text-glow { text-shadow: 0 0 8px var(--amber-glow), 0 0 2px var(--amber); }
+
+/* Blinking cursor utility — put `<span class="cursor">_</span>` after any
+   heading that should feel like a live terminal prompt. */
+.cursor::after {
+  content: '_';
+  display: inline-block;
+  margin-left: 4px;
+  color: var(--amber);
+  animation: cursor-blink 1.05s steps(1) infinite;
+  text-shadow: var(--glow-sm);
+}
+
+@keyframes cursor-blink {
+  0%, 49% { opacity: 1; }
+  50%, 100% { opacity: 0; }
+}
+
+/* ── Page entrance animations ────────────────────────────────────────────── */
+@keyframes fadeUp {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.fade-up { animation: fadeUp 0.4s ease forwards; }
+
+/* "Type in" flicker — content briefly flickers on first paint, like CRT
+   phosphor warming up. Only runs on load; disabled by prefers-reduced-motion. */
+@keyframes crt-flicker {
+  0% { opacity: 0.6; }
+  5% { opacity: 0.95; }
+  10% { opacity: 0.7; }
+  15% { opacity: 1; }
+  100% { opacity: 1; }
+}
+
+.crt-fade-in {
+  animation: crt-flicker 0.9s ease-out forwards;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .crt-fade-in,
+  .cursor::after,
+  .fade-up,
+  .gate-labyrinth,
+  .gate-pulse,
+  .crt-noise { animation: none !important; }
+  /* Note: .gate-leave / .gate-hairline / .codex-arrival /
+     .codex-arrival-hairline are also disabled by the later @media block
+     at the end of this section. Listed here for discoverability. */
+}
+
+/* ── Amber noise drift ──────────────────────────────────────────────────
+ * The `<CRTOverlay />` amber-noise layer wallpapers a 256px tile across
+ * the viewport and drifts the background-position very slowly (48s cycle
+ * for 256px travel = ~5px/s). Slow enough to be subliminal; present enough
+ * that the page feels alive rather than a flat render. */
+.crt-noise {
+  animation: crt-noise-drift 48s linear infinite;
+}
+
+/* ── Light-mode CRT overlay dampening ─────────────────────────────────────
+ *
+ * The CRT noise + darkening vignette are the signature "amber oracle"
+ * effect in dark mode. In light mode they'd fight the bright
+ * parchment background instead: the noise layer is a dark amber
+ * pattern at mix-blend-mode `screen` (designed for a black base) —
+ * over parchment it just muddies the page. And the vignette
+ * darkens the rim of a page that's supposed to read as ink-on-paper.
+ *
+ * Both get suppressed here. If a user ever wants the CRT feel back
+ * they can flip `data-theme` to dark.
+ */
+[data-theme="light"] .crt-noise {
+  display: none;
+}
+
+[data-theme="light"] .crt-vignette {
+  /* A whisper of darkening at the corners keeps the reading page
+   * from feeling flat, without looking like an old monitor. */
+  background: radial-gradient(
+    ellipse at center,
+    transparent 70%,
+    rgba(90, 78, 58, 0.10) 100%
+  ) !important;
+}
+
+/* Dark mode is the default — explicit selector keeps the cascade
+ * readable when we inspect in devtools. */
+[data-theme="dark"] .crt-noise {
+  display: block;
+}
+
+@keyframes crt-noise-drift {
+  0%   { background-position: 0 0; }
+  100% { background-position: 256px 256px; }
+}
+
+/* ── Gate (/) animations ─────────────────────────────────────────────────── */
+
+/* Idle state: the labyrinth rotates *slowly* (90s full turn) plus a subtle
+   4s amber breath via drop-shadow intensity. The rotation is slow enough to
+   feel like a ritual object, not a spinner. */
+.gate-labyrinth {
+  display: inline-block;
+  animation: gate-spin-slow 90s linear infinite;
+  color: var(--amber);
+}
+
+.gate-pulse {
+  animation: gate-spin-slow 90s linear infinite, gate-breath 4.5s ease-in-out infinite;
+}
+
+/*
+ * TRANSITION ANIMATION (login → dashboard) — minimalist rewrite
+ * ─────────────────────────────────────────────────────────────
+ * Two effects, no flash. Total ~700 ms:
+ *
+ *   1. `.gate-leave` on the form + wordmark + labyrinth:
+ *        a 600 ms opacity + small translateY fade. The whole idle
+ *        composition drifts down a hair and dims to zero. Ease-out so
+ *        the motion settles rather than ending abruptly.
+ *
+ *   2. `.gate-hairline` (a thin amber line centred in the viewport via
+ *      a flex wrapper in Gate.tsx):
+ *        materialises at zero width, expands horizontally from the
+ *        centre to full viewport width over ~320 ms, holds a beat,
+ *        fades out. The sweep itself is the transition's only active
+ *        visual element — no colour flashes, no screen fill.
+ *
+ * Both start together when `phase` flips to `entering`, run in parallel
+ * for ~700 ms, and leave the viewport empty at the moment the router
+ * navigates. The dashboard side (`.codex-arrival` +
+ * `.codex-arrival-hairline`) mirrors the effect in reverse: the
+ * hairline contracts back to centre while content fades up.
+ *
+ * Prior revision removed: a three-layer ignition with radial amber
+ * shockwave (`.gate-flash`), rotating conic sunburst (`.gate-rays`),
+ * and 9× scale / 1800° rotation on the hero (`.gate-open`). The
+ * amber flash was visually loud and the most-complained-about detail.
+ */
+
+@keyframes gate-spin-slow {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+@keyframes gate-breath {
+  0%, 100% { filter: drop-shadow(0 0 10px var(--amber-glow)); }
+  50% { filter: drop-shadow(0 0 20px var(--amber-glow)) drop-shadow(0 0 4px var(--amber)); }
+}
+
+/* Shared exit for form + wordmark + labyrinth. Tiny down-drift so the
+   whole composition settles away together rather than each piece
+   falling independently. */
+.gate-leave {
+  animation: gate-leave 0.6s cubic-bezier(0.33, 0, 0.67, 1) forwards;
+}
+
+@keyframes gate-leave {
+  0%   { opacity: 1; transform: translateY(0); }
+  100% { opacity: 0; transform: translateY(10px); }
+}
+
+/* Horizon hairline. Painted directly (no gradient) with an amber glow
+   from box-shadow. The wrapper in Gate.tsx is
+   `display: grid; place-items: center`, so as `width` expands from
+   zero the bar grows symmetrically outward from the viewport centre.
+   On fast machines this runs entirely on the compositor thread. */
+.gate-hairline {
+  width: 0;
+  height: 1px;
+  background: var(--amber);
+  box-shadow:
+    0 0 6px var(--amber),
+    0 0 18px var(--amber-glow);
+  animation: gate-hairline 0.68s cubic-bezier(0.22, 0.61, 0.36, 1) forwards;
+}
+
+@keyframes gate-hairline {
+  0%   { width: 0;     opacity: 0; }
+  15%  { width: 0;     opacity: 1; }
+  55%  { width: 100vw; opacity: 1; }
+  100% { width: 100vw; opacity: 0; }
+}
+
+/* ── Arrival animation (dashboard side of the entrance) ─────────────────
+ * The EntranceWelcome client component picks up the `codex:just-entered`
+ * sessionStorage flag set by the Gate and, if present, mounts
+ * `.codex-arrival` on the page wrapper for ~550 ms plus a mirrored
+ * `.codex-arrival-hairline` that contracts back to the centre.
+ *
+ * Content fades up from a small downward offset — a quiet reveal,
+ * no blur, no scale, no brightness pump. The whole page is visible
+ * and fully interactive within 500 ms of navigation. */
+.codex-arrival {
+  animation: codex-arrival-fade 0.5s cubic-bezier(0.22, 0.61, 0.36, 1) forwards;
+}
+
+@keyframes codex-arrival-fade {
+  0%   { opacity: 0; transform: translateY(8px); }
+  100% { opacity: 1; transform: translateY(0); }
+}
+
+/* Mirrored hairline that the dashboard paints on arrival — starts
+   at full viewport width and contracts back to a zero-width pinpoint
+   at the centre, then fades. Same visual vocabulary as the exit,
+   reversed. */
+.codex-arrival-hairline {
+  width: 100vw;
+  height: 1px;
+  background: var(--amber);
+  box-shadow:
+    0 0 6px var(--amber),
+    0 0 18px var(--amber-glow);
+  animation: codex-arrival-hairline 0.65s cubic-bezier(0.33, 0, 0.67, 1) forwards;
+}
+
+@keyframes codex-arrival-hairline {
+  0%   { width: 100vw; opacity: 1; }
+  55%  { width: 40vw;  opacity: 0.8; }
+  100% { width: 0;     opacity: 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .gate-leave,
+  .gate-hairline,
+  .codex-arrival,
+  .codex-arrival-hairline { animation: none !important; }
+}

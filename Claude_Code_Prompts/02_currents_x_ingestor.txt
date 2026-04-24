@@ -1,0 +1,361 @@
+# Claude Code Prompt 02 of 17 — X/Twitter ingestor: curated accounts, topic streams, raw event capture
+
+**Sequence:** prompt 02 of 17 (Wave 2). Depends on prompt 01. Report back with: files created, config file locations, the env-var name the operator must set, and any X API rate-limit concerns you noticed.
+
+**Before you start — read current state:**
+1. Run `git status` and confirm prompt 01's changes are committed or staged.
+2. Read `noosphere/noosphere/models.py` — confirm `CurrentEvent`, `CurrentEventSource`, `CurrentEventStatus` exist. If they don't, STOP and report — prompt 01 was not applied.
+3. Read `noosphere/noosphere/store.py` — confirm `Store.add_current_event`, `find_current_event_by_dedupe`, and `set_current_event_topic_and_embedding` exist.
+4. Read `noosphere/noosphere/observability.py` — note how existing modules get a logger. Use `get_logger(__name__)` the same way.
+5. Read `noosphere/requirements.txt` — note existing HTTP dependencies. If `httpx` is already present, use it; do NOT add `requests` or `tweepy`. We call X's REST endpoints directly with `httpx`.
+
+## STOP — operator action required before you finish this prompt
+
+This prompt requires the user's X/Twitter API v2 **Bearer Token** to run end-to-end. You MUST, at the top of your verification step, print this exact message and stop if the env var is absent:
+
+```
+X_BEARER_TOKEN not set. Provide the X/Twitter API v2 bearer token
+before running the ingestor live. The code paths and dry-run test
+below still work without it.
+```
+
+Do NOT hardcode the token. Do NOT prompt the user interactively — this is headless. Read `os.environ["X_BEARER_TOKEN"]`.
+
+## Your task
+
+Create the `noosphere/noosphere/currents/` subpackage and a `x_ingestor.py` module inside it. The ingestor pulls recent posts from a curated list of accounts and a set of topic-keyword search queries, filters to posts within a lookback window, writes each unique post to the `current_event` table as a `CurrentEvent` with status `OBSERVED`, and defers dedupe-by-content to prompt 03 (which runs immediately after).
+
+The ingestor is a pure-Python module — no scheduler, no FastAPI. Prompt 15 will wrap it in a scheduling loop.
+
+## Prerequisites
+
+- Prompt 01 complete (data model + store accessors exist).
+- `httpx` available in the noosphere environment.
+
+## SCOPE (files you may create or modify — stay within this list)
+
+- `noosphere/noosphere/currents/__init__.py`                           CREATE
+- `noosphere/noosphere/currents/x_ingestor.py`                         CREATE
+- `noosphere/noosphere/currents/_x_client.py`                          CREATE
+- `noosphere/noosphere/currents/config.py`                             CREATE
+- `noosphere/noosphere/currents/config_defaults/curated_accounts.json` CREATE
+- `noosphere/noosphere/currents/config_defaults/topic_keywords.json`   CREATE
+- `noosphere/tests/test_x_ingestor.py`                                 CREATE
+- `noosphere/tests/fixtures/x_sample_responses/`                       CREATE (place canned JSON fixtures)
+
+Do NOT modify `models.py`, `store.py`, retrieval, or any other noosphere module. Do NOT touch the public site.
+
+## Step-by-step
+
+### 1. `config.py` — runtime config, read from JSON + env overrides
+
+```python
+from __future__ import annotations
+
+import json
+import os
+from dataclasses import dataclass, field
+from pathlib import Path
+
+DEFAULT_CURATED_PATH = Path(__file__).parent / "config_defaults" / "curated_accounts.json"
+DEFAULT_KEYWORDS_PATH = Path(__file__).parent / "config_defaults" / "topic_keywords.json"
+
+
+@dataclass
+class IngestorConfig:
+    bearer_token: str                          # required; read from X_BEARER_TOKEN
+    curated_accounts: list[str]                # list of handles without the "@"
+    topic_keywords: list[str]                  # list of keyword queries for /2/tweets/search/recent
+    lookback_minutes: int = 15                 # overlap with the 5-min cadence to avoid gaps
+    max_posts_per_account: int = 20
+    max_posts_per_keyword_query: int = 50
+    request_timeout_s: float = 15.0
+    base_url: str = "https://api.twitter.com"
+
+    @classmethod
+    def from_env(cls) -> "IngestorConfig":
+        bearer = os.environ.get("X_BEARER_TOKEN", "")
+        curated_path = Path(os.environ.get("CURRENTS_CURATED_ACCOUNTS", DEFAULT_CURATED_PATH))
+        keywords_path = Path(os.environ.get("CURRENTS_TOPIC_KEYWORDS", DEFAULT_KEYWORDS_PATH))
+        return cls(
+            bearer_token=bearer,
+            curated_accounts=json.loads(curated_path.read_text()),
+            topic_keywords=json.loads(keywords_path.read_text()),
+            lookback_minutes=int(os.environ.get("CURRENTS_LOOKBACK_MINUTES", "15")),
+        )
+```
+
+Leave the two default config JSONs as empty arrays `[]` so the operator MUST populate them — the ingestor must not do anything live until the operator curates a list. In `curated_accounts.json` include a commented-header-style file-level doc:
+
+```json
+[
+  "__comment": "Populate with X handles (without @). See README for curation guidelines. Empty list disables the curated-account path."
+]
+```
+
+Actually JSON doesn't allow comments — ship as:
+```json
+[]
+```
+and add a sibling `curated_accounts.README.md` explaining what the file is for and the curation guideline: "Only include accounts whose claims are substantive enough to warrant firm commentary — journalists, domain experts, primary sources. Hot-take accounts create noise."
+
+Same for `topic_keywords.json` with `topic_keywords.README.md` — example topics matching the firm's Noosphere conclusions (leave the actual curation to the operator).
+
+### 2. `_x_client.py` — thin `httpx`-based client
+
+A small client wrapping the two endpoints we need:
+
+- `GET /2/users/by/username/:username` → user id
+- `GET /2/users/:id/tweets` → recent posts from that user
+- `GET /2/tweets/search/recent` → keyword search
+
+```python
+from __future__ import annotations
+
+import asyncio
+from dataclasses import dataclass
+from datetime import datetime, timezone
+from typing import Any, Optional
+
+import httpx
+
+from noosphere.observability import get_logger
+
+logger = get_logger(__name__)
+
+
+class XAPIError(RuntimeError):
+    """Raised when the X API returns non-2xx or an unexpected shape."""
+
+
+@dataclass(frozen=True)
+class XPost:
+    id: str
+    author_handle: str
+    author_id: str
+    created_at: datetime           # tz-aware UTC
+    text: str
+    url: str                       # https://x.com/<handle>/status/<id>
+    conversation_id: Optional[str] = None   # for thread assembly later
+
+
+class XClient:
+    def __init__(self, bearer_token: str, base_url: str, timeout_s: float):
+        if not bearer_token:
+            raise XAPIError("X_BEARER_TOKEN is empty")
+        self._bearer = bearer_token
+        self._base = base_url.rstrip("/")
+        self._timeout = timeout_s
+
+    def _headers(self) -> dict[str, str]:
+        return {"Authorization": f"Bearer {self._bearer}"}
+
+    async def _get(self, client: httpx.AsyncClient, path: str, params: dict[str, Any]) -> dict:
+        url = f"{self._base}{path}"
+        resp = await client.get(url, params=params, headers=self._headers(), timeout=self._timeout)
+        if resp.status_code == 429:
+            reset = resp.headers.get("x-rate-limit-reset", "unknown")
+            logger.warning("x_rate_limited", path=path, reset=reset)
+            raise XAPIError(f"rate limited; reset at {reset}")
+        if resp.status_code >= 400:
+            raise XAPIError(f"{resp.status_code} on {path}: {resp.text[:200]}")
+        return resp.json()
+
+    async def user_id_for_handle(self, client: httpx.AsyncClient, handle: str) -> Optional[str]:
+        data = await self._get(client, f"/2/users/by/username/{handle}", {"user.fields": "id,username"})
+        return (data.get("data") or {}).get("id")
+
+    async def recent_posts_by_user(
+        self, client: httpx.AsyncClient, user_id: str, *, max_results: int,
+        start_time: Optional[datetime] = None,
+    ) -> list[XPost]:
+        params = {
+            "max_results": min(max(max_results, 5), 100),
+            "tweet.fields": "id,text,created_at,author_id,conversation_id",
+            "expansions": "author_id",
+            "user.fields": "username",
+        }
+        if start_time is not None:
+            params["start_time"] = start_time.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+        data = await self._get(client, f"/2/users/{user_id}/tweets", params)
+        return _parse_tweets_payload(data)
+
+    async def search_recent(
+        self, client: httpx.AsyncClient, query: str, *, max_results: int,
+        start_time: Optional[datetime] = None,
+    ) -> list[XPost]:
+        params = {
+            "query": query,
+            "max_results": min(max(max_results, 10), 100),
+            "tweet.fields": "id,text,created_at,author_id,conversation_id",
+            "expansions": "author_id",
+            "user.fields": "username",
+        }
+        if start_time is not None:
+            params["start_time"] = start_time.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+        data = await self._get(client, "/2/tweets/search/recent", params)
+        return _parse_tweets_payload(data)
+
+
+def _parse_tweets_payload(data: dict) -> list[XPost]:
+    """Fold the v2 includes/data layout into a flat XPost list with resolved handles."""
+    tweets = data.get("data") or []
+    users_by_id = {u["id"]: u["username"] for u in (data.get("includes") or {}).get("users", [])}
+    out: list[XPost] = []
+    for t in tweets:
+        handle = users_by_id.get(t.get("author_id", ""), "unknown")
+        ts = t.get("created_at") or ""
+        created_at = datetime.fromisoformat(ts.replace("Z", "+00:00")) if ts else datetime.now(timezone.utc)
+        out.append(XPost(
+            id=str(t["id"]),
+            author_handle=handle,
+            author_id=str(t.get("author_id", "")),
+            created_at=created_at,
+            text=t.get("text", ""),
+            url=f"https://x.com/{handle}/status/{t['id']}",
+            conversation_id=str(t.get("conversation_id")) if t.get("conversation_id") else None,
+        ))
+    return out
+```
+
+### 3. `x_ingestor.py` — orchestrates one ingestion pass
+
+```python
+from __future__ import annotations
+
+import asyncio
+import hashlib
+import re
+from datetime import datetime, timedelta, timezone
+
+import httpx
+
+from noosphere.currents._x_client import XAPIError, XClient, XPost
+from noosphere.currents.config import IngestorConfig
+from noosphere.ids import make_event_id
+from noosphere.models import CurrentEvent, CurrentEventSource, CurrentEventStatus
+from noosphere.observability import get_logger
+from noosphere.store import Store
+
+logger = get_logger(__name__)
+
+_WHITESPACE_RE = re.compile(r"\s+")
+
+
+def _normalize_for_hash(text: str, url: str) -> str:
+    return _WHITESPACE_RE.sub(" ", text.strip().lower()) + "|" + url.strip().lower()
+
+
+def _dedupe_hash(post: XPost) -> str:
+    return hashlib.sha256(_normalize_for_hash(post.text, post.url).encode("utf-8")).hexdigest()
+
+
+def _to_current_event(post: XPost, now: datetime) -> CurrentEvent:
+    dhash = _dedupe_hash(post)
+    return CurrentEvent(
+        id=make_event_id(dhash),
+        source=CurrentEventSource.X_POST,
+        source_url=post.url,
+        source_author_handle=f"@{post.author_handle}",
+        source_captured_at=post.created_at,
+        ingested_at=now,
+        raw_text=post.text,
+        dedupe_hash=dhash,
+        embedding=None,
+        topic_hint=None,
+        status=CurrentEventStatus.OBSERVED,
+    )
+
+
+async def ingest_once(store: Store, cfg: IngestorConfig, *, now: datetime | None = None) -> int:
+    """Run one ingestion pass. Returns count of new events written."""
+    now = now or datetime.now(timezone.utc)
+    start_time = now - timedelta(minutes=cfg.lookback_minutes)
+    client = XClient(cfg.bearer_token, cfg.base_url, cfg.request_timeout_s)
+    new_count = 0
+
+    async with httpx.AsyncClient() as http:
+        # 1. curated accounts
+        for handle in cfg.curated_accounts:
+            try:
+                user_id = await client.user_id_for_handle(http, handle)
+                if not user_id:
+                    logger.warning("x_unknown_handle", handle=handle)
+                    continue
+                posts = await client.recent_posts_by_user(
+                    http, user_id,
+                    max_results=cfg.max_posts_per_account,
+                    start_time=start_time,
+                )
+                new_count += _write_posts(store, posts, now)
+            except XAPIError as e:
+                logger.warning("x_handle_fetch_failed", handle=handle, error=str(e))
+
+        # 2. keyword queries
+        for query in cfg.topic_keywords:
+            try:
+                posts = await client.search_recent(
+                    http, query,
+                    max_results=cfg.max_posts_per_keyword_query,
+                    start_time=start_time,
+                )
+                new_count += _write_posts(store, posts, now)
+            except XAPIError as e:
+                logger.warning("x_query_fetch_failed", query=query, error=str(e))
+
+    logger.info("ingest_pass_complete", new_events=new_count)
+    return new_count
+
+
+def _write_posts(store: Store, posts: list[XPost], now: datetime) -> int:
+    written = 0
+    for post in posts:
+        ev = _to_current_event(post, now)
+        if store.find_current_event_by_dedupe(ev.dedupe_hash) is not None:
+            continue
+        store.add_current_event(ev)
+        written += 1
+    return written
+```
+
+### 4. Tests — offline, fixture-driven
+
+`tests/test_x_ingestor.py`:
+
+- Use `respx` or `httpx.MockTransport` to stub the X endpoints. Canned JSON responses go in `tests/fixtures/x_sample_responses/` as `*.json` files you load from disk.
+- `test_ingest_writes_new_events` — two canned posts returned; `ingest_once` writes two `CurrentEvent` rows.
+- `test_ingest_skips_duplicates` — run twice with the same canned response; second pass writes zero.
+- `test_ingest_skips_duplicates_across_content_with_same_hash` — two distinct `tweet_id`s but identical text + url normalize to same hash; only one is written.
+- `test_ingest_handles_429` — mock a 429 on one handle; other handles still process. Total should be sum of successful paths.
+- `test_ingest_handles_unknown_handle` — mock 404 on `/users/by/username/...`; log warning, do not raise.
+- `test_missing_bearer_token_raises` — `IngestorConfig(bearer_token="")` then `XClient("", ...)` must raise `XAPIError`.
+- `test_empty_curated_and_keywords` — both config lists empty → `ingest_once` returns 0, no network calls at all.
+
+Do NOT hit the real X API in tests. CI must stay hermetic.
+
+## Verification
+
+```bash
+cd noosphere
+python -c "from noosphere.currents.x_ingestor import ingest_once; from noosphere.currents.config import IngestorConfig; print('import ok')"
+pytest tests/test_x_ingestor.py -q
+
+if [ -z "$X_BEARER_TOKEN" ]; then
+  echo "X_BEARER_TOKEN not set. Provide the X/Twitter API v2 bearer token"
+  echo "before running the ingestor live. The code paths and dry-run test"
+  echo "below still work without it."
+fi
+```
+
+Print the banner above at the end of your report-back summary regardless of whether the token was set during your session — the operator needs to see it.
+
+## Prohibitions
+
+- Do NOT hit the real X API in tests.
+- Do NOT commit bearer tokens, sample tokens, or any `.env` files.
+- Do NOT embed, topic-classify, or generate opinions in this prompt. Status stays `OBSERVED`. Prompt 03 handles embed+classify; prompt 05 handles opinion.
+- Do NOT add a scheduler loop. Prompt 15 owns scheduling.
+- Do NOT shortcut dedupe by checking only `source_url` — different URLs can host identical reposts. Normalize text + url as shown.
+- Do NOT mutate the `CurrentEvent` schema. If you feel you need a new field, STOP and report back instead of adding it here — schema changes belong in a schema prompt.
+
+Do not proceed to any other work. Do not edit anything outside SCOPE.

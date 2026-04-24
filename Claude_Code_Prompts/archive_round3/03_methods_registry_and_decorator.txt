@@ -1,0 +1,155 @@
+# Claude Code Prompt 3 of 26 — Build the methods/ registry and the @register_method decorator
+
+**Sequence:** prompt 3 of 26. Complete prompts 1..2 before starting this one. When you finish, report back with: files you created/modified, any notable choices, any blockers. I'll then paste the next prompt.
+
+**Parallelism (optional):** prompts 2, 3 touch disjoint files and could run in parallel Claude Code sessions if you want.
+
+**Before you start — read current state:**
+1. Run `git status` and `git branch` to see the current branch state.
+2. If you see stray branches matching `round3/*` or a `.orchestrator/` directory from a prior automated run, tell me and stop; we'll clean them up before continuing.
+3. For every file listed under SCOPE below, check whether it already exists and what it contains. If parts of the work described here are already done (from a previous attempt), INSPECT what is there and only add the missing pieces. Do NOT overwrite existing, correct work. Do NOT duplicate types or tests that already exist.
+4. If you find partial work that is clearly broken or half-finished, ask me whether to complete it or discard and restart that piece.
+## Your task
+You are an implementation agent. Your job is to create the `noosphere/noosphere/methods/` package: a registry of method specs keyed by (name, version), a `@register_method` decorator that wraps a function into a pre/post-hook-aware callable, and the hook registration API that later subsystems (ledger, cascade, evaluation, etc.) will plug into.
+
+You must design the decorator to expose hook extension points so that NO later agent needs to modify this file again. This is a load-bearing design constraint — wave parallelism depends on it.
+
+py`. Do not edit files outside the scope listed here.
+
+## Prerequisites
+- Wave 1 is done: `Method`, `MethodInvocation`, `MethodImplRef`, `MethodRef` are in `models.py`.
+- `Store.insert_method` and `Store.insert_method_invocation` are being added in parallel by the sibling agent; treat them as available by end of wave 2.
+
+SCOPE (files you may create or modify — stay within this list)
+- `noosphere/noosphere/methods/__init__.py`                   CREATE
+- `noosphere/noosphere/methods/_registry.py`                  CREATE
+- `noosphere/noosphere/methods/_decorator.py`                 CREATE
+- `noosphere/noosphere/methods/_hooks.py`                     CREATE
+- `noosphere/noosphere/methods/_legacy/__init__.py`           CREATE (empty-package marker only)
+- `noosphere/tests/test_method_registry.py`                   CREATE
+- `noosphere/tests/test_method_hooks.py`                      CREATE
+
+## Step-by-step
+1. Create the `methods/` package directory with an empty `_legacy/__init__.py` (placeholder for pre-port copies landing in wave 3).
+2. In `_registry.py`, implement the `MethodRegistry` class described below. Expose a module-level singleton `REGISTRY = MethodRegistry()`.
+3. In `_hooks.py`, implement the hook registration API. Keep hook lists as module-level `list[tuple[str, Callable]]` so order is preserved and names are unique.
+4. In `_decorator.py`, implement `register_method` as a decorator factory. The wrapped function must execute the full pre/post/failure-hook pipeline described in WRAPPED CALL FLOW below.
+5. In `__init__.py`, re-export the public API: `REGISTRY`, `register_method`, `register_pre_hook`, `register_post_hook`, `register_failure_hook`, `unregister_hook`, `get_method`.
+6. Write tests in `test_method_registry.py` and `test_method_hooks.py`.
+7. Run `pytest noosphere/tests/test_method_registry.py noosphere/tests/test_method_hooks.py -v`.
+
+MethodRegistry (in `_registry.py`)
+class MethodRegistry:
+    def __init__(self):
+        self._specs: dict[tuple[str, str], Method] = {}
+        self._fns:   dict[tuple[str, str], Callable] = {}
+
+    def register(self, spec: Method, fn: Callable) -> None:
+        # Raise MethodCollisionError if (spec.name, spec.version) already present.
+        # Store spec + fn.
+
+    def get(self, name: str, version: str = "latest", include_retired: bool = False) -> tuple[Method, Callable]:
+        # If version == "latest": return the highest-semver active method with this name.
+        # Retired methods not returned unless include_retired=True.
+        # Raise MethodNotFoundError otherwise.
+
+    def list(self, status_filter: str | None = None) -> list[Method]:
+        # Return all specs, optionally filtered by status.
+
+REGISTRY = MethodRegistry()
+
+Define `MethodCollisionError` and `MethodNotFoundError` in the same module.
+
+Hook API (in `_hooks.py`)
+Types:
+  PreHook     = Callable[[Method, MethodInvocation, Any], None]
+  PostHook    = Callable[[Method, MethodInvocation, Any, Any], None]
+  FailureHook = Callable[[Method, MethodInvocation, Any, BaseException], None]
+
+Storage (module-level):
+  _PRE_HOOKS:     list[tuple[str, PreHook]]     = []
+  _POST_HOOKS:    list[tuple[str, PostHook]]    = []
+  _FAILURE_HOOKS: list[tuple[str, FailureHook]] = []
+
+Functions:
+  register_pre_hook(name: str, hook: PreHook) -> None
+      # If a hook with this name exists, REPLACE it (same list position).
+  register_post_hook(name, hook) -> None
+  register_failure_hook(name, hook) -> None
+  unregister_hook(name: str) -> None
+      # Remove from all three lists; no error if absent. Used in tests.
+
+Order of firing = order of (first) registration. Replacement preserves position.
+
+@register_method (in `_decorator.py`)
+Signature:
+  def register_method(*, name: str, version: str, method_type: MethodType,
+                      input_schema: dict, output_schema: dict, description: str,
+                      rationale: str, preconditions: list[str] = (), postconditions: list[str] = (),
+                      dependencies: list[tuple[str, str]] = (), owner: str,
+                      status: str = "active", nondeterministic: bool = False,
+                      emits_edges: list[CascadeEdgeRelation] = ()) -> Callable
+
+Behavior when applied to `fn`:
+  1. Build a `Method` spec:
+       - method_id = sha256(canonical_json(spec_without_id))[:32]
+       - implementation = MethodImplRef(module=fn.__module__, fn_name=fn.__qualname__,
+                                        git_sha=_current_git_sha(), image_digest=None)
+       - created_at = datetime.utcnow()
+       - The `emits_edges` list is attached to the spec (even though not in the base Method model — store it in a mutable side-table keyed by method_id that the cascade hook reads; or extend Method with it and update wave_1 retroactively. The simplest path: add `emits_edges` field to Method in wave_1. If wave_1 is frozen, use a side-table inside `_registry.py`.)
+  2. REGISTRY.register(spec, wrapped_fn).
+  3. Insert into Store: `Store.insert_method(spec)` (idempotent on method_id).
+  4. Return the wrapped_fn.
+
+WRAPPED CALL FLOW (what `wrapped_fn(input)` does):
+  1. Validate input: if input_schema is a pydantic model class, parse it; if it's a JSON schema dict, validate via jsonschema.
+  2. Compute `input_hash = sha256(canonical_json(input))` hex digest.
+  3. Construct `inv = MethodInvocation(id=uuid4(), method_id=spec.method_id, input_hash=input_hash, output_hash="", started_at=now, ended_at=None, succeeded=False, error_kind=None, correlation_id=_current_correlation_id(), tenant_id=_current_tenant_id())`.
+  4. For each (name, hook) in _PRE_HOOKS, call hook(spec, inv, input). If any raises, jump to FAILURE PATH with that exception.
+  5. Try: result = fn(input).
+     - Validate result against output_schema.
+     - output_hash = sha256(canonical_json(result)).
+     - inv.ended_at = now; inv.succeeded = True; inv.output_hash = output_hash.
+     - For each (name, hook) in _POST_HOOKS, call hook(spec, inv, input, result). Exceptions in post-hooks are logged but not re-raised.
+     - Store.insert_method_invocation(inv).
+     - Return result.
+  6. FAILURE PATH: inv.ended_at = now; inv.succeeded = False; inv.error_kind = type(e).__name__.
+     - For each (name, hook) in _FAILURE_HOOKS, call hook(spec, inv, input, e).
+     - Store.insert_method_invocation(inv).
+     - Re-raise the original exception.
+
+Helpers:
+  _current_git_sha() — read via `git rev-parse HEAD`; fall back to env var `THESEUS_GIT_SHA`; fall back to "unknown".
+  _current_correlation_id() — read from a `contextvars.ContextVar` named `CORRELATION_ID` (create it if missing).
+  _current_tenant_id() — read from a `contextvars.ContextVar` named `TENANT_ID`; default to "default".
+
+## Tests
+In `test_method_registry.py`:
+- Registering two versions of the same name both succeed; `get("x", "latest")` returns the active one with the highest semver.
+- A retired method is not returned without `include_retired=True`.
+- Registering the same (name, version) twice raises `MethodCollisionError`.
+- `get("unknown")` raises `MethodNotFoundError`.
+- Canonical input hashing: two calls with equal payloads produce equal input_hash.
+
+In `test_method_hooks.py`:
+- Pre-hooks fire in registration order.
+- Post-hooks fire in registration order after the function body.
+- A pre-hook raising aborts execution, runs failure hooks, still inserts a `succeeded=False` invocation, re-raises.
+- A post-hook raising logs but does not re-raise (the call still returns).
+- `unregister_hook` removes a hook cleanly.
+- Re-registering a hook name replaces it in place.
+
+## How to verify
+1. `pytest noosphere/tests/test_method_registry.py noosphere/tests/test_method_hooks.py -v` — green.
+2. `python -c "from noosphere.noosphere.methods import REGISTRY, register_method"` — exits 0.
+3. No round-2 regressions: `pytest noosphere/tests/ -v`.
+
+## Do not
+- Import from `ledger/`, `cascade/`, `evaluation/`, or any other subsystem. Those register hooks at their own import time.
+- Write any hook implementations. Only the registration API lives here.
+- Modify `models.py` or `store.py`. If you truly need a new field on `Method` (e.g. `emits_edges`), use a side-table in `_registry.py` instead.
+- Touch any file outside FILES TOUCHED.
+
+---
+
+**When you're finished:** report back with (a) files you created/modified, (b) any non-obvious choices you made, (c) any blockers. I'll paste the next prompt after I've reviewed your summary.

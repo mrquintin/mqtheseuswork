@@ -1,0 +1,76 @@
+# Docker-compose for the "currents" stack:
+#   - currents-migrate     (runs alembic upgrade head, exits 0)
+#   - currents-api         (FastAPI at :8088)
+#   - currents-scheduler   (noosphere.currents loop)
+#   - theseus-public       (Next.js hybrid at :3001)
+#
+# The repo's canonical `docker-compose.yml` is for the Theseus Codex + Postgres
+# stack, so the currents stack lives in a separate file. Run with:
+#   docker compose -f docker-compose.currents.yml up --build
+#
+# Secrets (X_BEARER_TOKEN, ANTHROPIC_API_KEY) come from .env — see .env.example.
+
+services:
+  currents-migrate:
+    build:
+      context: .
+      dockerfile: Dockerfile.migrate
+    env_file: .env
+    volumes:
+      - currents-data:/data/noosphere
+    restart: "no"
+
+  currents-api:
+    build:
+      context: .
+      dockerfile: Dockerfile.api
+    env_file: .env
+    depends_on:
+      currents-migrate:
+        condition: service_completed_successfully
+    ports:
+      - "8088:8088"
+    volumes:
+      - currents-data:/data/noosphere
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8088/healthz', timeout=2).status==200 else 1)"]
+      interval: 15s
+      timeout: 3s
+      retries: 3
+      start_period: 10s
+    restart: unless-stopped
+
+  currents-scheduler:
+    build:
+      context: .
+      dockerfile: Dockerfile.scheduler
+    env_file: .env
+    depends_on:
+      currents-migrate:
+        condition: service_completed_successfully
+    volumes:
+      - currents-data:/data/noosphere
+    healthcheck:
+      test: ["CMD", "python", "-c", "import json,os,sys,time; p=os.environ['NOOSPHERE_DATA_DIR']+'/currents_status.json'; s=os.stat(p); sys.exit(0 if (time.time()-s.st_mtime)<600 else 1)"]
+      interval: 60s
+      timeout: 5s
+      retries: 3
+      start_period: 120s
+    restart: unless-stopped
+
+  theseus-public:
+    build:
+      context: .
+      dockerfile: Dockerfile.public
+    env_file: .env
+    environment:
+      CURRENTS_API_URL: http://currents-api:8088
+    depends_on:
+      currents-api:
+        condition: service_healthy
+    ports:
+      - "3001:3001"
+    restart: unless-stopped
+
+volumes:
+  currents-data:

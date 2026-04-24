@@ -1,0 +1,15 @@
+{
+  "stance": "agrees",
+  "confidence": 0.55,
+  "headline": "The firm's prior conclusion suggests a clean alignment with today's announcement.",
+  "body_markdown": "The firm's prior conclusion suggests a durable capex cycle.",
+  "uncertainty_notes": [],
+  "citations": [
+    {
+      "source_kind": "conclusion",
+      "source_id": "conc-capex",
+      "quoted_span": "this quote does not appear anywhere in the stored conclusion body",
+      "relevance_score": 0.8
+    }
+  ]
+}

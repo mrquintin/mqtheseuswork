@@ -1,0 +1,68 @@
+# Claude Code Prompt 12 of 25 — Feature: add action buttons to the conclusion detail page
+
+**Sequence:** prompt 12 of 25 (Wave 4 — independent of prompts 13–16). When you finish, report back with: files you created/modified, any notable choices, any blockers.
+
+**Before you start — read current state:**
+1. Read `theseus-codex/src/app/(authed)/conclusions/[id]/page.tsx` — note that the page is entirely read-only.
+2. Read `theseus-codex/src/app/(authed)/peer-review/[conclusionId]/page.tsx` — understand the peer review page (which currently must be navigated to separately).
+3. Read `theseus-codex/prisma/schema.prisma` — note `PublicationReview` and `PublishedConclusion` models.
+4. Read `theseus-codex/src/app/api/round3/review/run/route.ts` — the peer review trigger API.
+5. Check if there are API routes for publication queueing, retraction, or decay revalidation.
+6. Read `theseus-codex/src/lib/api/round3.ts` — note `submitToRigorGate` and `callNoosphereJson`.
+
+## The problem
+
+The conclusion detail page is entirely read-only. To do anything with a conclusion — run a peer review, queue it for publication, retract it, or revalidate it — the user must navigate away to separate pages. The detail page should be the natural home for actions on a conclusion.
+
+## Your task
+
+Add an actions bar to the conclusion detail page with contextual buttons for the most common operations: running a peer review, queuing for publication, and linking to the decay dashboard. These should use server actions (not self-fetching HTTP calls — see prompt 03 for the pattern to follow).
+
+## SCOPE (files you may create or modify — stay within this list)
+- `theseus-codex/src/app/(authed)/conclusions/[id]/page.tsx`              MODIFY
+- `theseus-codex/src/app/(authed)/conclusions/[id]/actions-bar.tsx`       CREATE
+
+## Step-by-step
+
+1. **Create `actions-bar.tsx`** as a server component (or a thin client component if interactivity is needed). It should render an action bar with:
+   - **"Run peer review"** button — triggers a peer review via server action (import `callNoosphereJson`, `submitToRigorGate`, and `getFounder` directly; do NOT self-fetch via HTTP).
+   - **"Queue for publication"** link — navigates to the publication review workflow if one exists, or creates a new `PublicationReview` row with status "queued".
+   - **"View decay status"** link — links to `/decay` filtered by this conclusion if possible, or just links to `/decay`.
+   - **"View full peer review history"** link — links to `/peer-review/{conclusionId}`.
+
+2. **Place the actions bar** just above the TabNav in the detail page — between the header and the tabs. Style it as a compact horizontal strip:
+   ```tsx
+   <div style={{
+     display: "flex",
+     gap: "0.5rem",
+     flexWrap: "wrap",
+     padding: "0.5rem 0",
+     borderBottom: "1px solid var(--border)",
+     marginBottom: "0.5rem",
+   }}>
+     {/* action buttons/links here */}
+   </div>
+   ```
+
+3. **For the peer review action**, use a `<form>` with a server action (same pattern as the corrected peer-review page from prompt 03):
+   ```tsx
+   async function runPeerReview() {
+     "use server";
+     const founder = await getFounder();
+     if (!founder) redirect("/login");
+     const gate = await submitToRigorGate("peer_review.run", founder.name);
+     if (!gate.approved) { /* handle rejection */ }
+     await callNoosphereJson(["peer-review", "--conclusion-id", conclusionId], "Peer review failed");
+     revalidatePath(`/conclusions/${conclusionId}`);
+     redirect(`/conclusions/${conclusionId}?tab=peer`);
+   }
+   ```
+   After running, redirect to the Peer review tab of the same conclusion.
+
+4. **For the publication action**, if there's an existing publication API, use it. If not, create a simple server action that inserts a `PublicationReview` row with status "queued" and redirects to the appropriate page.
+
+5. **Style the action buttons** using the existing `btn` and `btn-solid` CSS classes. Keep them small (fontSize: 0.65rem) to not overpower the content.
+
+6. **Do NOT modify** the tab components, the OverviewTab, or any existing rendering. Only add the actions bar component and wire it into the page layout.
+
+Do not proceed to any other work. Do not edit anything outside SCOPE.

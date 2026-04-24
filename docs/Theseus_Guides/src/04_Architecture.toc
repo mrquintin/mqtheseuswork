@@ -1,0 +1,26 @@
+\contentsline {section}{\numberline {1}The repository at a glance}{3}{section.1}%
+\contentsline {section}{\numberline {2}Noosphere --- the epistemic engine}{4}{section.2}%
+\contentsline {subsection}{\numberline {2.1}What it does, from ten thousand feet}{4}{subsection.2.1}%
+\contentsline {subsection}{\numberline {2.2}The flat modules --- the core pipeline}{4}{subsection.2.2}%
+\contentsline {subsection}{\numberline {2.3}The coherence subpackage}{5}{subsection.2.3}%
+\contentsline {subsection}{\numberline {2.4}Subpackages}{6}{subsection.2.4}%
+\contentsline {subsection}{\numberline {2.5}Distribution}{7}{subsection.2.5}%
+\contentsline {section}{\numberline {3}Dialectic --- the live conversation analyzer}{7}{section.3}%
+\contentsline {subsection}{\numberline {3.1}The pipeline}{8}{subsection.3.1}%
+\contentsline {subsection}{\numberline {3.2}The live interlocutor (SP09)}{8}{subsection.3.2}%
+\contentsline {subsection}{\numberline {3.3}Pairing with Noosphere}{8}{subsection.3.3}%
+\contentsline {subsection}{\numberline {3.4}Distribution}{8}{subsection.3.4}%
+\contentsline {section}{\numberline {4}Theseus Codex --- the founders' control plane}{8}{section.4}%
+\contentsline {subsection}{\numberline {4.1}The seven-tab dashboard}{8}{subsection.4.1}%
+\contentsline {subsection}{\numberline {4.2}How the Codex talks to Noosphere}{9}{subsection.4.2}%
+\contentsline {subsection}{\numberline {4.3}Distribution}{9}{subsection.4.3}%
+\contentsline {section}{\numberline {5}Theseus Public --- the publication-only site}{9}{section.5}%
+\contentsline {section}{\numberline {6}Researcher API --- the outside-investigator surface}{10}{section.6}%
+\contentsline {section}{\numberline {7}Ideological Ontology --- research experiments}{10}{section.7}%
+\contentsline {section}{\numberline {8}Operational and deployment infrastructure}{10}{section.8}%
+\contentsline {subsection}{\numberline {8.1}CI/CD}{10}{subsection.8.1}%
+\contentsline {subsection}{\numberline {8.2}Code signing and notarization}{11}{subsection.8.2}%
+\contentsline {subsection}{\numberline {8.3}Deployment}{11}{subsection.8.3}%
+\contentsline {section}{\numberline {9}Who uses what}{11}{section.9}%
+\contentsline {subsection}{\numberline {9.1}The operational surface for the firm itself}{11}{subsection.9.1}%
+\contentsline {section}{\numberline {10}The technology stack, summarized}{12}{section.10}%

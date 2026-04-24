@@ -1,0 +1,283 @@
+\documentclass[11pt,letterpaper]{article}
+
+\usepackage[margin=1in]{geometry}
+\usepackage[T1]{fontenc}
+\usepackage{lmodern}
+\usepackage{microtype}
+\usepackage{parskip}
+\usepackage{enumitem}
+\usepackage{booktabs}
+\usepackage{longtable}
+\usepackage{array}
+\usepackage{titlesec}
+\usepackage[hidelinks,colorlinks=true,linkcolor=black,urlcolor=black,citecolor=black]{hyperref}
+\usepackage{xcolor}
+\usepackage{fancyhdr}
+\usepackage{amsmath}
+
+\titleformat{\section}{\Large\bfseries}{\thesection}{1em}{}
+\titleformat{\subsection}{\large\bfseries}{\thesubsection}{1em}{}
+
+\pagestyle{fancy}
+\fancyhf{}
+\fancyhead[L]{\small The Theseus Guides --- VI. The Seven Projects}
+\fancyhead[R]{\small\thepage}
+\renewcommand{\headrulewidth}{0.4pt}
+
+\setlength{\parindent}{0pt}
+
+\newcommand{\file}[1]{\texttt{#1}}
+
+\title{\textbf{The Theseus Guides}\\[6pt]\large VI. The Seven Projects:\\The Firm's Methodological Research Roadmap}
+\date{April 2026}
+\author{}
+
+\begin{document}
+\maketitle
+\thispagestyle{empty}
+
+\begin{quote}\itshape
+Seven distinct software systems, each operationalizing a specific truth-finding method. Together they form an integrated epistemic infrastructure --- a machine for generating justified beliefs.
+\end{quote}
+
+\vspace{1em}
+\tableofcontents
+\newpage
+
+% =======================================================================
+\section{The programme, in one paragraph}
+% =======================================================================
+
+Every project below is a distinct piece of software that operationalizes a specific method for arriving at justified belief. The projects are drawn from \file{METHODOLOGICAL\_REORIENTATION.md}; each is an answer to a version of the firm's single question --- \emph{``what is a reliable method for arriving at justified belief, and how do we make that method executable?''} They are not independent; they are an integrated toolkit, and Section~9 of this guide shows the integration diagram explicitly. They do not all exist today. Noosphere, Dialectic, and the Theseus Codex (Guides IV--V) are the current substrate on which these seven build. The projects are the firm's intellectual roadmap, and the criteria for judging them are the five meta-method criteria of Guide II.
+
+% =======================================================================
+\section{Project 1 --- ALETHEIA: The Method Extraction Engine}
+% =======================================================================
+
+\textbf{What it does.} Aletheia extracts not just \emph{claims} from discourse but the \emph{reasoning methods} used to arrive at those claims. Where Noosphere extracts ``we believe $X$,'' Aletheia extracts ``we arrived at $X$ by method $M$'' --- and then evaluates whether $M$ is reliable as applied.
+
+\textbf{Why it matters.} Two people can hold the same belief for entirely different reasons. One arrived at it through first-principles analysis; the other through confirmation bias. The belief is the same; the epistemological status is not. Most systems that analyze text cannot see the difference. Aletheia captures it.
+
+\textbf{Core components.}
+
+\begin{itemize}[leftmargin=1.5em,itemsep=0.1em]
+\item \textbf{Method Taxonomy} --- a formal classification of reasoning methods: deduction, induction, abduction, analogy, appeal to authority, empirical observation, thought experiment, reductio ad absurdum, Bayesian updating, counterfactual, dialectical, first-principles, statistical inference, causal inference.
+\item \textbf{Method Extractor} --- given a transcript or essay, identifies which reasoning method is being used at each step, using a Toulmin-style argument parser (data / warrant / backing / qualifier / rebuttal / claim) plus a fine-tuned method classifier.
+\item \textbf{Method Evaluator} --- rates the reliability of each method \emph{as applied}. Deduction from verified premises scores 0.95; induction from three cases scores 0.3; analogy depends on the structural similarity of the source and target domains.
+\item \textbf{Method Graph} --- a NetworkX graph where nodes are methods and edges are relationships: \texttt{presupposes}, \texttt{stronger\_than\_in\_domain}, \texttt{fails\_in\_conditions}, \texttt{complements}.
+\end{itemize}
+
+\textbf{Relation to the meta-method.} Aletheia is the machinery that answers the progressivity and severity criteria on a per-argument basis. It feeds the Axiom Excavator (Project 4) and the Dialectical Crucible (Project 2).
+
+% =======================================================================
+\section{Project 2 --- The Dialectical Crucible}
+% =======================================================================
+
+\textbf{What it does.} Given any proposition, the Crucible mechanically generates the \emph{strongest possible counter-argument} using the Reverse Marxism reflection technique (Guide III), then evaluates both sides by \emph{methodological quality} --- not by which conclusion one prefers, but by which side reasons better.
+
+\textbf{Why it matters.} The Reverse Marxism research demonstrated that the strongest case for $X$ is structurally isomorphic to the strongest case against $X$, reflected across the axis of contention. The Crucible operationalizes this into a working system: for any claim, it generates the reflected antithesis, evaluates both sides through the six-layer coherence engine, identifies genuine common ground and the irreducible point of disagreement, and adjudicates by methodological superiority.
+
+\textbf{Core components.}
+
+\begin{itemize}[leftmargin=1.5em,itemsep=0.1em]
+\item \textbf{Thesis Formalizer} --- takes a natural-language claim and formalizes it: identifies the core claim, the concept axis, the supporting premises, the domain.
+\item \textbf{Concept-Axis Builder} --- builds embedding-space axes from term lists, with pre-built axes for ``class,'' ``liberty,'' ``equality,'' ``efficiency,'' ``tradition,'' ``progress,'' ``individual,'' ``collective,'' ``empirical,'' ``theoretical.''
+\item \textbf{Antithesis Generator} --- reflects the thesis embeddings across the concept axis using the Householder reflection $v' = v - 2(v \cdot \hat{a})\hat{a}$, then finds the nearest real-world arguments to the reflected embeddings from a reference corpus.
+\item \textbf{Dialectical Evaluator} --- scores both thesis and antithesis using the coherence engine, identifies points of agreement, identifies the irreducible disagreement, and evaluates which side has better methodology.
+\item \textbf{Dialectical Report} --- the structured output: ``the thesis scores 0.78; the antithesis scores 0.72; the thesis is strongest in its empirical grounding and weakest in its formal consistency; there is a hidden contradiction between premises 3 and 7.''
+\end{itemize}
+
+\textbf{Relation to the meta-method.} Severity made generative. The Crucible does not wait for an adversary to appear; it creates the strongest one, structurally. This is the principal machinery for meeting Mayo's severity requirement on contested questions.
+
+% =======================================================================
+\section{Project 3 --- The Calibration Engine}
+% =======================================================================
+
+\textbf{What it does.} Tracks the firm's predictions against outcomes, computes Brier scores and calibration curves, identifies systematic biases, and provides feedback to improve the firm's truth-finding methodology over time.
+
+\textbf{Why it matters.} A methodology's value is ultimately empirical: does it produce accurate beliefs? The Calibration Engine closes the loop. It measures whether the firm's methods work, and where they fail.
+
+\textbf{Core components.}
+
+\begin{itemize}[leftmargin=1.5em,itemsep=0.1em]
+\item \textbf{Prediction Registry} --- every prediction the firm makes in a podcast, memo, or analysis is registered with its claim, confidence level, date, method used, and expected resolution date.
+\item \textbf{Outcome Tracker} --- tracks whether predictions resolve as true or false; handles partial resolutions and ambiguous outcomes.
+\item \textbf{Brier Score Computer} --- computes Brier scores decomposed into calibration, resolution, and uncertainty components.
+\item \textbf{Calibration Curve} --- plots predicted probability against observed frequency. Perfect calibration is the diagonal; overconfidence lies below; identifies the firm's systematic biases.
+\item \textbf{Method Attribution} --- cross-references with Aletheia. Which methods produce the best-calibrated predictions? ``Empirical grounding gives Brier 0.12; analogical reasoning gives Brier 0.31.''
+\item \textbf{Feedback Reports} --- monthly: ``the firm is well-calibrated on economic predictions (Brier 0.15) but overconfident on technology forecasts (Brier 0.38), correlated with analogical reasoning --- consider more empirical grounding.''
+\end{itemize}
+
+\textbf{Current status.} A substantial subset of this already exists in production: the Calibration Scoreboard (\file{noosphere/noosphere/scoring.py}), the predictive extractor (\file{predictive\_extractor.py}), and the resolution subsystem (\file{resolution.py}). Project 3 generalizes and strengthens the existing scoreboard and adds the method-attribution cross-reference.
+
+\textbf{Relation to the meta-method.} Lakatos-progressivity made numeric. A method that cannot be scored against outcomes cannot be progressive; a method that fails calibration is self-disqualifying.
+
+% =======================================================================
+\section{Project 4 --- The Axiom Excavator}
+% =======================================================================
+
+\textbf{What it does.} Given any argument, decomposes it into its hidden axioms, tests each axiom for coherence with the rest, identifies which axioms are load-bearing (removing them collapses the argument) and which are ornamental (removing them changes nothing).
+
+\textbf{Why it matters.} Every argument rests on assumptions. Most assumptions are invisible to the arguer. The most dangerous intellectual failure is not drawing the wrong conclusion; it is reasoning validly from a false premise one did not know was there. The Excavator makes the invisible visible.
+
+\textbf{Core components.}
+
+\begin{itemize}[leftmargin=1.5em,itemsep=0.1em]
+\item \textbf{Premise Extraction} --- uses argument mining to pull explicit premises from text.
+\item \textbf{Implicit Assumption Detector} --- uses an LLM to identify unstated assumptions. ``This argument assumes markets reflect all available information. The assumption is not stated but is required for the conclusion to follow.''
+\item \textbf{Dependency Graph} --- directed acyclic graph of which conclusions depend on which premises.
+\item \textbf{Load-Bearing Analysis} --- for each axiom, computes ``if this axiom were false, which conclusions would be invalidated?'' using the argumentation layer (Layer 2) of the coherence engine --- remove the axiom, re-compute the grounded extension, see what collapses.
+\item \textbf{Stress Test} --- for each load-bearing axiom, asks: ``how certain are we? What evidence supports it? What would falsify it?''
+\item \textbf{Sensitivity Report} --- ``your investment thesis rests on three load-bearing axioms; Axiom 2 (regulatory barriers persist five-plus years) is supported only by historical precedent, not structural analysis; if it fails, conclusions 4, 7, and 9 all collapse.''
+\end{itemize}
+
+\textbf{Relation to the meta-method.} Compressibility and severity, combined. A non-compressible argument accommodates every failure by smuggling in new premises; the Excavator audits for that move. An argument with load-bearing axioms that cannot be stress-tested is non-severe; the Excavator forces the stress test.
+
+% =======================================================================
+\section{Project 5 --- The Verisimilitude Engine}
+% =======================================================================
+
+\textbf{What it does.} Implements formal truthlikeness metrics (Oddie, Niiniluoto, Schurz) to measure not whether a theory is \emph{true or false} but \emph{how close it is to the truth}. Enables comparison of competing theories by proximity, not binary correctness.
+
+\textbf{Why it matters.} Almost no theory is perfectly true; almost no theory is completely false. What matters is the degree to which a theory approximates truth. A theory that gets 80\% of the picture right is more valuable than one that gets 50\%, even though both are technically wrong. The Verisimilitude Engine makes this measurable rather than rhetorical.
+
+\textbf{Core components.}
+
+\begin{itemize}[leftmargin=1.5em,itemsep=0.1em]
+\item \textbf{Theory Formalizer} --- converts a natural-language theory into a set of atomic propositions with truth-value assignments.
+\item \textbf{Truth-State Estimator} --- for propositions where ground truth is known, establishes it; for unresolved propositions, uses Calibration-Engine confidence estimates.
+\item \textbf{Oddie Distance} --- average distance between the theory's truth-value assignments and actual truth values, weighted by proposition importance.
+\item \textbf{Niiniluoto Similarity} --- min-sum measure of similarity to the nearest complete true description.
+\item \textbf{Comparative Analysis} --- given two competing theories, computes which one is closer. ``Theory A has verisimilitude 0.73; Theory B has 0.61. Theory A is closer primarily because it correctly accounts for interest-rate effects (propositions 4--7) while Theory B does not.''
+\item \textbf{Improvement Vector} --- identifies which propositions, if corrected, most improve the theory's verisimilitude.
+\end{itemize}
+
+\textbf{Relation to the meta-method.} Domain sensitivity made metric. A theory that is close to truth on its home domain but far on adjacent domains has a verisimilitude profile, not a single score, and the profile is the NFL mapping.
+
+% =======================================================================
+\section{Project 6 --- The Epistemic Process Auditor}
+% =======================================================================
+
+\textbf{What it does.} Evaluates not whether a conclusion is \emph{correct} but whether the \emph{process} used to reach it was \emph{sound}. This is methodology auditing --- checking whether the firm followed its own best practices for truth-finding.
+
+\textbf{Why it matters.} Good methodology occasionally produces wrong conclusions (bad luck). Bad methodology occasionally produces right conclusions (good luck). Over the long run, methodology is everything. The Auditor ensures the firm's methodology stays rigorous even when the conclusions happen to be right.
+
+\textbf{Core components.}
+
+\begin{itemize}[leftmargin=1.5em,itemsep=0.1em]
+\item \textbf{Process Checklist Generator} --- for each type of analysis (investment thesis, market prediction, research assessment), generates a methodological checklist: ``did you (a) identify your axioms, (b) check for internal contradiction, (c) generate the strongest counter-argument, (d) ground empirical claims in data, (e) specify a falsification condition?''
+\item \textbf{Audit Scorer} --- scores each analysis for methodological compliance. ``This memo scores 7/10: strong empirical grounding, good counter-argument, but no falsification condition and one hidden assumption.''
+\item \textbf{Pattern Detector} --- identifies recurring methodological weaknesses. ``Across the last 20 analyses, you consistently fail to specify falsification conditions (compliance 15\%) and over-rely on analogical reasoning (78\%), which correlates with the worst Brier scores.''
+\item \textbf{Improvement Recommendations} --- concrete changes to the firm's workflow grounded in the firm's own historical calibration data.
+\end{itemize}
+
+\textbf{Relation to the meta-method.} Coherence across aims, methods, and theories (Laudan). The Auditor's job is to catch misalignment between the firm's stated aims, the methods it actually uses, and the theoretical framework it claims to operate within.
+
+% =======================================================================
+\section{Project 7 --- The Belief Revision System}
+% =======================================================================
+
+\textbf{What it does.} Implements AGM belief-revision theory as a working system. Tracks the firm's belief set, formally computes how beliefs \emph{should} change given new evidence, and compares ``should update'' against ``actually updated'' to measure rational discipline.
+
+\textbf{Why it matters.} Rational belief revision has formal rules (AGM contraction, revision, expansion; Bayesian conditioning). Humans systematically violate these rules --- we anchor on priors, dismiss disconfirming evidence, update asymmetrically. The Belief Revision System makes the rational ideal explicit and measures the firm's deviation from it.
+
+\textbf{Core components.}
+
+\begin{itemize}[leftmargin=1.5em,itemsep=0.1em]
+\item \textbf{Belief Set Manager} --- maintains the firm's current belief set with proposition, confidence, supporting evidence, and entrenchment ranking for each belief.
+\item \textbf{Evidence Integrator} --- when new evidence arrives, formally computes the required update via AGM operations and Bayesian conditioning.
+\item \textbf{Rational Update Calculator} --- ``the rational response to this evidence is to revise belief $X$ from 0.8 to 0.6 and contract belief $Y$ entirely.''
+\item \textbf{Actual Update Tracker} --- tracks what the firm \emph{actually} does, extracted from subsequent podcast analysis via Noosphere.
+\item \textbf{Rationality Score} --- compares rational and actual updates. ``Rationality score 0.72 this month. You correctly revised 3 of 4 beliefs but failed to contract $Y$ despite strong disconfirming evidence.''
+\item \textbf{Entrenchment Analysis} --- identifies beliefs too entrenched: ``Belief $X$ has been contradicted by evidence in episodes 12, 17, and 23 but has never been revised. Entrenchment is likely irrational.''
+\end{itemize}
+
+\textbf{Relation to the meta-method.} This is the meta-method applied recursively to the firm's own disciplined updating. A firm that cannot update rationally in response to its own evidence cannot, over time, satisfy any of the five criteria on any time horizon long enough for outcomes to accumulate.
+
+% =======================================================================
+\section{The integration architecture}
+% =======================================================================
+
+The seven projects are not independent. They form an integrated epistemic infrastructure. The diagram below, reproduced from \file{METHODOLOGICAL\_REORIENTATION.md}, shows the dataflow.
+
+\begin{verbatim}
+          NOOSPHERE (Transcript Ingestion)
+                    |
+                    v
+          ALETHEIA (Method Extraction)
+                    |
+        +-----------+------------+
+        |           |            |
+        v           v            v
+   DIALECTICAL    AXIOM       BELIEF
+    CRUCIBLE   EXCAVATOR     REVISION
+  (Adversarial (Hidden      (Rational
+   Testing)   Assumptions)  Updating)
+        \            |            /
+         \           |           /
+          +----------+----------+
+                     |
+                     v
+           VERISIMILITUDE ENGINE
+             (Truth-Proximity)
+                     |
+                     v
+           CALIBRATION ENGINE
+             (Feedback Loop)
+                     |
+                     v
+           EPISTEMIC PROCESS AUDITOR
+           (Quality Assurance)
+\end{verbatim}
+
+The flow is:
+
+\begin{itemize}[leftmargin=1.5em,itemsep=0.1em]
+\item Noosphere ingests raw discourse; Aletheia extracts the reasoning methods used.
+\item Aletheia's output feeds the three stress-test systems: the Dialectical Crucible (structural adversarial), the Axiom Excavator (hidden assumptions), the Belief Revision System (rational updating).
+\item The three stress-testers feed the Verisimilitude Engine, which compares competing theories by proximity to truth.
+\item The Verisimilitude Engine feeds the Calibration Engine, which tracks whether the firm's verisimilitude judgments hold up against outcomes.
+\item The Calibration Engine feeds the Epistemic Process Auditor, which generates the next round of methodological recommendations.
+\item The Auditor's recommendations feed back upstream and adjust Aletheia's reliability scores, the Crucible's adversarial generation, the Excavator's assumption-detection prompts, and the Belief Revision System's entrenchment thresholds.
+\end{itemize}
+
+The loop closes. The system audits itself, revises itself, and measures its own improvement.
+
+% =======================================================================
+\section{What the seven projects are not}
+% =======================================================================
+
+\textbf{Not complete.} The seven projects are a roadmap, not a status report. At the time of this writing, Noosphere implements most of the Calibration Engine (Project 3) and a substantial fraction of the Dialectical Crucible (Project 2, via \file{adversarial.py}) and the Epistemic Process Auditor (Project 6, via \file{meta\_analysis.py} and \file{rigor\_gate/}). The Axiom Excavator (Project 4), the Verisimilitude Engine (Project 5), Aletheia (Project 1), and the Belief Revision System (Project 7) exist primarily as specifications in \file{METHODOLOGICAL\_REORIENTATION.md} with individual components implemented in pieces.
+
+\textbf{Not ad hoc.} Each project is an answer to a specific, pre-existing problem in the philosophy-of-science literature: Aletheia to the method-identification problem (descending from Toulmin and Walton), the Crucible to the adversarial-testing problem (Mayo), the Calibration Engine to the progressive-problem-shift problem (Lakatos), the Excavator to the hidden-premise problem (Russell, Lewis), the Verisimilitude Engine to the theory-comparison problem (Popper, Oddie, Niiniluoto), the Auditor to the method--aim coherence problem (Laudan), the Belief Revision System to the rational-update problem (AGM, Bayes).
+
+\textbf{Not a claim about which conclusions are right.} Every project is methodological. None of them makes a substantive claim about the world; each of them makes a claim about how to evaluate substantive claims. This is the methodological reorientation (Guide I) played out at the level of each individual engineering goal.
+
+% =======================================================================
+\section{The sequencing}
+% =======================================================================
+
+The roadmap has a natural implementation order, partly dictated by dependencies and partly by leverage:
+
+\begin{enumerate}[leftmargin=1.5em,itemsep=0.1em]
+\item \textbf{First: finish the Calibration Engine (Project 3).} Substantial components already exist. Completing it gives the firm the feedback loop needed to judge the quality of everything else. Without calibration data, every other project flies blind.
+\item \textbf{Second: Aletheia (Project 1).} All three stress-test systems need method-tagged input. Aletheia produces it.
+\item \textbf{Third: the Axiom Excavator (Project 4) and a full Dialectical Crucible (Project 2).} These are the two most valuable stress-testers --- the Excavator catches hidden-premise errors, the Crucible catches severity failures. Running them in parallel in development maximizes cross-pollination.
+\item \textbf{Fourth: the Belief Revision System (Project 7).} Once the firm has good stress-test output and good calibration data, rational-update auditing becomes the next highest-leverage discipline to automate.
+\item \textbf{Fifth: the Verisimilitude Engine (Project 5).} Meaningful only once the Calibration Engine has accumulated enough resolved predictions to provide ground-truth anchors for the Oddie and Niiniluoto distances.
+\item \textbf{Sixth: the Epistemic Process Auditor (Project 6).} The Auditor is the capstone: it can only generate meaningful recommendations once the other six projects are producing the data it audits over.
+\end{enumerate}
+
+The sequencing is not fixed, and dependencies are softer than the order implies. But leverage matters, and in a world where engineering time is finite, the firm's expected calibration improvement per engineer-month is highest on the projects nearest the top of this list.
+
+% =======================================================================
+\section{The point of all of this}
+% =======================================================================
+
+The seven projects, taken together, aim at a specific outcome: a firm whose output can be audited end to end, whose methods can be scored end to end, and whose disciplined updating can be measured end to end. That is not a rhetorical goal. It is a \emph{testable} goal: over enough years, a firm built this way either outperforms on calibration, or it does not, and the evidence lives on the public site.
+
+This is what the methodological reorientation (Guide I) and the meta-method (Guide II) were asking for in their theoretical form. Guides IV and V described what the firm already has. This guide describes the rest of the machine. The firm's wager is that the rest of the machine is worth building. The wager is scored monthly on \file{theseus-public/methodology/rigor/} and \file{theseus-public/methodology/overrides/}, and the firm will either be proved right or proved wrong in public.
+
+Either outcome is acceptable. Only a third outcome --- that nobody can tell --- is not.
+
+\end{document}

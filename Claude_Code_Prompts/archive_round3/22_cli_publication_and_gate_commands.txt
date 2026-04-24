@@ -1,0 +1,64 @@
+# Claude Code Prompt 22 of 26 — CLI commands for publication chain and rigor gate
+
+**Sequence:** prompt 22 of 26. Complete prompts 1..21 before starting this one. When you finish, report back with: files you created/modified, any notable choices, any blockers. I'll then paste the next prompt.
+
+**Parallelism (optional):** prompts 21, 22 touch disjoint files and could run in parallel Claude Code sessions if you want.
+
+**Before you start — read current state:**
+1. Run `git status` and `git branch` to see the current branch state.
+2. If you see stray branches matching `round3/*` or a `.orchestrator/` directory from a prior automated run, tell me and stop; we'll clean them up before continuing.
+3. For every file listed under SCOPE below, check whether it already exists and what it contains. If parts of the work described here are already done (from a previous attempt), INSPECT what is there and only add the missing pieces. Do NOT overwrite existing, correct work. Do NOT duplicate types or tests that already exist.
+4. If you find partial work that is clearly broken or half-finished, ask me whether to complete it or discard and restart that piece.
+## Your task
+You are an implementation agent. Your job is to create four CLI command modules that wrap the publication-chain APIs (transfer, docgen, interop) and the rigor gate. Each module exposes a top-level Click group named `cli` that the plugin loader auto-discovers. Do NOT modify `cli.py` — the owns that file and has wired up discovery.
+
+## Prerequisites
+- Waves 5–7 are done: `transfer.package_method`, `docgen.compile_method_doc`, `interop.build_mip`, `rigor_gate.gate.Gate` are importable.
+- Sibling agent in wave_8/01 has created `cli_commands/__init__.py` with plugin discovery.
+
+SCOPE (files you may create or modify — stay within this list)
+- `noosphere/noosphere/cli_commands/transfer.py`       CREATE
+- `noosphere/noosphere/cli_commands/docs_cmd.py`       CREATE
+- `noosphere/noosphere/cli_commands/interop.py`        CREATE
+- `noosphere/noosphere/cli_commands/gate.py`           CREATE
+- `noosphere/tests/test_cli_commands_publication.py`   CREATE
+
+## Step-by-step
+1. For each of the four modules: define a Click group named `cli`, implement the subcommands listed below, keep each body under ~40 lines.
+2. All mutating commands invoke a registered method so they are ledgered automatically.
+3. `--json` output option on every command; Rich output by default.
+4. Write `tests/test_cli_commands_publication.py` using Click's `CliRunner`.
+
+## Command surfaces
+transfer.py (Click group `methods` for packaging + studies):
+  methods package <name>[@version] --out <dir>
+  methods verify-doc <path>
+
+docs_cmd.py (Click group `methods` for documentation — note: two files contribute to the same `methods` group; register via Click `CommandCollection` if needed, or namespace as `docs`):
+  methods document <name>[@version]        (or: docs build <name>[@version] if collection conflict)
+
+interop.py (Click group `interop`):
+  interop build-mip --name <n> --version <v> --methods <list> --out <d>
+  interop run-mip <path> --workflow <w> --input <d>
+  interop scaffold-adoption --mip <p> --out <d>
+  interop submit-transfer <study_path>
+
+gate.py (Click group `gate`):
+  gate submit <payload_ref> --kind <k> --venue <v>
+  gate status <submission_id>
+  gate override <submission_id> --check <name> --reason ...
+  gate refusal-report [--month YYYY-MM]
+
+## How to verify
+1. After plugin loader is in place, `theseus --help` lists `methods`, `interop`, `gate` subgroups.
+2. `pytest noosphere/tests/test_cli_commands_publication.py -v` — green.
+3. `theseus gate submit` against a seeded payload produces a RigorVerdict and prints it.
+
+## Do not
+- Touch `cli.py`, `cli_commands/__init__.py`, or any other sibling's files.
+- Put business logic in command bodies.
+- Touch any file outside FILES TOUCHED.
+
+---
+
+**When you're finished:** report back with (a) files you created/modified, (b) any non-obvious choices you made, (c) any blockers. I'll paste the next prompt after I've reviewed your summary.

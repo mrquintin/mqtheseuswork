@@ -1,0 +1,82 @@
+# Claude Code Prompt 16 of 25 — UX: add context to confidence percentage display
+
+**Sequence:** prompt 16 of 25 (Wave 4 — independent of prompts 12–15). When you finish, report back with: files you created/modified, any notable choices, any blockers.
+
+**Before you start — read current state:**
+1. Read `theseus-codex/src/app/(authed)/conclusions/[id]/page.tsx` — note `Confidence {(conclusion.confidence * 100).toFixed(0)}%` in the header.
+2. Read `theseus-codex/src/components/ConfidenceTierSigil.tsx` to understand the existing tier visualization.
+3. Read `noosphere/noosphere/models.py` — look at `ConfidenceTier` enum and any documentation about what the tiers mean and what the numeric confidence represents.
+4. Read `theseus-codex/prisma/schema.prisma` — note the `confidenceTier` and `confidence` fields on `Conclusion`.
+
+## The problem
+
+The conclusion detail page shows "Confidence 73%" as a bare number. This tells the user nothing about:
+- What the scale represents (is 73% good? bad? average?)
+- How confidence was computed (model output? calibration-adjusted? human-assigned?)
+- What the tier thresholds are (at what confidence does something become "firm" vs "founder" vs "open"?)
+- How this conclusion's confidence compares to others
+
+## Your task
+
+Add contextual information to the confidence display: tier threshold explanations, a small visual indicator, and a tooltip or expandable section explaining what confidence means in this system.
+
+## SCOPE (files you may modify — stay within this list)
+- `theseus-codex/src/app/(authed)/conclusions/[id]/page.tsx`    MODIFY
+
+## Step-by-step
+
+1. **Define tier thresholds.** Based on the Noosphere models, determine the confidence ranges for each tier. If the tiers are defined in Noosphere code, replicate the boundaries. Likely:
+   - `firm`: ≥ 0.85
+   - `founder`: ≥ 0.65
+   - `open`: ≥ 0.30
+   - `speculative` / `retired`: < 0.30
+   Adjust based on what you find in the actual Noosphere code.
+
+2. **Add a confidence bar** next to the percentage, showing where this conclusion falls on the 0–100% scale with tier zone markers:
+   ```tsx
+   <div style={{ display: "flex", alignItems: "center", gap: "0.75rem", marginTop: "0.35rem" }}>
+     <div style={{
+       width: "12rem",
+       height: "6px",
+       background: "var(--border)",
+       borderRadius: 3,
+       position: "relative",
+       overflow: "hidden",
+     }}>
+       <div style={{
+         width: `${(conclusion.confidence * 100).toFixed(0)}%`,
+         height: "100%",
+         background: "var(--gold)",
+         borderRadius: 3,
+       }} />
+     </div>
+     <span style={{ fontSize: "0.7rem", color: "var(--parchment-dim)" }}>
+       {(conclusion.confidence * 100).toFixed(0)}%
+     </span>
+   </div>
+   ```
+
+3. **Add a tier explanation** as an expandable section or a brief label:
+   ```tsx
+   <details style={{ marginTop: "0.35rem" }}>
+     <summary style={{ cursor: "pointer", fontSize: "0.6rem", color: "var(--parchment-dim)" }}>
+       How confidence works
+     </summary>
+     <div style={{ fontSize: "0.75rem", color: "var(--parchment-dim)", marginTop: "0.3rem", lineHeight: 1.6 }}>
+       <p>Confidence reflects the system's assessment of epistemic warrant,
+       computed from coherence scores, evidence strength, and peer review outcomes.</p>
+       <p style={{ marginTop: "0.25rem" }}>
+         <strong>Firm</strong> (≥85%): Strong institutional commitment.{" "}
+         <strong>Founder</strong> (≥65%): Personal conviction with supporting evidence.{" "}
+         <strong>Open</strong> (≥30%): Under investigation.{" "}
+         <strong>Speculative</strong> (&lt;30%): Provisional or contested.
+       </p>
+     </div>
+   </details>
+   ```
+
+4. **Do NOT change** the existing confidence text in the header meta line — it's fine as a compact summary. Add the bar and explanation as supplementary context below it or near it.
+
+5. **Do NOT modify** the tab components, the actions bar, or the footer navigation.
+
+Do not proceed to any other work. Do not edit anything outside SCOPE.

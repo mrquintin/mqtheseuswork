@@ -1,0 +1,46 @@
+# Claude Code Prompt 11 of 25 — UX: link provenance extraction methods to the method registry
+
+**Sequence:** prompt 11 of 25 (Wave 3 — independent of prompts 07–10). When you finish, report back with: files you created/modified, any notable choices, any blockers.
+
+**Before you start — read current state:**
+1. Read `theseus-codex/src/app/(authed)/conclusions/[id]/provenance-tab.tsx`.
+2. Read `theseus-codex/src/app/(authed)/provenance/page.tsx` (if it exists — the standalone provenance list).
+3. Read `theseus-codex/src/app/(authed)/methods/page.tsx` (if it exists) to understand how method names map to URLs.
+4. Read `theseus-codex/src/lib/api/round3.ts` — note `fetchMethods` and the `MethodEntry` type.
+
+## The problem
+
+The provenance tab shows `extractionMethod` as raw text (e.g., "deduction", "induction", "empirical"). There is no explanation of what these method names mean, and no link to the method registry where the user could learn more about the method's definition, version, and usage statistics.
+
+## Your task
+
+Make the extraction method name a clickable link to the method registry entry. If the methods page uses URL patterns like `/methods?name=deduction`, link there. If no methods page exists, link to nothing but add a tooltip explaining the method.
+
+## SCOPE (files you may modify — stay within this list)
+- `theseus-codex/src/app/(authed)/conclusions/[id]/provenance-tab.tsx`    MODIFY
+- `theseus-codex/src/app/(authed)/provenance/page.tsx`                     MODIFY (if it exists)
+
+## Step-by-step
+
+1. **Check how the methods page is routed.** Look at `theseus-codex/src/app/(authed)/methods/` for the page structure. Determine the URL pattern for a specific method (e.g., `/methods`, `/methods/[name]`, `/methods?name=X`).
+
+2. **In the provenance tab**, wrap the `extractionMethod` text in a `<Link>` component (from `next/link`) pointing to the method registry:
+   ```tsx
+   import Link from "next/link";
+   // ...
+   <Link
+     href={`/methods?name=${encodeURIComponent(r.extractionMethod)}`}
+     style={{ color: "var(--gold-dim)", textDecoration: "none", textTransform: "uppercase" }}
+   >
+     {r.extractionMethod}
+   </Link>
+   ```
+   If the methods page doesn't exist or uses a different URL structure, adjust accordingly.
+
+3. **Add a brief method description** if available. If the method registry data is easily accessible (e.g., a `fetchMethods` call returns descriptions), consider displaying a one-line description below the method name. But this is optional — the link alone is a significant improvement.
+
+4. **Apply the same treatment** to the standalone provenance page (`/provenance`) if it exists and displays extraction methods.
+
+5. **Do NOT change** the chain rendering, the confidence display, or the date formatting. Only enhance the extraction method display.
+
+Do not proceed to any other work. Do not edit anything outside SCOPE.

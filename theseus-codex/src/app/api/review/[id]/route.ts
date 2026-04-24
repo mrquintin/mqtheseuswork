@@ -1,0 +1,91 @@
+import { NextResponse } from "next/server";
+import { getFounder } from "@/lib/auth";
+import { db } from "@/lib/db";
+import { pushReviewResolutionToNoosphere } from "@/lib/pushReviewToNoosphere";
+import { canWrite, WRITE_FORBIDDEN_RESPONSE } from "@/lib/roles";
+
+type Verdict = "cohere" | "contradict" | "unresolved";
+
+export async function POST(req: Request, { params }: { params: Promise<{ id: string }> }) {
+  const founder = await getFounder();
+  if (!founder) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+  // Casting a coherence verdict permanently marks the review item
+  // and (when configured) pushes the resolution to Noosphere — write
+  // action; viewers can read the queue but not vote.
+  if (!canWrite(founder.role)) {
+    return NextResponse.json(WRITE_FORBIDDEN_RESPONSE, { status: 403 });
+  }
+
+  const { id } = await params;
+  const body = (await req.json()) as {
+    verdict: Verdict;
+    overrule?: boolean;
+    note?: string;
+  };
+
+  if (!body.verdict || !["cohere", "contradict", "unresolved"].includes(body.verdict)) {
+    return NextResponse.json({ error: "Invalid verdict" }, { status: 400 });
+  }
+
+  const item = await db.reviewItem.findUnique({ where: { id } });
+  if (!item) {
+    return NextResponse.json({ error: "Not found" }, { status: 404 });
+  }
+
+  await db.reviewItem.update({
+    where: { id },
+    data: {
+      status: "done",
+      humanVerdict: body.verdict,
+      humanOverrule: Boolean(body.overrule),
+      resolutionNote: body.note || "",
+      resolvedAt: new Date(),
+      resolvedByFounderId: founder.id,
+    },
+  });
+
+  if (item.noosphereId) {
+    const py = await pushReviewResolutionToNoosphere({
+      reviewId: item.noosphereId,
+      verdict: body.verdict,
+      overrule: Boolean(body.overrule),
+      aggregatorVerdict: item.aggregatorVerdict,
+      founderId: founder.noosphereId || founder.id,
+      note: body.note || "",
+    });
+
+    if (!py.ok) {
+      // Log the failure persistently so it's discoverable in the
+      // AuditEvent table (queryable, joinable to the founder + org).
+      // The Codex resolution is already committed; only the Noosphere
+      // mirror is behind. Clients surface this via the `syncFailed`
+      // flag and can retry via /api/review/retry-sync.
+      await db.auditEvent.create({
+        data: {
+          organizationId: founder.organizationId,
+          founderId: founder.id,
+          action: "noosphere_sync_failed",
+          detail: JSON.stringify({
+            reviewItemId: id,
+            noosphereId: item.noosphereId,
+            verdict: body.verdict,
+            error: py.stderr,
+          }),
+        },
+      });
+      return NextResponse.json(
+        {
+          ok: true,
+          syncFailed: true,
+          warning: "Portal updated; Noosphere sync failed",
+          detail: py.stderr,
+        },
+        { status: 200 },
+      );
+    }
+  }
+
+  return NextResponse.json({ ok: true });
+}

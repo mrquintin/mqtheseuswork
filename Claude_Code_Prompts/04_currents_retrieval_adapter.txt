@@ -1,0 +1,139 @@
+# Claude Code Prompt 04 of 17 — Retrieval adapter: Conclusions + Claims for a given CurrentEvent
+
+**Sequence:** prompt 04 of 17 (Wave 3). Depends on 01 and 03 (for the shim it will replace). Report back with: the final interface, the top-k you chose, and any observed quality issues on hand-seeded events.
+
+**Before you start — read current state:**
+1. Read `noosphere/noosphere/retrieval.py` end-to-end. Note `HybridRetriever`, `RetrievalHit`, how scores combine BM25 + dense embeddings, and which `ClaimOrigin` values are indexed by default.
+2. Read `noosphere/noosphere/models.py` — re-confirm `Conclusion`, `Claim`, `ClaimOrigin`.
+3. Read the shim `noosphere/noosphere/currents/retrieval_adapter.py` (created by prompt 03) — you will REPLACE its body, NOT rename the module or change the exported function signature.
+4. Read `noosphere/noosphere/conclusions.py` — note how Conclusions are fetched and which field holds the canonical text.
+5. Read `theseus-codex/prisma/schema.prisma` — confirm there is no second Conclusion store the adapter needs to pull from.
+
+## Your task
+
+Replace the `retrieve_for_event` shim with a real hybrid retrieval path tuned for current events. It must return a heterogeneous result set mixing both `Conclusion` rows (preferred — these are the firm's stable published beliefs) and `Claim` rows (fallback — raw founder/voice assertions) when Conclusions aren't covering the topic. Each hit carries a score, a text span suitable for display, and enough metadata for downstream citation rendering.
+
+The adapter is the sole retrieval surface the opinion generator (prompt 05) and follow-up engine (prompt 06) will call. Keep its interface narrow and stable.
+
+## Prerequisites
+
+- Prompt 01, 03 applied. A shim `retrieve_for_event` at `noosphere/noosphere/currents/retrieval_adapter.py` raising `NotImplementedError`.
+- `HybridRetriever.rebuild(...)` has already been run at least once against the store (if not, the adapter must detect the empty FTS table and trigger a rebuild as a fallback — see step 4).
+
+## SCOPE
+
+- `noosphere/noosphere/currents/retrieval_adapter.py`                   MODIFY (replace body)
+- `noosphere/noosphere/currents/__init__.py`                            MODIFY (re-export `EventRetrievalHit`)
+- `noosphere/tests/test_currents_retrieval_adapter.py`                  CREATE
+
+Do NOT modify `HybridRetriever` itself. Do NOT add new index structures. Do NOT touch enrich.py, relevance.py, or anything outside `currents/`.
+
+## Step-by-step
+
+### 1. Interface — keep it stable
+
+`EventRetrievalHit` stays exactly as prompt 03 declared it (`source_kind`, `source_id`, `text`, `score`). Add two optional fields that do not break the prompt-03 contract:
+
+```python
+@dataclass(frozen=True)
+class EventRetrievalHit:
+    source_kind: str         # "conclusion" or "claim"
+    source_id: str
+    text: str                # display text — for conclusions, the conclusion_text; for claims, .text
+    score: float             # 0..1, comparable within one call
+    topic_hint: Optional[str] = None
+    origin: Optional[str] = None   # ClaimOrigin value when source_kind=="claim"; None for conclusions
+```
+
+### 2. Retrieval strategy
+
+```python
+def retrieve_for_event(
+    store: Store,
+    event: CurrentEvent,
+    *,
+    k_conclusions: int = 6,
+    k_claims: int = 10,
+    min_score: float = 0.25,
+) -> list[EventRetrievalHit]:
+    """
+    Two-stage retrieval:
+
+    Stage A (preferred): search Conclusion texts directly. A Conclusion is a
+    firm-level published belief and is the strongest citation surface.
+
+    Stage B (fallback / complement): run HybridRetriever over Claims filtered
+    to ClaimOrigin in {FOUNDER, VOICE, LITERATURE} for the tenant, then re-rank.
+
+    Merge, deduplicate by semantic overlap (a Claim already subsumed by a
+    returned Conclusion should not be double-cited), sort by score descending,
+    return up to (k_conclusions + k_claims) hits.
+    """
+```
+
+Implementation steps:
+
+1. **Build the query text** from the event: concatenate `event.raw_text` with `event.topic_hint` if set. Trim to 1500 chars.
+2. **Stage A — Conclusions:**
+   - Fetch all Conclusion rows (or the most recent N, e.g., 500 — tune per repo size). If the repo has a dense index over conclusions, use it; otherwise embed the query and score cosine against each Conclusion's embedding (Conclusions have embeddings in this repo — confirm by reading `noosphere/conclusions.py`).
+   - Take top-k_conclusions above `min_score`.
+3. **Stage B — Claims via `HybridRetriever`:**
+   - Instantiate `HybridRetriever()`, call `.bm25_hits(store, query_text, limit=50)` for a cheap BM25 cut, then re-rank those with the event embedding against claim embeddings.
+   - If the FTS table is empty (returns `[]`), call `HybridRetriever().rebuild(store, origins={FOUNDER, VOICE, LITERATURE, SYSTEM})` once, then retry. Log the rebuild — this is a recoverable cold-start, not a failure.
+   - Take top-k_claims above `min_score`.
+4. **Dedupe across stages:** for each Claim hit, if its embedding cosine against any returned Conclusion hit exceeds 0.85, drop the Claim (it's subsumed; citing the Conclusion is preferred).
+5. **Sort** merged list by score descending. Return.
+
+Use `numpy` for cosine; the helper exists from prompt 03.
+
+### 3. Truncation for display
+
+When constructing the `text` field, cap Conclusions at 400 chars and Claims at 300 chars. The UI (prompt 12) will render the full text on-demand; the retrieval hit text is for prompt ingestion and citation-quote selection.
+
+### 4. Failure modes — explicit, not silent
+
+- Empty store → return `[]`, log `retrieval_empty_store`.
+- FTS not built → rebuild once, retry, log `retrieval_fts_cold_start_rebuilt`.
+- Embedding provider down → re-raise to let caller/scheduler handle backoff.
+
+### 5. Update `__init__.py`
+
+Add `EventRetrievalHit` and `retrieve_for_event` to `__all__`.
+
+### 6. Tests — seeded fixtures
+
+`tests/test_currents_retrieval_adapter.py`:
+
+- Seed a fresh in-memory `Store` with:
+  - 3 `Conclusion` rows with known topics and embeddings.
+  - 5 `Claim` rows (ClaimOrigin.FOUNDER, ClaimOrigin.VOICE, ClaimOrigin.LITERATURE) with known embeddings.
+- Tests:
+  - `test_returns_empty_when_store_is_empty` — on an empty store, result is `[]`.
+  - `test_returns_conclusion_hits_when_topic_aligned` — event about topic T; at least one conclusion hit whose `source_kind == "conclusion"` appears with score ≥ min_score.
+  - `test_falls_back_to_claims_when_no_conclusion_match` — event about topic X with no Conclusion coverage but a founder Claim that matches; result contains a `source_kind == "claim"` hit with `origin == "founder"`.
+  - `test_dedupes_claims_subsumed_by_conclusion` — seed a Conclusion and a near-identical Claim; the Claim must NOT appear.
+  - `test_respects_min_score` — all synthetic similarities under threshold → result is `[]`.
+  - `test_rebuilds_fts_on_cold_start` — delete the FTS table, call `retrieve_for_event`, assert it rebuilt (check log or that subsequent results are non-empty).
+  - `test_text_is_truncated` — seed very long conclusion and claim texts; hit texts obey 400/300 char caps.
+
+Mock `embed_text` with a deterministic function (e.g., hash → vector) so the tests are stable.
+
+## Verification
+
+```bash
+cd noosphere
+pytest tests/test_currents_retrieval_adapter.py -q
+python -c "from noosphere.currents import retrieve_for_event, EventRetrievalHit; print('ok')"
+# And re-run prompt 03's relevance tests to confirm they still pass with the real adapter:
+pytest tests/test_currents_relevance.py -q
+```
+
+## Prohibitions
+
+- Do NOT change the function name, module path, or return type shape — prompt 05 and 06 depend on it exactly.
+- Do NOT store intermediate retrieval results back into the database. This is a read path; no side effects except the one-time FTS rebuild.
+- Do NOT filter Conclusions by any `tenant_id` — this is the firm's public Noosphere; every Conclusion is in scope. (The founder portal's tenant scoping is a separate concern in `theseus-codex`, not here.)
+- Do NOT include `ClaimOrigin.EXTERNAL` or `ClaimOrigin.ADVERSARIAL` claims in Stage B — those are inputs to the firm's thinking, not the firm's beliefs. They are not legitimate citation targets.
+- Do NOT return more than `k_conclusions + k_claims` hits; the opinion prompt cost scales with this.
+
+Do not proceed to any other work. Do not edit anything outside SCOPE.

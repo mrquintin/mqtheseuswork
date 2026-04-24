@@ -1,0 +1,326 @@
+# Claude Code Prompt 11 of 17 — Filter bar, topic clusters, keyword search, pagination
+
+**Sequence:** prompt 11 of 17 (Wave 6). Depends on 10. Parallel-safe with 12 and 13 — disjoint file sets. Report back with: filter interactions, cluster heuristic, and whether URL state survives refresh.
+
+**Before you start — read current state:**
+1. Read `theseus-public/src/app/currents/FeedClient.tsx` — note the `useLiveOpinions` usage.
+2. Read `theseus-public/src/lib/currentsApi.ts` — the `listCurrents` filter params: `cursor`, `limit`, `topic`, `stance`, `since`.
+3. Read `theseus-public/src/app/currents/page.tsx` — the server seed path. Your filters must round-trip via URL search params so deep links work.
+4. Re-read `theseus-public/src/lib/useLiveOpinions.ts` — you will need to refactor lightly to accept a seed refresh when filters change (OR layer filtering on top in the client — see step 3).
+
+## Your task
+
+Add filtering, keyword search, stance chips, topic clusters, and "load more" pagination to the feed. Filters write to `?topic=&stance=&q=&since=` so deep links and refreshes work. Topic clusters group the visible feed by `topic_hint` into collapsible sections (toggle between "chronological" and "by topic"). Live-arriving opinions that don't match the current filter are held in a "N new items match other filters" subtle indicator rather than silently dropped.
+
+## Prerequisites
+
+- Prompts 08, 09, 10 applied.
+
+## SCOPE
+
+- `theseus-public/src/app/currents/FilterBar.tsx`                        CREATE
+- `theseus-public/src/app/currents/TopicClusters.tsx`                    CREATE
+- `theseus-public/src/app/currents/FeedClient.tsx`                       MODIFY (integrate filters + load-more)
+- `theseus-public/src/app/currents/page.tsx`                             MODIFY (read search params for initial seed)
+- `theseus-public/src/lib/useLiveOpinions.ts`                            MODIFY ONLY to accept an `onNewOpinion` callback so filter-miss can be counted
+- `theseus-public/src/lib/filterMatch.ts`                                CREATE (single source of truth for client-side match logic)
+- `theseus-public/src/__tests__/filterMatch.test.ts`                     CREATE
+- `theseus-public/src/__tests__/FilterBar.test.tsx`                      CREATE
+
+Do NOT modify `OpinionCard.tsx`, `LiveBanner.tsx`, or the layout. Do NOT build the detail page or chat.
+
+## Step-by-step
+
+### 1. `filterMatch.ts` — the match predicate
+
+```ts
+import type { PublicOpinion, Stance } from "./currentsTypes";
+
+export interface FilterState {
+  topic: string | null;        // exact match on topic_hint
+  stance: Stance | null;
+  q: string | null;            // substring match, case-insensitive, over headline+body
+  since: string | null;        // ISO date; opinions generated_at >= since
+  view: "chronological" | "by-topic";
+}
+
+export const EMPTY_FILTER: FilterState = {
+  topic: null, stance: null, q: null, since: null, view: "chronological",
+};
+
+export function matches(op: PublicOpinion, f: FilterState): boolean {
+  if (f.topic && op.topic_hint !== f.topic) return false;
+  if (f.stance && op.stance !== f.stance) return false;
+  if (f.since && op.generated_at < f.since) return false;
+  if (f.q) {
+    const q = f.q.toLowerCase();
+    const hay = (op.headline + " " + op.body_markdown).toLowerCase();
+    if (!hay.includes(q)) return false;
+  }
+  return true;
+}
+
+export function filterToParams(f: FilterState): URLSearchParams {
+  const p = new URLSearchParams();
+  if (f.topic) p.set("topic", f.topic);
+  if (f.stance) p.set("stance", f.stance);
+  if (f.q) p.set("q", f.q);
+  if (f.since) p.set("since", f.since);
+  if (f.view !== "chronological") p.set("view", f.view);
+  return p;
+}
+
+export function paramsToFilter(sp: URLSearchParams | Record<string, string | undefined>): FilterState {
+  const get = (k: string) => (sp instanceof URLSearchParams ? sp.get(k) : (sp[k] ?? null));
+  return {
+    topic: get("topic") || null,
+    stance: (get("stance") as Stance | null) || null,
+    q: get("q") || null,
+    since: get("since") || null,
+    view: (get("view") as FilterState["view"]) || "chronological",
+  };
+}
+```
+
+### 2. `FilterBar.tsx`
+
+Sticky header below the live banner. Four controls, minimal chrome:
+
+```tsx
+"use client";
+
+import { useRouter, useSearchParams, usePathname } from "next/navigation";
+import { useMemo } from "react";
+import { filterToParams, paramsToFilter, type FilterState } from "@/lib/filterMatch";
+
+const STANCES = ["agrees", "disagrees", "complicates", "insufficient"] as const;
+const SINCE_PRESETS: { label: string; hours: number | null }[] = [
+  { label: "any time", hours: null },
+  { label: "1 h", hours: 1 },
+  { label: "24 h", hours: 24 },
+  { label: "7 d", hours: 24 * 7 },
+];
+
+export function FilterBar({ topics }: { topics: string[] }) {
+  const router = useRouter();
+  const pathname = usePathname();
+  const sp = useSearchParams();
+  const f = useMemo(() => paramsToFilter(sp), [sp]);
+
+  const update = (next: Partial<FilterState>) => {
+    const merged = { ...f, ...next };
+    const qs = filterToParams(merged).toString();
+    router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false });
+  };
+
+  return (
+    <div style={{
+      position: "sticky", top: 0, zIndex: 5,
+      background: "var(--currents-bg)",
+      borderBottom: "1px solid var(--currents-border)",
+      padding: "0.75rem 0", marginBottom: "1rem",
+      display: "flex", flexWrap: "wrap", gap: "0.7rem", alignItems: "center",
+    }}>
+      {/* search */}
+      <input
+        type="search"
+        placeholder="search opinions"
+        defaultValue={f.q ?? ""}
+        onChange={(e) => update({ q: e.target.value || null })}
+        style={{
+          background: "var(--currents-surface)",
+          border: "1px solid var(--currents-border)",
+          color: "var(--currents-parchment)",
+          padding: "0.35rem 0.6rem",
+          borderRadius: 2,
+          fontSize: "0.85rem",
+          minWidth: 180,
+        }}
+      />
+
+      {/* topic dropdown */}
+      <select
+        value={f.topic ?? ""}
+        onChange={(e) => update({ topic: e.target.value || null })}
+        style={chipSelectStyle}
+      >
+        <option value="">all topics</option>
+        {topics.map(t => <option key={t} value={t}>{t}</option>)}
+      </select>
+
+      {/* stance chips */}
+      <div style={{ display: "flex", gap: "0.25rem" }}>
+        {STANCES.map(s => (
+          <button
+            key={s}
+            onClick={() => update({ stance: f.stance === s ? null : s })}
+            style={{
+              ...chipBase,
+              background: f.stance === s ? "var(--currents-gold)" : "var(--currents-surface)",
+              color: f.stance === s ? "#000" : "var(--currents-parchment-dim)",
+            }}
+          >
+            {s}
+          </button>
+        ))}
+      </div>
+
+      {/* since presets */}
+      <div style={{ display: "flex", gap: "0.25rem", marginLeft: "auto" }}>
+        {SINCE_PRESETS.map(p => {
+          const iso = p.hours == null ? null : new Date(Date.now() - p.hours * 3600_000).toISOString();
+          const active = (f.since ?? null) === iso;
+          return (
+            <button key={p.label} onClick={() => update({ since: iso })} style={{
+              ...chipBase,
+              background: active ? "var(--currents-gold)" : "var(--currents-surface)",
+              color: active ? "#000" : "var(--currents-parchment-dim)",
+            }}>
+              {p.label}
+            </button>
+          );
+        })}
+      </div>
+
+      {/* view toggle */}
+      <button
+        onClick={() => update({ view: f.view === "chronological" ? "by-topic" : "chronological" })}
+        style={chipBase}
+      >
+        view: {f.view === "chronological" ? "chronological" : "by topic"}
+      </button>
+    </div>
+  );
+}
+```
+
+Debounce the search input with 250ms; do NOT navigate on every keystroke.
+
+### 3. `FeedClient.tsx` — integrate filters + "load more"
+
+Changes:
+
+1. Accept `initialFilter: FilterState` (from server page that read search params).
+2. Read filter from `useSearchParams` on the client; keep URL and state in sync.
+3. Compute `visibleOpinions = opinions.filter(op => matches(op, filter))` before rendering cards.
+4. When a new opinion arrives via the hook and does NOT match the filter, bump a `hiddenNewCount`. Show a subtle pill at the top of the feed: "3 new items match other filters — clear to show."
+5. Add a "Load older" button at the bottom. Track `oldestCursor`; on click, call `listCurrents({ cursor, limit: 20, ...filter })` and append. Deduplicate by id.
+6. On filter change (detected by `useEffect` on filter identity), clear state and re-seed from `listCurrents({ limit: 20, ...filter })`. Do NOT drop the live SSE connection — just re-prime the list.
+7. Compute `topics` from the loaded opinions (distinct non-null `topic_hint`s). Pass into `FilterBar`.
+8. In `by-topic` view, render `<TopicClusters>` instead of the flat list.
+
+### 4. `TopicClusters.tsx`
+
+```tsx
+"use client";
+
+import { useMemo, useState } from "react";
+import type { PublicOpinion } from "@/lib/currentsTypes";
+import { OpinionCard } from "./OpinionCard";
+
+export function TopicClusters({ opinions }: { opinions: PublicOpinion[] }) {
+  const groups = useMemo(() => {
+    const by = new Map<string, PublicOpinion[]>();
+    for (const op of opinions) {
+      const key = op.topic_hint || "unclassified";
+      const arr = by.get(key) ?? [];
+      arr.push(op);
+      by.set(key, arr);
+    }
+    return [...by.entries()].sort((a, b) => b[1].length - a[1].length);
+  }, [opinions]);
+
+  return (
+    <div>
+      {groups.map(([topic, ops]) => (
+        <TopicGroup key={topic} topic={topic} ops={ops} />
+      ))}
+    </div>
+  );
+}
+
+function TopicGroup({ topic, ops }: { topic: string; ops: PublicOpinion[] }) {
+  const [open, setOpen] = useState(true);
+  return (
+    <section style={{ marginBottom: "1.4rem" }}>
+      <button onClick={() => setOpen(o => !o)} style={{
+        width: "100%", textAlign: "left",
+        background: "transparent",
+        border: "none",
+        padding: "0.4rem 0",
+        fontSize: "0.9rem",
+        color: "var(--currents-gold)",
+        letterSpacing: "0.05em",
+        textTransform: "uppercase",
+        cursor: "pointer",
+      }}>
+        {open ? "▾" : "▸"} {topic} <span style={{ color: "var(--currents-muted)" }}>({ops.length})</span>
+      </button>
+      {open && ops.map(op => <OpinionCard key={op.id} op={op} />)}
+    </section>
+  );
+}
+```
+
+### 5. Server `page.tsx` reads search params
+
+```tsx
+import { listCurrents } from "@/lib/currentsApi";
+import { FeedClient } from "./FeedClient";
+import { paramsToFilter } from "@/lib/filterMatch";
+
+export const dynamic = "force-dynamic";
+
+export default async function CurrentsPage({
+  searchParams,
+}: { searchParams: Promise<Record<string, string | undefined>> }) {
+  const sp = await searchParams;
+  const filter = paramsToFilter(sp);
+  let seed = [];
+  try {
+    const resp = await listCurrents({
+      limit: 20,
+      topic: filter.topic ?? undefined,
+      stance: filter.stance ?? undefined,
+      since: filter.since ?? undefined,
+    });
+    seed = resp.items;
+  } catch (err) {
+    console.error("currents_initial_fetch_failed", err);
+  }
+  return <FeedClient seed={seed} initialFilter={filter} />;
+}
+```
+
+### 6. Tests
+
+`__tests__/filterMatch.test.ts`:
+
+- `matches` filters by topic, stance, q, since; boolean AND over active filters.
+- `filterToParams` / `paramsToFilter` are inverses.
+- Default filter produces empty query string.
+
+`__tests__/FilterBar.test.tsx`:
+
+- Render with no params → no filter chips active.
+- Clicking a stance chip updates the URL search params via the router.
+- Typing in the search input debounces 250ms before pushing.
+- Selecting a topic sets `topic=...` in the URL.
+
+## Verification
+
+```bash
+cd theseus-public
+npm run build
+npx vitest run src/__tests__/filterMatch.test.ts src/__tests__/FilterBar.test.tsx
+```
+
+## Prohibitions
+
+- Do NOT apply filters server-side AND client-side in a way that drops the live stream. The server seeds per filter; the client keeps the SSE subscription open and uses `matches()` to decide whether a live arrival is visible.
+- Do NOT persist filters to localStorage — URL is the source of truth so permalinks work.
+- Do NOT add a pre-built filter-presets sidebar. Keep the bar to one row; search, topic, 4 stance chips, 4 since presets, one view toggle.
+- Do NOT modify `currentsApi.ts`'s param shape. If a filter needs a new param, extend `listCurrents` in its own prompt.
+- Do NOT implement server-side search over `q` — the client-side substring filter is sufficient for the expected data volume (thousands of opinions at most). If this changes, revisit in a future round.
+
+Do not proceed to any other work. Do not edit anything outside SCOPE.

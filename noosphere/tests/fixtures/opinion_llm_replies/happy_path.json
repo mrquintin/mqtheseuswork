@@ -1,0 +1,27 @@
+{
+  "stance": "agrees",
+  "confidence": 0.72,
+  "headline": "The firm's prior conclusions on capex cycles align with the announcement, implying durable demand for compute.",
+  "body_markdown": "The firm's prior conclusion suggests AI compute demand drives chip capex through multi-year cycles. Existing Noosphere claims indicate founders believe AI adoption accelerates compounding returns. These align with today's announcement.",
+  "uncertainty_notes": ["Single-quarter signal; could be front-loaded.", "No cross-check against supply-side constraints."],
+  "citations": [
+    {
+      "source_kind": "conclusion",
+      "source_id": "conc-capex",
+      "quoted_span": "AI compute demand drives chip capex",
+      "relevance_score": 0.88
+    },
+    {
+      "source_kind": "claim",
+      "source_id": "claim-F",
+      "quoted_span": "Founders believe AI adoption accelerates compounding returns.",
+      "relevance_score": 0.74
+    },
+    {
+      "source_kind": "conclusion",
+      "source_id": "conc-cycles",
+      "quoted_span": "multi-year capex cycles",
+      "relevance_score": 0.62
+    }
+  ]
+}

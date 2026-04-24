@@ -1,0 +1,111 @@
+name: Rolling Release
+
+# Builds installers for all three apps on every push to main and uploads
+# them to a single rolling "latest-main" GitHub Release. This keeps the
+# README's /releases/latest/download/... links pointing at installers built
+# from the tip of main. Versioned releases (v*) are handled by release.yml.
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+# If a new push arrives while an older run is still building, cancel the old
+# one — there's no point finishing a build whose artifacts are about to be
+# overwritten by the newer commit. Saves runner minutes and gets the user to
+# fresh installers faster.
+concurrency:
+  group: rolling-release-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # `secrets: inherit` is required for reusable workflows called via
+  # `workflow_call` — without it, APPLE_*, WIN_*, and any other signing
+  # secrets silently resolve to empty strings and code-signing/notarization
+  # steps are skipped.
+  #
+  # Note: the Theseus Codex is a web application (Next.js), not a
+  # downloadable installer — its build workflow has been removed and the
+  # README points users to the hosted URL instead.
+  build-dialectic:
+    uses: ./.github/workflows/build-dialectic.yml
+    secrets: inherit
+  build-noosphere:
+    uses: ./.github/workflows/build-noosphere.yml
+    secrets: inherit
+
+  publish:
+    needs: [build-dialectic, build-noosphere]
+    # Run publish even if some builds failed, so we release whatever succeeded.
+    # This way a failing app build doesn't block releases for the other apps.
+    if: ${{ always() && !cancelled() }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          path: artifacts
+
+      - name: List downloaded artifacts
+        run: ls -R artifacts || true
+
+      - name: Normalize installer filenames
+        run: |
+          mkdir -p release
+          pick_first() {
+            # $1 = glob, $2 = dest in release/
+            local match
+            match=$(ls -1 $1 2>/dev/null | head -n1 || true)
+            if [ -n "$match" ] && [ -f "$match" ]; then
+              cp "$match" "release/$2"
+              echo "Added: $2 (from $match)"
+            else
+              echo "Missing: $2 (no match for $1)"
+            fi
+          }
+
+          # Dialectic
+          pick_first 'artifacts/dialectic-macos/*.dmg' Dialectic.dmg
+          # NSIS installer is specifically Dialectic-Setup.exe; ignore the
+          # PyInstaller runtime exe inside dialectic-windows/Dialectic/.
+          pick_first 'artifacts/dialectic-windows/Dialectic-Setup.exe' Dialectic-Setup.exe
+
+          # Noosphere
+          pick_first 'artifacts/noosphere-macos/noosphere-*-macos.tar.gz' noosphere-macos.tar.gz
+          pick_first 'artifacts/noosphere-windows/Noosphere-Setup.exe' Noosphere-Setup.exe
+
+          # Theseus Codex is a web app — no installers to package.
+
+          echo ""
+          echo "--- Release files ---"
+          ls -la release/ || true
+
+      - name: Delete previous rolling release (if any)
+        continue-on-error: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release delete latest-main --yes --cleanup-tag || true
+
+      - name: Create/update rolling release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: latest-main
+          name: "Latest build from main"
+          body: |
+            Automatically built from the tip of `main` (commit ${{ github.sha }}).
+
+            These installers are rebuilt on every push to `main`. For stable
+            versioned releases, see tags starting with `v`.
+          files: release/*
+          draft: false
+          prerelease: false
+          make_latest: "true"
+          fail_on_unmatched_files: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

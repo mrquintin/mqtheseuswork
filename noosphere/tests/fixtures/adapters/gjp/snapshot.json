@@ -1,0 +1,47 @@
+[
+  {
+    "question_id": "gjp-1001",
+    "question_text": "Will the UN Security Council pass a resolution on climate change by December 2024?",
+    "opened_at": "2024-01-15T00:00:00+00:00",
+    "closed_at": "2024-12-31T00:00:00+00:00",
+    "outcome": "yes",
+    "gjp_baseline": 0.35,
+    "superforecaster_baseline": 0.42
+  },
+  {
+    "question_id": "gjp-1002",
+    "question_text": "Will the US unemployment rate exceed 5% by Q3 2024?",
+    "opened_at": "2024-02-01T00:00:00+00:00",
+    "closed_at": "2024-09-30T00:00:00+00:00",
+    "outcome": "no",
+    "gjp_baseline": 0.20,
+    "superforecaster_baseline": 0.15
+  },
+  {
+    "question_id": "gjp-1003",
+    "question_text": "What will the price of Brent crude oil be on June 30, 2024?",
+    "opened_at": "2024-01-01T00:00:00+00:00",
+    "closed_at": "2024-06-30T00:00:00+00:00",
+    "outcome": "82.50",
+    "gjp_baseline": null,
+    "superforecaster_baseline": null
+  },
+  {
+    "question_id": "gjp-1004",
+    "question_text": "Will the European Central Bank cut interest rates before July 2024?",
+    "opened_at": "2024-01-10T00:00:00+00:00",
+    "closed_at": "2024-06-30T00:00:00+00:00",
+    "outcome": "yes",
+    "gjp_baseline": 0.55,
+    "superforecaster_baseline": 0.62
+  },
+  {
+    "question_id": "gjp-1005",
+    "question_text": "How many member states will the African Union have by end of 2024?",
+    "opened_at": "2024-03-01T00:00:00+00:00",
+    "closed_at": "2024-12-31T00:00:00+00:00",
+    "outcome": "55",
+    "gjp_baseline": null,
+    "superforecaster_baseline": null
+  }
+]

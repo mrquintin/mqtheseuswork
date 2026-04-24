@@ -1,0 +1,109 @@
+{
+  "three_class": {
+    "f1_macro_mean": 0.6376963598116101,
+    "f1_macro_std": 0.0940602101532168
+  },
+  "classification_report": {
+    "contradiction": {
+      "precision": 1.0,
+      "recall": 1.0,
+      "f1-score": 1.0,
+      "support": 70.0
+    },
+    "entailment": {
+      "precision": 1.0,
+      "recall": 1.0,
+      "f1-score": 1.0,
+      "support": 41.0
+    },
+    "neutral": {
+      "precision": 1.0,
+      "recall": 1.0,
+      "f1-score": 1.0,
+      "support": 41.0
+    },
+    "accuracy": 1.0,
+    "macro avg": {
+      "precision": 1.0,
+      "recall": 1.0,
+      "f1-score": 1.0,
+      "support": 152.0
+    },
+    "weighted avg": {
+      "precision": 1.0,
+      "recall": 1.0,
+      "f1-score": 1.0,
+      "support": 152.0
+    }
+  },
+  "pragmatic": {
+    "mean_cosine": 0.3289544880390167,
+    "mean_hoyer": 0.23012067588634447,
+    "pairs": [
+      {
+        "a": "He is a lifelong bachelor.",
+        "b": "His wife called him.",
+        "cosine": 0.28968071937561035,
+        "hoyer": 0.2468517028277459
+      },
+      {
+        "a": "She is an only child.",
+        "b": "Her brother visited yesterday.",
+        "cosine": 0.4087437391281128,
+        "hoyer": 0.22500454310331447
+      },
+      {
+        "a": "The company went bankrupt last year.",
+        "b": "The company reported record profits last year.",
+        "cosine": 0.3821067214012146,
+        "hoyer": 0.21718473737243446
+      },
+      {
+        "a": "He has never left the country.",
+        "b": "He described his trip to Paris.",
+        "cosine": 0.18104761838912964,
+        "hoyer": 0.2348163936130055
+      },
+      {
+        "a": "The building was demolished in 2019.",
+        "b": "The building hosted an event in 2023.",
+        "cosine": 0.4742767810821533,
+        "hoyer": 0.2271918723894572
+      },
+      {
+        "a": "She is a strict vegan.",
+        "b": "She ordered the steak.",
+        "cosine": 0.4014837145805359,
+        "hoyer": 0.23724741797173438
+      },
+      {
+        "a": "He is completely deaf.",
+        "b": "He described the sound of the orchestra.",
+        "cosine": 0.2320023775100708,
+        "hoyer": 0.20796231048542116
+      },
+      {
+        "a": "The river has been dry for decades.",
+        "b": "The flood from the river destroyed the town.",
+        "cosine": 0.29323267936706543,
+        "hoyer": 0.2245562812616221
+      },
+      {
+        "a": "She has never learned to read.",
+        "b": "She reviewed the manuscript carefully.",
+        "cosine": 0.2306033968925476,
+        "hoyer": 0.23687784114908392
+      },
+      {
+        "a": "He is a committed pacifist.",
+        "b": "He enlisted in the army to fight.",
+        "cosine": 0.39636707305908203,
+        "hoyer": 0.24351365868962577
+      }
+    ]
+  },
+  "pca_variance_explained": [
+    0.05705449357628822,
+    0.04631699249148369
+  ]
+}

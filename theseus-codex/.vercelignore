@@ -1,0 +1,29 @@
+dev.db
+dev.db-journal
+.env
+.env.local
+.env.*.local
+uploads/
+tsconfig.tsbuildinfo
+coverage/
+.DS_Store
+
+# Tests are not deployed (run in CI separately)
+src/__tests__/
+vitest.config.ts
+
+# Desktop/Electron companion build — ships in the GitHub Releases DMG/EXE,
+# not through Vercel. These files import from `electron`, `electron-log`,
+# `electron-updater`, none of which are in package.json dependencies
+# (intentionally, since they'd bloat every web deploy). Without this
+# exclusion, Vercel uploads desktop/*.ts and Next.js's build-time `tsc`
+# fails because it can't resolve those modules. Ref: production deploys
+# e5e282c and 3eddf6d both failed with this shape before the exclusion.
+desktop/
+dist-desktop/
+electron-builder.yml
+
+# `tests/desktop/electron-main.test.ts` imports from `../../desktop/...`,
+# which pulls the whole Electron-typed subtree into the Vercel build.
+# Tests don't belong in the production deploy anyway.
+tests/

@@ -1,0 +1,284 @@
+# Claude Code Prompt 01 of 17 — Current-events data model: CurrentEvent, EventOpinion, OpinionCitation, FollowUpSession, FollowUpMessage
+
+**Sequence:** prompt 01 of 17 (Wave 1 — foundation; blocks every other prompt in this round). When you finish, report back with: files you created/modified, every new Pydantic/SQLAlchemy type by name, the generated Alembic revision id, and any blockers.
+
+**Before you start — read current state:**
+1. Run `git status` and `git branch`. Record the branch name.
+2. Read `noosphere/noosphere/models.py` — note the existing `Claim`, `Conclusion`, `Artifact`, `StrictModel`, `ClaimOrigin`, `ConfidenceTier`, `Topic`. Study the field conventions (field names, `Field(default_factory=...)`, `StrictModel` usage).
+3. Read `noosphere/noosphere/store.py` — note the existing `Store` class and SQLAlchemy table definitions. Note how `ingest_artifacts.py` and similar modules add/list/get rows on the store. This is the pattern you will extend.
+4. Read `noosphere/alembic/versions/` — note the most recent migration filename and the `down_revision` chain. Your new migration must extend this chain.
+5. Read `noosphere/noosphere/ids.py` — note how deterministic ids are generated (e.g., `make_id("event", ...)`). Reuse this convention.
+6. `grep -rn "class CurrentEvent\|class EventOpinion\|class FollowUp" noosphere/` — confirm none exist. If a partial `currents/` module exists from prior attempts, read it and do not destroy it; extend it.
+
+## Your task
+
+Add the five canonical data types for the live current-events feature: `CurrentEvent` (an observed external event — typically an X post or thread), `EventOpinion` (the LLM-generated, source-grounded stance on an event), `OpinionCitation` (the bridge from an opinion to a specific Noosphere `Conclusion` or `Claim`), `FollowUpSession` (an anonymous public user's chat thread on an opinion), and `FollowUpMessage` (one turn in a session). Add matching SQLAlchemy tables, store accessors, and an Alembic migration.
+
+Nothing else — no ingestion, no LLM calls, no UI. That's for later prompts. The rest of the series is blocked on this schema being stable.
+
+## Prerequisites
+
+- Clean working tree (or at least, no uncommitted work in `noosphere/models.py` or `noosphere/store.py`).
+- A working Alembic environment (`cd noosphere && alembic current` returns without error).
+
+## SCOPE (files you may create or modify — stay within this list)
+
+- `noosphere/noosphere/models.py`                                         MODIFY (append new types at bottom)
+- `noosphere/noosphere/store.py`                                          MODIFY (add tables + accessors)
+- `noosphere/noosphere/ids.py`                                            MODIFY ONLY IF needed to add `make_event_id`, `make_opinion_id`, etc.
+- `noosphere/alembic/versions/<new_revision_id>_current_events.py`        CREATE
+- `noosphere/tests/test_currents_models.py`                               CREATE
+
+Do NOT modify any retrieval, coherence, ingestion, methods, or cascade modules. Do NOT edit the public site.
+
+## Step-by-step
+
+### 1. Add enums and Pydantic models
+
+Append to `noosphere/noosphere/models.py` (keep the existing import/ordering conventions — these enums are `str` subclasses, these models inherit from `StrictModel` where relevant):
+
+```python
+class CurrentEventSource(str, Enum):
+    """Where the raw event came from. X is the only live source in round 7;
+    keep the enum open so RSS / GDELT / academic feeds can be added later."""
+    X_POST = "x_post"
+    X_THREAD = "x_thread"
+    MANUAL = "manual"  # operator-seeded for testing or editorial override
+
+
+class CurrentEventStatus(str, Enum):
+    OBSERVED = "observed"        # ingested, awaiting relevance gate
+    ABSTAINED = "abstained"      # relevance gate said "not enough Noosphere coverage"
+    OPINED = "opined"            # EventOpinion generated
+    SUPPRESSED = "suppressed"    # operator-hidden (safety / abuse / legal)
+
+
+class OpinionStance(str, Enum):
+    """Coarse stance label for UI filtering — NOT the opinion text."""
+    AGREES = "agrees"            # event aligns with firm's prior conclusions
+    DISAGREES = "disagrees"      # event conflicts with firm's prior conclusions
+    COMPLICATES = "complicates"  # event refines, qualifies, or reframes
+    INSUFFICIENT = "insufficient"  # sources don't support a stance (should be rare; abstain path preferred)
+
+
+class CurrentEvent(StrictModel):
+    id: str
+    source: CurrentEventSource
+    source_url: str                 # canonical URL to the X post or thread root
+    source_author_handle: str       # e.g., "@someone"
+    source_captured_at: datetime    # when it was posted (per X)
+    ingested_at: datetime           # when we fetched it
+    raw_text: str                   # the post / thread body, concatenated if thread
+    dedupe_hash: str                # stable hash over normalized source_url + content
+    embedding: Optional[list[float]] = None   # populated in prompt 03
+    topic_hint: Optional[str] = None          # populated in prompt 03
+    status: CurrentEventStatus = CurrentEventStatus.OBSERVED
+    status_reason: Optional[str] = None       # e.g., "no sources above threshold"
+
+
+class EventOpinion(StrictModel):
+    id: str
+    event_id: str                   # FK → CurrentEvent.id
+    generator_model: str            # e.g., "claude-haiku-4-5"
+    generated_at: datetime
+    stance: OpinionStance
+    confidence: float               # 0..1, self-reported by the LLM then calibration-adjusted later
+    headline: str                   # 1-sentence summary shown on the card
+    body_markdown: str              # full opinion text, markdown, typically 3–8 sentences
+    uncertainty_notes: list[str]    # explicit flags: "sources are dated", "only 2 citations", etc.
+    sources_considered: int         # how many retrieval hits fed the generation
+    sources_cited: int              # how many made it into OpinionCitation rows (must match row count)
+    generator_tokens_prompt: int
+    generator_tokens_completion: int
+    revoked: bool = False           # operator kill-switch
+    revoked_reason: Optional[str] = None
+
+
+class OpinionCitation(StrictModel):
+    """A single source anchor inside an EventOpinion.
+
+    Exactly one of (conclusion_id, claim_id) is non-null — the opinion
+    is cited against either a published Conclusion or a raw founder/voice
+    Claim. Principles are referenced via their underlying Claim id.
+    """
+    id: str
+    opinion_id: str
+    conclusion_id: Optional[str] = None
+    claim_id: Optional[str] = None
+    quoted_span: str                # verbatim text from the source shown in the UI
+    relevance_score: float          # retrieval score carried forward, 0..1
+    ordinal: int                    # ordering inside the opinion (0, 1, 2, …)
+
+
+class FollowUpSession(StrictModel):
+    id: str
+    opinion_id: str                 # root EventOpinion
+    created_at: datetime
+    last_activity_at: datetime
+    expires_at: datetime            # ingester writes now + 24h
+    client_fingerprint: str         # sha256 over (IP, UA, day) — for rate limiting, not identification
+    message_count: int = 0
+
+
+class FollowUpMessageRole(str, Enum):
+    USER = "user"
+    ASSISTANT = "assistant"
+    SYSTEM = "system"
+
+
+class FollowUpMessage(StrictModel):
+    id: str
+    session_id: str
+    role: FollowUpMessageRole
+    created_at: datetime
+    content: str
+    # Only meaningful when role == ASSISTANT:
+    citations: list[OpinionCitation] = Field(default_factory=list)
+    tokens_prompt: int = 0
+    tokens_completion: int = 0
+    refused: bool = False           # true if the assistant declined (e.g., no sources)
+    refusal_reason: Optional[str] = None
+```
+
+- Use `datetime` from stdlib — match the existing file's imports.
+- Ensure `Optional` and `Field` imports are already present; if not, add them to the existing import block.
+- Every new model inherits from `StrictModel`. Every list field uses `Field(default_factory=list)`.
+
+### 2. Add deterministic id builders to `ids.py`
+
+If `ids.py` already exposes a generic `make_id(namespace, *parts)`, add thin helpers:
+
+```python
+def make_event_id(dedupe_hash: str) -> str:
+    return make_id("event", dedupe_hash)
+
+def make_opinion_id(event_id: str, model_name: str, generated_at_iso: str) -> str:
+    return make_id("opinion", event_id, model_name, generated_at_iso)
+
+def make_citation_id(opinion_id: str, ordinal: int) -> str:
+    return make_id("cite", opinion_id, str(ordinal))
+
+def make_followup_session_id(opinion_id: str, client_fingerprint: str, day_iso: str) -> str:
+    return make_id("fus", opinion_id, client_fingerprint, day_iso)
+
+def make_followup_message_id(session_id: str, ordinal: int) -> str:
+    return make_id("fum", session_id, str(ordinal))
+```
+
+### 3. Add SQLAlchemy tables and store accessors in `store.py`
+
+Follow the existing table naming convention. Tables needed:
+
+- `current_event` — all columns from `CurrentEvent`, with `embedding` stored as JSON-serialized floats (mirror how other embedding-bearing models already handle this; DO NOT introduce pgvector / sqlite-vss for now).
+- `event_opinion` — FK `event_id → current_event.id` (indexed).
+- `opinion_citation` — FK `opinion_id → event_opinion.id` (indexed), plus indexes on `conclusion_id` and `claim_id`.
+- `followup_session` — FK `opinion_id → event_opinion.id`, index on `expires_at`, index on `client_fingerprint`.
+- `followup_message` — FK `session_id → followup_session.id`, index on `(session_id, created_at)`.
+
+Accessors to add on the `Store` class (mirror the style of existing `add_claim`, `get_claim`, `list_claim_ids`):
+
+```python
+# Current events
+def add_current_event(self, ev: CurrentEvent) -> None: ...
+def get_current_event(self, event_id: str) -> Optional[CurrentEvent]: ...
+def find_current_event_by_dedupe(self, dedupe_hash: str) -> Optional[CurrentEvent]: ...
+def list_current_event_ids(
+    self, *, status: Optional[CurrentEventStatus] = None,
+    since: Optional[datetime] = None, limit: int = 200,
+) -> list[str]: ...
+def update_current_event_status(
+    self, event_id: str, status: CurrentEventStatus, *, reason: Optional[str] = None,
+) -> None: ...
+def set_current_event_topic_and_embedding(
+    self, event_id: str, *, topic_hint: str, embedding: list[float],
+) -> None: ...
+
+# Opinions
+def add_event_opinion(self, op: EventOpinion, citations: list[OpinionCitation]) -> None:
+    """Transactional: write the opinion and all citations in one commit."""
+def get_event_opinion(self, opinion_id: str) -> Optional[EventOpinion]: ...
+def list_opinions_for_event(self, event_id: str) -> list[str]: ...
+def list_recent_opinion_ids(self, *, limit: int = 50, offset: int = 0) -> list[str]: ...
+def list_citations_for_opinion(self, opinion_id: str) -> list[OpinionCitation]: ...
+def revoke_opinion(self, opinion_id: str, reason: str) -> None: ...
+
+# Follow-ups
+def add_followup_session(self, sess: FollowUpSession) -> None: ...
+def get_followup_session(self, session_id: str) -> Optional[FollowUpSession]: ...
+def touch_followup_session(self, session_id: str, *, now: datetime) -> None:
+    """Update last_activity_at and increment message_count."""
+def add_followup_message(self, msg: FollowUpMessage) -> None: ...
+def list_followup_messages(self, session_id: str) -> list[FollowUpMessage]: ...
+def count_followup_messages_in_window(
+    self, client_fingerprint: str, *, since: datetime,
+) -> int:
+    """For rate limiting; counts across sessions from the same fingerprint."""
+```
+
+- All writes use the existing engine transaction convention (`with self.engine.begin() as conn:`) — do NOT bypass it.
+- All reads return Pydantic models, not rows. Use the existing row→model helpers if present; otherwise construct explicitly.
+- `add_event_opinion` MUST be transactional: if any citation insert fails, roll back the opinion.
+- JSON-serialize `embedding`, `uncertainty_notes`, and the `citations` blob on `FollowUpMessage` the same way the existing code handles list/json columns (look at how `Claim.voice_comparisons` or `Conclusion.payload` is stored — mirror that).
+
+### 4. Write the Alembic migration
+
+Generate a new revision:
+
+```bash
+cd noosphere
+alembic revision -m "current_events: events, opinions, citations, followups"
+```
+
+Populate the `upgrade()` and `downgrade()` functions manually (do NOT trust autogenerate for the JSON columns; verify every column type against `store.py`). In `upgrade()`:
+
+- Create all five tables.
+- Create indexes listed above.
+- Add a composite index `(status, source_captured_at DESC)` on `current_event` for the public feed query.
+- Add an index on `event_opinion.generated_at DESC` for the live-feed sort.
+
+In `downgrade()`: drop in reverse dependency order (followup_message → followup_session → opinion_citation → event_opinion → current_event). Do NOT cascade-drop.
+
+### 5. Tests — contract + persistence round-trip
+
+Create `noosphere/tests/test_currents_models.py`:
+
+- `test_current_event_roundtrip` — construct, persist via `Store.add_current_event`, fetch via `get_current_event`, assert equality of every field (including `embedding`, `topic_hint` when null and non-null).
+- `test_dedupe_lookup` — insert, then `find_current_event_by_dedupe` returns the same row; unknown hash returns `None`.
+- `test_opinion_with_citations_transactional` — writing one opinion with 3 citations produces exactly 3 rows keyed to the opinion.
+- `test_opinion_citation_requires_exactly_one_of_conclusion_or_claim` — a citation with both or neither must raise a validation error (add a Pydantic `@model_validator(mode="after")` on `OpinionCitation` enforcing XOR).
+- `test_followup_session_ttl_fields_persist` — `expires_at` round-trips.
+- `test_revoke_opinion_sets_flag` — after `revoke_opinion`, the fetched opinion has `revoked=True` and a reason.
+- `test_rate_limit_counter` — insert N messages across 2 sessions from the same `client_fingerprint` in a window, assert `count_followup_messages_in_window` returns N.
+
+Use the existing test fixtures for `Store` (likely a tmp-path sqlite — check `conftest.py`).
+
+## Verification
+
+Run from the repo root:
+
+```bash
+cd noosphere
+alembic upgrade head
+pytest tests/test_currents_models.py -q
+python -c "from noosphere.models import CurrentEvent, EventOpinion, OpinionCitation, FollowUpSession, FollowUpMessage; print('ok')"
+python -c "from noosphere.store import Store; print([m for m in dir(Store) if 'current' in m or 'opinion' in m or 'followup' in m])"
+```
+
+All four must succeed. The model list print must include every accessor from step 3.
+
+Also run the existing test suite to confirm no regressions:
+
+```bash
+pytest tests/ -q -x --ignore=tests/test_currents_models.py
+```
+
+## Prohibitions
+
+- Do NOT wire any of these models into retrieval, ingestion, the coherence engine, the cascade graph, or the public site. This prompt is schema + store only.
+- Do NOT call any LLM or X API. No network.
+- Do NOT install new dependencies unless truly required for JSON storage — SQLAlchemy + sqlite are sufficient.
+- Do NOT modify existing tables or existing models. Additions only.
+- Do NOT skip the XOR validator on `OpinionCitation` — it's what keeps downstream citation rendering sane.
+- Do NOT mark the prompt done until the Alembic migration applies cleanly on a fresh database AND all tests pass.
+
+Do not proceed to any other work. Do not edit anything outside SCOPE.

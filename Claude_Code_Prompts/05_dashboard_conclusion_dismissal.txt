@@ -1,0 +1,102 @@
+# Claude Code Prompt 5 of 12 — Dashboard: allow founders to dismiss conclusions from the homepage
+
+**Sequence:** prompt 5 of 12 (Wave 2 — independent of prompts 03–04). When you finish, report back with: files you created/modified, any notable choices, any blockers.
+
+**Before you start — read current state:**
+1. Read `theseus-codex/src/app/(authed)/dashboard/page.tsx` — note the conclusions section (lines 402–452). It fetches the 8 most recent conclusions and renders them in a grid with no interaction beyond display.
+2. Read `theseus-codex/prisma/schema.prisma` — note the `Conclusion` model (lines 263–303). There is no `dismissedAt` or `hiddenFromDashboard` field.
+3. Read `theseus-codex/src/app/api/` — check for any existing conclusion-related API routes.
+
+## The problem
+
+The dashboard displays the 8 most recent conclusions with no ability to dismiss, hide, or remove them from the homepage view. The founder described wanting to be able to "delete conclusions from the home dashboard itself at the very home page." This doesn't mean permanent deletion (that's prompt 04's deletion request system) — it means dismissing a conclusion from the dashboard so it no longer clutters the homepage.
+
+This is a per-founder UI preference: founder A dismissing a conclusion from their dashboard should not affect founder B's view.
+
+## SCOPE (files you may create or modify — stay within this list)
+- `theseus-codex/prisma/schema.prisma`                                      MODIFY (add DashboardDismissal model)
+- `theseus-codex/prisma/migrations/`                                         CREATE (new migration)
+- `theseus-codex/src/app/api/dashboard-dismissals/route.ts`                 CREATE
+- `theseus-codex/src/app/(authed)/dashboard/page.tsx`                       MODIFY
+
+## Step-by-step
+
+1. **Add a `DashboardDismissal` model** to `schema.prisma`. This is a lightweight join table recording which founder has dismissed which conclusion from their dashboard:
+   ```prisma
+   model DashboardDismissal {
+     id           String   @id @default(cuid())
+     founderId    String
+     conclusionId String
+     createdAt    DateTime @default(now())
+
+     founder    Founder    @relation(fields: [founderId], references: [id])
+     conclusion Conclusion @relation(fields: [conclusionId], references: [id], onDelete: Cascade)
+
+     @@unique([founderId, conclusionId])
+     @@index([founderId])
+     @@index([conclusionId])
+   }
+   ```
+   Add the reverse relations:
+   - On `Founder`: `dashboardDismissals DashboardDismissal[]`
+   - On `Conclusion`: `dashboardDismissals DashboardDismissal[]`
+
+2. **Generate and apply the Prisma migration:**
+   ```bash
+   npx prisma migrate dev --name add_dashboard_dismissals
+   ```
+
+3. **Create the API route `POST /api/dashboard-dismissals`:**
+   - Authenticate the founder via `requireTenantContext()`.
+   - Accept `{ conclusionId }`.
+   - Verify the conclusion exists and belongs to the founder's organization.
+   - Upsert to prevent duplicates (use the `@@unique` constraint).
+   - Return `{ ok: true }`.
+
+4. **Modify the dashboard conclusions query** in `dashboard/page.tsx` to exclude dismissed conclusions for the current founder:
+   ```typescript
+   const conclusions = await db.conclusion.findMany({
+     where: {
+       organizationId: tenant.organizationId,
+       dashboardDismissals: {
+         none: { founderId: tenant.founderId },
+       },
+     },
+     orderBy: { createdAt: "desc" },
+     take: 8,
+   });
+   ```
+
+5. **Add a dismiss button** to each conclusion card on the dashboard. Place a small "×" button in the top-right corner of each card:
+   ```tsx
+   <form action={async () => {
+     "use server";
+     await fetch("/api/dashboard-dismissals", {
+       method: "POST",
+       headers: { "Content-Type": "application/json" },
+       body: JSON.stringify({ conclusionId: c.id }),
+     });
+     // Revalidate
+   }}>
+     <button type="submit" style={{
+       background: "none",
+       border: "none",
+       color: "var(--parchment-dim)",
+       cursor: "pointer",
+       fontSize: "0.75rem",
+       padding: "0.2rem 0.4rem",
+       opacity: 0.6,
+     }} title="Dismiss from dashboard">
+       ×
+     </button>
+   </form>
+   ```
+
+   **Important:** Use a proper Next.js server action instead of a client-side fetch. The server action should:
+   - Call `requireTenantContext()` to get the founder ID.
+   - Create the `DashboardDismissal` record directly via Prisma.
+   - Call `revalidatePath("/dashboard")` to refresh the page.
+
+6. **Do NOT change** the uploads section, the drift events section, decay alerts, or any other page. Only modify the conclusions display on the dashboard and the supporting API/schema.
+
+Do not proceed to any other work. Do not edit anything outside SCOPE.
