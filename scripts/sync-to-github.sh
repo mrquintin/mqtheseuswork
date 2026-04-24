@@ -54,6 +54,8 @@ fi
 
 # `git branch --show-current` prints an empty string AND exits 0 on detached
 # HEAD, so a plain `|| branch=main` fallback doesn't fire. Guard with -z too.
+# Rolling release, latest-main, and Vercel are wired to `main` — we always push
+# there, merging from your current branch when it isn't `main`.
 branch=$(git branch --show-current 2>/dev/null || true)
 [ -z "$branch" ] && branch=main
 # If on GitButler's branch, switch to main
@@ -100,16 +102,15 @@ has_wt_changes=0
 if ! git diff --quiet --ignore-submodules=all HEAD 2>/dev/null; then has_wt_changes=1; fi
 if [ "$(git ls-files --others --exclude-standard 2>/dev/null)" ]; then has_wt_changes=1; fi
 
-# Refresh remote refs so "ahead of origin" is accurate. Quiet on offline/no-net.
-git fetch origin "$branch" 2>/dev/null || true
+# Compare to origin/main — that's what this script publishes.
+git fetch origin main 2>/dev/null || true
+[ "$branch" != "main" ] && git fetch origin "$branch" 2>/dev/null || true
 
 ahead_count=0
 remote_exists=1
-if git rev-parse --verify "origin/$branch" >/dev/null 2>&1; then
-  ahead_count=$(git rev-list --count "origin/$branch..HEAD" 2>/dev/null || echo 0)
+if git rev-parse --verify "origin/main" >/dev/null 2>&1; then
+  ahead_count=$(git rev-list --count "origin/main..HEAD" 2>/dev/null || echo 0)
 else
-  # Branch doesn't exist on origin yet — everything local needs to be pushed.
-  # Treat as "ahead" so we don't falsely report "already in sync".
   remote_exists=0
 fi
 
@@ -118,9 +119,9 @@ if [ "$has_wt_changes" = 0 ] && [ "$ahead_count" = 0 ] && [ "$remote_exists" = 1
   last_subj=$(git log -1 --format='%s' 2>/dev/null || echo "?")
   last_time=$(git log -1 --format='%cr' 2>/dev/null || echo "?")
   echo ""
-  echo "Repo is already in sync with origin/$branch:"
+  echo "Repo is already in sync with origin/main (working branch: $branch):"
   echo "  - No uncommitted changes in working tree"
-  echo "  - No local commits ahead of origin/$branch"
+  echo "  - No commits in HEAD that are not already in origin/main"
   echo "  - Last synced: $last_sha \"$last_subj\" ($last_time)"
   echo ""
   echo "If you expected pending work, verify with:   git status"
@@ -140,7 +141,7 @@ if [ "$has_wt_changes" = 0 ] && [ "$ahead_count" = 0 ] && [ "$remote_exists" = 1
     read -r REPLY
     if [ "$REPLY" != "y" ] && [ "$REPLY" != "Y" ]; then
       banner_skipped \
-        "Already in sync with origin/$branch — nothing to do."
+        "Already in sync with origin/main — nothing to do."
       exit 0
     fi
   fi
@@ -189,12 +190,46 @@ if [ "$has_wt_changes" = 1 ]; then
     git commit -m "Sync: latest changes"
   fi
 else
-  echo "No working-tree changes. Pushing $ahead_count existing commit(s) ahead of origin/$branch."
+  echo "No working-tree changes. Pushing $ahead_count existing commit(s) not in origin/main yet."
 fi
 
-git push origin "$branch"
+# Merge $work_branch into `main` when needed, then push `main`.
+work_branch=$branch
+if [ "$work_branch" != "main" ]; then
+  echo "Merging $work_branch into main and pushing to origin/main..."
+  git fetch origin
+  if git rev-parse --verify "refs/remotes/origin/main" >/dev/null 2>&1; then
+    git checkout -B main "origin/main"
+  elif git show-ref -q --verify refs/heads/main; then
+    git checkout main
+  else
+    git checkout -B main "$work_branch"
+  fi
+  if [ "$(git rev-parse HEAD)" != "$(git rev-parse "$work_branch")" ]; then
+    merge_msg="Sync: merge $work_branch (sync-to-github.sh)"
+    if git merge-base "$work_branch" HEAD >/dev/null 2>&1; then
+      if ! git merge "$work_branch" -m "$merge_msg"; then
+        echo "Merge into main failed (conflict?). Fix on branch main, then run the script again." >&2
+        exit 1
+      fi
+    else
+      echo "Note: $work_branch and main share no common history — using --allow-unrelated-histories" >&2
+      if ! git merge --allow-unrelated-histories "$work_branch" -m "Sync: merge $work_branch (unrelated histories)"; then
+        echo "Merge into main failed. Resolve on branch main, or rebase $work_branch onto main, then run again." >&2
+        exit 1
+      fi
+    fi
+  fi
+  branch=main
+fi
+git push origin main
+# CI watches the commit on main (read before we checkout a feature branch again).
+pushed_sha=$(git rev-parse main 2>/dev/null || git rev-parse HEAD)
+[ -n "$work_branch" ] && [ "$work_branch" != "main" ] && git checkout "$work_branch" || true
+branch=main
+
 echo ""
-echo "Pushed to origin/$branch"
+echo "Pushed to origin/main"
 echo "Repo: https://github.com/mrquintin/mqtheseuswork"
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -227,8 +262,6 @@ if ! gh auth status >/dev/null 2>&1; then
   exit 0
 fi
 
-# Record the pushed commit SHA so we can find the workflow run triggered by it
-pushed_sha=$(git rev-parse HEAD)
 echo ""
 echo "Waiting for Rolling Release workflow to start on commit ${pushed_sha:0:7}..."
 echo "(Press Ctrl+C to stop watching — the build will continue on GitHub.)"
