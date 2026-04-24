@@ -1,0 +1,210 @@
+# Claude Code Prompt 6 of 11 — Dialectic: "Record new session" UI with start/stop/pause + VU meter + elapsed timer
+
+**Sequence:** prompt 6 of 11 (Wave 2 opener). Independent of Wave 1 (doesn't touch codex_bridge or the Python extractors), but the auto-upload path (prompt 10) assumes Wave 1 is applied — otherwise the uploaded audio will fail ingestion again. Schedule Wave 1 first. Report back with: a screenshot of the recording modal, the keyboard shortcut wiring (space = pause/resume? enter = stop?), and the `QAudioSink` vs. `sounddevice` decision (reuse existing, don't reinvent).
+
+**Before you start — read current state:**
+1. Read `dialectic/dialectic/audio.py` — the existing ring-buffer + Silero VAD capture. Note the `AudioCapture` class, how it's started, how segments are produced, how the device is selected.
+2. Read `dialectic/dialectic/dashboard.py` — the PyQt6 dashboard. Find where a toolbar button could be added and the existing event-loop structure (Qt signals, threaded callbacks).
+3. Read `dialectic/dialectic/config.py` — look for `AudioConfig` (sample rate, channels, device). The record UI must respect whatever the user configured.
+4. Read `dialectic/dialectic/credentials.py` and `login_dialog.py` — the existing auth flow. We will reuse this to authenticate the auto-upload in prompt 10.
+5. Read `dialectic/dialectic/session_writer.py` — the JSONL session writer. The recorded session will still produce the usual JSONL session file in parallel to the audio artifact.
+
+## Your task
+
+Add a "Record new session" affordance to the Dialectic dashboard:
+
+1. A toolbar button labeled **Record** (mic icon) that opens a modal "Recording session" window.
+2. Modal contents:
+   - A large timer (MM:SS, monospace, 28pt).
+   - A horizontal VU meter (audio level 0-1, updated 20 Hz).
+   - Three buttons: **Pause** (toggles to **Resume**), **Discard**, **Stop & process**.
+   - A "what happens next" footer: "When you stop, Dialectic will trim silence, auto-title the session, and upload it to your Codex."
+3. While recording, the main dashboard is dimmed and read-only — no accidental ingests of prior sessions while a recording is in progress.
+4. On **Stop & process**, the modal transitions to a progress view showing: (a) trimming audio, (b) transcribing, (c) generating title, (d) uploading. Each step has a spinner and reports its result. The modal closes only when all four steps succeed OR the user clicks **Dismiss** on an error.
+
+This prompt ONLY implements the UI skeleton. The trim/transcribe/title/upload steps are stubs that print their planned action and return placeholder results. Prompts 07-10 fill in each stub.
+
+## Prerequisites
+
+- None. Wave 2 opener. Dialectic already has audio capture (`audio.py`); we reuse it.
+
+## SCOPE
+
+- `dialectic/dialectic/recording_modal.py`                                 CREATE (QDialog subclass)
+- `dialectic/dialectic/recording_pipeline.py`                              CREATE (orchestrates trim→transcribe→title→upload; stubs for now)
+- `dialectic/dialectic/dashboard.py`                                       MODIFY (add Record toolbar button + handler)
+- `dialectic/dialectic/resources.py`                                       MODIFY (if needed, add a mic icon SVG as a Qt resource)
+- `dialectic/tests/test_recording_modal.py`                                CREATE (pytest-qt; cover state transitions)
+- `dialectic/tests/test_recording_pipeline_stubs.py`                       CREATE (assert each stub is called in order)
+
+Do NOT modify `audio.py`, `transcriber.py`, `config.py`, or the JSONL writer. Do NOT couple the modal to any specific transcription or upload implementation — use the pipeline object for indirection.
+
+## Step-by-step
+
+### 1. `recording_pipeline.py` — orchestrator with four stubbed stages
+
+```python
+from __future__ import annotations
+from dataclasses import dataclass, field
+from pathlib import Path
+from typing import Callable, Optional
+from PyQt6.QtCore import QObject, pyqtSignal
+
+
+@dataclass
+class RecordingArtifact:
+    audio_path: Path
+    duration_seconds: float
+    sample_rate: int
+    channels: int
+
+
+@dataclass
+class PipelineResult:
+    trimmed_audio: Optional[Path] = None
+    transcript: Optional[str] = None
+    title: Optional[str] = None
+    upload_id: Optional[str] = None
+    errors: dict = field(default_factory=dict)
+
+
+class RecordingPipeline(QObject):
+    """Runs trim → transcribe → title → upload. Each stage emits a signal
+    with its result or error. Stubs are replaced in prompts 07-10."""
+
+    stage_started = pyqtSignal(str)   # stage name
+    stage_succeeded = pyqtSignal(str, object)  # stage name, result
+    stage_failed = pyqtSignal(str, str)  # stage name, error message
+    all_done = pyqtSignal(object)  # PipelineResult
+
+    def __init__(self, artifact: RecordingArtifact, parent=None):
+        super().__init__(parent)
+        self.artifact = artifact
+        self.result = PipelineResult()
+
+    def run(self):
+        # Each _stage_* is a stub in this prompt; later prompts replace.
+        try:
+            self._stage_trim()
+            self._stage_transcribe()
+            self._stage_title()
+            self._stage_upload()
+        finally:
+            self.all_done.emit(self.result)
+
+    def _stage_trim(self):
+        self.stage_started.emit("trim")
+        # STUB — prompt 08 replaces
+        self.result.trimmed_audio = self.artifact.audio_path
+        self.stage_succeeded.emit("trim", self.result.trimmed_audio)
+
+    def _stage_transcribe(self):
+        self.stage_started.emit("transcribe")
+        # STUB — prompt 07 replaces
+        self.result.transcript = "(transcript placeholder — prompt 07 will fill this in)"
+        self.stage_succeeded.emit("transcribe", self.result.transcript)
+
+    def _stage_title(self):
+        self.stage_started.emit("title")
+        # STUB — prompt 09 replaces
+        self.result.title = f"Dialectic session — {self.artifact.audio_path.stem}"
+        self.stage_succeeded.emit("title", self.result.title)
+
+    def _stage_upload(self):
+        self.stage_started.emit("upload")
+        # STUB — prompt 10 replaces
+        self.result.upload_id = "upload_placeholder"
+        self.stage_succeeded.emit("upload", self.result.upload_id)
+```
+
+The stubbed stages return immediately and carry enough fidelity that the UI's success path can be exercised end-to-end without real audio processing. Later prompts replace each body.
+
+### 2. `recording_modal.py` — PyQt6 QDialog
+
+States:
+
+```
+IDLE          → RECORDING                 (user presses Record)
+RECORDING     ↔ PAUSED                    (Pause / Resume)
+RECORDING     → PROCESSING                (Stop & process)
+RECORDING     → DISCARDED                 (Discard)
+PROCESSING    → DONE | ERROR              (pipeline finishes)
+```
+
+Wire the capture start to the existing `AudioCapture`. Use the ring buffer's raw tap (not the VAD-segmented output) so the entire recording is preserved — trimming happens later in the pipeline. Write the raw bytes to a temp .wav file as they arrive; on stop, close the file and hand the path to the pipeline.
+
+VU meter: read the RMS of the last 50 ms block (at 20 Hz polling) and map to 0-1 with soft clip. Use a `QProgressBar` with no text for simplicity; style it so it's clearly a level meter, not a progress bar (e.g. segmented green/yellow/red).
+
+Timer: `QTimer` at 200 ms, shows `floor(elapsed / 60):02d:{elapsed % 60:02d}`. When paused, freeze the displayed value but keep the underlying clock so cumulative elapsed is accurate after resume.
+
+Keyboard shortcuts (inside the modal):
+- `Space` — Pause/Resume
+- `Enter` — Stop & process
+- `Esc` — Discard (with a confirm dialog: "Discard this recording? It cannot be recovered.")
+
+### 3. Dashboard integration
+
+In `dashboard.py`:
+
+```python
+self.record_action = QAction(QIcon.fromTheme("audio-input-microphone"), "Record", self)
+self.record_action.setShortcut("Ctrl+R")
+self.record_action.triggered.connect(self._on_record_clicked)
+self.toolbar.addAction(self.record_action)
+
+def _on_record_clicked(self):
+    from dialectic.recording_modal import RecordingModal
+    # Lock the main UI to prevent accidental concurrent ingest.
+    self.setEnabled(False)
+    try:
+        modal = RecordingModal(self)
+        modal.exec()  # blocks; modal handles its own pipeline orchestration
+    finally:
+        self.setEnabled(True)
+```
+
+### 4. Discard semantics
+
+On **Discard**, close the temp wav file and `os.unlink` it. The pipeline is not started. The modal closes. No JSONL session row is written.
+
+### 5. Tests (pytest-qt)
+
+`test_recording_modal.py`:
+- Modal opens, starts RECORDING, shows timer incrementing.
+- Press Space → PAUSED; press again → RECORDING.
+- Press Enter → PROCESSING; pipeline stubs fire in order `trim, transcribe, title, upload`; modal shows `DONE` state.
+- Press Esc + confirm → DISCARDED; temp .wav is unlinked.
+- Error path: stub one stage to emit `stage_failed` — modal shows ERROR state with the error message + Dismiss button.
+
+`test_recording_pipeline_stubs.py`:
+- Running the pipeline with default stubs fires `stage_started`/`stage_succeeded` for exactly four stages in the expected order.
+- `PipelineResult` has non-None fields for `trimmed_audio`, `transcript`, `title`, `upload_id` after a successful stub run.
+
+Use `pytest-qt`'s `qtbot` to drive the modal without a display.
+
+### 6. Don't block the UI thread
+
+`AudioCapture.start()` already runs on a background thread (sounddevice callback). Writing wav bytes happens in the audio callback, not in the Qt thread. The VU meter read is non-blocking. The pipeline runs in a `QThread` (subclass or `QThreadPool.globalInstance().start(...)`) so a slow transcription in prompt 07 doesn't freeze the modal.
+
+## Verification
+
+```bash
+cd /Users/michaelquintin/Desktop/Theseus/dialectic
+pip install -e ".[dev]"
+pytest -q tests/test_recording_modal.py tests/test_recording_pipeline_stubs.py
+
+# Manual smoke (requires a mic):
+python -m dialectic
+# Click Record, speak for 10 seconds, press Enter. Expect:
+#   - modal transitions through states, four stages all "done" with stubs,
+#   - a temp .wav exists in the OS temp dir, contains your 10s recording.
+```
+
+## Prohibitions
+
+- Do NOT persist the raw .wav to a user-visible location in this prompt. Temp-file only. Prompts 08 (trim) and 10 (upload) determine the final destination.
+- Do NOT call any network service from the modal. The modal is a pure UI over local audio + the pipeline object.
+- Do NOT write a JSONL session line in this prompt. The JSONL format is Dialectic's live-transcription artifact; recorded sessions produce an upload, not a live JSONL. (A unified format is a future refactor.)
+- Do NOT replace the toolbar's existing buttons. Add one action; leave everything else in place.
+
+Do not proceed to prompts 07-11. Do not edit anything outside SCOPE.

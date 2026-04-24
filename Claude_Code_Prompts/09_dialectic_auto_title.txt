@@ -1,0 +1,233 @@
+# Claude Code Prompt 9 of 11 — Dialectic: auto-title the recording from the transcript
+
+**Sequence:** prompt 9 of 11 (Wave 2). Depends on prompt 07 (transcript must exist) and prompt 06 (pipeline scaffolding). Independent of 08. Report back with: three example generated titles (for the three recordings used in prompt 08's trim smoke), the fallback title format when the LLM is unreachable, and the token cost per title.
+
+**Before you start — read current state:**
+1. Read `dialectic/dialectic/recording_pipeline.py` — the stub `_stage_title` you are replacing.
+2. Read `dialectic/dialectic/credentials.py` — the existing Anthropic credential loading. Reuse it; do not introduce a new credential pattern.
+3. Look for any existing Dialectic LLM usage (`dialectic/dialectic/analyzer.py` is a likely candidate). Reuse its Anthropic client initialization pattern if one exists.
+
+## Your task
+
+Replace `_stage_title` with a real implementation that generates a short, specific, human-meaningful title from the transcript:
+
+1. Call Claude Haiku (`claude-haiku-4-5`) with a focused prompt that emphasizes specificity and noun-phrase-or-sentence brevity.
+2. Title constraints: ≤ 70 characters, title-case, no trailing punctuation, no emoji, reflects the session's content not its context ("The Purpose of The School" not "Dialectic Session — April 18").
+3. Include the recording date (YYYY-MM-DD, UTC) as a separate field, not embedded in the title string.
+4. If the LLM is unreachable OR rate-limited OR returns a malformed response, fall back deterministically to `"Dialectic session — {YYYY-MM-DD} ({HHh MMm})"` where HHhMMm is the rounded duration. The user can rename later from the dashboard.
+5. Emit `stage_succeeded("title", AutoTitleResult(title, date, method))` where `method ∈ {"llm", "fallback"}`.
+
+## Prerequisites
+
+- Prompt 06 + 07 applied. `RecordingPipeline._stage_title` stub exists. `self.result.transcript` is populated.
+
+## SCOPE
+
+- `dialectic/dialectic/recording_pipeline.py`                              MODIFY (replace `_stage_title`)
+- `dialectic/dialectic/auto_title.py`                                      CREATE (LLM call + fallback logic)
+- `dialectic/dialectic/_prompts/auto_title_system.md`                      CREATE (the system prompt, editable without touching Python)
+- `dialectic/dialectic/config.py`                                          MODIFY (add `AutoTitleConfig`)
+- `dialectic/tests/test_auto_title.py`                                     CREATE
+
+Do NOT introduce an OpenAI fallback. A founder-facing title is a mild LLM use; if Anthropic is unreachable, the deterministic fallback is the correct answer, not another cloud dependency.
+
+## Step-by-step
+
+### 1. Config
+
+```python
+@dataclass
+class AutoTitleConfig:
+    model: str = "claude-haiku-4-5"
+    max_tokens: int = 60
+    max_transcript_chars_for_title: int = 6000  # first ~6k chars is plenty for a title
+    max_retries: int = 2
+    retry_backoff_seconds: float = 1.0
+    temperature: float = 0.2   # lowish — we want consistency, not surprise
+```
+
+### 2. System prompt — `dialectic/_prompts/auto_title_system.md`
+
+```markdown
+You title recorded discussions between founders working on epistemic practice and
+truth-tracking methodology. You return ONE title on a single line — no quotes,
+no preamble, no trailing period.
+
+Rules:
+- 3 to 10 words.
+- Title case.
+- Reflect the substantive content, not the context. Do not include words like
+  "session", "recording", "meeting", "discussion", or dates.
+- If the discussion centers on a specific concept or question, name it directly
+  ("The Purpose of the School"; "Why Narrative Priced Assets Overpay").
+- If the discussion is a rambling exploration with no clear center, title the
+  first substantive concept you encounter. Be specific; avoid vague titles like
+  "Theseus Strategy" or "Team Alignment."
+- Do not invent content not present in the transcript. If the transcript is
+  nearly empty or unintelligible, return exactly: INSUFFICIENT_CONTENT
+
+Examples of good titles:
+- The Purpose of the School
+- Why Narrative-Priced Assets Overpay
+- Charter Language for the Advisory Board
+- When Abstention Is the Correct Answer
+
+Examples of bad titles (do not produce):
+- "Meeting recording April 18"  (contextual, not substantive)
+- "Team Discussion About Things"  (vague)
+- "Founder Session #42"  (counter-style, meaningless)
+- "The Purpose of The School: Important Discussion."  (trailing punctuation + redundant framing)
+
+Output only the title. Do not explain.
+```
+
+Put it in a markdown file, not a Python string, so the prompt is diff-auditable and editable without a redeploy.
+
+### 3. `auto_title.py`
+
+```python
+from __future__ import annotations
+import logging, time
+from dataclasses import dataclass
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Literal
+
+from dialectic.config import AutoTitleConfig
+
+log = logging.getLogger(__name__)
+
+_SYSTEM_PROMPT_PATH = Path(__file__).parent / "_prompts" / "auto_title_system.md"
+
+
+@dataclass(frozen=True)
+class AutoTitleResult:
+    title: str
+    recorded_date: str            # ISO date, UTC
+    method: Literal["llm", "fallback"]
+    warnings: list[str]
+
+
+def _deterministic_fallback(duration_seconds: float) -> str:
+    now = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    hrs, rem = divmod(int(duration_seconds), 3600)
+    mins, _ = divmod(rem, 60)
+    dur = f"{hrs}h {mins:02d}m" if hrs else f"{mins}m"
+    return f"Dialectic session — {now} ({dur})"
+
+
+def generate_title(transcript: str, duration_seconds: float,
+                   cfg: AutoTitleConfig | None = None) -> AutoTitleResult:
+    cfg = cfg or AutoTitleConfig()
+    warnings: list[str] = []
+    recorded_date = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+
+    text = transcript.strip()
+    if len(text) < 200:
+        warnings.append("transcript too short for a meaningful LLM title")
+        return AutoTitleResult(
+            title=_deterministic_fallback(duration_seconds),
+            recorded_date=recorded_date, method="fallback", warnings=warnings,
+        )
+
+    if len(text) > cfg.max_transcript_chars_for_title:
+        # Title from the first chunk only — the first 5-10 min of a 2h session
+        # is always where the topic is named.
+        text = text[: cfg.max_transcript_chars_for_title]
+
+    system_prompt = _SYSTEM_PROMPT_PATH.read_text(encoding="utf-8")
+
+    for attempt in range(cfg.max_retries + 1):
+        try:
+            import anthropic
+            from dialectic.credentials import load_anthropic_api_key  # existing helper
+            client = anthropic.Anthropic(api_key=load_anthropic_api_key())
+            resp = client.messages.create(
+                model=cfg.model,
+                max_tokens=cfg.max_tokens,
+                temperature=cfg.temperature,
+                system=system_prompt,
+                messages=[{"role": "user", "content": f"Transcript:\n\n{text}"}],
+            )
+            raw = "".join(
+                block.text for block in resp.content if getattr(block, "type", "") == "text"
+            ).strip().strip('"').strip("'").rstrip(".").strip()
+            if raw == "INSUFFICIENT_CONTENT" or not raw:
+                warnings.append("LLM declared insufficient content")
+                return AutoTitleResult(
+                    title=_deterministic_fallback(duration_seconds),
+                    recorded_date=recorded_date, method="fallback", warnings=warnings,
+                )
+            if len(raw) > 70:
+                raw = raw[:67].rstrip() + "…"
+                warnings.append("LLM title exceeded 70 chars; truncated")
+            return AutoTitleResult(
+                title=raw, recorded_date=recorded_date, method="llm", warnings=warnings,
+            )
+        except Exception as e:
+            warnings.append(f"attempt {attempt + 1} failed: {type(e).__name__}: {e}")
+            if attempt >= cfg.max_retries:
+                break
+            time.sleep(cfg.retry_backoff_seconds * (2 ** attempt))
+
+    return AutoTitleResult(
+        title=_deterministic_fallback(duration_seconds),
+        recorded_date=recorded_date, method="fallback", warnings=warnings,
+    )
+```
+
+### 4. Pipeline replacement
+
+```python
+def _stage_title(self):
+    self.stage_started.emit("title")
+    try:
+        from dialectic.auto_title import generate_title
+        duration = self.result.trimmed_duration_s or self.artifact.duration_seconds
+        result = generate_title(self.result.transcript or "", duration)
+        self.result.title = result.title
+        self.result.title_method = result.method
+        self.result.recorded_date = result.recorded_date
+        self.stage_succeeded.emit("title", result)
+    except Exception as e:
+        # Title generation should never fail the pipeline. Use the fallback and keep going.
+        from dialectic.auto_title import _deterministic_fallback
+        self.result.title = _deterministic_fallback(self.artifact.duration_seconds)
+        self.result.title_method = "fallback"
+        self.stage_succeeded.emit("title", self.result.title)
+```
+
+Note the deliberate choice: title generation **never fails the whole pipeline**. The deterministic fallback is always available. A bad title is much less bad than a lost recording.
+
+### 5. Tests
+
+`tests/test_auto_title.py`:
+- `generate_title("")` → fallback, method="fallback", title starts with "Dialectic session".
+- `generate_title("hi " * 10)` → fallback (too short, < 200 chars).
+- LLM mocked to return "The Purpose of the School" → AutoTitleResult(title="The Purpose of the School", method="llm").
+- LLM mocked to raise `anthropic.APIConnectionError` twice then succeed → method="llm", two retry warnings present.
+- LLM mocked to raise always → method="fallback".
+- LLM mocked to return "INSUFFICIENT_CONTENT" → method="fallback".
+- LLM returns a 100-char title → truncated to 68 + ellipsis, warning recorded.
+- LLM returns `"The Purpose of the School."` → trailing period stripped.
+
+No test hits Anthropic for real. Gated `DIALECTIC_TEST_REAL_TITLE=1` runs on a real LLM call with a 10-line canned transcript and asserts the result is plausible — reserved for manual validation.
+
+## Verification
+
+```bash
+cd /Users/michaelquintin/Desktop/Theseus/dialectic
+pytest -q tests/test_auto_title.py
+
+DIALECTIC_TEST_REAL_TITLE=1 pytest -q tests/test_auto_title.py::test_real_haiku_call
+```
+
+## Prohibitions
+
+- Do NOT include the date in the title string. It's a separate field on `AutoTitleResult`. The dashboard can render them together if it wants.
+- Do NOT let the pipeline fail because title generation failed. The deterministic fallback is always acceptable.
+- Do NOT increase temperature above 0.3. Founders expect reproducible titles for the same transcript.
+- Do NOT pass the entire 2-hour transcript to Haiku. The first 6k chars is enough; titles come from the opening of the discussion, not the tail.
+- Do NOT use a heavier model (Sonnet/Opus). A title is a tiny amount of LLM work; Haiku is the right tier.
+
+Do not proceed to prompts 10-11. Do not edit anything outside SCOPE.

@@ -1,0 +1,185 @@
+# Claude Code Prompt 7 of 11 — Dialectic: post-recording batch transcription via faster-whisper
+
+**Sequence:** prompt 7 of 11 (Wave 2). Depends on prompt 06 (recording modal + pipeline). Independent of prompts 08-10. Report back with: the model tier chosen for batch (should be larger than live — `medium.en` typically), the relationship between this transcriber and the existing live `transcriber.py` (do NOT fork), and rough wall-clock elapsed for a 30-minute recording.
+
+**Before you start — read current state:**
+1. Read `dialectic/dialectic/transcriber.py` — the streaming transcriber. Note the model-loading pattern, config knobs, and the `TranscriptionConfig` schema.
+2. Read `dialectic/dialectic/recording_pipeline.py` — the pipeline stub from prompt 06. You are replacing `_stage_transcribe`.
+3. Read `noosphere/noosphere/extractors/_whisper_local.py` (from Wave 1 prompt 02) — note the model-caching pattern. The Dialectic batch transcriber and the Noosphere batch transcriber are allowed to diverge here (Dialectic tends to use a larger model and English-only; Noosphere defaults to `small.en`); they do NOT share code.
+4. Read `dialectic/dialectic/config.py` — add a `BatchTranscriptionConfig` section if none exists.
+
+## Your task
+
+Replace the `_stage_transcribe` stub in `RecordingPipeline` with a real transcription that:
+
+1. Loads `faster-whisper` with the model configured by `BatchTranscriptionConfig.model` (default `medium.en` — better than live's `small.en` because batch can afford it; single pass, no latency pressure).
+2. Transcribes the full trimmed audio (input is `self.result.trimmed_audio`, which prompt 08 fills in; falls back to `self.artifact.audio_path` if prompt 08 is not yet applied).
+3. Produces a `TranscriptionResult` with: the full plain text transcript, a list of `(start_s, end_s, text)` segments, detected language, and the model name used.
+4. Emits `stage_succeeded("transcribe", result)` or `stage_failed("transcribe", reason)`.
+
+## Prerequisites
+
+- Prompt 06 applied. `RecordingPipeline._stage_transcribe` stub exists.
+- `faster-whisper` installable in the Dialectic venv (already required for live transcription).
+
+## SCOPE
+
+- `dialectic/dialectic/recording_pipeline.py`                              MODIFY (replace `_stage_transcribe`)
+- `dialectic/dialectic/batch_transcriber.py`                               CREATE (model loader + transcribe)
+- `dialectic/dialectic/config.py`                                          MODIFY (add `BatchTranscriptionConfig`)
+- `dialectic/tests/test_batch_transcriber.py`                              CREATE
+- `dialectic/tests/fixtures/tiny_dialectic_clip.wav`                       CREATE (generated at test time)
+
+Do NOT modify the live `transcriber.py`. Do NOT modify `audio.py`. Do NOT touch prompt 06's modal — the pipeline orchestration already surfaces `stage_started`/`stage_succeeded` signals that the modal listens to.
+
+## Step-by-step
+
+### 1. `BatchTranscriptionConfig`
+
+```python
+@dataclass
+class BatchTranscriptionConfig:
+    model: str = "medium.en"
+    compute_type: str = "int8"         # override via env DIALECTIC_WHISPER_COMPUTE_TYPE
+    beam_size: int = 5                 # larger beam than live; batch has no latency pressure
+    language: str | None = "en"
+    vad_filter: bool = True            # drop silence segments from Whisper's own output
+    initial_prompt: str | None = (
+        "This is a Theseus dialectic recording — a spoken discussion among "
+        "founders about methodology, truth-tracking, and epistemic practice."
+    )
+```
+
+The `initial_prompt` biases Whisper toward Theseus-relevant vocabulary (methodology, epistemic, discount, coherence…). Measure before and after on a founder recording; the bias typically raises accuracy ~1-3 WER points on unusual Theseus terms. Document that this is worth auditing if you ever switch domains.
+
+### 2. `batch_transcriber.py`
+
+```python
+from __future__ import annotations
+from dataclasses import dataclass, field
+from pathlib import Path
+import os, time
+from typing import Optional
+
+from dialectic.config import BatchTranscriptionConfig
+
+
+@dataclass(frozen=True)
+class TranscriptSegment:
+    start_s: float
+    end_s: float
+    text: str
+
+
+@dataclass(frozen=True)
+class TranscriptionResult:
+    text: str
+    segments: list[TranscriptSegment]
+    language: str
+    model_name: str
+    duration_seconds: float   # audio duration
+    elapsed_seconds: float    # transcription wall clock
+
+
+_MODEL_CACHE: dict[str, object] = {}
+
+
+def _get_model(name: str, compute_type: str):
+    key = f"{name}:{compute_type}"
+    if key not in _MODEL_CACHE:
+        from faster_whisper import WhisperModel
+        _MODEL_CACHE[key] = WhisperModel(name, device="cpu", compute_type=compute_type)
+    return _MODEL_CACHE[key]
+
+
+def transcribe(path: Path, cfg: BatchTranscriptionConfig | None = None) -> TranscriptionResult:
+    cfg = cfg or BatchTranscriptionConfig()
+    compute_type = os.environ.get("DIALECTIC_WHISPER_COMPUTE_TYPE", cfg.compute_type)
+    model = _get_model(cfg.model, compute_type)
+    t0 = time.monotonic()
+    segments_iter, info = model.transcribe(
+        str(path),
+        language=cfg.language,
+        beam_size=cfg.beam_size,
+        vad_filter=cfg.vad_filter,
+        initial_prompt=cfg.initial_prompt,
+    )
+    segments = [
+        TranscriptSegment(start_s=s.start, end_s=s.end, text=s.text.strip())
+        for s in segments_iter if s.text and s.text.strip()
+    ]
+    text = " ".join(s.text for s in segments).strip()
+    return TranscriptionResult(
+        text=text, segments=segments,
+        language=info.language or cfg.language or "unknown",
+        model_name=cfg.model,
+        duration_seconds=info.duration or 0.0,
+        elapsed_seconds=time.monotonic() - t0,
+    )
+```
+
+### 3. Pipeline replacement
+
+In `recording_pipeline.py`, replace `_stage_transcribe`:
+
+```python
+def _stage_transcribe(self):
+    self.stage_started.emit("transcribe")
+    try:
+        from dialectic.batch_transcriber import transcribe
+        source = self.result.trimmed_audio or self.artifact.audio_path
+        result = transcribe(source)
+        self.result.transcript = result.text
+        self.result.transcript_segments = result.segments
+        self.result.transcript_language = result.language
+        self.result.transcript_model = result.model_name
+        self.stage_succeeded.emit("transcribe", result)
+    except Exception as e:
+        self.stage_failed.emit("transcribe", f"{type(e).__name__}: {e}")
+        raise
+```
+
+Add the new fields to `PipelineResult`:
+
+```python
+transcript_segments: list = field(default_factory=list)
+transcript_language: Optional[str] = None
+transcript_model: Optional[str] = None
+```
+
+### 4. Non-blocking execution
+
+The transcriber runs synchronously in the pipeline's `run()`, which (per prompt 06) is called from a `QThread`, not the Qt main thread. Do NOT add another async layer here; the Qt thread model is sufficient.
+
+### 5. Fixture
+
+`tiny_dialectic_clip.wav`: 5 seconds of synthesized speech via macOS `say "methodology discounts narrative premium"` captured to wav. Generated at test time. The test asserts:
+- `transcribe` returns a non-empty `text`.
+- The text contains at least one of the tokens `method*`, `discount*`, `narrative*` (tolerates Whisper's imperfections; don't demand exact match).
+- `segments` is non-empty, sorted by `start_s`.
+- `elapsed_seconds > 0`.
+
+Gate the real transcription test behind `DIALECTIC_TEST_REAL_WHISPER=1`. The default test runs with a mocked `WhisperModel` to keep the suite fast.
+
+## Verification
+
+```bash
+cd /Users/michaelquintin/Desktop/Theseus/dialectic
+pytest -q tests/test_batch_transcriber.py
+
+# With real whisper:
+DIALECTIC_TEST_REAL_WHISPER=1 pytest -q tests/test_batch_transcriber.py::test_real_fixture
+
+# Manual smoke: in the running Dialectic app, click Record, speak 30s, press Enter.
+# The "transcribing" stage in the modal should now emit a real transcript (visible in the
+# modal's progress area — prompt 06 wires stage_succeeded to a status label).
+```
+
+## Prohibitions
+
+- Do NOT share the model cache with `transcriber.py` (the live one). Different compute_type, different beam size, different call pattern — pollution risks.
+- Do NOT re-sample the audio. Whisper accepts the raw .wav; `faster-whisper` resamples internally.
+- Do NOT default to `large-v3`. On CPU, it's 3-4× slower than `medium` for marginal gains on English speech. If a user wants it, they set the config.
+- Do NOT write the transcript to disk in this prompt. Prompt 10 (upload) owns persistence.
+
+Do not proceed to prompts 08-11. Do not edit anything outside SCOPE.

@@ -1,0 +1,261 @@
+# Claude Code Prompt 8 of 11 — Dialectic: auto-trim recording to relevant content via Silero VAD
+
+**Sequence:** prompt 8 of 11 (Wave 2). Depends on prompt 06. Independent of 07 (order doesn't matter; trim runs before transcribe in the pipeline, so you may want to apply this first in production). Report back with: the trim-in-seconds vs. duration-removed numbers on three real recordings (a meeting, a solo monologue, a podcast-style dialogue), and the hysteresis window chosen.
+
+**Before you start — read current state:**
+1. Read `dialectic/dialectic/audio.py` — the existing Silero VAD integration. You will reuse the model loader but call it in batch mode instead of streaming.
+2. Read `dialectic/dialectic/recording_pipeline.py` — the stub `_stage_trim` you are replacing.
+3. Review Silero's recommended hysteresis (opening/closing thresholds around the speech probability) — the streaming case uses different values than the batch case.
+
+## Your task
+
+Replace `_stage_trim` with a real implementation that:
+
+1. Loads the raw .wav from `self.artifact.audio_path`.
+2. Runs Silero VAD across the whole file in 30 ms frames, producing a speech-probability time series.
+3. Applies hysteresis (open threshold 0.6, close threshold 0.3 — tunable via config) and minimum-duration filters (speech segments < 400 ms merged with neighbors; gaps < 800 ms bridged) to produce a list of speech intervals.
+4. Writes a new .wav containing ONLY those speech intervals, concatenated, with 150 ms crossfades at each boundary to avoid audible clicks.
+5. Emits `stage_succeeded("trim", TrimResult(...))` with the output path + the list of kept intervals + the original/new durations so the UI and later stages know how much was removed.
+
+The user-visible promise is: "auto-trim to relevant content." In practice this means silence + cross-talk dead air + long pauses. It does NOT mean "trim the topic drift" (that would require semantic understanding); that's a future feature.
+
+## Prerequisites
+
+- Prompt 06 applied. `RecordingPipeline._stage_trim` stub exists and `RecordingArtifact` carries a writable `.wav` path.
+
+## SCOPE
+
+- `dialectic/dialectic/recording_pipeline.py`                              MODIFY (replace `_stage_trim`)
+- `dialectic/dialectic/auto_trim.py`                                       CREATE (VAD + hysteresis + crossfade)
+- `dialectic/dialectic/config.py`                                          MODIFY (add `AutoTrimConfig`)
+- `dialectic/tests/test_auto_trim.py`                                      CREATE
+- `dialectic/tests/fixtures/speech_with_silence.wav`                       CREATE (synthesized at test time)
+
+Do NOT modify the streaming `audio.py` VAD path. Do NOT add a separate VAD model download — reuse whatever `audio.py` already loads (likely via `torch.hub.load('snakers4/silero-vad', 'silero_vad')`).
+
+## Step-by-step
+
+### 1. Config
+
+```python
+@dataclass
+class AutoTrimConfig:
+    frame_duration_ms: int = 30       # Silero supports 10, 20, 30 ms; 30 is the robust default
+    open_threshold: float = 0.6        # speech prob to START a speech segment
+    close_threshold: float = 0.3       # speech prob to END a speech segment
+    min_speech_ms: int = 400          # any run shorter than this gets merged with neighbors
+    max_gap_ms: int = 800              # silence shorter than this is bridged (kept)
+    pad_ms: int = 150                  # include this many ms before/after each segment boundary
+    crossfade_ms: int = 150            # linear crossfade at concatenation points
+    target_sample_rate: int = 16000    # Silero's native rate
+```
+
+Document the rationale in the dataclass docstring so a future tuning pass has context.
+
+### 2. `auto_trim.py` — core algorithm
+
+```python
+from __future__ import annotations
+import logging
+from dataclasses import dataclass
+from pathlib import Path
+from typing import List
+
+import numpy as np
+import soundfile as sf
+
+from dialectic.config import AutoTrimConfig
+
+
+@dataclass(frozen=True)
+class SpeechInterval:
+    start_s: float
+    end_s: float
+
+
+@dataclass(frozen=True)
+class TrimResult:
+    input_path: Path
+    output_path: Path
+    original_duration_s: float
+    trimmed_duration_s: float
+    intervals: list[SpeechInterval]
+
+
+def _load_audio_16k_mono(path: Path) -> tuple[np.ndarray, int]:
+    """Load wav → mono float32 at 16 kHz for Silero."""
+    data, sr = sf.read(str(path), dtype="float32", always_2d=False)
+    if data.ndim > 1:
+        data = data.mean(axis=1)  # downmix stereo
+    if sr != 16000:
+        # Simple linear resample — the audio is about to be trimmed and re-encoded
+        # at the original SR anyway. Silero doesn't care about resampling artifacts.
+        import scipy.signal as sps
+        n_target = int(len(data) * 16000 / sr)
+        data = sps.resample(data, n_target).astype("float32")
+    return data, 16000
+
+
+def _speech_probabilities(audio_16k: np.ndarray, model, frame_ms: int) -> np.ndarray:
+    """Frame the audio and score each frame with Silero."""
+    frame_len = int(16000 * frame_ms / 1000)
+    n_frames = len(audio_16k) // frame_len
+    probs = np.zeros(n_frames, dtype="float32")
+    import torch
+    for i in range(n_frames):
+        frame = torch.from_numpy(audio_16k[i * frame_len : (i + 1) * frame_len])
+        probs[i] = float(model(frame, 16000).item())
+    return probs
+
+
+def _hysteresis_intervals(probs: np.ndarray, frame_ms: int, cfg: AutoTrimConfig) -> list[SpeechInterval]:
+    """Two-threshold run-length detection. Returns speech intervals in seconds."""
+    out: list[SpeechInterval] = []
+    in_speech = False
+    start_i = 0
+    for i, p in enumerate(probs):
+        if not in_speech and p >= cfg.open_threshold:
+            in_speech = True
+            start_i = i
+        elif in_speech and p < cfg.close_threshold:
+            in_speech = False
+            out.append(SpeechInterval(start_i * frame_ms / 1000.0, i * frame_ms / 1000.0))
+    if in_speech:
+        out.append(SpeechInterval(start_i * frame_ms / 1000.0, len(probs) * frame_ms / 1000.0))
+
+    # Merge short gaps
+    merged: list[SpeechInterval] = []
+    for iv in out:
+        if merged and (iv.start_s - merged[-1].end_s) * 1000 <= cfg.max_gap_ms:
+            merged[-1] = SpeechInterval(merged[-1].start_s, iv.end_s)
+        else:
+            merged.append(iv)
+
+    # Drop tiny islands (< min_speech_ms)
+    return [iv for iv in merged if (iv.end_s - iv.start_s) * 1000 >= cfg.min_speech_ms]
+
+
+def _concat_with_crossfade(audio: np.ndarray, sr: int, intervals: list[SpeechInterval],
+                           crossfade_ms: int, pad_ms: int) -> np.ndarray:
+    xf = int(sr * crossfade_ms / 1000)
+    pad = int(sr * pad_ms / 1000)
+    chunks: list[np.ndarray] = []
+    for iv in intervals:
+        a = max(0, int(iv.start_s * sr) - pad)
+        b = min(len(audio), int(iv.end_s * sr) + pad)
+        chunks.append(audio[a:b])
+    if not chunks:
+        return np.zeros(0, dtype=audio.dtype)
+    if xf <= 0:
+        return np.concatenate(chunks)
+    result = chunks[0]
+    for c in chunks[1:]:
+        n = min(xf, len(result), len(c))
+        if n <= 0:
+            result = np.concatenate([result, c])
+            continue
+        ramp = np.linspace(0.0, 1.0, n, dtype=audio.dtype)
+        tail = result[-n:] * (1 - ramp)
+        head = c[:n] * ramp
+        result = np.concatenate([result[:-n], tail + head, c[n:]])
+    return result
+
+
+def auto_trim(input_path: Path, output_path: Path,
+              cfg: AutoTrimConfig | None = None) -> TrimResult:
+    cfg = cfg or AutoTrimConfig()
+    import torch
+    model, _ = torch.hub.load(
+        "snakers4/silero-vad", "silero_vad", trust_repo=True, verbose=False,
+    )
+    model.eval()
+    audio_16k, sr_16k = _load_audio_16k_mono(input_path)
+    probs = _speech_probabilities(audio_16k, model, cfg.frame_duration_ms)
+    intervals = _hysteresis_intervals(probs, cfg.frame_duration_ms, cfg)
+
+    # Re-read original at its native SR for the actual cut/concat — we want to preserve
+    # the audio quality users hear, not the 16 kHz downsample.
+    original, sr = sf.read(str(input_path), dtype="float32", always_2d=False)
+    if original.ndim > 1:
+        original_mono = original.mean(axis=1)
+    else:
+        original_mono = original
+    trimmed = _concat_with_crossfade(original_mono, sr, intervals,
+                                     cfg.crossfade_ms, cfg.pad_ms)
+    sf.write(str(output_path), trimmed, sr, subtype="PCM_16")
+    return TrimResult(
+        input_path=input_path, output_path=output_path,
+        original_duration_s=len(original_mono) / sr,
+        trimmed_duration_s=len(trimmed) / sr,
+        intervals=intervals,
+    )
+```
+
+### 3. Pipeline replacement
+
+```python
+def _stage_trim(self):
+    self.stage_started.emit("trim")
+    try:
+        from dialectic.auto_trim import auto_trim
+        out_path = self.artifact.audio_path.with_suffix(".trimmed.wav")
+        result = auto_trim(self.artifact.audio_path, out_path)
+        self.result.trimmed_audio = result.output_path
+        self.result.trim_intervals = result.intervals
+        self.result.original_duration_s = result.original_duration_s
+        self.result.trimmed_duration_s = result.trimmed_duration_s
+        self.stage_succeeded.emit("trim", result)
+    except Exception as e:
+        self.stage_failed.emit("trim", f"{type(e).__name__}: {e}")
+        raise
+```
+
+Add fields to `PipelineResult`:
+
+```python
+trim_intervals: list = field(default_factory=list)
+original_duration_s: Optional[float] = None
+trimmed_duration_s: Optional[float] = None
+```
+
+### 4. Abort-on-empty guard
+
+If `intervals` is empty (rare: pure silence upload, or VAD model failure), raise `ExtractionFailed("auto_trim: no speech detected")`. The modal surfaces this clearly rather than continuing to transcribe silence.
+
+### 5. Tests
+
+`tests/test_auto_trim.py`:
+
+Generate `speech_with_silence.wav`: 2s silence + 3s of `say "methodology"` tone + 4s silence + 2s more speech + 3s silence. Total 14s. Expected result:
+- `len(intervals) == 2` (the two speech chunks).
+- `trimmed_duration_s` is ≈ 5s ± 500 ms (speech + pads, minus crossfades).
+- The output .wav is shorter than the input.
+- The output contains the word "methodology" when re-fed through batch transcription (gate this assertion behind `DIALECTIC_TEST_REAL_WHISPER=1`).
+
+Also unit-test `_hysteresis_intervals` with a synthetic probability array — deterministic, no VAD model needed.
+
+Gate the full VAD-based test behind `DIALECTIC_TEST_REAL_VAD=1`. The unit test for hysteresis runs always.
+
+## Verification
+
+```bash
+cd /Users/michaelquintin/Desktop/Theseus/dialectic
+pytest -q tests/test_auto_trim.py
+DIALECTIC_TEST_REAL_VAD=1 pytest -q tests/test_auto_trim.py::test_real_speech_silence_clip
+
+# Report requested: measure on three recordings
+python -m dialectic.auto_trim /path/to/meeting.wav /tmp/meeting.trimmed.wav
+python -m dialectic.auto_trim /path/to/monologue.wav /tmp/monologue.trimmed.wav
+python -m dialectic.auto_trim /path/to/dialogue.wav /tmp/dialogue.trimmed.wav
+# Each prints: "auto_trim: 42m13s → 38m07s (9.7% removed, 127 intervals)"
+```
+
+## Prohibitions
+
+- Do NOT trim based on semantic content (topic drift, filler words). That requires an LLM and is a future feature, not "auto-trim to relevant content" as Wave 2 scoped it.
+- Do NOT downsample the final output to 16 kHz. Trim at 16 kHz for VAD decisions; cut-and-concat the original sample rate for the .trimmed.wav.
+- Do NOT skip the crossfade. Hard cuts on speech produce audible clicks that annoy reviewers.
+- Do NOT cache the Silero model in a module-level variable. `torch.hub.load` caches its own download and re-load is fast; a stale module global across tests is worse than re-loading.
+- Do NOT aggressively trim (e.g. `open_threshold=0.9`). Silence-on-thinking is content; trimming it makes transcripts choppy and claim extraction worse.
+
+Do not proceed to prompts 09-11. Do not edit anything outside SCOPE.

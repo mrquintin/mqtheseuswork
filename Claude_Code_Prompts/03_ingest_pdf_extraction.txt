@@ -1,0 +1,216 @@
+# Claude Code Prompt 3 of 11 — PDF extraction: pypdf primary, OCR fallback for scanned PDFs
+
+**Sequence:** prompt 3 of 11 (Wave 1). Depends on prompt 01. Independent of prompt 02 — may run in parallel. Report back with: the OCR decision rule (chars-per-page threshold), any PDFs in the Codex that would now ingest, and whether `ocrmypdf`/`tesseract` is actually installable on the deploy environment.
+
+**Before you start — read current state:**
+1. Read `noosphere/noosphere/extractors/pdf_extractor.py` — the stub created in prompt 01.
+2. Read `noosphere/noosphere/extractors/base.py` — the extractor contract.
+3. Check whether the repo already uses `pypdf`, `pdfplumber`, or `pdfminer.six` anywhere. Grep `noosphere/ theseus-codex/` for these names. If one is already present, reuse it. If none, pick `pypdf` (smallest, zero-native-dep).
+
+## Your task
+
+Implement `PdfExtractor` with a two-stage strategy:
+
+1. **Primary: `pypdf`.** Fast, pure Python, works on digitally-produced PDFs (most of what founders upload — papers, chapters, transcripts from tools like Otter.ai that re-export as PDF).
+2. **Fallback: `ocrmypdf` or direct `tesseract`.** For scanned-image PDFs where pypdf returns ~0 chars per page. Gated behind `NOOSPHERE_ENABLE_OCR=1` because OCR adds tesseract as a system dependency and can multiply transcription time by 10×.
+3. **Last resort: `ExtractionFailed`** with a clear hint (this PDF appears to be a scan — set `NOOSPHERE_ENABLE_OCR=1` or provide a pre-extracted .txt).
+
+## Prerequisites
+
+- Prompt 01 applied. `PdfExtractor` stub exists.
+
+## SCOPE
+
+- `noosphere/noosphere/extractors/pdf_extractor.py`                        MODIFY (fill in extract body)
+- `noosphere/noosphere/extractors/_pdf_text.py`                            CREATE (pypdf wrapper with per-page extraction)
+- `noosphere/noosphere/extractors/_pdf_ocr.py`                             CREATE (ocrmypdf or tesseract fallback)
+- `noosphere/pyproject.toml`                                               MODIFY (add pypdf to optional `[pdf]` extras)
+- `noosphere/tests/test_extractors_pdf.py`                                 CREATE
+- `noosphere/tests/fixtures/tiny_digital.pdf`                              CREATE (generated at test time)
+- `noosphere/tests/fixtures/tiny_scanned.pdf`                              CREATE (generated at test time — a rendered image of text)
+
+## Step-by-step
+
+### 1. Dependency addition
+
+```toml
+[project.optional-dependencies]
+pdf = [
+    "pypdf >= 5.0",
+]
+```
+
+OCR deps are explicitly NOT in `pip install`-able extras — OCR requires `tesseract` from homebrew/apt. Document in the README:
+
+> PDF OCR requires `ocrmypdf` in PATH, which in turn requires tesseract. On macOS: `brew install ocrmypdf`. On Debian: `apt install ocrmypdf`. Enable with `NOOSPHERE_ENABLE_OCR=1`.
+
+### 2. `_pdf_text.py` — pypdf page-by-page extraction
+
+```python
+from __future__ import annotations
+from dataclasses import dataclass
+from io import BytesIO
+
+@dataclass(frozen=True)
+class PageText:
+    page_number: int        # 1-based
+    text: str
+    char_count: int
+
+
+def extract_pages(data: bytes) -> list[PageText]:
+    from pypdf import PdfReader
+    reader = PdfReader(BytesIO(data))
+    out: list[PageText] = []
+    for i, page in enumerate(reader.pages, start=1):
+        try:
+            t = page.extract_text() or ""
+        except Exception:
+            t = ""
+        out.append(PageText(page_number=i, text=t, char_count=len(t)))
+    return out
+
+
+def digital_confidence(pages: list[PageText], floor: int = 80) -> float:
+    """Fraction of pages with >= `floor` chars. Scanned PDFs return ~0 chars
+    on every page; well-produced digital PDFs return hundreds-to-thousands.
+    The 80-char floor is conservative — a mostly-blank page of a paper
+    (title page, references page) can have ~80 chars legitimately."""
+    if not pages:
+        return 0.0
+    return sum(1 for p in pages if p.char_count >= floor) / len(pages)
+```
+
+### 3. `_pdf_ocr.py` — OCR via ocrmypdf subprocess
+
+```python
+from __future__ import annotations
+import shutil, subprocess, tempfile
+from pathlib import Path
+
+class OcrUnavailable(RuntimeError):
+    pass
+
+
+def ocr_to_text(data: bytes, *, language: str = "eng") -> str:
+    if not shutil.which("ocrmypdf"):
+        raise OcrUnavailable("ocrmypdf not in PATH; install with `brew install ocrmypdf`.")
+    with tempfile.TemporaryDirectory() as d:
+        src = Path(d) / "in.pdf"
+        dst = Path(d) / "out.pdf"
+        src.write_bytes(data)
+        # --force-ocr: re-OCR even if pypdf thought it had text (safer for mixed PDFs)
+        # --output-type=pdf: keep original structure; sidecar gives us the text
+        sidecar = Path(d) / "out.txt"
+        subprocess.run(
+            ["ocrmypdf", "--force-ocr", "--sidecar", str(sidecar),
+             "--language", language, "--quiet",
+             str(src), str(dst)],
+            check=True,
+        )
+        return sidecar.read_text(encoding="utf-8")
+```
+
+Timeouts: don't add one here; OCR of a 400-page scan is slow but legitimate. A timeout belongs at the CLI level (prompt 04's UI shows in-progress state).
+
+### 4. `pdf_extractor.py` — orchestration
+
+```python
+from __future__ import annotations
+import os
+from noosphere.extractors.base import (
+    Extractor, BinaryContent, ExtractedText, ExtractionFailed,
+)
+
+_OCR_THRESHOLD = 0.25  # if < 25% of pages have ≥80 chars, treat as scanned
+
+
+class PdfExtractor:
+    name = "pdf"
+    mime_prefixes = ("application/pdf",)
+
+    def extract(self, content: BinaryContent) -> ExtractedText:
+        warnings: list[str] = []
+        from noosphere.extractors._pdf_text import extract_pages, digital_confidence
+
+        pages = extract_pages(content.data)
+        if not pages:
+            raise ExtractionFailed("pypdf returned zero pages — PDF may be corrupt.")
+
+        confidence = digital_confidence(pages)
+        digital_text = "\n\n".join(
+            f"[page {p.page_number}]\n{p.text}" for p in pages if p.text.strip()
+        ).strip()
+
+        if confidence >= _OCR_THRESHOLD and digital_text:
+            return ExtractedText(
+                text=digital_text,
+                source_format="application/pdf",
+                extraction_method="pypdf",
+                warnings=(["low digital confidence"] if confidence < 0.8 else []),
+            )
+
+        if os.environ.get("NOOSPHERE_ENABLE_OCR") != "1":
+            raise ExtractionFailed(
+                f"PDF appears to be scanned (digital confidence {confidence:.0%}) "
+                "and OCR is disabled. Set NOOSPHERE_ENABLE_OCR=1 to enable OCR "
+                "(requires ocrmypdf in PATH)."
+            )
+
+        from noosphere.extractors._pdf_ocr import ocr_to_text, OcrUnavailable
+        try:
+            text = ocr_to_text(content.data)
+        except OcrUnavailable as e:
+            raise ExtractionFailed(str(e)) from e
+        if not text.strip():
+            raise ExtractionFailed("OCR produced empty output.")
+        return ExtractedText(
+            text=text,
+            source_format="application/pdf",
+            extraction_method="ocrmypdf",
+            warnings=[f"digital_confidence={confidence:.2f}"] + warnings,
+        )
+```
+
+### 5. Page markers in the extracted text
+
+The `[page N]` prefix is deliberate. It gives downstream claim extractors a weak citation anchor back to the PDF page — useful for the Conclusion.sourceRef field in the existing Codex schema. Don't remove it.
+
+### 6. Test fixtures
+
+Generate both at test time using `reportlab`:
+
+- `tiny_digital.pdf` — 2 pages, 200 chars each, plain sans-serif. pypdf must recover the text cleanly.
+- `tiny_scanned.pdf` — the same pages but rendered as PNG images first (using `Pillow`) and embedded as images. pypdf extracts ~0 chars; OCR path is required.
+
+Add `reportlab` and `Pillow` to `[dev]` extras, not core.
+
+### 7. Tests
+
+`tests/test_extractors_pdf.py`:
+- Digital PDF → extraction_method="pypdf", text includes "[page 1]" marker.
+- Scanned PDF with `NOOSPHERE_ENABLE_OCR` unset → `ExtractionFailed` with "OCR is disabled".
+- Scanned PDF with OCR enabled but `ocrmypdf` not in PATH (mocked) → `ExtractionFailed` with "install ocrmypdf".
+- Corrupt bytes (first 64 bytes of random) → `ExtractionFailed`.
+- Confidence calculation: 2 of 8 pages have chars → 0.25 → just at threshold.
+
+## Verification
+
+```bash
+cd /Users/michaelquintin/Desktop/Theseus
+pip install -e "noosphere[pdf,dev]"
+pytest -q noosphere/tests/test_extractors_pdf.py
+
+# If you have ocrmypdf:
+NOOSPHERE_ENABLE_OCR=1 pytest -q noosphere/tests/test_extractors_pdf.py::test_scanned_pdf_ocr
+```
+
+## Prohibitions
+
+- Do NOT use `pdfplumber` or `pdfminer.six` as the primary. They're slower, heavier, and don't produce materially better output on the kinds of PDFs Theseus founders upload. If a future case demands table extraction (e.g., a paper with data tables), that's a separate extractor, not a swap of the base.
+- Do NOT call OCR automatically without the env flag. OCR is expensive, sometimes failure-prone, and adds a system dependency. It must be opt-in.
+- Do NOT strip the `[page N]` markers. They are deliberate source anchors.
+- Do NOT lower `_OCR_THRESHOLD` below 0.2. Too-low thresholds re-OCR PDFs that pypdf handled fine and waste ~10× the time.
+- Do NOT add language auto-detection in this prompt. English-only via `eng` is the current operational need; Tesseract packs for other languages vary by distro and belong in a follow-up if they become necessary.
+
+Do not proceed to prompts 04-11. Do not edit anything outside SCOPE.

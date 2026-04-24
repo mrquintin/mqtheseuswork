@@ -1,0 +1,222 @@
+# Claude Code Prompt 2 of 11 — Audio extraction: faster-whisper primary, OpenAI Whisper fallback
+
+**Sequence:** prompt 2 of 11 (Wave 1). Depends on prompt 01 having been applied. Report back with: the transcription model tier selected, the fallback decision table (when faster-whisper vs OpenAI is used), and the elapsed time for transcribing a 194.8 MB test .m4a on the runner.
+
+**Before you start — read current state:**
+1. Read `noosphere/noosphere/extractors/audio_extractor.py` — created as a stub in prompt 01. You are replacing the body of `AudioExtractor.extract()` with a real implementation.
+2. Read `dialectic/dialectic/transcriber.py` — Dialectic already uses `faster-whisper` (CTranslate2 backend) for live transcription. The batch-transcribe path we need here is simpler than Dialectic's streaming one; this prompt does NOT share code with Dialectic but borrows the model-loading pattern and the small-model/large-model selection heuristic. Note the `TranscriptionConfig` class.
+3. Read `theseus-codex/src/lib/ingest.ts` lines 60-79 (`transcribeAudio`) — the OpenAI Whisper fallback path. Note that it splits files > 25 MB (OpenAI's limit) and re-joins the transcripts. We will replicate that for the Python fallback.
+4. Read `noosphere/pyproject.toml` (or `requirements*.txt`) — check whether `faster-whisper` is already a dependency. If not, this prompt adds it. It's a heavy transitive (CTranslate2, onnxruntime), but Dialectic already ships it — no net weight in the monorepo.
+
+## Your task
+
+Implement `AudioExtractor` with a tiered strategy:
+
+1. **Primary: local `faster-whisper`.** Fast, free, private, works offline. Default model `small.en` (244 MB, ~1× realtime on modern Macs). Override via `NOOSPHERE_WHISPER_MODEL` env var.
+2. **Fallback: OpenAI Whisper API.** Used only when: `(a)` local whisper refuses to load (no model, no disk, no CPU), or `(b)` the caller sets `NOOSPHERE_FORCE_OPENAI_WHISPER=1`. Requires `OPENAI_API_KEY`.
+3. **Last resort: `ExtractionFailed`** with a clear remediation pointer (install faster-whisper OR set OPENAI_API_KEY).
+
+The implementation must handle the 194.8 MB .m4a case that triggered Wave 1.
+
+## Prerequisites
+
+- Prompt 01 applied. `AudioExtractor` stub exists with the right signature.
+
+## SCOPE
+
+- `noosphere/noosphere/extractors/audio_extractor.py`                      MODIFY (fill in extract body)
+- `noosphere/noosphere/extractors/_whisper_local.py`                       CREATE (faster-whisper loader + transcribe)
+- `noosphere/noosphere/extractors/_whisper_openai.py`                      CREATE (OpenAI fallback with chunking)
+- `noosphere/noosphere/extractors/_audio_probe.py`                         CREATE (ffprobe/mutagen-based metadata)
+- `noosphere/pyproject.toml` OR `requirements.txt`                         MODIFY (add faster-whisper, pydub or mutagen)
+- `noosphere/tests/test_extractors_audio.py`                               CREATE
+- `noosphere/tests/fixtures/tiny_audio.m4a`                                CREATE (≤ 1 MB, 3-5s of generated speech OR a recorded tone with a fixture transcript; see step 6)
+
+Do NOT touch the text or PDF extractor, the dispatcher, or the CLI. Do NOT modify `codex_bridge.py`.
+
+## Step-by-step
+
+### 1. Dependency addition
+
+Add to `noosphere/pyproject.toml` under `[project.optional-dependencies].audio`:
+
+```toml
+audio = [
+    "faster-whisper >= 1.0, < 2.0",
+    "mutagen >= 1.47",     # for duration + codec probe
+]
+```
+
+And a top-level `whisper-openai = ["openai >= 1.30"]` group that the OpenAI fallback imports lazily. Keep audio optional — Noosphere's core ingest of text documents must not require these heavy deps.
+
+Update the README section "Installing with audio support" to say:
+> `pip install "noosphere[audio]"` — adds local transcription via faster-whisper.
+
+### 2. `_audio_probe.py` — file metadata without decoding
+
+```python
+from dataclasses import dataclass
+from pathlib import Path
+
+@dataclass(frozen=True)
+class AudioMeta:
+    duration_seconds: float
+    codec: str
+    sample_rate: int | None
+    channels: int | None
+    size_bytes: int
+
+def probe(path: Path) -> AudioMeta:
+    """Uses mutagen to probe duration + codec. Raises on failure with a
+    clear message — don't let an opaque mutagen traceback bubble up."""
+```
+
+Needed for: (a) budget estimation before a 3-hour transcription, (b) chunk-size planning for the OpenAI fallback.
+
+### 3. `_whisper_local.py` — faster-whisper wrapper
+
+```python
+from __future__ import annotations
+import logging, os, tempfile
+from pathlib import Path
+
+_MODEL_CACHE = {}
+
+def _get_model(name: str):
+    """Cache WhisperModel instances per-process. First load is ~5s; reuse."""
+    if name not in _MODEL_CACHE:
+        from faster_whisper import WhisperModel
+        # compute_type="int8" — ~2× faster on CPU with negligible quality loss
+        # for English speech. Override via NOOSPHERE_WHISPER_COMPUTE_TYPE.
+        _MODEL_CACHE[name] = WhisperModel(
+            name,
+            device="cpu",
+            compute_type=os.environ.get("NOOSPHERE_WHISPER_COMPUTE_TYPE", "int8"),
+        )
+    return _MODEL_CACHE[name]
+
+
+def transcribe_file(path: Path, *, language: str | None = "en") -> str:
+    model_name = os.environ.get("NOOSPHERE_WHISPER_MODEL", "small.en")
+    model = _get_model(model_name)
+    # beam_size=1, vad_filter=True gives a good speed/quality trade-off
+    # for the kinds of long meeting recordings Theseus founders record.
+    segments, info = model.transcribe(
+        str(path), language=language, beam_size=1, vad_filter=True,
+    )
+    return " ".join(seg.text.strip() for seg in segments if seg.text).strip()
+```
+
+Timings baseline on an M-series Mac, `small.en`, int8, 60-min English meeting: ~6-8 min wall-clock. Document this in the module docstring — founders running this command should know the rough cost.
+
+### 4. `_whisper_openai.py` — cloud fallback with chunking
+
+OpenAI Whisper API caps individual files at 25 MiB. The 194.8 MB m4a must be split. Use `mutagen` + raw byte slicing on the container is not safe for arbitrary codecs; use `ffmpeg` (must be installed on the runner) to split into 10-minute .mp3 chunks, transcribe sequentially, concatenate. If `ffmpeg` is not available, raise with a clear install hint.
+
+```python
+def transcribe_file(path: Path, *, api_key: str, language: str = "en") -> str:
+    meta = probe(path)
+    if meta.size_bytes <= 24 * 1024 * 1024 and meta.duration_seconds <= 25 * 60:
+        return _transcribe_single(path, api_key, language)
+    return _transcribe_chunked(path, api_key, language)
+```
+
+Concatenation is done with a single space between chunks — do NOT insert chunk markers; they pollute downstream claim extraction.
+
+### 5. `audio_extractor.py` — fill in `extract`
+
+```python
+import os, tempfile
+from pathlib import Path
+from noosphere.extractors.base import (
+    Extractor, BinaryContent, ExtractedText, ExtractionFailed,
+)
+
+class AudioExtractor:
+    name = "audio"
+    mime_prefixes = ("audio/",)
+
+    def extract(self, content: BinaryContent) -> ExtractedText:
+        warnings: list[str] = []
+        # Persist to a temp file — faster-whisper and openai both want a path.
+        suffix = "." + content.filename.rsplit(".", 1)[-1] if "." in content.filename else ".bin"
+        with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as tmp:
+            tmp.write(content.data)
+            tmp_path = Path(tmp.name)
+        try:
+            force_openai = os.environ.get("NOOSPHERE_FORCE_OPENAI_WHISPER") == "1"
+            if not force_openai:
+                try:
+                    from noosphere.extractors._whisper_local import transcribe_file as local_transcribe
+                    text = local_transcribe(tmp_path)
+                    return ExtractedText(
+                        text=text, source_format=content.mime,
+                        extraction_method="faster-whisper",
+                        warnings=warnings,
+                    )
+                except Exception as e:
+                    warnings.append(f"faster-whisper failed: {type(e).__name__}: {e}")
+            api_key = os.environ.get("OPENAI_API_KEY", "").strip()
+            if not api_key:
+                raise ExtractionFailed(
+                    "audio transcription failed: faster-whisper unavailable "
+                    "and OPENAI_API_KEY not set. Install with "
+                    "`pip install 'noosphere[audio]'` or export OPENAI_API_KEY."
+                )
+            from noosphere.extractors._whisper_openai import transcribe_file as openai_transcribe
+            text = openai_transcribe(tmp_path, api_key=api_key)
+            return ExtractedText(
+                text=text, source_format=content.mime,
+                extraction_method="openai-whisper-1",
+                warnings=warnings,
+            )
+        finally:
+            try: tmp_path.unlink()
+            except OSError: pass
+```
+
+### 6. Test fixture
+
+`tests/fixtures/tiny_audio.m4a` must be small enough to ship in the repo (≤ 1 MB) but long enough to contain a recognizable phrase. Two options:
+
+(a) **Generated:** use `pydub` or `ffmpeg` at test-time to synthesize a 3-5s tone plus a `say "{phrase}"` macOS clip. Preferred — no binary in git.
+
+(b) **Pre-recorded fixture:** ship a tiny .m4a.
+
+Go with (a). In `conftest.py`, add a `tiny_audio_fixture` fixture that synthesizes on demand and caches at `tests/fixtures/tiny_audio.m4a`. The test for `AudioExtractor` mocks `faster-whisper` so it doesn't actually invoke the model (too slow, too heavy) — it asserts the plumbing: temp file created, handler called with the expected path, warnings propagated, `extraction_method` set correctly. A single real-transcription test is gated behind `NOOSPHERE_TEST_REAL_WHISPER=1` env and is skipped in CI by default.
+
+### 7. Tests
+
+`tests/test_extractors_audio.py`:
+- `extract` on a BinaryContent with mime=`audio/mp4` calls `_whisper_local.transcribe_file` with a temp path whose bytes match content.data.
+- When `NOOSPHERE_FORCE_OPENAI_WHISPER=1` and `OPENAI_API_KEY` is set, the local path is skipped and the OpenAI path is called.
+- When local fails (mocked raise) and no API key, `ExtractionFailed` includes the remediation text.
+- When local fails but OpenAI succeeds, `warnings` contains the local failure message and `extraction_method` is `openai-whisper-1`.
+- Temp file is cleaned up even on exception.
+
+## Verification
+
+```bash
+cd /Users/michaelquintin/Desktop/Theseus
+pip install -e "noosphere[audio]"
+pytest -q noosphere/tests/test_extractors_audio.py
+
+# Smoke against the actual failing upload (requires Postgres access + the file in Supabase):
+python -m noosphere ingest-from-codex --upload-id c6b593815bac27aee838d9035 --dry-run
+
+# Real transcription smoke (optional, ~1-2 min on a laptop for a 30s clip):
+NOOSPHERE_TEST_REAL_WHISPER=1 pytest -q noosphere/tests/test_extractors_audio.py::test_real_short_clip
+```
+
+The `--dry-run` against the founder's m4a should now reach the extractor, transcribe, log the extraction method, and print the claim count it WOULD write — no DB writes.
+
+## Prohibitions
+
+- Do NOT hold the faster-whisper model in a module-level global that gets pickled or loaded at import time. Lazy load only inside `_get_model` — test runs must not trigger model downloads.
+- Do NOT chunk at the byte level. AAC frames don't align on byte boundaries. Use ffmpeg for the OpenAI chunking path.
+- Do NOT add chunk separators to the concatenated text. Whisper's output is already prose; markers break downstream NLP.
+- Do NOT let `ExtractionFailed` leak the raw OpenAI or httpx exception string — wrap it with a clean remediation message. The raw exception goes to logs.
+- Do NOT call `faster_whisper.WhisperModel` with `device="auto"`. Force `cpu`; GPU auto-detection has historically crashed on laptops without CUDA.
+- Do NOT add a `max_duration` hard cap in this prompt. Long meetings are a legitimate use case; a budget system belongs in a later prompt if it's needed at all.
+
+Do not proceed to prompts 03-11. Do not edit anything outside SCOPE.

@@ -1,0 +1,219 @@
+# Claude Code Prompt 5 of 11 — Ingest pipeline: end-to-end tests + smoke that exercises the m4a case
+
+**Sequence:** prompt 5 of 11 (Wave 1 closer). Depends on 01, 02, 03, 04. Report back with: the full `pytest -q` result across the new suite, the command used to run the smoke against a real m4a, and any invariant that is only partially covered (so the gap is known).
+
+**Before you start — read current state:**
+1. Read every file prompts 01-04 added under `noosphere/noosphere/extractors/` and `noosphere/tests/test_extractors_*.py`. Understand what is already tested and what is not.
+2. Read `noosphere/noosphere/codex_bridge.py` after prompts 01 and 04's edits — note the new status transitions (`extracting`, `awaiting_ingest`).
+3. Read any existing end-to-end test in `noosphere/tests/` that touches the Codex Postgres (e.g. `test_codex_bridge_*` if present).
+
+## Your task
+
+Close out Wave 1 with a test layer that protects the class of failure the m4a upload exposed. Three categories:
+
+1. **Regression for THE bug.** A test that feeds an Upload row with `textContent=NULL` and `mimeType="audio/mp4"` through `ingest_from_codex` and confirms it no longer raises `RuntimeError("has no textContent")`. This is the canary for Wave 1's whole reason-for-being.
+2. **MIME family coverage.** Parameterized tests across: `text/plain`, `text/markdown`, `application/json`, `audio/mp4`, `audio/mpeg`, `audio/wav`, `application/pdf`, `application/zip` (expected to fail with UnsupportedMimeType), `image/png` (expected fail), random bytes with no mime (expected fail). Each with a fake extractor so the test runs in < 2s and doesn't need models.
+3. **End-to-end smoke** against a real m4a. Gated behind `NOOSPHERE_E2E_SMOKE=1` and a fixture audio file. Runs the actual pipeline — faster-whisper + claim extraction + DB writes against a throwaway SQLite fixture that mimics the Codex's Upload/Conclusion schema.
+
+Also: a lightweight observability check. After the run, scan the status history of the Upload and assert the sequence `pending → extracting → awaiting_ingest → processing → ingested`. If any transition is skipped, surface a warning — missing states make the dashboard pulse dot lie.
+
+## Prerequisites
+
+- Prompts 01, 02, 03, 04 applied.
+
+## SCOPE
+
+- `noosphere/tests/test_ingest_mime_regression.py`                         CREATE (the bug-regression tests)
+- `noosphere/tests/test_ingest_mime_matrix.py`                             CREATE (MIME family coverage)
+- `noosphere/tests/test_ingest_status_transitions.py`                      CREATE (status timeline asserts)
+- `noosphere/tests/e2e/test_ingest_audio_smoke.py`                         CREATE (NOOSPHERE_E2E_SMOKE-gated)
+- `noosphere/tests/conftest.py`                                            MODIFY (fake_codex_db + fake_upload factories)
+- `noosphere/tests/fixtures/minimal_codex_schema.sql`                      CREATE (Upload + Conclusion DDL, SQLite dialect)
+
+Do NOT create a new Postgres test instance. Use SQLite with a schema file that mirrors the Prisma-generated columns relevant to ingest. The Wave 1 code paths do not exercise Postgres-specific features.
+
+## Step-by-step
+
+### 1. `conftest.py` — factories
+
+```python
+import sqlite3
+import pytest
+from pathlib import Path
+from uuid import uuid4
+
+@pytest.fixture
+def fake_codex_db(tmp_path):
+    path = tmp_path / "codex.db"
+    conn = sqlite3.connect(str(path))
+    sql = (Path(__file__).parent / "fixtures/minimal_codex_schema.sql").read_text()
+    conn.executescript(sql)
+    conn.commit()
+    yield conn
+    conn.close()
+
+
+def make_upload(conn, *, mime: str, text: str | None = None,
+                file_path: str | None = None, original_name: str = "test",
+                title: str = "test", org_id: str = "org_1", founder_id: str = "u_1"):
+    uid = f"cx_{uuid4().hex[:20]}"
+    conn.execute(
+        'INSERT INTO "Upload" (id, "organizationId", "founderId", title, '
+        '"textContent", status, "mimeType", "originalName", "filePath") '
+        'VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
+        (uid, org_id, founder_id, title, text, "pending", mime, original_name, file_path),
+    )
+    conn.commit()
+    return uid
+
+
+@pytest.fixture
+def upload_factory(fake_codex_db):
+    def _make(**kw):
+        return make_upload(fake_codex_db, **kw)
+    return _make
+```
+
+### 2. `test_ingest_mime_regression.py`
+
+```python
+def test_m4a_upload_no_longer_raises_textcontent_error(
+    fake_codex_db, upload_factory, monkeypatch, tiny_audio_fixture
+):
+    """Regression for the April 2026 founder upload: 194.8 MB .m4a with
+    textContent=NULL was raising 'has no textContent'. The fix must route
+    this through the audio extractor."""
+    uid = upload_factory(mime="audio/mp4", text=None, file_path=str(tiny_audio_fixture))
+
+    # Don't actually transcribe — mock the extractor to return a deterministic transcript.
+    from noosphere.extractors import audio_extractor
+    monkeypatch.setattr(
+        audio_extractor.AudioExtractor, "extract",
+        lambda self, c: ExtractedText(
+            text="the purpose of the school is inquiry not credentialing",
+            source_format="audio/mp4",
+            extraction_method="faster-whisper",
+        ),
+    )
+    from noosphere.codex_bridge import ingest_from_codex
+    # Inject our sqlite connection via a test-only path
+    result = ingest_from_codex(upload_id=uid, use_llm=False, dry_run=True,
+                               codex_db_url=sqlite_url_for(fake_codex_db))
+    assert result.num_claims_extracted > 0
+```
+
+Add `sqlite_url_for` helper to `conftest.py` that returns `sqlite://...` and teach `_resolve_codex_db_url` in `codex_bridge.py` to accept it (one line: if `url.startswith("sqlite:")`, use `sqlite3.connect` directly instead of `psycopg2`). This is a small production change that makes the whole test suite viable — note it in the report.
+
+### 3. `test_ingest_mime_matrix.py`
+
+```python
+import pytest
+
+CASES = [
+    ("text/plain",         "hello world",                None, "ingested"),
+    ("text/markdown",      "# hi\n\nbody",               None, "ingested"),
+    ("application/json",   '{"a": 1}',                   None, "ingested"),
+    ("audio/mp4",          None, "tiny_audio_fixture",         "ingested"),
+    ("audio/mpeg",         None, "tiny_audio_fixture",         "ingested"),
+    ("audio/wav",          None, "tiny_audio_fixture",         "ingested"),
+    ("application/pdf",    None, "tiny_digital_pdf_fixture",   "ingested"),
+    ("application/zip",    None, "unknown_binary",             "failed:unsupported_mime"),
+    ("image/png",          None, "tiny_png_fixture",           "failed:unsupported_mime"),
+    ("",                   None, "unknown_binary",             "failed:unsupported_mime"),
+]
+
+@pytest.mark.parametrize("mime,text,fixture,expected", CASES)
+def test_mime_matrix(mime, text, fixture, expected, ...):
+    ...
+```
+
+The parameterization makes adding a new MIME a one-line change. When a later prompt adds a new extractor (e.g. `video/mp4`), it adds a row here.
+
+### 4. `test_ingest_status_transitions.py`
+
+Tracks status transitions by listening to DB UPDATEs. Uses a sqlite trigger:
+
+```sql
+CREATE TABLE "UploadStatusHistory" (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  upload_id TEXT, status TEXT, ts DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+CREATE TRIGGER upload_status_log
+  AFTER UPDATE OF status ON "Upload"
+  FOR EACH ROW
+  BEGIN
+    INSERT INTO "UploadStatusHistory" (upload_id, status) VALUES (NEW.id, NEW.status);
+  END;
+```
+
+After running the pipeline on a fixture, assert the history contains the ordered subsequence:
+
+```python
+expected = ["extracting", "awaiting_ingest", "processing", "ingested"]
+```
+
+For failed paths, assert the history ends with `failed` and the relevant intermediate states are present up to the failure point.
+
+### 5. `e2e/test_ingest_audio_smoke.py` — real transcription
+
+```python
+import os
+import pytest
+
+@pytest.mark.skipif(
+    os.environ.get("NOOSPHERE_E2E_SMOKE") != "1",
+    reason="gated smoke; set NOOSPHERE_E2E_SMOKE=1 to enable",
+)
+def test_real_m4a_end_to_end(fake_codex_db, upload_factory):
+    """Actually transcribes a short fixture .m4a with faster-whisper,
+    runs the full pipeline, and asserts Conclusions were written."""
+    fixture = Path(__file__).parent.parent / "fixtures" / "smoke_meeting_30s.m4a"
+    if not fixture.exists():
+        pytest.skip(f"{fixture} not present (generate with scripts/make_smoke_audio.py)")
+    uid = upload_factory(mime="audio/mp4", text=None, file_path=str(fixture))
+    from noosphere.codex_bridge import ingest_from_codex
+    result = ingest_from_codex(upload_id=uid, use_llm=False, dry_run=False,
+                               codex_db_url=sqlite_url_for(fake_codex_db))
+    assert result.num_conclusions_written > 0
+    # spot check a known phrase from the smoke clip
+    rows = fake_codex_db.execute(
+        'SELECT "conclusionText" FROM "Conclusion" WHERE "organizationId"=?',
+        ("org_1",),
+    ).fetchall()
+    assert any("purpose" in r[0].lower() for r in rows), \
+        "expected the word 'purpose' somewhere in transcribed conclusions"
+```
+
+Include `scripts/make_smoke_audio.py` that synthesizes a 30s clip via macOS `say` + `ffmpeg`. Not run in CI; developers use it once.
+
+### 6. `minimal_codex_schema.sql`
+
+Include only the columns the ingest code touches: Upload, Conclusion, ConclusionSource, Contradiction, OpenQuestion, ResearchSuggestion, AuditEvent, UploadStatusHistory (the trigger's sink). Schema mirrors Prisma field names exactly (camelCase identifiers quoted in SQLite DDL). If the prod schema diverges, tests won't catch it; keep this file in sync via a CI check added in a later prompt if it becomes a problem.
+
+## Verification
+
+```bash
+cd /Users/michaelquintin/Desktop/Theseus
+pip install -e "noosphere[audio,pdf,dev]"
+
+# Core suite (< 10s):
+pytest -q noosphere/tests/test_ingest_*.py
+
+# With the gated smoke (requires faster-whisper model + ~2 min):
+python noosphere/scripts/make_smoke_audio.py   # one-time
+NOOSPHERE_E2E_SMOKE=1 pytest -q noosphere/tests/e2e/test_ingest_audio_smoke.py
+
+# Real repro against the original m4a in Supabase (requires env):
+CODEX_DATABASE_URL=... SUPABASE_URL=... SUPABASE_SERVICE_ROLE_KEY=... \
+  python -m noosphere ingest-from-codex --upload-id c6b593815bac27aee838d9035
+# Expected: extractionMethod='faster-whisper', status → ingested, Conclusions visible in Codex UI.
+```
+
+## Prohibitions
+
+- Do NOT run the real faster-whisper model in the default `pytest` run. It downloads ~500 MB on first use. Gate every real-model test behind an env flag.
+- Do NOT test against the production Supabase in CI. The smoke command above is a manual verification step, not an automated one.
+- Do NOT lower the status-transition invariant to "some subset of expected states." The ordered subsequence assertion is the only way to catch a future refactor that accidentally skips `extracting` or `awaiting_ingest`.
+- Do NOT inline a 30-second .m4a into the git repo. Generate at test time or skip if absent.
+
+Do not proceed to prompts 06-11. Do not edit anything outside SCOPE.

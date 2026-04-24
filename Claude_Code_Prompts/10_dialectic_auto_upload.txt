@@ -1,0 +1,338 @@
+# Claude Code Prompt 10 of 11 — Dialectic: auto-upload to Codex with pre-attached transcript
+
+**Sequence:** prompt 10 of 11 (Wave 2). Depends on 06, 07, 08, 09 (pipeline, transcript, trimmed audio, title). Should be applied AFTER Wave 1 (so the uploaded audio lands in an ingest pipeline that actually handles audio), though technically the pre-attached transcript makes Wave 1 optional for this specific code path. Report back with: the Codex API endpoints actually hit (signed URL prepare → S3 PUT → finalize), the retry behavior tested, and the offline queue file format.
+
+**Before you start — read current state:**
+1. Read `dialectic/dialectic/recording_pipeline.py` — the stub `_stage_upload` you're replacing.
+2. Read `dialectic/dialectic/cloud_uploader.py` — the existing Dialectic-to-Codex upload path for JSONL sessions. Reuse its auth pattern + URL normalization. Do NOT fork.
+3. Read `theseus-codex/src/app/api/upload/audio/prepare/route.ts` and `.../finalize/[id]/route.ts` — the Codex's Supabase-signed-URL flow for audio uploads. The Dialectic uploader will mimic the web UI's three-step dance: (1) POST prepare with metadata → get signed PUT URL + upload id; (2) PUT the bytes to Supabase; (3) POST finalize with the bytes-attested size + the transcript.
+4. Read `theseus-codex/prisma/schema.prisma` → `Upload` model. Confirm `textContent` is nullable; we will write to it directly with Dialectic's transcript so Wave 1's extractor is bypassed for this path.
+5. Read `dialectic/dialectic/credentials.py` — the existing `DIALECTIC_CLOUD_URL` / `DIALECTIC_CLOUD_API_KEY` env vars (or a login_dialog-driven credential file). Reuse.
+
+## Your task
+
+Replace `_stage_upload` with a real, resilient upload:
+
+1. POST `POST {CODEX_URL}/api/upload/audio/prepare` with: `filename`, `mimeType=audio/wav`, `fileSize`, `title`, `recordedDate`, `extractionMethod="dialectic-faster-whisper"`, and the `transcript` text. Receive a signed PUT URL + an upload id.
+2. PUT the trimmed .wav to the signed URL. Progress callback emits `stage_progress("upload", percent)` every ~200 ms.
+3. POST `POST {CODEX_URL}/api/upload/audio/finalize/{id}` with final bytes-attested size + any late-arriving metadata (e.g. the full segment list). On success, the Codex stores the Upload with `textContent` populated by Dialectic — `ingest-from-codex` will run straight through claim extraction without needing faster-whisper again.
+4. On failure at any step, write the recording metadata + paths to `~/Library/Application Support/Theseus/Dialectic/pending_uploads.jsonl` (or the equivalent XDG dir on Linux) for later retry. Emit `stage_failed("upload", reason)` but leave the trimmed .wav + transcript on disk so the retry has everything it needs.
+5. Emit `stage_succeeded("upload", UploadResult(upload_id, codex_url_for_upload))` on full success.
+
+## Prerequisites
+
+- Prompts 06-09 applied. Pipeline has `trimmed_audio`, `transcript`, `title`, `recorded_date`.
+- Theseus Codex is reachable at `DIALECTIC_CLOUD_URL` with a valid `DIALECTIC_CLOUD_API_KEY`.
+- Wave 1 (prompts 01-05) SHOULD be applied so that, if a founder later uploads audio directly to the Codex web UI, that flow works too. Not strictly required for Dialectic's path because transcript is pre-attached.
+
+## SCOPE
+
+- `dialectic/dialectic/recording_pipeline.py`                              MODIFY (replace `_stage_upload`, add progress signal)
+- `dialectic/dialectic/codex_upload.py`                                    CREATE (prepare → PUT → finalize)
+- `dialectic/dialectic/pending_queue.py`                                   CREATE (offline retry queue)
+- `dialectic/dialectic/config.py`                                          MODIFY (add `AutoUploadConfig`)
+- `theseus-codex/src/app/api/upload/audio/prepare/route.ts`                MODIFY (accept `transcript` + `extractionMethod` fields; store on the Upload row)
+- `theseus-codex/src/app/api/upload/audio/finalize/[id]/route.ts`          MODIFY (same; optional on finalize)
+- `dialectic/tests/test_codex_upload.py`                                   CREATE (mocked requests)
+- `dialectic/tests/test_pending_queue.py`                                  CREATE
+- `dialectic/recording_modal.py`                                           MODIFY (render `stage_progress` for the upload bar)
+
+## Step-by-step
+
+### 1. Codex API changes
+
+In `prepare/route.ts`, accept these new body fields (all optional):
+
+```ts
+transcript?: string;
+extractionMethod?: string;
+recordedDate?: string;  // ISO date
+```
+
+On insert, populate the Upload row:
+
+```ts
+textContent: body.transcript ?? null,
+extractionMethod: body.extractionMethod ?? null,
+sourceType: body.transcript ? "transcript" : "audio",
+status: body.transcript ? "awaiting_ingest" : "pending",
+```
+
+When `textContent` is populated at prepare-time, status jumps straight to `awaiting_ingest` so the Codex dashboard reflects that extraction is already done. `ingest-from-codex` picks it up from there and runs only the claim-extraction stage.
+
+The `finalize` route can also accept `transcript` to allow late-arriving override (rare — only if Dialectic re-transcribed post-upload).
+
+### 2. `codex_upload.py`
+
+```python
+from __future__ import annotations
+import json, time
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Callable, Optional
+
+import requests
+
+from dialectic.config import AutoUploadConfig
+
+
+@dataclass(frozen=True)
+class UploadResult:
+    upload_id: str
+    codex_url: str
+    bytes_sent: int
+
+
+class UploadError(Exception): pass
+
+
+def upload_recording(
+    *,
+    audio_path: Path,
+    transcript: str,
+    title: str,
+    recorded_date: str,
+    codex_url: str,
+    api_key: str,
+    extraction_method: str = "dialectic-faster-whisper",
+    on_progress: Optional[Callable[[int, int], None]] = None,
+    cfg: AutoUploadConfig | None = None,
+) -> UploadResult:
+    cfg = cfg or AutoUploadConfig()
+    size = audio_path.stat().st_size
+
+    # 1. prepare
+    prep = requests.post(
+        f"{codex_url.rstrip('/')}/api/upload/audio/prepare",
+        headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
+        json={
+            "filename": audio_path.name,
+            "mimeType": "audio/wav",
+            "fileSize": size,
+            "title": title,
+            "recordedDate": recorded_date,
+            "transcript": transcript,
+            "extractionMethod": extraction_method,
+        },
+        timeout=cfg.prepare_timeout_seconds,
+    )
+    if not prep.ok:
+        raise UploadError(f"prepare failed: {prep.status_code} {prep.text}")
+    prep_body = prep.json()
+    upload_id = prep_body["uploadId"]
+    signed_put = prep_body["signedPutUrl"]
+
+    # 2. PUT bytes
+    with audio_path.open("rb") as f:
+        # Use a chunked upload so we can report progress.
+        sent = 0
+        def iter_chunks():
+            nonlocal sent
+            while True:
+                chunk = f.read(cfg.chunk_bytes)
+                if not chunk:
+                    break
+                sent += len(chunk)
+                if on_progress:
+                    on_progress(sent, size)
+                yield chunk
+        put = requests.put(
+            signed_put, data=iter_chunks(),
+            headers={"Content-Type": "audio/wav", "Content-Length": str(size)},
+            timeout=cfg.put_timeout_seconds,
+        )
+    if put.status_code not in (200, 201, 204):
+        raise UploadError(f"PUT to signed URL failed: {put.status_code} {put.text[:200]}")
+
+    # 3. finalize
+    fin = requests.post(
+        f"{codex_url.rstrip('/')}/api/upload/audio/finalize/{upload_id}",
+        headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
+        json={"fileSize": size, "transcript": transcript,
+              "extractionMethod": extraction_method},
+        timeout=cfg.finalize_timeout_seconds,
+    )
+    if not fin.ok:
+        raise UploadError(f"finalize failed: {fin.status_code} {fin.text}")
+
+    return UploadResult(
+        upload_id=upload_id,
+        codex_url=f"{codex_url.rstrip('/')}/dashboard/uploads/{upload_id}",
+        bytes_sent=size,
+    )
+```
+
+### 3. `pending_queue.py`
+
+```python
+from __future__ import annotations
+import json, os, platform, tempfile
+from dataclasses import dataclass, asdict
+from pathlib import Path
+
+
+def queue_dir() -> Path:
+    if platform.system() == "Darwin":
+        root = Path.home() / "Library" / "Application Support" / "Theseus" / "Dialectic"
+    elif platform.system() == "Windows":
+        root = Path(os.environ.get("APPDATA", Path.home())) / "Theseus" / "Dialectic"
+    else:
+        root = Path(os.environ.get("XDG_DATA_HOME", Path.home() / ".local" / "share")) / "theseus" / "dialectic"
+    root.mkdir(parents=True, exist_ok=True)
+    return root
+
+
+def queue_file() -> Path:
+    return queue_dir() / "pending_uploads.jsonl"
+
+
+@dataclass
+class PendingUpload:
+    audio_path: str
+    transcript: str
+    title: str
+    recorded_date: str
+    extraction_method: str
+    created_at: str
+
+def enqueue(p: PendingUpload) -> None:
+    # Atomic append: write the record to a temp file beside the queue file, then
+    # append-move to avoid a partial line if the process is killed mid-write.
+    line = json.dumps(asdict(p), ensure_ascii=False) + "\n"
+    with queue_file().open("a", encoding="utf-8") as f:
+        f.write(line)
+
+
+def drain(*, upload_fn) -> dict[str, int]:
+    """Called by a menu action or a retry helper. Processes each line; on success
+    removes it. On failure, leaves the rest intact for the next run."""
+    path = queue_file()
+    if not path.exists():
+        return {"processed": 0, "failed": 0}
+    lines = path.read_text(encoding="utf-8").splitlines()
+    remaining: list[str] = []
+    ok = fail = 0
+    for line in lines:
+        if not line.strip():
+            continue
+        try:
+            p = PendingUpload(**json.loads(line))
+            upload_fn(p)
+            ok += 1
+        except Exception as e:
+            remaining.append(line)
+            fail += 1
+    path.write_text("\n".join(remaining) + ("\n" if remaining else ""), encoding="utf-8")
+    return {"processed": ok, "failed": fail}
+```
+
+### 4. Pipeline replacement
+
+```python
+def _stage_upload(self):
+    self.stage_started.emit("upload")
+    from dialectic.codex_upload import upload_recording, UploadError
+    from dialectic.credentials import load_cloud_credentials
+    from dialectic.pending_queue import enqueue, PendingUpload
+    from datetime import datetime, timezone
+
+    creds = load_cloud_credentials()
+    if not creds:
+        self.stage_failed.emit("upload", "no Codex credentials configured")
+        return
+
+    audio_path = self.result.trimmed_audio or self.artifact.audio_path
+    try:
+        result = upload_recording(
+            audio_path=audio_path,
+            transcript=self.result.transcript or "",
+            title=self.result.title or "",
+            recorded_date=self.result.recorded_date or "",
+            codex_url=creds.url,
+            api_key=creds.api_key,
+            extraction_method=f"dialectic-{self.result.transcript_model or 'faster-whisper'}",
+            on_progress=lambda sent, total: self.stage_progress.emit(
+                "upload", int(sent * 100 / max(total, 1))
+            ),
+        )
+        self.result.upload_id = result.upload_id
+        self.result.codex_url = result.codex_url
+        self.stage_succeeded.emit("upload", result)
+    except UploadError as e:
+        # Queue for retry and tell the user.
+        enqueue(PendingUpload(
+            audio_path=str(audio_path),
+            transcript=self.result.transcript or "",
+            title=self.result.title or "",
+            recorded_date=self.result.recorded_date or "",
+            extraction_method=f"dialectic-{self.result.transcript_model or 'faster-whisper'}",
+            created_at=datetime.now(timezone.utc).isoformat(),
+        ))
+        self.stage_failed.emit("upload",
+            f"{e} — queued for retry (Dialectic menu → 'Retry pending uploads')")
+```
+
+Add `stage_progress = pyqtSignal(str, int)` to `RecordingPipeline`. Connect it in the modal to a QProgressBar in the upload stage block.
+
+### 5. Modal "Retry pending uploads" menu entry
+
+In the dashboard main menu, add:
+
+```python
+menu_dialectic.addAction("Retry pending uploads", self._on_retry_pending)
+def _on_retry_pending(self):
+    from dialectic.pending_queue import drain
+    from dialectic.codex_upload import upload_recording
+    from dialectic.credentials import load_cloud_credentials
+    creds = load_cloud_credentials()
+    def _uploader(p):
+        upload_recording(
+            audio_path=Path(p.audio_path), transcript=p.transcript, title=p.title,
+            recorded_date=p.recorded_date, codex_url=creds.url, api_key=creds.api_key,
+            extraction_method=p.extraction_method,
+        )
+    stats = drain(upload_fn=_uploader)
+    QMessageBox.information(self, "Retry done",
+                            f"Processed {stats['processed']}, failed {stats['failed']}")
+```
+
+### 6. Tests
+
+`tests/test_codex_upload.py` — mock `requests.post/put` with responses:
+- Happy path: prepare 200 + PUT 200 + finalize 200 → `UploadResult` with expected fields.
+- Prepare 401 → `UploadError("prepare failed: 401 ...")`.
+- PUT 500 → `UploadError("PUT to signed URL failed: 500 ...")`.
+- `on_progress` is called with increasing (sent, total) where `total == size`.
+- `extractionMethod` in the outgoing JSON starts with `"dialectic-"`.
+
+`tests/test_pending_queue.py`:
+- `enqueue` twice → two lines in the file.
+- `drain` with a passing uploader → both lines gone, stats `{processed: 2, failed: 0}`.
+- `drain` with a failing uploader → lines remain, stats `{processed: 0, failed: 2}`.
+- Mixed: one line gets uploaded; second raises. Remaining file has only the second line.
+
+## Verification
+
+```bash
+cd /Users/michaelquintin/Desktop/Theseus/dialectic
+pytest -q tests/test_codex_upload.py tests/test_pending_queue.py
+
+# Local end-to-end with the Codex dev server:
+cd /Users/michaelquintin/Desktop/Theseus/theseus-codex && npm run dev &
+# In another terminal:
+cd /Users/michaelquintin/Desktop/Theseus/dialectic && python -m dialectic
+# Click Record → speak 30s → Stop. Expect:
+#   - stage_progress updates the upload bar from 0% → 100%
+#   - the Codex dashboard shows a new Upload with textContent populated, status=awaiting_ingest
+#   - running `python -m noosphere ingest-from-codex --upload-id <new_id>` promotes it to Conclusions
+```
+
+## Prohibitions
+
+- Do NOT upload the untrimmed audio. The trimmed .wav is what Dialectic promises to upload.
+- Do NOT store the transcript in a separate Upload field ("transcript" column). Reuse `textContent`; that's the column `ingest-from-codex` reads. Divergence between `transcript` and `textContent` silently breaks ingest.
+- Do NOT require internet connectivity during recording. Everything through trim/transcribe/title must work offline; only this stage needs the network, and it gracefully queues on failure.
+- Do NOT store the `DIALECTIC_CLOUD_API_KEY` in a new location. Reuse `credentials.py`.
+- Do NOT skip the `pending_uploads.jsonl` queue even for "transient" errors — a flaky wifi moment is the common case.
+
+Do not proceed to prompt 11. Do not edit anything outside SCOPE.

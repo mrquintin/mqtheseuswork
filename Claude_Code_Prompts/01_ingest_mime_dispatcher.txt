@@ -1,0 +1,258 @@
+# Claude Code Prompt 1 of 11 — Binary-upload ingest fix: MIME-dispatched extraction in codex_bridge
+
+**Sequence:** prompt 1 of 11 (Wave 1 opener). All of Wave 1 depends on this one. Report back with: the exact MIME→handler routing table, the list of new exception types, and the output of `python -m noosphere ingest-from-codex --help` to confirm the CLI signature is unchanged.
+
+**Why this prompt exists.** A founder uploaded `The Purpose of The School: Theseus Discussion April 18, 2026.m4a` (194.8 MB) and the ingest failed with:
+
+> `Local ingest-from-codex failed: Upload c6b593815bac27aee838d9035 has no textContent. Binary (audio/PDF) uploads aren't supported by this command yet — use the Codex's Supabase Storage flow + a separate transcript command when that's wired up.`
+
+That error is raised by `noosphere/noosphere/codex_bridge.py` at `ingest_from_codex()`, lines 557-563. The fix is not to add a one-off audio branch; it is to introduce a typed dispatcher so every future binary format (audio, PDF, image, video, archive) has an extension point instead of another `raise RuntimeError`.
+
+This prompt creates the skeleton. The actual audio transcriber is prompt 02; the PDF extractor is prompt 03. This prompt stubs both with `NotImplementedError("implemented in prompt 0N")` so the signatures exist and downstream prompts are edits, not creations.
+
+**Before you start — read current state:**
+1. Read `noosphere/noosphere/codex_bridge.py` in full. Pay attention to the `Upload` columns the function reads (`id, organizationId, founderId, title, textContent, status, mimeType, originalName`) — note that `mimeType` is already selected, so MIME dispatch is free.
+2. Read `noosphere/noosphere/typer_cli.py` around line 207-270 (`ingest_from_codex_cmd`) — note the existing flags. Do NOT change the CLI signature.
+3. Read `theseus-codex/src/lib/ingest.ts` lines 60-79 (`transcribeAudio`) — note the existing OpenAI Whisper fallback on the TS side. Our Python side should use the same `OPENAI_API_KEY` env var to stay consistent.
+4. Read `theseus-codex/src/lib/supabaseStorage.ts` — note `getSignedAudioDownloadUrl` or equivalent. For audio/PDF uploads, the actual bytes live in Supabase Storage; only the `filePath` (an `s3://…`-style marker) is in the Upload row. The fix must resolve that path to bytes.
+5. Read `theseus-codex/src/app/api/upload/audio/prepare/route.ts` and `.../finalize/[id]/route.ts` — confirm the audio upload flow writes `filePath`, `audioUrl`, `mimeType`, and `fileSize` on completion, and leaves `textContent = null`.
+
+## Your task
+
+Replace the monolithic body of `ingest_from_codex()` with a MIME-dispatched pipeline:
+
+1. Select the Upload row (same SQL as today).
+2. Determine a typed `UploadContent` — `TextContent(str)` OR `BinaryContent(bytes, mime: str, filename: str, source: Literal["db","supabase","local"])`.
+3. Route to an extractor keyed on MIME family. Each extractor produces `ExtractedText(text: str, source_format: str, extraction_method: str, warnings: list[str])` or raises `ExtractionFailed`.
+4. From extracted text onward, the code path is unchanged (prompt separator → claim extraction → write Conclusions → AuditEvent).
+
+Three extractors this prompt must stub (concrete implementations in later prompts):
+
+| MIME pattern          | Handler                | Module                                          | Prompt |
+|-----------------------|------------------------|-------------------------------------------------|--------|
+| `text/*` + JSON/MD    | `extract_from_text`    | `noosphere/extractors/text_extractor.py`        | this   |
+| `audio/*`             | `extract_from_audio`   | `noosphere/extractors/audio_extractor.py`       | 02     |
+| `application/pdf`     | `extract_from_pdf`     | `noosphere/extractors/pdf_extractor.py`         | 03     |
+
+Anything else must raise `UnsupportedMimeType` with a clear message listing the currently-supported families and pointing to the config flag to suppress the error (we want opt-in, not silent drop).
+
+## Prerequisites
+
+- None. This is Wave 1 opener.
+
+## SCOPE
+
+- `noosphere/noosphere/codex_bridge.py`                                    MODIFY (refactor fetch→extract→continue)
+- `noosphere/noosphere/extractors/__init__.py`                             CREATE
+- `noosphere/noosphere/extractors/base.py`                                 CREATE (protocols + exceptions)
+- `noosphere/noosphere/extractors/text_extractor.py`                       CREATE (real implementation; trivial)
+- `noosphere/noosphere/extractors/audio_extractor.py`                      CREATE (stub — prompt 02 fills in)
+- `noosphere/noosphere/extractors/pdf_extractor.py`                        CREATE (stub — prompt 03 fills in)
+- `noosphere/noosphere/extractors/_content_fetcher.py`                     CREATE (resolves Upload.filePath → bytes)
+- `noosphere/tests/test_extractors_dispatch.py`                            CREATE
+- `noosphere/tests/test_extractors_text.py`                                CREATE
+- `noosphere/tests/fixtures/__init__.py`                                   CREATE
+- `noosphere/tests/fixtures/tiny.txt`                                      CREATE (5 lines of plausible founder prose)
+
+Do NOT modify the CLI signature. Do NOT change the Conclusion-writing portion of `ingest_from_codex`. Do NOT touch `theseus-codex` code in this prompt — the TS transcription fallback is fine where it is.
+
+## Step-by-step
+
+### 1. `extractors/base.py` — the contract
+
+```python
+from __future__ import annotations
+from dataclasses import dataclass, field
+from typing import Protocol, Literal
+
+BinarySource = Literal["db", "supabase", "local"]
+
+
+@dataclass(frozen=True)
+class TextContent:
+    text: str
+
+
+@dataclass(frozen=True)
+class BinaryContent:
+    data: bytes
+    mime: str
+    filename: str
+    source: BinarySource
+
+
+UploadContent = TextContent | BinaryContent
+
+
+@dataclass(frozen=True)
+class ExtractedText:
+    text: str
+    source_format: str          # e.g. "text/plain", "audio/mp4", "application/pdf"
+    extraction_method: str      # e.g. "passthrough", "faster-whisper", "pypdf"
+    warnings: list[str] = field(default_factory=list)
+
+
+class ExtractionFailed(Exception):
+    """Extractor ran but could not produce text (corrupt file, empty audio, etc.)."""
+
+
+class UnsupportedMimeType(Exception):
+    """No handler registered for this MIME family."""
+
+
+class Extractor(Protocol):
+    name: str
+    mime_prefixes: tuple[str, ...]  # e.g. ("audio/",), ("application/pdf",)
+
+    def extract(self, content: BinaryContent) -> ExtractedText: ...
+```
+
+### 2. `extractors/text_extractor.py` — passthrough + structured text handling
+
+Accepts `TextContent` (already-decoded) or `BinaryContent` with `text/*` / `application/json` / `application/xml` MIME. For binary, attempt UTF-8, fall back to latin-1 with a warning, last resort raise `ExtractionFailed`. JSON pretty-prints before returning (so claim extraction sees indented text it can tokenize). Markdown passes through unchanged.
+
+### 3. `extractors/audio_extractor.py` — stub
+
+```python
+from noosphere.extractors.base import Extractor, BinaryContent, ExtractedText
+
+class AudioExtractor:
+    name = "audio"
+    mime_prefixes = ("audio/",)
+
+    def extract(self, content: BinaryContent) -> ExtractedText:
+        raise NotImplementedError(
+            "audio extraction is implemented in Claude Code Prompt 02 "
+            "(noosphere/extractors/audio_extractor.py)."
+        )
+```
+
+Signature is fixed; prompt 02 replaces the body.
+
+### 4. `extractors/pdf_extractor.py` — stub with same shape (prompt 03 fills in).
+
+### 5. `extractors/_content_fetcher.py` — Upload.filePath → bytes
+
+Given an Upload row, return `UploadContent`:
+
+- If `textContent` is non-empty → `TextContent(textContent)`.
+- Else, read `filePath`:
+  - Starts with `s3://` or `supabase://` → pull from Supabase Storage using `SUPABASE_URL` + `SUPABASE_SERVICE_ROLE_KEY` + the bucket path. Use a signed download URL with a 10-minute TTL; stream to a temp file, return bytes with `source="supabase"`.
+  - Starts with `file://` or looks like an absolute local path that exists → read from disk, `source="local"`.
+  - Otherwise → raise `ExtractionFailed("Upload {id}: filePath '{path}' cannot be resolved; expected supabase:// or local absolute path.")`.
+- Size guard: reject > `NOOSPHERE_MAX_UPLOAD_BYTES` (default 500 MiB; env overridable) — large enough for the 194.8 MB m4a that triggered this work, small enough to reject accidental 4 GB video drops.
+
+No streaming into the extractor — the extractors receive `bytes` so they are trivially testable. If a 500 MiB upload becomes common, a later prompt can add streaming. Ship the simple thing first.
+
+### 6. `extractors/__init__.py` — registry
+
+```python
+from noosphere.extractors.base import (
+    ExtractedText, Extractor, ExtractionFailed, UnsupportedMimeType,
+    BinaryContent, TextContent, UploadContent,
+)
+from noosphere.extractors.text_extractor import TextExtractor
+from noosphere.extractors.audio_extractor import AudioExtractor
+from noosphere.extractors.pdf_extractor import PdfExtractor
+
+DEFAULT_EXTRACTORS: tuple[Extractor, ...] = (
+    TextExtractor(),
+    AudioExtractor(),
+    PdfExtractor(),
+)
+
+def dispatch(content, extractors=DEFAULT_EXTRACTORS) -> ExtractedText:
+    """Find the first extractor whose mime_prefixes match content.mime (BinaryContent)
+    or return TextContent unchanged wrapped in ExtractedText."""
+    from noosphere.extractors.base import TextContent, BinaryContent
+    if isinstance(content, TextContent):
+        return ExtractedText(text=content.text, source_format="text/plain",
+                             extraction_method="passthrough")
+    for ex in extractors:
+        if any(content.mime.startswith(p) for p in ex.mime_prefixes):
+            return ex.extract(content)
+    raise UnsupportedMimeType(
+        f"no extractor for mime={content.mime!r}; "
+        f"supported families: {', '.join(p for ex in extractors for p in ex.mime_prefixes)}"
+    )
+```
+
+### 7. Refactor `ingest_from_codex` in `codex_bridge.py`
+
+Replace the hard error at lines 557-563 with:
+
+```python
+from noosphere.extractors import dispatch, ExtractionFailed, UnsupportedMimeType
+from noosphere.extractors._content_fetcher import fetch_upload_content
+
+# after the row fetch:
+try:
+    content = fetch_upload_content(row, conn)
+    extracted = dispatch(content)
+    text = extracted.text
+    print(
+        f"extraction method={extracted.extraction_method} "
+        f"source_format={extracted.source_format} "
+        f"warnings={len(extracted.warnings)}"
+    )
+    for w in extracted.warnings:
+        print(f"  warning: {w}")
+except UnsupportedMimeType as e:
+    # mark the upload failed with a structured reason, then re-raise
+    if not dry_run:
+        cur.execute(
+            'UPDATE "Upload" SET status=%s, "errorMessage"=%s WHERE id=%s',
+            ("failed", f"unsupported_mime: {e}", upload_id),
+        )
+        conn.commit()
+    raise
+except ExtractionFailed as e:
+    if not dry_run:
+        cur.execute(
+            'UPDATE "Upload" SET status=%s, "errorMessage"=%s WHERE id=%s',
+            ("failed", f"extraction_failed: {e}", upload_id),
+        )
+        conn.commit()
+    raise
+```
+
+Everything after `text = …` is unchanged — prompt_separator, claim extraction, Conclusion writing, AuditEvent.
+
+**Note on the `errorMessage` column.** Check the Prisma schema; if it does not exist, add the column in a migration as part of this prompt (a trivial `ALTER TABLE "Upload" ADD COLUMN "errorMessage" TEXT`). The dashboard UI in prompt 04 will read it. Name it consistently with the rest of the Codex schema (camelCase).
+
+### 8. Tests
+
+`tests/test_extractors_dispatch.py`:
+- `dispatch(TextContent("hello"))` → `ExtractedText(text="hello", extraction_method="passthrough")`
+- `dispatch(BinaryContent(b"...", "application/zip", ..., "local"))` → `UnsupportedMimeType`
+- `dispatch(BinaryContent(b"...", "audio/mp4", ..., "local"))` → `NotImplementedError` (stub behavior)
+- `dispatch(BinaryContent(b"...", "application/pdf", ..., "local"))` → `NotImplementedError`
+
+`tests/test_extractors_text.py`:
+- UTF-8 bytes → passthrough
+- latin-1 bytes with non-ASCII → decoded, one warning
+- Bytes that aren't valid UTF-8 or latin-1 (generate with `os.urandom(32)`) → `ExtractionFailed`
+- JSON bytes → pretty-printed text
+
+## Verification
+
+```bash
+cd /Users/michaelquintin/Desktop/Theseus
+pytest -q noosphere/tests/test_extractors_dispatch.py noosphere/tests/test_extractors_text.py
+
+# CLI signature unchanged:
+python -m noosphere ingest-from-codex --help
+
+# Dry-run against a text upload should behave identically to before this prompt:
+python -m noosphere ingest-from-codex --upload-id <some_text_upload_id> --dry-run
+```
+
+## Prohibitions
+
+- Do NOT implement audio or PDF extraction in this prompt — that's prompts 02 and 03. Leave the stubs raising `NotImplementedError`.
+- Do NOT stream bytes into extractors. Receive `bytes`, return `str`. If a future upload exceeds the size cap, the fix is the cap, not architectural complexity today.
+- Do NOT silently skip unsupported MIMEs. Every unsupported type produces a structured error and marks the Upload `failed` with a reason.
+- Do NOT rename `ingest_from_codex` or change its parameter names. The CLI and any external caller must continue to work.
+- Do NOT remove the `prompt_separator` block, the `use_llm` branch, or any existing audit logging. Only the fetch-and-validate-text section is replaced.
+
+Do not proceed to prompts 02-11. Do not edit anything outside SCOPE.

@@ -1,0 +1,225 @@
+# Claude Code Prompt 4 of 11 — Codex dashboard: surface ingest processing state, error messages, and a retry button
+
+**Sequence:** prompt 4 of 11 (Wave 1). Depends on 01 (adds `Upload.errorMessage` column), 02, 03 (extraction methods). Report back with: the new Upload statuses actually observed in the DB after running the full pipeline on a mixed batch, the retry button's effect on an already-failed upload, and any UI regressions on the existing text-upload happy path.
+
+**Before you start — read current state:**
+1. Read `theseus-codex/src/app/dashboard/page.tsx` (or wherever the Codex founder dashboard lives). Find where uploads are listed. Note the current status badges.
+2. Read `theseus-codex/prisma/schema.prisma` — confirm the `Upload` model. After prompt 01, `errorMessage: String?` should exist. If it does not, this prompt adds it as a migration (prompt 01 should have added it; be forgiving).
+3. Read `theseus-codex/src/app/api/upload/[id]/route.ts` — confirm there is already a GET (for one upload) and DELETE. We will add POST for retry.
+4. Read `theseus-codex/src/app/api/upload/route.ts` — the existing batch list endpoint. Confirm it returns `status`, `errorMessage`, `mimeType`, `extractionMethod` (adding the last one if missing).
+
+## Your task
+
+Extend the Codex dashboard so founders can see, at a glance, what the ingest pipeline is doing to their uploads and what went wrong when something failed. Concretely:
+
+1. Add new Upload statuses and a status timeline. Current statuses: `pending | processing | ingested | failed`. Add: `extracting` (between `pending` and `processing`) and `awaiting_ingest` (after `extracting`, before `processing` starts claim extraction).
+2. Display the status as a colored, hover-explained badge next to each upload row.
+3. When status is `failed`, show the `errorMessage` inline (truncated; full on click).
+4. When status is `ingested`, show `extractionMethod` in small muted text — e.g. "transcribed with faster-whisper" or "extracted with pypdf + [page N] markers".
+5. Add a "Retry" button next to failed uploads. Clicking it resets status to `pending` and enqueues the upload for re-processing.
+
+This is the feedback surface that closes the loop for a founder who uploads a file and wants to know why nothing has happened.
+
+## Prerequisites
+
+- Prompts 01, 02, 03 applied.
+
+## SCOPE
+
+- `theseus-codex/prisma/schema.prisma`                                     MODIFY (add `extractionMethod String?`; `errorMessage` should exist from 01)
+- `theseus-codex/prisma/migrations/<ts>_upload_extraction_fields/migration.sql`  CREATE
+- `theseus-codex/src/lib/uploadStatus.ts`                                  CREATE (status enum + label + color map)
+- `theseus-codex/src/components/UploadStatusBadge.tsx`                     CREATE
+- `theseus-codex/src/components/UploadRowDetail.tsx`                       CREATE (collapsible error + retry)
+- `theseus-codex/src/app/dashboard/page.tsx`                               MODIFY (use the badge + detail)
+- `theseus-codex/src/app/api/upload/route.ts`                              MODIFY (include extractionMethod in the list response)
+- `theseus-codex/src/app/api/upload/[id]/retry/route.ts`                   CREATE (POST endpoint)
+- `noosphere/noosphere/codex_bridge.py`                                    MODIFY (write `extractionMethod` field on success)
+- `theseus-codex/src/__tests__/UploadStatusBadge.test.tsx`                 CREATE
+- `theseus-codex/src/__tests__/UploadRowDetail.test.tsx`                   CREATE
+
+Do NOT change the dashboard layout or existing list components beyond swapping in the new badge + detail row. Keep visual diff tight.
+
+## Step-by-step
+
+### 1. Prisma schema extension
+
+```prisma
+model Upload {
+  // ... existing fields ...
+  errorMessage      String?   // set by noosphere when extraction/ingest fails
+  extractionMethod  String?   // "passthrough" | "faster-whisper" | "openai-whisper-1" | "pypdf" | "ocrmypdf"
+  // ... rest ...
+}
+```
+
+Run `npx prisma migrate dev --name upload_extraction_fields` in the theseus-codex directory as part of the prompt. The migration SQL goes to `prisma/migrations/…/migration.sql` with the new columns and an index on `status` if one isn't already there (the dashboard filters by status constantly).
+
+### 2. `uploadStatus.ts` — shared status vocabulary
+
+```ts
+export const UPLOAD_STATUSES = [
+  "pending", "extracting", "awaiting_ingest", "processing", "ingested", "failed",
+] as const;
+export type UploadStatus = typeof UPLOAD_STATUSES[number];
+
+export const STATUS_LABEL: Record<UploadStatus, string> = {
+  pending: "queued",
+  extracting: "extracting text",
+  awaiting_ingest: "awaiting ingest",
+  processing: "extracting claims",
+  ingested: "ingested",
+  failed: "failed",
+};
+
+export const STATUS_COLOR: Record<UploadStatus, string> = {
+  pending:          "var(--muted)",
+  extracting:       "#c9944a",       // amber — active but not terminal
+  awaiting_ingest:  "#c9944a",
+  processing:       "#c9944a",
+  ingested:         "#497a3d",       // green
+  failed:           "#b33a2a",       // red
+};
+
+export const STATUS_TOOLTIP: Record<UploadStatus, string> = {
+  pending:         "Waiting for the local noosphere runner to pick this up.",
+  extracting:      "Transcribing audio or extracting PDF text. No LLM calls yet.",
+  awaiting_ingest: "Text is ready; waiting for claim extraction to start.",
+  processing:      "Claim extraction in progress (may call the LLM).",
+  ingested:        "Conclusions have been written to your Codex.",
+  failed:          "Processing failed. See the error detail and retry.",
+};
+```
+
+### 3. `UploadStatusBadge.tsx`
+
+Small pill with background = `STATUS_COLOR[status]` at 20% opacity, foreground = the color at full opacity, label from `STATUS_LABEL`. On hover, a title tooltip shows `STATUS_TOOLTIP`. For non-terminal statuses (`extracting`, `awaiting_ingest`, `processing`), add a 6px dot with the `currents-pulse` animation (reuse the CSS already in the repo) so the founder knows the pipeline is alive.
+
+### 4. `UploadRowDetail.tsx` — failure detail + retry
+
+```tsx
+export function UploadRowDetail({ upload }: { upload: UploadListItem }) {
+  if (upload.status === "ingested" && upload.extractionMethod) {
+    return (
+      <div className="muted" style={{ fontSize: "0.78rem" }}>
+        {humanMethod(upload.extractionMethod)}
+      </div>
+    );
+  }
+  if (upload.status !== "failed") return null;
+  return (
+    <details style={{ fontSize: "0.82rem", marginTop: "0.25rem" }}>
+      <summary style={{ cursor: "pointer", color: "var(--error)" }}>
+        {truncate(upload.errorMessage ?? "unknown error", 140)}
+      </summary>
+      <pre style={{ whiteSpace: "pre-wrap", marginTop: "0.35rem",
+                    padding: "0.5rem", background: "#fdf7f6",
+                    border: "1px solid #e5b6ae", borderRadius: 2 }}>
+        {upload.errorMessage}
+      </pre>
+      <RetryButton uploadId={upload.id} />
+    </details>
+  );
+}
+
+function humanMethod(m: string): string {
+  const map: Record<string, string> = {
+    "passthrough": "stored as text",
+    "faster-whisper": "transcribed locally (faster-whisper)",
+    "openai-whisper-1": "transcribed via OpenAI",
+    "pypdf": "extracted with pypdf",
+    "ocrmypdf": "OCR'd with ocrmypdf",
+  };
+  return map[m] ?? `extracted via ${m}`;
+}
+```
+
+### 5. `RetryButton`
+
+A small client component that POSTs to `/api/upload/[id]/retry`. On success, optimistically updates the visible status to `pending` and triggers a list refetch. On failure, surfaces the error inline.
+
+### 6. `api/upload/[id]/retry/route.ts`
+
+```ts
+export async function POST(_req: NextRequest, { params }: { params: { id: string } }) {
+  const session = await getServerSession(authOptions);
+  if (!session?.user?.organizationId) return NextResponse.json({ error: "auth" }, { status: 401 });
+
+  const upload = await prisma.upload.findUnique({ where: { id: params.id } });
+  if (!upload) return NextResponse.json({ error: "not_found" }, { status: 404 });
+  if (upload.organizationId !== session.user.organizationId) {
+    return NextResponse.json({ error: "forbidden" }, { status: 403 });
+  }
+  if (upload.status !== "failed") {
+    return NextResponse.json(
+      { error: "only failed uploads can be retried", currentStatus: upload.status },
+      { status: 409 },
+    );
+  }
+
+  await prisma.upload.update({
+    where: { id: params.id },
+    data: { status: "pending", errorMessage: null, extractionMethod: null },
+  });
+  return NextResponse.json({ ok: true });
+}
+```
+
+### 7. Noosphere-side: write `extractionMethod` on success
+
+In `codex_bridge.py`, after a successful extraction:
+
+```python
+cur.execute(
+    'UPDATE "Upload" SET "extractionMethod" = %s WHERE id = %s',
+    (extracted.extraction_method, upload_id),
+)
+```
+
+and on the intermediate states:
+
+- After fetch, before extraction: `SET status = 'extracting'`
+- After extraction, before claim extraction: `SET status = 'awaiting_ingest'`
+- Entering claim extraction: `SET status = 'processing'`  (this matches today's code)
+- Success: `SET status = 'ingested', "extractionMethod" = ...`
+
+### 8. Dashboard integration
+
+In `dashboard/page.tsx`, replace the inline status text with `<UploadStatusBadge status={upload.status} />` and add `<UploadRowDetail upload={upload} />` below the title row. Keep everything else visually identical.
+
+### 9. Tests
+
+`__tests__/UploadStatusBadge.test.tsx`:
+- Renders label for each status.
+- Adds pulse animation class only for non-terminal statuses.
+- Tooltip text matches `STATUS_TOOLTIP`.
+
+`__tests__/UploadRowDetail.test.tsx`:
+- Shows `extractionMethod` as humanized string when `status='ingested'`.
+- Shows `errorMessage` in details when `status='failed'`.
+- Retry button POSTs to correct URL and optimistically updates status.
+
+## Verification
+
+```bash
+cd /Users/michaelquintin/Desktop/Theseus/theseus-codex
+npx prisma migrate dev --name upload_extraction_fields
+npm test
+
+# Manual smoke:
+npm run dev
+# 1. Upload a .txt — should transition pending → extracting → awaiting_ingest → processing → ingested.
+# 2. Upload the m4a that triggered Wave 1 — after the local runner processes it, should land ingested
+#    with extractionMethod="faster-whisper" shown in the detail row.
+# 3. Force a failure (e.g. upload a zip) — status becomes failed, errorMessage shows "unsupported_mime: ...",
+#    Retry button posts and status resets to pending.
+```
+
+## Prohibitions
+
+- Do NOT poll the dashboard's status column more often than once per 8 seconds. The noosphere runner works in multi-second cycles; faster polling is noise.
+- Do NOT show the raw stack trace of extraction failures to the founder. `errorMessage` as set by codex_bridge is already human-scoped. Raw tracebacks go to the noosphere runner's logs.
+- Do NOT allow retry on statuses other than `failed`. Retrying `processing` could race with the runner and double-write Conclusions.
+- Do NOT rename any existing status. `pending`, `processing`, `ingested`, `failed` are load-bearing strings in every prior migration.
+
+Do not proceed to prompts 05-11. Do not edit anything outside SCOPE.
