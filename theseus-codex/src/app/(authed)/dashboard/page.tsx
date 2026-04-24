@@ -4,6 +4,8 @@ import ConfidenceTierSigil from "@/components/ConfidenceTierSigil";
 import SculptureBackdrop from "@/components/SculptureBackdrop";
 import AutoProcessStatusBanner from "@/components/AutoProcessStatusBanner";
 import PublishToggle from "@/components/PublishToggle";
+import UploadStatusBadge from "@/components/UploadStatusBadge";
+import UploadRowDetail from "@/components/UploadRowDetail";
 import { db } from "@/lib/db";
 import { fetchDecayRecords } from "@/lib/api/round3";
 import { requireTenantContext } from "@/lib/tenant";
@@ -27,34 +29,47 @@ export default async function DashboardPage() {
     return null;
   }
 
-  // The main "Uploads" panel only shows uploads the pipeline finished
-  // processing successfully. Failed / pending / processing uploads are
-  // still useful — founders need to know they exist and can retry them
-  // — but they don't belong on the landing page alongside the firm's
-  // canon. We surface them via a compact count banner instead.
+  // The "Uploads" panel now surfaces every recent upload regardless
+  // of status — this is the feedback surface that tells a founder
+  // what the pipeline is doing to their file. The status badge is
+  // how they tell one state from another at a glance; the detail row
+  // shows extractionMethod on success and an expandable error +
+  // retry button on failure (see UploadRowDetail).
   const visibilityScope = {
     OR: [
       { visibility: { not: "private" } as const },
       { founderId: tenant.founderId },
     ],
   };
-  const [ingestedUploads, pendingUploads, failedUploads] = await Promise.all([
+  const [recentUploads, pendingUploads, failedUploads] = await Promise.all([
     db.upload.findMany({
       where: {
         organizationId: tenant.organizationId,
         deletedAt: null,
-        status: "ingested",
         ...visibilityScope,
       },
       orderBy: { createdAt: "desc" },
       take: 12,
-      include: { founder: { select: { name: true } } },
+      select: {
+        id: true,
+        title: true,
+        status: true,
+        errorMessage: true,
+        extractionMethod: true,
+        visibility: true,
+        publishedAt: true,
+        slug: true,
+        createdAt: true,
+        founder: { select: { name: true } },
+      },
     }),
     db.upload.count({
       where: {
         organizationId: tenant.organizationId,
         deletedAt: null,
-        status: { in: ["pending", "processing", "queued_offline"] },
+        status: {
+          in: ["pending", "extracting", "awaiting_ingest", "processing", "queued_offline"],
+        },
         ...visibilityScope,
       },
     }),
@@ -446,16 +461,16 @@ export default async function DashboardPage() {
         >
           <section
             className="ascii-frame"
-            data-label={`UPLOADS · ${toRoman(ingestedUploads.length) || "0"}`}
+            data-label={`UPLOADS · ${toRoman(recentUploads.length) || "0"}`}
           >
             <div style={{ display: "flex", flexDirection: "column", gap: "0.5rem" }}>
-              {ingestedUploads.length === 0 ? (
+              {recentUploads.length === 0 ? (
                 <LatinEmpty
                   latin="Scriba exspectat."
                   english="The scribe awaits — nothing ingested yet."
                 />
               ) : (
-                ingestedUploads.map((u) => (
+                recentUploads.map((u) => (
                   <div key={u.id} className="portal-card" style={{ padding: "0.9rem 1rem" }}>
                     <div
                       style={{
@@ -465,13 +480,14 @@ export default async function DashboardPage() {
                         alignItems: "flex-start",
                       }}
                     >
-                      <div style={{ minWidth: 0 }}>
+                      <div style={{ minWidth: 0, flex: 1 }}>
                         <div
                           style={{
                             display: "flex",
                             alignItems: "center",
                             gap: "0.45rem",
                             overflow: "hidden",
+                            flexWrap: "wrap",
                           }}
                         >
                           <span
@@ -481,10 +497,12 @@ export default async function DashboardPage() {
                               overflow: "hidden",
                               textOverflow: "ellipsis",
                               whiteSpace: "nowrap",
+                              minWidth: 0,
                             }}
                           >
                             {u.title}
                           </span>
+                          <UploadStatusBadge status={u.status} />
                           {u.visibility === "private" ? (
                             <span
                               className="mono"
@@ -503,11 +521,6 @@ export default async function DashboardPage() {
                               Private
                             </span>
                           ) : u.visibility === "semi-private" ? (
-                            // Matches the /library badge — semi-private
-                            // uploads are firm-readable but blocked
-                            // from the public blog. Same visual weight
-                            // as Private so the constraint is obvious
-                            // at a glance.
                             <span
                               className="mono"
                               title="Semi-private — firm sees this; public blog never does. Noosphere still analyses it."
@@ -536,6 +549,7 @@ export default async function DashboardPage() {
                         >
                           {u.founder.name} · {new Date(u.createdAt).toLocaleDateString()}
                         </div>
+                        <UploadRowDetail upload={u} />
                       </div>
                       <div
                         style={{
@@ -547,11 +561,13 @@ export default async function DashboardPage() {
                           justifyContent: "flex-end",
                         }}
                       >
-                        <PublishToggle
-                          uploadId={u.id}
-                          initialPublishedAt={u.publishedAt}
-                          initialSlug={u.slug}
-                        />
+                        {u.status === "ingested" ? (
+                          <PublishToggle
+                            uploadId={u.id}
+                            initialPublishedAt={u.publishedAt}
+                            initialSlug={u.slug}
+                          />
+                        ) : null}
                       </div>
                     </div>
                   </div>

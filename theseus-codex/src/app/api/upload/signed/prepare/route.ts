@@ -123,6 +123,9 @@ export async function POST(req: Request) {
       filename?: string;
       mimeType?: string;
       size?: number;
+      // Dialectic (and anything scripted) historically used `fileSize`
+      // for the byte count. Accept either so old callers keep working.
+      fileSize?: number;
       title?: string;
       description?: string;
       sourceType?: string;
@@ -131,10 +134,18 @@ export async function POST(req: Request) {
       blogExcerpt?: string;
       authorBio?: string;
       audioDurationSec?: number;
+      // Dialectic pre-computes a transcript before uploading the
+      // trimmed .wav, so the Codex can skip Whisper entirely and jump
+      // straight to claim extraction. When present, `textContent` is
+      // seeded at prepare-time and `status` starts at `awaiting_ingest`
+      // — finalize just persists the audio file reference on top.
+      transcript?: string;
+      extractionMethod?: string;
+      recordedDate?: string;
     };
 
     const filename = (body.filename || "").trim();
-    const size = Number(body.size || 0);
+    const size = Number(body.size || body.fileSize || 0);
     const mimeType = (body.mimeType || "").toLowerCase();
 
     if (!filename) {
@@ -325,6 +336,25 @@ export async function POST(req: Request) {
         ? Math.max(0, Math.floor(body.audioDurationSec))
         : null;
 
+    // Dialectic pre-attaches the transcript. When present, we seed
+    // `textContent` now so `ingest-from-codex` can skip Whisper and run
+    // only claim extraction; the status jumps straight to
+    // `awaiting_ingest` so the dashboard reflects that extraction is
+    // already done before the bytes even land.
+    const preAttachedTranscript =
+      typeof body.transcript === "string" && body.transcript.trim().length > 0
+        ? sanitizeAndCap(body.transcript, 2_000_000)
+        : null;
+    const preAttachedExtraction =
+      typeof body.extractionMethod === "string" && body.extractionMethod.trim()
+        ? sanitizeText(body.extractionMethod).slice(0, 64)
+        : null;
+    const resolvedSourceType = sanitizeText(
+      body.sourceType ||
+        (preAttachedTranscript ? "transcript" : isAudio ? "audio" : "written"),
+    ).slice(0, 64);
+    const initialStatus = preAttachedTranscript ? "awaiting_ingest" : "pending";
+
     const upload = await db.upload.create({
       data: {
         id: uploadId,
@@ -332,19 +362,22 @@ export async function POST(req: Request) {
         founderId: founder.id,
         title: safeTitle,
         description: safeDescription,
-        sourceType:
-          sanitizeText(body.sourceType || (isAudio ? "audio" : "written")).slice(
-            0,
-            64,
-          ),
+        sourceType: resolvedSourceType,
         originalName: safeOriginalName,
         mimeType: safeMime,
         filePath: `storage:${objectPath}`,
         fileSize: size,
-        status: "pending",
+        textContent: preAttachedTranscript,
+        extractionMethod: preAttachedExtraction,
+        status: initialStatus,
         processLog: sanitizeAndCap(
           `— Direct upload reserved (${(size / 1024 / 1024).toFixed(1)} MB) —\n` +
-            `— Awaiting client PUT to Supabase Storage —\n`,
+            `— Awaiting client PUT to Supabase Storage —\n` +
+            (preAttachedTranscript
+              ? `— Transcript pre-attached (${preAttachedTranscript.length} chars, ` +
+                `method=${preAttachedExtraction ?? "unspecified"}); ` +
+                `server-side extraction will be skipped —\n`
+              : ""),
           8_000,
         ),
         visibility,

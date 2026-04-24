@@ -81,14 +81,14 @@ model Founder {
   uploads                    Upload[]
   auditEvents                AuditEvent[]
   deletionRequests           DeletionRequest[]
-  attributedConclusions      Conclusion[]         @relation("ConclusionFounder")
+  attributedConclusions      Conclusion[]                @relation("ConclusionFounder")
   researchSuggestions        ResearchSuggestion[]
-  reviewResolutions          ReviewItem[]         @relation("ReviewResolver")
-  publicationReviews         PublicationReview[]  @relation("PublicationReviewer")
+  reviewResolutions          ReviewItem[]                @relation("ReviewResolver")
+  publicationReviews         PublicationReview[]         @relation("PublicationReviewer")
   apiKeys                    ApiKey[]
   conclusionDeletionRequests ConclusionDeletionRequest[]
   dashboardDismissals        DashboardDismissal[]
-  resolvedContradictions     Contradiction[]      @relation("ContradictionResolver")
+  resolvedContradictions     Contradiction[]             @relation("ContradictionResolver")
 
   @@unique([organizationId, email])
   @@unique([organizationId, username])
@@ -118,23 +118,36 @@ model Upload {
   organizationId String
   founderId      String
 
-  title          String
-  description    String?
-  sourceType     String   @default("written") // written | annotation | external | transcript
-  originalName   String
-  mimeType       String
-  filePath       String
-  fileSize       Int
-  textContent    String?
-  status         String   @default("pending") // pending | processing | ingested | failed
-  processLog     String   @default("") // streamed CLI stdout/stderr
-  claimsCount    Int?
-  methodCount    Int?
-  substCount     Int?
-  principleCount Int?
-  errorMessage   String?
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
+  title            String
+  description      String?
+  sourceType       String   @default("written") // written | annotation | external | transcript
+  originalName     String
+  mimeType         String
+  filePath         String
+  fileSize         Int
+  textContent      String?
+  // Status ladder (see src/lib/uploadStatus.ts for the canonical
+  // vocabulary + UI labels). `pending | processing | ingested | failed`
+  // are load-bearing strings from the init migration; `extracting` and
+  // `awaiting_ingest` were added alongside the Wave-1 audio/PDF
+  // extractors so founders can see which stage of the pipeline a row is
+  // in (Whisper/pypdf vs. claim extraction) instead of a single opaque
+  // "processing".
+  status           String   @default("pending") // pending | extracting | awaiting_ingest | processing | ingested | failed
+  processLog       String   @default("") // streamed CLI stdout/stderr
+  claimsCount      Int?
+  methodCount      Int?
+  substCount       Int?
+  principleCount   Int?
+  errorMessage     String?
+  // How the text was obtained for this upload, set by the noosphere
+  // extractor dispatcher on success. Free-form string — e.g.
+  // "passthrough", "faster-whisper", "openai-whisper-1", "pypdf",
+  // "ocrmypdf". Rendered in the dashboard detail row so the founder
+  // knows whether a transcript/PDF extract was reliable.
+  extractionMethod String?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
 
   // ── Public blog fields ─────────────────────────────────────────────
   // An Upload becomes a public blog post when `publishedAt IS NOT NULL`.
@@ -235,6 +248,10 @@ model Upload {
   @@index([publishedAt])
   @@index([deletedAt])
   @@index([visibility])
+  // Dashboard filters by status constantly (ingested rows on the main
+  // panel, failed/pending counts on the banner). A plain btree index
+  // is enough — the org-scope is already covered by organizationId.
+  @@index([status])
 }
 
 // ── DeletionRequest ───────────────────────────────────────────────────
@@ -312,8 +329,8 @@ model Conclusion {
   embeddingJson String?
 
   attributedFounderId String?
-  attributedFounder   Founder?            @relation("ConclusionFounder", fields: [attributedFounderId], references: [id])
-  organization        Organization        @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  attributedFounder   Founder?                    @relation("ConclusionFounder", fields: [attributedFounderId], references: [id])
+  organization        Organization                @relation(fields: [organizationId], references: [id], onDelete: Restrict)
   publicationReviews  PublicationReview[]
   sources             ConclusionSource[]
   deletionRequests    ConclusionDeletionRequest[]

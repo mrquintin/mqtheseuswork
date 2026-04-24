@@ -40,7 +40,7 @@ except ImportError:  # pragma: no cover
     pg = None  # type: ignore[misc, assignment]
     qasync = None  # type: ignore[misc, assignment]
 from PyQt6.QtCore import Qt, QTimer, pyqtSignal, QObject
-from PyQt6.QtGui import QFont, QColor, QPalette, QIcon, QPainter, QPen, QBrush
+from PyQt6.QtGui import QAction, QFont, QColor, QPalette, QIcon, QPainter, QPen, QBrush
 from PyQt6.QtWidgets import (
     QApplication,
     QCheckBox,
@@ -60,6 +60,7 @@ from PyQt6.QtWidgets import (
     QSizePolicy,
     QGraphicsDropShadowEffect,
     QPlainTextEdit,
+    QToolBar,
     QToolButton,
 )
 
@@ -357,6 +358,23 @@ class DialecticDashboard(QMainWindow):
         self.setWindowTitle(ui.window_title)
         self.setMinimumSize(ui.window_width, ui.window_height)
 
+        # Toolbar — host for the "Record new session" action. Kept as a
+        # separate surface from the live-analysis RecordButton below, since
+        # the two flows are different: live-analysis records-as-you-speak;
+        # the toolbar Record captures a whole session and routes it to
+        # Codex through the RecordingPipeline.
+        self.toolbar = QToolBar("Main", self)
+        self.toolbar.setMovable(False)
+        self.addToolBar(Qt.ToolBarArea.TopToolBarArea, self.toolbar)
+
+        self.record_action = QAction(
+            QIcon.fromTheme("audio-input-microphone"), "Record", self
+        )
+        self.record_action.setToolTip("Record a new session (Ctrl+R)")
+        self.record_action.setShortcut("Ctrl+R")
+        self.record_action.triggered.connect(self._on_record_clicked)
+        self.toolbar.addAction(self.record_action)
+
         # Central widget
         central = QWidget()
         self.setCentralWidget(central)
@@ -516,6 +534,18 @@ class DialecticDashboard(QMainWindow):
             self._stop_recording()
         else:
             self._start_recording()
+
+    def _on_record_clicked(self):
+        # Lock the dashboard while the modal is open so a stray click
+        # can't start a live-analysis session on top of the recording.
+        from .recording_modal import RecordingModal
+
+        self.setEnabled(False)
+        try:
+            modal = RecordingModal(self, audio_config=self.cfg.audio)
+            modal.exec()
+        finally:
+            self.setEnabled(True)
 
     def _run_interlocutor_consent_dialog(self) -> tuple[InterlocutorMode, bool, bool]:
         d = QDialog(self)

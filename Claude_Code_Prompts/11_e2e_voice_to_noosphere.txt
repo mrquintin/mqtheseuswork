@@ -1,0 +1,235 @@
+# Claude Code Prompt 11 of 11 — End-to-end: voice recording → Noosphere Conclusions, plus the full cross-wave regression
+
+**Sequence:** prompt 11 of 11 (Wave 2 closer; also closes the whole round). Depends on every prior prompt (01-10). Report back with: the full e2e walk-through output (see "Verification"), any flaky step, and whether invariant #4 below is properly enforced.
+
+**Before you start — read current state:**
+1. Read `dialectic/dialectic/recording_pipeline.py` after prompts 06-10 — confirm all four stages are real implementations.
+2. Read `noosphere/noosphere/codex_bridge.py` after prompts 01+04 — confirm the MIME dispatcher path and status transitions are in place.
+3. Read `theseus-codex/src/app/api/upload/audio/prepare/route.ts` — confirm prompt 10's changes landed (accepts transcript + extractionMethod).
+
+## Your task
+
+Ship the final regression + e2e suite that protects the whole round:
+
+1. **E2E: Dialectic → Codex → Noosphere.** A programmatic test that drives the pipeline as if the user clicked Record (without the UI), produces a recording, trims+transcribes+titles+uploads, then runs `ingest-from-codex` on the resulting Upload id, and asserts Conclusions were written with the transcript text.
+2. **Regression: the original m4a.** Re-exercise the specific bug: a direct upload with `textContent=NULL` and `mimeType=audio/mp4`, large file, goes through `ingest-from-codex` and produces Conclusions. This is the canary for Wave 1.
+3. **Five invariants** listed in the README: no-op stub modal (01-06 only) must still launch without error; pipeline stages run in order; upload is always trimmed; title is never empty; offline upload queues. Each gets a test.
+4. **Release checklist** — a markdown file listing everything an operator should verify before cutting a release with these changes.
+
+## Prerequisites
+
+- Prompts 01-10 applied.
+
+## SCOPE
+
+- `tests/e2e/test_dialectic_to_noosphere.py`                               CREATE (top-level e2e)
+- `tests/e2e/test_m4a_regression.py`                                       CREATE (the original-bug repro)
+- `tests/e2e/conftest.py`                                                  CREATE (shared fixtures)
+- `tests/e2e/fixtures/seed_recording.wav`                                  CREATE (30s synthesized meeting fixture)
+- `dialectic/tests/test_pipeline_invariants.py`                            CREATE (five invariants)
+- `Claude_Code_Prompts/RELEASE_CHECKLIST.md`                               CREATE
+- `dialectic/tests/test_modal_smoke.py`                                    CREATE (headless modal launch, if not already covered)
+
+No production code changes in this prompt. Only tests + docs.
+
+## Step-by-step
+
+### 1. `tests/e2e/conftest.py`
+
+Provides:
+
+- `seed_audio_fixture` — synthesizes the 30s meeting wav via macOS `say` + `ffmpeg` into a target path (cached).
+- `fake_codex_and_supabase` — spins up a mock HTTP server on `localhost:<rand>` that simulates:
+  - `POST /api/upload/audio/prepare` — returns `{ uploadId, signedPutUrl: "http://localhost:<rand>/s3-sim/..." }` and stores the row in an in-memory dict.
+  - `PUT /s3-sim/...` — accepts bytes into an in-memory bytestore.
+  - `POST /api/upload/audio/finalize/:id` — marks upload finalized.
+  - `GET /api/upload/:id` — returns the row including `textContent` for the ingest command to read.
+- `sqlite_codex_with_api_hookup` — the Wave 1 SQLite fake; the mock HTTP server writes rows here as well, so `ingest-from-codex` can be run against `sqlite://...` and pick up the same upload.
+
+Use `pytest_httpserver` or write a tiny `http.server` subclass — no need for a full framework.
+
+### 2. `tests/e2e/test_dialectic_to_noosphere.py`
+
+```python
+@pytest.mark.e2e
+def test_recording_lands_as_conclusions_in_codex(
+    seed_audio_fixture, fake_codex_and_supabase, sqlite_codex_with_api_hookup, monkeypatch,
+):
+    """Full happy path:
+       record.wav (fixture) → trim → transcribe → title → upload → codex → ingest-from-codex → Conclusions
+    """
+    # ── 1. Set Dialectic to use the mock server ──
+    monkeypatch.setenv("DIALECTIC_CLOUD_URL", fake_codex_and_supabase.base_url)
+    monkeypatch.setenv("DIALECTIC_CLOUD_API_KEY", "test-key")
+
+    # ── 2. Build a RecordingArtifact pointing at the seed wav ──
+    from dialectic.recording_pipeline import RecordingArtifact, RecordingPipeline
+    artifact = RecordingArtifact(
+        audio_path=seed_audio_fixture,
+        duration_seconds=30.0, sample_rate=16000, channels=1,
+    )
+    # ── 3. Run the pipeline synchronously (no Qt loop) ──
+    pipeline = RecordingPipeline(artifact)
+    # Gate real whisper to avoid 2GB download in CI; mock the transcribe stage to return
+    # a canonical transcript that exercises downstream stages.
+    monkeypatch.setattr(
+        "dialectic.recording_pipeline.RecordingPipeline._stage_transcribe",
+        lambda self: self._fake_transcribe(
+            "We were discussing the purpose of the school. The claim is that "
+            "inquiry matters more than credentialing. A second claim: narrative "
+            "priced assets overpay by about eighteen percent."
+        ),
+    )
+    # Implement `_fake_transcribe` as a helper on the pipeline (or inline the monkeypatch).
+    pipeline.run()
+    assert pipeline.result.upload_id is not None, "upload failed"
+    upload_id = pipeline.result.upload_id
+
+    # ── 4. Run ingest-from-codex against the SQLite fake ──
+    from noosphere.codex_bridge import ingest_from_codex
+    result = ingest_from_codex(
+        upload_id=upload_id, use_llm=False, dry_run=False,
+        codex_db_url=sqlite_codex_with_api_hookup.url,
+    )
+    assert result.num_conclusions_written >= 2
+
+    # ── 5. Assert the Conclusion text contains at least one phrase from the transcript ──
+    rows = sqlite_codex_with_api_hookup.conn.execute(
+        'SELECT "conclusionText" FROM "Conclusion" WHERE "uploadId"=?',
+        (upload_id,),
+    ).fetchall()
+    texts = [r[0].lower() for r in rows]
+    assert any("inquiry" in t or "credential" in t or "narrative" in t for t in texts), \
+        "expected at least one conclusion to reference the transcript's substantive content"
+
+    # ── 6. Assert extractionMethod on the Upload row ──
+    r = sqlite_codex_with_api_hookup.conn.execute(
+        'SELECT "extractionMethod", status FROM "Upload" WHERE id=?', (upload_id,),
+    ).fetchone()
+    assert r[0].startswith("dialectic-")
+    assert r[1] == "ingested"
+```
+
+### 3. `tests/e2e/test_m4a_regression.py`
+
+```python
+@pytest.mark.e2e
+def test_original_m4a_bug_does_not_regress(
+    fake_codex_and_supabase, sqlite_codex_with_api_hookup, tiny_audio_fixture, monkeypatch,
+):
+    """Reproduces the exact April 2026 failure: m4a upload, textContent=NULL,
+    no transcript pre-attached. Must complete through the extractor."""
+    # Insert the upload directly, bypassing Dialectic
+    upload_id = sqlite_codex_with_api_hookup.insert_upload(
+        mime="audio/mp4", text=None, file_path=str(tiny_audio_fixture),
+        title="The Purpose of The School: Theseus Discussion April 18, 2026",
+    )
+    # Mock the AudioExtractor to avoid a real whisper call
+    monkeypatch.setattr(
+        "noosphere.extractors.audio_extractor.AudioExtractor.extract",
+        lambda self, c: ExtractedText(
+            text="the purpose of the school is inquiry not credentialing",
+            source_format="audio/mp4",
+            extraction_method="faster-whisper",
+        ),
+    )
+    from noosphere.codex_bridge import ingest_from_codex
+    result = ingest_from_codex(
+        upload_id=upload_id, use_llm=False, dry_run=False,
+        codex_db_url=sqlite_codex_with_api_hookup.url,
+    )
+    # It did NOT raise "has no textContent"
+    assert result.num_conclusions_written >= 1
+    r = sqlite_codex_with_api_hookup.conn.execute(
+        'SELECT status, "extractionMethod", "errorMessage" FROM "Upload" WHERE id=?',
+        (upload_id,),
+    ).fetchone()
+    assert r[0] == "ingested"
+    assert r[1] == "faster-whisper"
+    assert r[2] is None  # no error
+```
+
+### 4. `dialectic/tests/test_pipeline_invariants.py`
+
+Five invariants, one test each:
+
+1. **Pipeline stages run in order `trim, transcribe, title, upload`.** Capture `stage_started` emissions; assert equals `["trim", "transcribe", "title", "upload"]`.
+2. **Upload is always on the trimmed file, never the raw.** With a real `auto_trim` pass (or mocked to return a specific `trimmed_audio` path), assert `codex_upload.upload_recording` receives that exact path.
+3. **Title is never empty or `None`.** Even in the full-fallback path (LLM mocked to raise), `pipeline.result.title` is a non-empty string starting with `"Dialectic session"`.
+4. **Offline upload queues.** With the Codex mock set to 500 on prepare, run the pipeline; assert `pending_uploads.jsonl` gets exactly one line matching the recording; the modal reports `stage_failed("upload", ...)` with the retry hint string in it.
+5. **Transcript and `textContent` stay aligned.** When `_stage_transcribe` produces text X, the final row in the Codex has `textContent == X`. Divergence between these is a category of silent failure we must not allow.
+
+### 5. Modal smoke (if not already covered by prompt 06 tests)
+
+`dialectic/tests/test_modal_smoke.py` under `pytest-qt`:
+- Modal opens, all four stages stub-run, closes cleanly.
+- Under `DIALECTIC_TEST_REAL_WHISPER=1` (gated), runs real whisper on the 5s fixture and completes in < 60s on CI hardware.
+
+### 6. `RELEASE_CHECKLIST.md`
+
+```markdown
+# Release checklist — voice recording + binary ingest fix
+
+Before tagging a release that includes Waves 1 + 2:
+
+## Wave 1 — ingest pipeline fix
+- [ ] `ingest-from-codex` on the April 18 m4a (upload id `c6b593815bac27aee838d9035`)
+      completes and writes Conclusions. Confirm `extractionMethod=faster-whisper`
+      appears in the Codex dashboard.
+- [ ] `ingest-from-codex` on a PDF (digital and scanned) completes.
+- [ ] Dashboard shows status pulse during extraction.
+- [ ] Failed upload (e.g. .zip) surfaces a readable errorMessage + Retry button works.
+- [ ] All of `pytest -q noosphere/tests/test_extractors_*.py` green.
+
+## Wave 2 — Dialectic voice recording
+- [ ] Record button in the toolbar opens the modal.
+- [ ] 30-second recording lands as an Upload in the Codex with `textContent` populated
+      by Dialectic's transcript (not re-transcribed by ingest-from-codex).
+- [ ] Auto-title is specific (not `"Dialectic session — ..."`). If always falling back,
+      check Anthropic credentials.
+- [ ] Trimmed duration is strictly less than recording duration (unless the entire
+      recording was continuous speech).
+- [ ] Offline recording: toggle wifi off, record, press Stop. Upload fails gracefully
+      and is queued. Toggle wifi on and use "Retry pending uploads" — upload succeeds.
+- [ ] All of `pytest -q dialectic/tests/` green.
+
+## Cross-cut
+- [ ] `pytest -q tests/e2e/ -m e2e` green.
+- [ ] `noosphere/tests/e2e/test_ingest_audio_smoke.py` runs end-to-end with a real
+      whisper model under `NOOSPHERE_E2E_SMOKE=1`.
+- [ ] `Claude_Code_Prompts/RELEASE_CHECKLIST.md` itself is committed.
+```
+
+## Verification
+
+```bash
+cd /Users/michaelquintin/Desktop/Theseus
+pytest -q tests/e2e/ -m e2e
+pytest -q dialectic/tests/test_pipeline_invariants.py
+
+# Full matrix:
+pytest -q noosphere/tests/ dialectic/tests/ tests/e2e/
+```
+
+Report: the final pytest output, and for each of the five invariants, note whether the test actually exercised the thing (vs. skipped / vacuous). If any is vacuous, that is the gap to flag.
+
+## Invariants protected by this prompt
+
+1. **No opinion without sources is not directly relevant here**, but we preserve its spirit: "no Conclusion without transcript" — a recording that produces an empty transcript does NOT write bogus Conclusions.
+2. **The m4a regression** — the specific bug is protected by `test_original_m4a_bug_does_not_regress`.
+3. **Pipeline stage ordering** — invariant #1 above.
+4. **Trim-before-upload** — invariant #2 above.
+5. **Title is never empty** — invariant #3 above.
+6. **Offline queue integrity** — invariant #4 above.
+7. **Transcript/textContent alignment** — invariant #5 above.
+
+If any future refactor breaks one of these, the test fires. Do not "fix" the test by loosening the assertion; fix the code.
+
+## Prohibitions
+
+- Do NOT add retries at the test level. A flaky test is a real signal; mask it and you train yourself to ignore breakage.
+- Do NOT check the actual claim content with an LLM judge. Assert substring presence of known phrases — deterministic.
+- Do NOT make the e2e tests default-run. Gate with `-m e2e` so `pytest -q` stays fast for the common case.
+- Do NOT skip the "offline queue" invariant. It's the most important resilience property of Wave 2.
+
+This is the final prompt in the series. After it passes, Waves 1 and 2 are shippable.

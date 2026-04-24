@@ -8,6 +8,32 @@ license = {text = "Proprietary"}
 [project.scripts]
 noosphere = "noosphere.__main__:main"
 
+[project.optional-dependencies]
+# Local transcription via faster-whisper (CTranslate2 backend). Heavy:
+# pulls in ctranslate2 + onnxruntime wheels (~150 MB). Dialectic already
+# ships the same stack, so on a monorepo checkout this is a no-op. Keep
+# optional so text/PDF-only ingest stays lean.
+audio = [
+    "faster-whisper >= 1.0, < 2.0",
+    "mutagen >= 1.47",
+]
+# Cloud Whisper fallback (OpenAI). Imported lazily — only required when
+# faster-whisper is unavailable or NOOSPHERE_FORCE_OPENAI_WHISPER=1.
+whisper-openai = [
+    "openai >= 1.30",
+]
+# PDF text extraction (pypdf). OCR fallback for scanned PDFs uses
+# `ocrmypdf` from PATH (system-installed via brew/apt) and is gated on
+# NOOSPHERE_ENABLE_OCR=1 — not a pip-installable extra.
+pdf = [
+    "pypdf >= 5.0",
+]
+# Test-only dependencies for synthesizing PDF fixtures at test time.
+dev = [
+    "reportlab >= 4.0",
+    "Pillow >= 10.0",
+]
+
 [build-system]
 requires = ["setuptools>=68.0"]
 build-backend = "setuptools.build_meta"

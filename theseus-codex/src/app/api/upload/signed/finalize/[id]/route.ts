@@ -135,6 +135,13 @@ export async function POST(
     const { id } = await params;
     const body = (await req.json().catch(() => ({}))) as {
       audioDurationSec?: number;
+      // Optional overrides for late-arriving metadata. Dialectic's
+      // usual path seeds `transcript` at /prepare, so these two are
+      // rarely used — they exist for re-transcribed sessions where the
+      // final transcript differs from the one sent at prepare time.
+      transcript?: string;
+      extractionMethod?: string;
+      fileSize?: number;
     };
 
     const upload = await db.upload.findUnique({
@@ -233,9 +240,44 @@ export async function POST(
       },
     };
 
+    // Late-arriving transcript override. Rare — Dialectic normally
+    // attaches the transcript at /prepare — but if the client
+    // re-transcribed after the PUT landed, allow the newer text to
+    // replace whatever was seeded earlier. For text-extractable rows
+    // a late override also lets the caller bypass the server-side
+    // extractor entirely.
+    const lateTranscript =
+      typeof body.transcript === "string" && body.transcript.trim().length > 0
+        ? sanitizeAndCap(body.transcript, 2_000_000)
+        : null;
+    const lateExtraction =
+      typeof body.extractionMethod === "string" &&
+      body.extractionMethod.trim()
+        ? sanitizeAndCap(body.extractionMethod, 64)
+        : null;
+
     if (isAudio) {
       data.audioUrl = publicUrl;
       if (duration !== undefined) data.audioDurationSec = duration;
+      if (lateTranscript) {
+        data.textContent = lateTranscript;
+        if (lateExtraction) data.extractionMethod = lateExtraction;
+        // If textContent is now populated, the row is ready for claim
+        // extraction only — ingest-from-codex will skip Whisper.
+        data.status = "awaiting_ingest";
+      }
+    } else if (lateTranscript) {
+      // Non-audio with a caller-supplied transcript: trust it, skip
+      // the server-side extractor entirely. Useful for
+      // already-extracted text that the client wants persisted under
+      // the same Upload row.
+      data.textContent = lateTranscript;
+      if (lateExtraction) data.extractionMethod = lateExtraction;
+      const suffix = `— Extraction: caller-supplied (method=${lateExtraction ?? "unspecified"}) —\n`;
+      (data.processLog as { set: string }).set = sanitizeAndCap(
+        (data.processLog as { set: string }).set + "\n" + suffix,
+        8_000,
+      );
     } else {
       // Non-audio: fetch back + extract. For text uploads the bytes
       // are small and this runs in well under a second; for PDFs /

@@ -60,6 +60,54 @@ Weekly 4-Hour Podcast Transcript
 
 5. **Temporal Indexing.** Every node carries a timestamp. The same principle stated in episode 1 and episode 50 has its conviction score updated, not duplicated.
 
+## Installing with audio support
+
+Audio uploads (``.m4a``, ``.mp3``, ``.wav``, etc.) are transcribed
+locally via `faster-whisper` (CTranslate2 backend) by default, with an
+OpenAI Whisper API fallback when the local model is unavailable.
+
+```bash
+# text + PDF only — the lean default
+pip install -e .
+
+# add local audio transcription (faster-whisper + mutagen)
+pip install -e ".[audio]"
+
+# add the cloud fallback too
+pip install -e ".[audio,whisper-openai]"
+```
+
+Override the local model via `NOOSPHERE_WHISPER_MODEL` (default
+`small.en`). Force the cloud path — e.g. to debug Whisper API parity —
+with `NOOSPHERE_FORCE_OPENAI_WHISPER=1` (requires `OPENAI_API_KEY`).
+
+## Installing with PDF support
+
+Digitally produced PDFs (the overwhelming majority of what founders
+upload — papers, chapters, Otter.ai re-exports) are handled by
+`pypdf`, a pure-Python parser with no system dependencies:
+
+```bash
+pip install -e ".[pdf]"
+```
+
+Scanned-image PDFs have to be run through OCR. That path is gated on
+an env flag because OCR requires `ocrmypdf` (which in turn requires
+tesseract + ghostscript) and can take ~10× longer than a pypdf pass:
+
+```bash
+# macOS
+brew install ocrmypdf
+# Debian/Ubuntu
+sudo apt install ocrmypdf
+
+export NOOSPHERE_ENABLE_OCR=1
+```
+
+Without the flag, scanned PDFs fail fast with an `ExtractionFailed`
+message telling the operator how to enable OCR or supply a
+pre-extracted `.txt` instead.
+
 ## Usage
 
 ```bash

@@ -42,6 +42,7 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
       substCount: true,
       principleCount: true,
       errorMessage: true,
+      extractionMethod: true,
       slug: true,
       publishedAt: true,
       createdAt: true,

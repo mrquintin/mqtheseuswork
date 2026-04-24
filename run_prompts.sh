@@ -6,9 +6,17 @@
 # Usage:
 #   ./run_prompts.sh                  # run all prompts, halt on first failure
 #   ./run_prompts.sh --from 5         # start at prompt 05 (skip already-done)
+#   ./run_prompts.sh --to 5           # stop after prompt 05 (inclusive)
+#   ./run_prompts.sh --from 3 --to 7  # run 03 through 07 inclusive
 #   ./run_prompts.sh --only 03        # run only prompt 03
+#   ./run_prompts.sh --wave 1         # round 8 convenience: prompts 01-05 (Wave 1: ingest fix)
+#   ./run_prompts.sh --wave 2         # round 8 convenience: prompts 06-11 (Wave 2: voice recording)
 #   ./run_prompts.sh --continue       # keep going on prompt failure instead of halting
 #   ./run_prompts.sh --dry-run        # show plan only
+#   ./run_prompts.sh --skip-perms     # pass --dangerously-skip-permissions to claude
+#
+# The --wave flag is a shortcut for --from/--to tuned to the current round's
+# structure. See Claude_Code_Prompts/README.md for the wave map.
 #
 # Requires:
 #   claude  (the Claude Code CLI, in $PATH)
@@ -23,23 +31,42 @@ LOG_DIR="$REPO_ROOT/.claude_code_runs"
 FORMATTER="$REPO_ROOT/format_stream_events.py"
 
 FROM=0
+TO=0
 ONLY=""
 CONTINUE_ON_FAIL=0
 DRY_RUN=0
 SKIP_PERMS=0
 
+# Round 8 wave map — edit when a new round is authored.
+# See Claude_Code_Prompts/README.md for the current waves.
+WAVE_1_FROM=1;  WAVE_1_TO=5    # ingest binary-upload fix + harden
+WAVE_2_FROM=6;  WAVE_2_TO=11   # Dialectic voice recording with auto-title/trim/upload
+
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --from) FROM="$2"; shift 2 ;;
+    --to) TO="$2"; shift 2 ;;
     --only) ONLY="$2"; shift 2 ;;
+    --wave)
+      case "$2" in
+        1) FROM=$WAVE_1_FROM; TO=$WAVE_1_TO ;;
+        2) FROM=$WAVE_2_FROM; TO=$WAVE_2_TO ;;
+        *) echo "unknown wave: $2 (valid: 1, 2)"; exit 2 ;;
+      esac
+      shift 2 ;;
     --continue) CONTINUE_ON_FAIL=1; shift ;;
     --dry-run) DRY_RUN=1; shift ;;
     --skip-perms) SKIP_PERMS=1; shift ;;
     -h|--help)
-      sed -n '2,20p' "$0"; exit 0 ;;
+      sed -n '2,28p' "$0"; exit 0 ;;
     *) echo "unknown flag: $1"; exit 2 ;;
   esac
 done
+
+# Sanity: if both --from and --to are set, ensure FROM <= TO.
+if [[ "$FROM" -gt 0 && "$TO" -gt 0 && "$((10#$FROM))" -gt "$((10#$TO))" ]]; then
+  echo "error: --from $FROM is greater than --to $TO"; exit 2
+fi
 
 command -v claude >/dev/null || { echo "claude CLI not found in PATH"; exit 3; }
 command -v python3 >/dev/null || { echo "python3 required"; exit 3; }
@@ -58,12 +85,26 @@ done < <(ls "$PROMPTS_DIR"/[0-9][0-9]_*.txt 2>/dev/null | sort)
 TOTAL=${#PROMPTS[@]}
 [[ $TOTAL -gt 0 ]] || { echo "no prompts found in $PROMPTS_DIR"; exit 3; }
 
-echo -e "${BOLD}Plan:${NC} $TOTAL prompts"
+echo -e "${BOLD}Plan:${NC} $TOTAL prompts total"
+if [[ "$FROM" -gt 0 || "$TO" -gt 0 || -n "$ONLY" ]]; then
+  filter_desc=""
+  [[ -n "$ONLY" ]] && filter_desc="${filter_desc} only=$ONLY"
+  [[ "$FROM" -gt 0 ]] && filter_desc="${filter_desc} from=$FROM"
+  [[ "$TO" -gt 0 ]] && filter_desc="${filter_desc} to=$TO"
+  echo -e "${BOLD}Filter:${NC}${filter_desc}"
+fi
 for f in "${PROMPTS[@]}"; do
   n=$(basename "$f" .txt)
   num="${n%%_*}"
-  if [[ -n "$ONLY" && "$num" != "$ONLY" ]]; then continue; fi
-  if [[ -n "$FROM" && "$FROM" -gt 0 && "$((10#$num))" -lt "$((10#$FROM))" ]]; then
+  if [[ -n "$ONLY" && "$num" != "$ONLY" ]]; then
+    echo -e "  ${YELLOW}skip${NC} $n"
+    continue
+  fi
+  if [[ "$FROM" -gt 0 && "$((10#$num))" -lt "$((10#$FROM))" ]]; then
+    echo -e "  ${YELLOW}skip${NC} $n"
+    continue
+  fi
+  if [[ "$TO" -gt 0 && "$((10#$num))" -gt "$((10#$TO))" ]]; then
     echo -e "  ${YELLOW}skip${NC} $n"
     continue
   fi

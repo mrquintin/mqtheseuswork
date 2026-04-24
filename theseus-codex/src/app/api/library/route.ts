@@ -74,6 +74,8 @@ export async function GET(req: Request) {
       mimeType: true,
       fileSize: true,
       status: true,
+      errorMessage: true,
+      extractionMethod: true,
       publishedAt: true,
       slug: true,
       visibility: true,

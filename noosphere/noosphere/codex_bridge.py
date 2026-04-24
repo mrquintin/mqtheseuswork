@@ -65,6 +65,88 @@ except ImportError as e:  # pragma: no cover
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# SQLite shim — test-only codex connection.
+#
+# Prod always points at Supabase / Postgres. The ingest test suite spins up an
+# in-process SQLite DB seeded from ``tests/fixtures/minimal_codex_schema.sql``
+# so the pipeline SQL can be exercised without a running Postgres. The shim
+# below is the cheapest adapter that lets the (otherwise psycopg2-shaped)
+# pipeline run unchanged under either backend: translate ``%s`` → ``?``,
+# yield dict-shaped rows, and expose the handful of cursor/connection methods
+# the pipeline actually calls.
+#
+# Triggered by a ``sqlite://<path>`` URL; anything else goes to psycopg2.
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+class _SqliteCodexCursor:
+    """Translate psycopg2-style calls to sqlite3 calls and return dict rows."""
+
+    def __init__(self, cur):
+        self._cur = cur
+
+    @staticmethod
+    def _translate(query: str) -> str:
+        return query.replace("%s", "?")
+
+    def execute(self, query, params=()):
+        self._cur.execute(self._translate(query), params or ())
+        return self
+
+    def executemany(self, query, seq):
+        self._cur.executemany(self._translate(query), seq)
+        return self
+
+    def fetchone(self):
+        row = self._cur.fetchone()
+        return dict(row) if row is not None else None
+
+    def fetchall(self):
+        return [dict(r) for r in self._cur.fetchall()]
+
+    def __iter__(self):
+        for row in self._cur:
+            yield dict(row)
+
+    @property
+    def rowcount(self):
+        return self._cur.rowcount
+
+    def close(self):
+        self._cur.close()
+
+
+class _SqliteCodexConn:
+    def __init__(self, conn):
+        self._conn = conn
+
+    def cursor(self, *_args, **_kwargs):
+        return _SqliteCodexCursor(self._conn.cursor())
+
+    def commit(self):
+        self._conn.commit()
+
+    def rollback(self):
+        self._conn.rollback()
+
+    def close(self):
+        self._conn.close()
+
+
+def _open_codex_connection(url: str):
+    """Open a Codex DB connection. ``sqlite://<path>`` triggers the test
+    shim; anything else is treated as a Postgres URL for psycopg2."""
+    if url.startswith("sqlite://"):
+        import sqlite3
+
+        path = url[len("sqlite://"):]
+        conn = sqlite3.connect(path)
+        conn.row_factory = sqlite3.Row
+        return _SqliteCodexConn(conn)
+    return psycopg2.connect(url)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # Postgres-safe sanitization.
 #
 # Postgres's UTF-8 enforcement rejects strings containing the NUL
@@ -539,27 +621,79 @@ def ingest_from_codex(
     same DB. Returns a small result object so the CLI can print a summary.
     """
     url = _resolve_codex_db_url(codex_db_url)
-    conn = psycopg2.connect(url)
+    conn = _open_codex_connection(url)
     try:
         cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
 
         # ── Fetch the upload ─────────────────────────────────────────────
         cur.execute(
             '''SELECT id, "organizationId", "founderId", title, "textContent",
-                      status, "mimeType", "originalName"
+                      status, "mimeType", "originalName", "filePath", "fileSize"
                FROM "Upload" WHERE id = %s''',
             (upload_id,),
         )
         row = cur.fetchone()
         if row is None:
             raise RuntimeError(f"Upload {upload_id} not found in the Codex DB.")
-        text = row["textContent"]
+
+        # ── Fetch-and-extract via the MIME dispatcher ───────────────────
+        # ``fetch_upload_content`` returns TextContent when the DB has
+        # textContent populated, or BinaryContent (bytes + mime) when the
+        # row points at Supabase Storage / a local path. ``dispatch``
+        # then routes to the appropriate extractor (passthrough for text,
+        # Whisper for audio — see prompt 02, pypdf for PDF — see prompt
+        # 03). Failures are marked on the Upload row with a structured
+        # reason so the dashboard (prompt 04) can surface them.
+        from noosphere.extractors import (
+            ExtractionFailed,
+            UnsupportedMimeType,
+            dispatch,
+        )
+        from noosphere.extractors._content_fetcher import fetch_upload_content
+
+        # Mark `extracting` as we enter the MIME dispatch. This is the
+        # stage where Whisper/pypdf run; the Codex dashboard shows an
+        # amber pulsing badge so the founder can see the pipeline is
+        # alive before any LLM calls happen.
+        if not dry_run:
+            cur.execute(
+                'UPDATE "Upload" SET status = %s WHERE id = %s',
+                ("extracting", upload_id),
+            )
+            conn.commit()
+
+        try:
+            content = fetch_upload_content(row, conn)
+            extracted = dispatch(content)
+        except (ExtractionFailed, UnsupportedMimeType) as exc:
+            reason = (
+                f"unsupported_mime: {exc}"
+                if isinstance(exc, UnsupportedMimeType)
+                else f"extraction_failed: {exc}"
+            )
+            if not dry_run:
+                cur.execute(
+                    '''UPDATE "Upload"
+                       SET status = %s, "errorMessage" = %s
+                       WHERE id = %s''',
+                    ("failed", _db_safe(reason, cap=400), upload_id),
+                )
+                conn.commit()
+            raise
+
+        text = extracted.text
+        print(
+            f"extraction method={extracted.extraction_method} "
+            f"source_format={extracted.source_format} "
+            f"warnings={len(extracted.warnings)}"
+        )
+        for w in extracted.warnings:
+            print(f"  warning: {w}")
+
         if not text or not text.strip():
             raise RuntimeError(
-                f"Upload {upload_id} has no textContent. "
-                "Binary (audio/PDF) uploads aren't supported by this command yet "
-                "— use the Codex's Supabase Storage flow + a separate transcript "
-                "command when that's wired up."
+                f"Upload {upload_id}: extractor {extracted.extraction_method!r} "
+                "returned empty text."
             )
 
         # Optional sanity check on tenant if the caller passed a slug — protects
@@ -575,6 +709,18 @@ def ingest_from_codex(
                     f"Upload {upload_id} belongs to org {org['slug'] if org else '?'}, "
                     f"not the expected slug '{organization_slug_filter}'."
                 )
+
+        # ── Intermediate beat: text is ready, claim extraction next ──────
+        # The dashboard shows `awaiting_ingest` momentarily between the
+        # two heavy stages. For uploads with no PromptSeparator/LLM work
+        # this flashes by — the point is that if the pipeline stalls,
+        # the stall point is visible.
+        if not dry_run:
+            cur.execute(
+                'UPDATE "Upload" SET status = %s WHERE id = %s',
+                ("awaiting_ingest", upload_id),
+            )
+            conn.commit()
 
         # ── Mark processing (non-dry only) ───────────────────────────────
         if not dry_run:
@@ -949,11 +1095,23 @@ def ingest_from_codex(
         # claims this upload anchors, not just the fresh inserts. That
         # matches the user-facing "N claims extracted" semantics better
         # than a raw INSERT count would.
+        # `extractionMethod` is the caption the Codex dashboard shows
+        # under an ingested row ("transcribed locally (faster-whisper)",
+        # "extracted with pypdf"…). Written on the same UPDATE as the
+        # terminal status so a partial success leaves a consistent row.
         cur.execute(
             '''UPDATE "Upload"
-               SET status = %s, "claimsCount" = %s, "errorMessage" = NULL
+               SET status = %s,
+                   "claimsCount" = %s,
+                   "errorMessage" = NULL,
+                   "extractionMethod" = %s
                WHERE id = %s''',
-            ("ingested", written + deduped, upload_id),
+            (
+                "ingested",
+                written + deduped,
+                _db_safe(extracted.extraction_method, cap=64),
+                upload_id,
+            ),
         )
 
         # ── Audit event ──────────────────────────────────────────────────
@@ -994,30 +1152,40 @@ def ingest_from_codex(
             dry_run=False,
             mode=mode,
         )
-    except Exception:
+    except Exception as outer_exc:
         conn.rollback()
-        # On unexpected failure, mark the upload as failed so the Codex
-        # UI shows a clear red state rather than a stuck "processing".
-        try:
-            err = psycopg2.connect(url)
-            ec = err.cursor()
-            ec.execute(
-                '''UPDATE "Upload"
-                   SET status = %s, "errorMessage" = %s
-                   WHERE id = %s''',
-                (
-                    "failed",
-                    _db_safe(
-                        f"Local ingest-from-codex failed: {sys.exc_info()[1]}",
-                        cap=400,
+        # Keep the structured errorMessage the inner dispatch-failure
+        # handler wrote — overwriting it with the generic "Local
+        # ingest-from-codex failed: …" wrapper loses the
+        # `unsupported_mime:` / `extraction_failed:` prefix the Codex
+        # dashboard and tests rely on. Any OTHER exception reaches this
+        # branch without anyone having marked the row, so we do need to
+        # mark it here.
+        already_classified = type(outer_exc).__name__ in (
+            "ExtractionFailed",
+            "UnsupportedMimeType",
+        )
+        if not already_classified:
+            try:
+                err = _open_codex_connection(url)
+                ec = err.cursor()
+                ec.execute(
+                    '''UPDATE "Upload"
+                       SET status = %s, "errorMessage" = %s
+                       WHERE id = %s''',
+                    (
+                        "failed",
+                        _db_safe(
+                            f"Local ingest-from-codex failed: {sys.exc_info()[1]}",
+                            cap=400,
+                        ),
+                        upload_id,
                     ),
-                    upload_id,
-                ),
-            )
-            err.commit()
-            err.close()
-        except Exception:
-            pass
+                )
+                err.commit()
+                err.close()
+            except Exception:
+                pass
         raise
     finally:
         conn.close()
@@ -1029,7 +1197,7 @@ def list_queued_uploads(
     """List uploads currently stuck in ``queued_offline`` / ``pending`` so
     the user can pick which one to process."""
     url = _resolve_codex_db_url(codex_db_url)
-    conn = psycopg2.connect(url)
+    conn = _open_codex_connection(url)
     try:
         cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
         cur.execute(

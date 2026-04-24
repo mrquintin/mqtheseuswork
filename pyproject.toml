@@ -84,3 +84,6 @@ minversion = "8.0"
 testpaths = ["noosphere/tests", "dialectic/tests", "tests/e2e"]
 pythonpath = ["noosphere", "dialectic", "."]
 addopts = "-ra"
+markers = [
+    "e2e: end-to-end cross-wave smoke (Dialectic → Codex → Noosphere). Gated so default `pytest -q` stays fast.",
+]
