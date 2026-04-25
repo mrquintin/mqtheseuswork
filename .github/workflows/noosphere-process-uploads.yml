@@ -191,6 +191,15 @@ jobs:
           THESEUS_CODEX_DATABASE_URL: ${{ secrets.CODEX_DATABASE_URL }}
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          # Required when uploads land in Supabase Storage (filePath like
+          # storage://… or supabase://…). The extractor mints a signed
+          # download URL; without these it hard-fails with
+          # "extraction_failed: SUPABASE_URL and/or SUPABASE_SERVICE_ROLE_KEY
+          # are not set". SUPABASE_AUDIO_BUCKET defaults to "audio" in both
+          # the Codex and Noosphere, so only override if you've renamed it.
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          SUPABASE_AUDIO_BUCKET: ${{ secrets.SUPABASE_AUDIO_BUCKET }}
           USE_LLM: ${{ steps.llm.outputs.use_llm }}
           UPLOAD_ID: ${{ steps.plan.outputs.upload_id }}
           # CI bypass for the Codex-side auth layer the CLI added in
@@ -219,6 +228,9 @@ jobs:
           THESEUS_CODEX_DATABASE_URL: ${{ secrets.CODEX_DATABASE_URL }}
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          SUPABASE_AUDIO_BUCKET: ${{ secrets.SUPABASE_AUDIO_BUCKET }}
           USE_LLM: ${{ steps.llm.outputs.use_llm }}
           # See the single-upload step above for why this is safe here.
           NOOSPHERE_SKIP_AUTH: "1"
