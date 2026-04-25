@@ -90,6 +90,141 @@ function hasRealLayerScores(json: string | null): boolean {
   }
 }
 
+/**
+ * One source-context match for a claim: the upload it came from plus a
+ * trimmed before/match/after triple so the UI can render the quote with
+ * the claim portion highlighted. `match` is empty when the literal claim
+ * text wasn't found in the upload — `before` then holds a leading
+ * excerpt of the upload as best-effort context.
+ */
+type ClaimContext = {
+  uploadId: string;
+  uploadTitle: string;
+  uploadCreatedAt: string;
+  before: string;
+  match: string;
+  after: string;
+};
+
+const CONTEXT_PAD = 320; // chars of context around the matched passage
+const FALLBACK_LEAD = 600; // chars of upload head when no match found
+
+function normalizeWhitespace(s: string): string {
+  return s.replace(/\s+/g, " ").trim();
+}
+
+/**
+ * Find the best location of `needle` (the claim text) in `haystack`
+ * (the upload's textContent). Strategy:
+ *   1. Whole-needle case-insensitive substring (the common case for
+ *      heuristically-extracted claims, which are copied verbatim).
+ *   2. Longest 8+-word window from the needle (paraphrased LLM claims
+ *      sometimes only share a contiguous run of words with the source).
+ * Returns offsets into the ORIGINAL haystack (not the normalised one)
+ * or null when no reasonable match exists.
+ */
+function locateClaim(
+  haystack: string,
+  needle: string,
+): { start: number; end: number } | null {
+  if (!haystack || !needle) return null;
+  const hayLower = haystack.toLowerCase();
+  const cleanNeedle = normalizeWhitespace(needle).toLowerCase();
+  if (!cleanNeedle) return null;
+
+  const direct = hayLower.indexOf(cleanNeedle);
+  if (direct !== -1) {
+    return { start: direct, end: direct + cleanNeedle.length };
+  }
+
+  const words = cleanNeedle.split(" ").filter((w) => w.length > 0);
+  if (words.length < 8) return null;
+  // Try progressively shorter windows from the middle of the claim,
+  // since the start often has hedges ("I think", "it seems") and the
+  // end often has qualifiers that get rewritten.
+  for (let size = words.length - 1; size >= 8; size--) {
+    for (let start = 0; start + size <= words.length; start++) {
+      const window = words.slice(start, start + size).join(" ");
+      const at = hayLower.indexOf(window);
+      if (at !== -1) {
+        return { start: at, end: at + window.length };
+      }
+    }
+  }
+  return null;
+}
+
+async function loadClaimContexts(
+  organizationId: string,
+  claimIds: string[],
+  claimTexts: Record<string, string>,
+): Promise<Record<string, ClaimContext[]>> {
+  if (claimIds.length === 0) return {};
+  const conclusions = await db.conclusion.findMany({
+    where: { id: { in: claimIds }, organizationId },
+    select: {
+      id: true,
+      sources: {
+        select: {
+          upload: {
+            select: {
+              id: true,
+              title: true,
+              textContent: true,
+              createdAt: true,
+              deletedAt: true,
+            },
+          },
+        },
+        // Two sources is plenty for context; more would just add noise
+        // to the card.
+        take: 2,
+      },
+    },
+  });
+
+  const out: Record<string, ClaimContext[]> = {};
+  for (const c of conclusions) {
+    const claim = claimTexts[c.id] || "";
+    const ctxs: ClaimContext[] = [];
+    for (const s of c.sources) {
+      const u = s.upload;
+      if (!u || u.deletedAt) continue;
+      const text = u.textContent || "";
+      if (!text) continue;
+      const hit = locateClaim(text, claim);
+      if (hit) {
+        const beforeStart = Math.max(0, hit.start - CONTEXT_PAD);
+        const afterEnd = Math.min(text.length, hit.end + CONTEXT_PAD);
+        ctxs.push({
+          uploadId: u.id,
+          uploadTitle: u.title,
+          uploadCreatedAt: u.createdAt.toISOString(),
+          before:
+            (beforeStart > 0 ? "…" : "") + text.slice(beforeStart, hit.start),
+          match: text.slice(hit.start, hit.end),
+          after:
+            text.slice(hit.end, afterEnd) + (afterEnd < text.length ? "…" : ""),
+        });
+      } else {
+        ctxs.push({
+          uploadId: u.id,
+          uploadTitle: u.title,
+          uploadCreatedAt: u.createdAt.toISOString(),
+          before:
+            text.slice(0, FALLBACK_LEAD) +
+            (text.length > FALLBACK_LEAD ? "…" : ""),
+          match: "",
+          after: "",
+        });
+      }
+      if (ctxs.length >= 2) break; // hard cap
+    }
+    if (ctxs.length > 0) out[c.id] = ctxs;
+  }
+  return out;
+}
+
 function detectionSource(json: string | null): string | null {
   if (!json) return null;
   try {
@@ -140,6 +275,17 @@ export default async function ContradictionsPage({
     new Set(rows.flatMap((r) => [r.claimAId, r.claimBId])),
   );
   const claimTexts = await resolveClaimTexts(tenant.organizationId, allClaimIds);
+
+  // For each claim, locate the surrounding passage in its source upload
+  // so the card can show the quote *in context*. The bridge from claim
+  // → upload runs through ConclusionSource. We compute snippets on the
+  // server (textContent can be megabytes for hour-long transcripts) and
+  // ship only the trimmed before/match/after triple to the client.
+  const claimContexts = await loadClaimContexts(
+    tenant.organizationId,
+    allClaimIds,
+    claimTexts,
+  );
 
   const critical = rows.filter((r) => r.severity >= 0.7);
   const notable = rows.filter((r) => r.severity >= 0.4 && r.severity < 0.7);
@@ -253,6 +399,7 @@ export default async function ContradictionsPage({
               label={`CRITICAL · ${critical.length}`}
               rows={critical}
               claimTexts={claimTexts}
+              claimContexts={claimContexts}
             />
           )}
           {notable.length > 0 && (
@@ -260,6 +407,7 @@ export default async function ContradictionsPage({
               label={`NOTABLE · ${notable.length}`}
               rows={notable}
               claimTexts={claimTexts}
+              claimContexts={claimContexts}
             />
           )}
           {minor.length > 0 && (
@@ -267,6 +415,7 @@ export default async function ContradictionsPage({
               label={`MINOR · ${minor.length}`}
               rows={minor}
               claimTexts={claimTexts}
+              claimContexts={claimContexts}
             />
           )}
         </>
@@ -289,10 +438,12 @@ function ContradictionBand({
   label,
   rows,
   claimTexts,
+  claimContexts,
 }: {
   label: string;
   rows: Row[];
   claimTexts: Record<string, string>;
+  claimContexts: Record<string, ClaimContext[]>;
 }) {
   return (
     <section
@@ -311,7 +462,12 @@ function ContradictionBand({
         }}
       >
         {rows.map((c) => (
-          <ContradictionCard key={c.id} row={c} claimTexts={claimTexts} />
+          <ContradictionCard
+            key={c.id}
+            row={c}
+            claimTexts={claimTexts}
+            claimContexts={claimContexts}
+          />
         ))}
       </ul>
     </section>
@@ -321,9 +477,11 @@ function ContradictionBand({
 function ContradictionCard({
   row,
   claimTexts,
+  claimContexts,
 }: {
   row: Row;
   claimTexts: Record<string, string>;
+  claimContexts: Record<string, ClaimContext[]>;
 }) {
   const severityColor =
     row.severity >= 0.7
@@ -476,6 +634,7 @@ function ContradictionCard({
               >
                 View conclusion →
               </Link>
+              <SourceContextPanel contexts={claimContexts[row.claimAId]} />
             </div>
             <div>
               <div
@@ -510,6 +669,7 @@ function ContradictionCard({
               >
                 View conclusion →
               </Link>
+              <SourceContextPanel contexts={claimContexts[row.claimBId]} />
             </div>
           </div>
 
@@ -544,6 +704,101 @@ function ContradictionCard({
         </div>
       </details>
     </li>
+  );
+}
+
+function SourceContextPanel({
+  contexts,
+}: {
+  contexts: ClaimContext[] | undefined;
+}) {
+  if (!contexts || contexts.length === 0) return null;
+
+  return (
+    <details style={{ marginTop: "0.45rem" }}>
+      <summary
+        className="mono"
+        style={{
+          cursor: "pointer",
+          fontSize: "0.6rem",
+          letterSpacing: "0.18em",
+          textTransform: "uppercase",
+          color: "var(--amber-dim)",
+          listStyle: "none",
+        }}
+      >
+        ▾ Source context · {contexts.length} excerpt
+        {contexts.length === 1 ? "" : "s"}
+      </summary>
+      <div
+        style={{
+          display: "flex",
+          flexDirection: "column",
+          gap: "0.6rem",
+          marginTop: "0.5rem",
+        }}
+      >
+        {contexts.map((ctx) => (
+          <div
+            key={ctx.uploadId}
+            style={{
+              padding: "0.7rem 0.85rem",
+              border: "1px solid var(--stone-mid)",
+              borderLeft: "2px solid var(--amber-dim)",
+              borderRadius: 2,
+              background: "rgba(255,255,255,0.015)",
+              fontSize: "0.78rem",
+              lineHeight: 1.55,
+              color: "var(--parchment-dim)",
+            }}
+          >
+            <div
+              className="mono"
+              style={{
+                fontSize: "0.55rem",
+                letterSpacing: "0.16em",
+                textTransform: "uppercase",
+                color: "var(--amber-dim)",
+                marginBottom: "0.4rem",
+                display: "flex",
+                gap: "0.7rem",
+                flexWrap: "wrap",
+              }}
+            >
+              <span style={{ color: "var(--gold)", letterSpacing: "0.16em" }}>
+                {ctx.uploadTitle}
+              </span>
+              <span>{new Date(ctx.uploadCreatedAt).toLocaleDateString()}</span>
+              {!ctx.match && <span>· No exact match — showing lede</span>}
+            </div>
+            <p
+              style={{
+                margin: 0,
+                whiteSpace: "pre-wrap",
+                fontFamily: "'EB Garamond', serif",
+                fontSize: "0.92rem",
+                color: "var(--parchment)",
+              }}
+            >
+              {ctx.before}
+              {ctx.match && (
+                <mark
+                  style={{
+                    background: "rgba(212,160,23,0.22)",
+                    color: "var(--parchment)",
+                    padding: "0 0.15em",
+                    borderRadius: 2,
+                  }}
+                >
+                  {ctx.match}
+                </mark>
+              )}
+              {ctx.after}
+            </p>
+          </div>
+        ))}
+      </div>
+    </details>
   );
 }
 
