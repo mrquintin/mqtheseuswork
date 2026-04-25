@@ -82,26 +82,22 @@ class AudioExtractor:
             except ExtractionFailed:
                 raise
             except Exception as e:
-                # Raw openai/httpx errors are noisy and leak URLs /
-                # keys. Log the detail and give the founder a clean
-                # remediation line.
+                # Raw openai/httpx errors are noisy and leak request
+                # URLs (and occasionally headers). Log the full trace
+                # for the operator and surface only the exception type
+                # to the founder — the type alone is enough to
+                # distinguish a network blip from an auth failure when
+                # cross-referenced with the worker log.
                 log.warning(
                     "openai whisper fallback failed on %s",
                     content.filename,
                     exc_info=True,
                 )
-                # Include the underlying message (truncated) so the
-                # founder can see *why* it failed without digging into
-                # the worker logs — "RuntimeError" alone is opaque.
-                detail = str(e).strip().replace("\n", " ")
-                if len(detail) > 240:
-                    detail = detail[:237] + "..."
                 raise ExtractionFailed(
                     "audio transcription failed: OpenAI Whisper request did "
-                    f"not complete ({type(e).__name__}: {detail}). Check "
-                    "OPENAI_API_KEY quota/network and retry, or install "
-                    "faster-whisper for local transcription "
-                    "(`pip install 'noosphere[audio]'`)."
+                    f"not complete ({type(e).__name__}). Check OPENAI_API_KEY "
+                    "quota/network and retry, or install faster-whisper for "
+                    "local transcription (`pip install 'noosphere[audio]'`)."
                 ) from e
 
             return ExtractedText(
