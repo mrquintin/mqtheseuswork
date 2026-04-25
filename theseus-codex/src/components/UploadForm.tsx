@@ -2,6 +2,7 @@
 
 import { useState, useRef, useCallback, useEffect } from "react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 
 const ACCEPTED_EXTENSIONS =
   ".txt,.md,.markdown,.pdf,.docx,.vtt,.jsonl,.mp3,.m4a,.wav,.webm,.ogg,.aac";
@@ -1370,6 +1371,48 @@ export default function UploadForm() {
           >
             {success}
           </p>
+        )}
+        {items.some((it) => it.phase === "processing") && (
+          <div
+            role="status"
+            aria-live="polite"
+            style={{
+              marginTop: "0.5rem",
+              padding: "0.7rem 0.9rem",
+              border: "1px solid var(--amber-dim)",
+              borderLeft: "3px solid var(--amber)",
+              borderRadius: 2,
+              background: "rgba(212,160,23,0.04)",
+              fontSize: "0.82rem",
+              lineHeight: 1.5,
+              color: "var(--parchment)",
+            }}
+          >
+            <span
+              className="mono"
+              style={{
+                display: "block",
+                fontSize: "0.6rem",
+                letterSpacing: "0.22em",
+                textTransform: "uppercase",
+                color: "var(--amber-dim)",
+                marginBottom: "0.3rem",
+              }}
+            >
+              Safe to leave this page
+            </span>
+            Noosphere keeps processing in the cloud whether or not this
+            tab stays open. Track progress on the{" "}
+            <Link href="/library" style={{ color: "var(--gold)" }}>
+              library
+            </Link>{" "}
+            or{" "}
+            <Link href="/dashboard" style={{ color: "var(--gold)" }}>
+              dashboard
+            </Link>
+            ; you&apos;ll see the row flip from <em>processing</em> to{" "}
+            <em>ingested</em> (or <em>failed</em>) when it&apos;s done.
+          </div>
         )}
 
         <button
