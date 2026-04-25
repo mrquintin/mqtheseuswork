@@ -70,6 +70,39 @@ function extractLayerValues(json: string | null): number[] {
   }
 }
 
+/**
+ * The contradiction inserter currently writes `sixLayerJson` as a
+ * provenance stub (e.g. `{"source": "heuristic"}` or `{"source": "llm"}`)
+ * — it does NOT include per-layer coherence scores. Rendering the radar
+ * against that produces an empty rotating hex with no signal. This guard
+ * lets the UI fall back to a useful summary (detection method + narrative)
+ * until the pipeline starts computing real layer scores per pair.
+ */
+function hasRealLayerScores(json: string | null): boolean {
+  if (!json) return false;
+  try {
+    const parsed = JSON.parse(json) as Record<string, unknown>;
+    return LAYER_KEYS.some(
+      (k) => typeof parsed[k] === "number" && Number.isFinite(parsed[k] as number),
+    );
+  } catch {
+    return false;
+  }
+}
+
+function detectionSource(json: string | null): string | null {
+  if (!json) return null;
+  try {
+    const parsed = JSON.parse(json) as Record<string, unknown>;
+    const src = typeof parsed.source === "string" ? parsed.source : null;
+    if (!src) return null;
+    if (parsed.cross_upload === true) return `${src} (cross-upload)`;
+    return src;
+  } catch {
+    return null;
+  }
+}
+
 export default async function ContradictionsPage({
   searchParams,
 }: {
@@ -480,7 +513,7 @@ function ContradictionCard({
             </div>
           </div>
 
-          {row.sixLayerJson ? (
+          {hasRealLayerScores(row.sixLayerJson) ? (
             <div
               style={{
                 display: "grid",
@@ -493,10 +526,13 @@ function ContradictionCard({
                 values={extractLayerValues(row.sixLayerJson)}
                 size={220}
               />
-              <LayerBreakdown sixLayerJson={row.sixLayerJson} />
+              <LayerBreakdown sixLayerJson={row.sixLayerJson!} />
             </div>
           ) : (
-            <p>No layer scores stored.</p>
+            <DetectionSummary
+              source={detectionSource(row.sixLayerJson)}
+              severity={row.severity}
+            />
           )}
 
           {row.sixLayerJson && <JsonToggle json={row.sixLayerJson} />}
@@ -508,6 +544,103 @@ function ContradictionCard({
         </div>
       </details>
     </li>
+  );
+}
+
+function DetectionSummary({
+  source,
+  severity,
+}: {
+  source: string | null;
+  severity: number;
+}) {
+  // Without per-layer coherence scores, the radar would render as an
+  // empty rotating hex — the symptom that motivated this fallback.
+  // What we DO know: which detector flagged the pair (heuristic vs.
+  // LLM, possibly cross-upload), and the aggregate severity. Surface
+  // that plainly so the founder can judge how much weight to give the
+  // pair without staring at a meaningless visualisation.
+  const sourceLabel = source
+    ? source === "heuristic"
+      ? "Heuristic detector"
+      : source === "llm"
+      ? "LLM adjudicator"
+      : source.startsWith("llm")
+      ? `LLM adjudicator · ${source.replace(/^llm\s*/, "")}`
+      : source
+    : "Unspecified";
+
+  return (
+    <div
+      style={{
+        padding: "0.85rem 1rem",
+        border: "1px solid var(--stone-mid)",
+        borderLeft: "3px solid var(--amber-dim)",
+        borderRadius: 2,
+        background: "rgba(212,160,23,0.03)",
+        fontSize: "0.8rem",
+        lineHeight: 1.55,
+        color: "var(--parchment)",
+      }}
+    >
+      <div
+        className="mono"
+        style={{
+          fontSize: "0.6rem",
+          letterSpacing: "0.18em",
+          textTransform: "uppercase",
+          color: "var(--amber-dim)",
+          marginBottom: "0.4rem",
+        }}
+      >
+        Detection summary
+      </div>
+      <div style={{ display: "flex", gap: "1.5rem", flexWrap: "wrap" }}>
+        <div>
+          <div
+            className="mono"
+            style={{
+              fontSize: "0.6rem",
+              color: "var(--parchment-dim)",
+              textTransform: "uppercase",
+            }}
+          >
+            Method
+          </div>
+          <div style={{ marginTop: "0.15rem" }}>{sourceLabel}</div>
+        </div>
+        <div>
+          <div
+            className="mono"
+            style={{
+              fontSize: "0.6rem",
+              color: "var(--parchment-dim)",
+              textTransform: "uppercase",
+            }}
+          >
+            Severity
+          </div>
+          <div style={{ marginTop: "0.15rem" }}>
+            {(severity * 100).toFixed(0)}%
+          </div>
+        </div>
+      </div>
+      <p
+        style={{
+          marginTop: "0.6rem",
+          marginBottom: 0,
+          fontSize: "0.72rem",
+          color: "var(--parchment-dim)",
+          fontStyle: "italic",
+          lineHeight: 1.45,
+        }}
+      >
+        Per-layer coherence scores aren&apos;t computed for contradictions
+        yet — only aggregate severity and the narrative above. The
+        six-layer radar will appear here once the pipeline produces
+        per-pair layer breakdowns.
+      </p>
+    </div>
   );
 }
 
