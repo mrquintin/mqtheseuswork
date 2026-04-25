@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { revalidatePath } from "next/cache";
+import { Prisma } from "@prisma/client";
 import ConfidenceTierSigil from "@/components/ConfidenceTierSigil";
 import SculptureBackdrop from "@/components/SculptureBackdrop";
 import AutoProcessStatusBanner from "@/components/AutoProcessStatusBanner";
@@ -41,47 +42,59 @@ export default async function DashboardPage() {
       { founderId: tenant.founderId },
     ],
   };
-  const [recentUploads, pendingUploads, failedUploads] = await Promise.all([
-    db.upload.findMany({
-      where: {
-        organizationId: tenant.organizationId,
-        deletedAt: null,
-        ...visibilityScope,
-      },
-      orderBy: { createdAt: "desc" },
-      take: 12,
-      select: {
-        id: true,
-        title: true,
-        status: true,
-        errorMessage: true,
-        extractionMethod: true,
-        visibility: true,
-        publishedAt: true,
-        slug: true,
-        createdAt: true,
-        founder: { select: { name: true } },
-      },
-    }),
-    db.upload.count({
-      where: {
-        organizationId: tenant.organizationId,
-        deletedAt: null,
-        status: {
-          in: ["pending", "extracting", "awaiting_ingest", "processing", "queued_offline"],
+  // Wrapped: a column added by a not-yet-applied migration (e.g.
+  // `extractionMethod`) would otherwise throw at the Prisma layer and
+  // nuke the whole page. Degrading to empty/zero keeps the rest of the
+  // dashboard usable until `prisma migrate deploy` catches up.
+  const recentUploadsArgs = {
+    where: {
+      organizationId: tenant.organizationId,
+      deletedAt: null,
+      ...visibilityScope,
+    },
+    orderBy: { createdAt: "desc" },
+    take: 12,
+    select: {
+      id: true,
+      title: true,
+      status: true,
+      errorMessage: true,
+      extractionMethod: true,
+      visibility: true,
+      publishedAt: true,
+      slug: true,
+      createdAt: true,
+      founder: { select: { name: true } },
+    },
+  } satisfies Prisma.UploadFindManyArgs;
+  let recentUploads: Prisma.UploadGetPayload<typeof recentUploadsArgs>[] = [];
+  let pendingUploads = 0;
+  let failedUploads = 0;
+  try {
+    [recentUploads, pendingUploads, failedUploads] = await Promise.all([
+      db.upload.findMany(recentUploadsArgs),
+      db.upload.count({
+        where: {
+          organizationId: tenant.organizationId,
+          deletedAt: null,
+          status: {
+            in: ["pending", "extracting", "awaiting_ingest", "processing", "queued_offline"],
+          },
+          ...visibilityScope,
         },
-        ...visibilityScope,
-      },
-    }),
-    db.upload.count({
-      where: {
-        organizationId: tenant.organizationId,
-        deletedAt: null,
-        status: "failed",
-        ...visibilityScope,
-      },
-    }),
-  ]);
+      }),
+      db.upload.count({
+        where: {
+          organizationId: tenant.organizationId,
+          deletedAt: null,
+          status: "failed",
+          ...visibilityScope,
+        },
+      }),
+    ]);
+  } catch (err) {
+    console.error("[dashboard] upload queries failed (schema lag?):", err);
+  }
 
   // Inbox count for the current founder: how many pending deletion
   // requests are waiting on them to accept/decline. Drives the banner
