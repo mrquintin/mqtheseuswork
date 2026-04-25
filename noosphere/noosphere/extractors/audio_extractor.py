@@ -90,11 +90,18 @@ class AudioExtractor:
                     content.filename,
                     exc_info=True,
                 )
+                # Include the underlying message (truncated) so the
+                # founder can see *why* it failed without digging into
+                # the worker logs — "RuntimeError" alone is opaque.
+                detail = str(e).strip().replace("\n", " ")
+                if len(detail) > 240:
+                    detail = detail[:237] + "..."
                 raise ExtractionFailed(
                     "audio transcription failed: OpenAI Whisper request did "
-                    f"not complete ({type(e).__name__}). Check OPENAI_API_KEY "
-                    "quota/network and retry, or install faster-whisper for "
-                    "local transcription (`pip install 'noosphere[audio]'`)."
+                    f"not complete ({type(e).__name__}: {detail}). Check "
+                    "OPENAI_API_KEY quota/network and retry, or install "
+                    "faster-whisper for local transcription "
+                    "(`pip install 'noosphere[audio]'`)."
                 ) from e
 
             return ExtractedText(

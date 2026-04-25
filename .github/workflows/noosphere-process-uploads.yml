@@ -86,6 +86,19 @@ jobs:
           cache: 'pip'
           cache-dependency-path: noosphere/requirements.txt
 
+      - name: Ensure ffmpeg is available
+        # The audio extractor's chunked path (for files > 25 MB / 25 min,
+        # i.e. anything Whisper can't take in one shot) shells out to
+        # ffmpeg to split into ~10-min MP3 segments. ubuntu-latest ships
+        # with ffmpeg today, but pinning it here removes a class of
+        # silent regressions if the runner image trims it later.
+        run: |
+          if ! command -v ffmpeg >/dev/null 2>&1; then
+            sudo apt-get update -qq
+            sudo apt-get install -y --no-install-recommends ffmpeg
+          fi
+          ffmpeg -version | head -n 1
+
       - name: Install Noosphere
         working-directory: noosphere
         run: |
@@ -97,6 +110,13 @@ jobs:
           # requirements.txt, so only the first run per commit pays.
           pip install -r requirements.txt
           pip install psycopg2-binary
+          # `mutagen` powers the audio probe (size + duration) used to
+          # decide whether to chunk before calling Whisper. It lives in
+          # the `noosphere[audio]` optional extra alongside faster-whisper;
+          # we only need mutagen here since the OpenAI fallback handles
+          # transcription, so install it directly to avoid pulling in the
+          # ~150 MB faster-whisper / ctranslate2 stack we never use on CI.
+          pip install 'mutagen >= 1.47'
 
       - name: Determine processing plan
         id: plan
