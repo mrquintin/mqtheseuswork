@@ -182,10 +182,104 @@ if [ "$has_wt_changes" = 1 ]; then
   fi
 fi
 
+# ──────────────────────────────────────────────────────────────────────────────
+# Deletion guardrail — refuse to silently push large deletions or deletions of
+# load-bearing paths. This is the failure mode that lost the currents/live-news
+# feature once: a previous run deleted theseus-public/src/app/currents/ and
+# current_events_api/*.py and the next sync faithfully pushed the deletion to
+# origin/main, taking the deployed site down with it. The bytecode caches in
+# __pycache__/ are gitignored and survived on disk, so the loss was invisible
+# until someone tried to use the feature.
+#
+# Override with SYNC_FORCE_DELETE=1 when the deletions are intentional.
+# ──────────────────────────────────────────────────────────────────────────────
+DELETE_HARD_LIMIT=${SYNC_DELETE_HARD_LIMIT:-25}
+LOAD_BEARING_PATHS=(
+  "theseus-public/src/app/currents/"
+  "theseus-public/src/lib/currentsApi"
+  "theseus-public/src/components/CurrentsNavPulse"
+  "current_events_api/current_events_api/"
+  "noosphere/noosphere/extractors/"
+  "noosphere/noosphere/codex_bridge.py"
+  "dialectic/dialectic/recording_modal.py"
+  "dialectic/dialectic/recording_pipeline.py"
+  "dialectic/dialectic/auto_trim.py"
+  "dialectic/dialectic/auto_title.py"
+  "dialectic/dialectic/codex_upload.py"
+  "scripts/sync-to-github.sh"
+  ".vscode/tasks.json"
+)
+
 # Only create a new commit if the working tree actually has changes.
 # Otherwise just push whatever commits are ahead of origin.
 if [ "$has_wt_changes" = 1 ]; then
+  # Stage everything first so deleted-tracked-files show up as 'D' in --cached.
   git add -A
+
+  # Count and list staged deletions.
+  staged_deletions=$(git diff --cached --name-only --diff-filter=D 2>/dev/null || true)
+  staged_delete_count=0
+  if [ -n "$staged_deletions" ]; then
+    staged_delete_count=$(printf '%s\n' "$staged_deletions" | grep -c .)
+  fi
+
+  # Match staged deletions against load-bearing paths.
+  load_bearing_hits=""
+  if [ -n "$staged_deletions" ]; then
+    for lb in "${LOAD_BEARING_PATHS[@]}"; do
+      hit=$(printf '%s\n' "$staged_deletions" | grep -F -- "$lb" || true)
+      if [ -n "$hit" ]; then
+        load_bearing_hits="${load_bearing_hits}${hit}"$'\n'
+      fi
+    done
+  fi
+
+  # Refuse to commit if load-bearing paths are being deleted without override.
+  if [ -n "$load_bearing_hits" ] && [ "${SYNC_FORCE_DELETE:-0}" != "1" ]; then
+    echo ""
+    echo "${C_RED}=== REFUSING TO SYNC: load-bearing files staged for deletion ===${C_RESET}"
+    printf '%s' "$load_bearing_hits" | sed 's/^/  -  /'
+    echo ""
+    echo "  These paths are listed in LOAD_BEARING_PATHS in this script because"
+    echo "  losing them silently has broken the deployed site at least once."
+    echo "  Unstaging the deletion (recommended):"
+    echo "      git restore --staged <path> && git restore <path>"
+    echo "  Or, if the deletion is intentional, override:"
+    echo "      SYNC_FORCE_DELETE=1 ./scripts/sync-to-github.sh"
+    banner_failed \
+      "Deletion of load-bearing files blocked." \
+      "Set SYNC_FORCE_DELETE=1 to override, or restore the files first."
+    trap - EXIT
+    exit 2
+  fi
+
+  # Soft confirmation when staged deletions exceed the hard limit.
+  if [ "$staged_delete_count" -gt "$DELETE_HARD_LIMIT" ] && [ "${SYNC_FORCE_DELETE:-0}" != "1" ]; then
+    echo ""
+    echo "${C_YELLOW}=== WARNING: $staged_delete_count files staged for deletion (limit $DELETE_HARD_LIMIT) ===${C_RESET}"
+    printf '%s\n' "$staged_deletions" | head -20 | sed 's/^/  -  /'
+    if [ "$staged_delete_count" -gt 20 ]; then
+      echo "  …and $((staged_delete_count - 20)) more"
+    fi
+    echo ""
+    if [ -t 0 ]; then
+      printf "Proceed with these deletions? (y/N) "
+      read -r REPLY
+      if [ "$REPLY" != "y" ] && [ "$REPLY" != "Y" ]; then
+        echo "Aborting. Run 'git restore --staged .' to unstage everything."
+        banner_skipped "Bulk deletion declined; nothing pushed."
+        trap - EXIT
+        exit 0
+      fi
+    else
+      banner_skipped \
+        "Non-interactive shell with $staged_delete_count deletions exceeding $DELETE_HARD_LIMIT." \
+        "Set SYNC_FORCE_DELETE=1 to bypass this check."
+      trap - EXIT
+      exit 0
+    fi
+  fi
+
   if git status --porcelain | grep -q '^[MADRCU?]'; then
     git commit -m "Sync: latest changes"
   fi
