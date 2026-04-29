@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 from collections.abc import AsyncIterator
+from contextlib import suppress
 from datetime import date, datetime, timezone
 from typing import Any
 
@@ -50,13 +51,27 @@ async def with_heartbeats(
     heartbeat_seconds: float = HEARTBEAT_SECONDS,
 ) -> AsyncIterator[bytes]:
     iterator = source.__aiter__()
-    while True:
-        try:
-            yield await asyncio.wait_for(iterator.__anext__(), timeout=heartbeat_seconds)
-        except TimeoutError:
-            yield heartbeat_frame()
-        except StopAsyncIteration:
-            return
+    pending = asyncio.create_task(iterator.__anext__())
+    try:
+        while True:
+            done, _ = await asyncio.wait({pending}, timeout=heartbeat_seconds)
+            if pending not in done:
+                yield heartbeat_frame()
+                continue
+
+            try:
+                yield pending.result()
+            except StopAsyncIteration:
+                return
+            pending = asyncio.create_task(iterator.__anext__())
+    finally:
+        if not pending.done():
+            pending.cancel()
+            with suppress(asyncio.CancelledError):
+                await pending
+        aclose = getattr(iterator, "aclose", None)
+        if callable(aclose):
+            await aclose()
 
 
 def sse_response(frames: AsyncIterator[bytes]) -> StreamingResponse:
