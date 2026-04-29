@@ -6,6 +6,12 @@ export const metadata: Metadata = {
   title: "Theseus Codex",
   description:
     "Upload ideas, track methodology, build the communal brain. A disciplined instrument for firms that want to converge on better beliefs.",
+  alternates: {
+    types: {
+      "application/rss+xml": "/feed.xml",
+      "application/atom+xml": "/atom.xml",
+    },
+  },
 };
 
 export default function RootLayout({

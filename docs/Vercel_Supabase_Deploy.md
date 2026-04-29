@@ -114,14 +114,25 @@ log in with the email + password + org slug.
    | `DATABASE_URL` | _(the Supabase pooler URL from step 1)_ |
    | `SESSION_SECRET` | _(run `openssl rand -hex 32` and paste the output)_ |
    | `OPENAI_API_KEY` | _(your OpenAI key)_ |
-   | `ANTHROPIC_API_KEY` | _(your Anthropic key, if you use Claude models)_ |
    | `DEFAULT_ORGANIZATION_SLUG` | `theseus-local` |
+   | `CURRENTS_API_URL` | `https://currents.theseuscodex.com` once the FastAPI VM has TLS/domain routing; use its temporary HTTPS URL before then |
 
    Skip `REDIS_URL` and `USE_JOB_QUEUE` for the first deploy — without them,
    the Codex just runs ingest in-process (fine for low traffic).
 
+   Do not add the Currents service secrets to Vercel. `X_BEARER_TOKEN`,
+   `ANTHROPIC_API_KEY`, `NOOSPHERE_DATA_DIR`, scheduler ingest settings, and
+   the Currents budget/status files belong only on the host running
+   `current_events_api` and `noosphere.currents`.
+
 6. Click **Deploy**. First build takes ~3 minutes (Prisma generation,
    Next.js build, function bundling).
+
+The merged Codex stays in this existing Vercel project. Do not create a second
+Vercel project for Currents. The Vercel build command remains `npm run build`;
+the checked-in `vercel-build` package script still exists for deployments that
+call it explicitly and continues to run `prisma migrate deploy` before
+`next build`.
 
 When it's green, you have a live URL like `https://theseus-codex-<hash>.vercel.app`.
 Visit it — you should see the login page. Log in with a seeded founder
@@ -145,7 +156,68 @@ so you may need a variation (`theseus-codex-mq.vercel.app`).
 
 ---
 
-## 4. Point Noosphere at the same Postgres (2 min)
+## 4. Deploy Currents FastAPI service (VM)
+
+Vercel should not host `current_events_api`: the service uses long-lived Python
+processes and SSE, and the scheduler needs durable per-process budget/status
+state. The supportable production target is one small always-on VM, for
+example Fly.io, a DigitalOcean droplet, or a Mac mini you already control.
+
+The top-level Docker deployment has two containers:
+
+- `currents-api` runs `uvicorn current_events_api.main:app` on port `8088` with
+  one worker. Do not scale it above one worker until the in-process event bus is
+  replaced with an external pub/sub backend.
+- `currents-scheduler` runs `python -m noosphere.currents loop`.
+
+Both containers read `./current_events_api/.env` and share the `currents-data`
+Docker volume mounted at `/data/noosphere`. Put the same logical Postgres
+database URL used by the Codex in `DATABASE_URL`; for Supabase, use the
+production database connection string you chose for the Codex deployment.
+
+Create the service env file on the VM:
+
+```bash
+cp current_events_api/.env.example current_events_api/.env
+$EDITOR current_events_api/.env
+```
+
+Set at minimum:
+
+```dotenv
+DATABASE_URL=postgresql://...
+X_BEARER_TOKEN=...
+ANTHROPIC_API_KEY=...
+NOOSPHERE_DATA_DIR=/data/noosphere
+CURRENTS_CORS_ORIGINS=https://mqtheseuswork-qiw6.vercel.app
+```
+
+Then build and start the service:
+
+```bash
+docker compose build
+docker compose up -d
+curl -s http://localhost:8088/healthz
+docker compose logs -f currents-scheduler
+```
+
+Put a TLS reverse proxy or managed ingress in front of the VM and point the
+public name at the API container, for example:
+
+```text
+https://currents.theseuscodex.com -> http://127.0.0.1:8088
+```
+
+After that host is reachable, set the existing Vercel project's
+`CURRENTS_API_URL` environment variable to the HTTPS origin. The Codex's
+server-side `/api/currents/*` routes proxy to this value; it is not exposed to
+browser bundles.
+
+The FastAPI deploy target is therefore: one small VM running the top-level
+Docker Compose stack, with `currents-api` and `currents-scheduler` sharing the
+`currents-data` volume and the same Postgres database used by the Codex.
+
+## 5. Point Noosphere at the same Postgres (2 min)
 
 On any machine running Noosphere CLI (probably your laptop):
 
@@ -168,7 +240,7 @@ the same `public` schema — they don't share table names. The Codex's
 
 ---
 
-## 5. Mint an API key and wire up Dialectic auto-sync (3 min)
+## 6. Mint an API key and wire up Dialectic auto-sync (3 min)
 
 Dialectic's cloud uploader is off by default. Two env vars turn it on.
 
@@ -222,7 +294,7 @@ Unset either env var to turn auto-sync off again — no code changes needed.
 
 ---
 
-## 6. What doesn't work yet (known gaps)
+## 7. What doesn't work yet (known gaps)
 
 - **Large binary uploads on Vercel.** Vercel serverless functions cap request
   bodies at 4.5 MB. Audio (`.wav`, `.mp3`), PDFs, and docx larger than that
@@ -244,7 +316,7 @@ Unset either env var to turn auto-sync off again — no code changes needed.
 
 ---
 
-## 7. Local development after the switch
+## 8. Local development after the switch
 
 Since the Codex is now Postgres-only, local dev needs a Postgres somewhere.
 Two easy options:
@@ -272,7 +344,7 @@ container. Everything else (Next.js, Prisma, Noosphere) is unchanged.
 
 ---
 
-## 8. Troubleshooting
+## 9. Troubleshooting
 
 **Build fails on Vercel with `PrismaConfigEnvError: Cannot resolve environment variable: DATABASE_URL`.**
 You forgot to add `DATABASE_URL` in the Vercel env vars. Add it under

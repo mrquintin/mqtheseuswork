@@ -1,0 +1,116 @@
+# Claude Code Prompt 7 of 22 — Embedding-based dedupe, topic assignment, relevance gate
+
+**Sequence:** prompt 7 of 22 (Wave 2 closer). Depends on 05, 06. Report back with: cosine thresholds chosen, abstention rate on a real cycle.
+
+**Why this prompt exists.** The hash dedupe in prompt 06 catches verbatim repeats. But news appears in many phrasings of the same underlying event ("Fed cuts rates 25 bps" vs "FOMC announces quarter-point cut"). Embedding-based near-duplicate detection collapses these. Then we check whether the firm has any source material relevant to the event — if not, abstain.
+
+**Before you start — read current state:**
+1. Read `noosphere/noosphere/embeddings.py` — confirm the embedding function (likely `embed_text(s) -> np.ndarray`) and dimension.
+2. Read `noosphere/noosphere/retrieval.py` — note the existing `HybridRetriever`. The relevance check uses it.
+3. Read `noosphere/noosphere/currents/__init__.py` — confirm prompt 06's modules are present.
+
+## Your task
+
+Build:
+1. `enrich.py` — embeds an event, sets `is_near_duplicate` if cosine ≥ 0.92 to any prior event in the last 7 days, assigns `topic_id` if cosine ≥ 0.35 to a known Topic embedding.
+2. `relevance.py` — runs a cheap retrieval against Conclusions+Claims; if at least 2 hits score ≥ 0.55, the event is OPINE-eligible. Otherwise ABSTAIN_INSUFFICIENT_SOURCES.
+3. A discrete `RelevanceDecision` enum (`OPINE | ABSTAIN_INSUFFICIENT_SOURCES | ABSTAIN_NEAR_DUPLICATE`) used by the scheduler (prompt 19).
+
+### `enrich.py`
+
+```python
+from __future__ import annotations
+from dataclasses import dataclass
+
+NEAR_DUPLICATE_COSINE = 0.92
+TOPIC_ASSIGNMENT_COSINE = 0.35
+
+@dataclass
+class EnrichmentResult:
+    event_id: str
+    embedding_set: bool
+    is_near_duplicate: bool
+    topic_id: str | None
+
+def enrich_event(store, event_id: str) -> EnrichmentResult:
+    ev = store.get_current_event(event_id)
+    vec = embed_text(ev.text)
+    store.set_event_embedding(event_id, vec)
+    near = store.find_near_duplicates(vec, since_days=7,
+                                       cosine_min=NEAR_DUPLICATE_COSINE,
+                                       exclude_id=event_id)
+    is_near = bool(near)
+    if is_near:
+        store.set_event_status(event_id, "REVOKED",
+                               note="near_duplicate_of:" + near[0].id)
+    topic_id = store.nearest_topic(vec, cosine_min=TOPIC_ASSIGNMENT_COSINE)
+    if topic_id:
+        store.set_event_topic(event_id, topic_id)
+    if not is_near:
+        store.set_event_status(event_id, "ENRICHED")
+    return EnrichmentResult(event_id, True, is_near, topic_id)
+```
+
+Add `find_near_duplicates`, `nearest_topic`, `set_event_embedding`, `set_event_topic`, `set_event_status` accessors to the Store if missing.
+
+### `relevance.py`
+
+```python
+from enum import Enum
+
+MIN_SOURCES_FOR_OPINION = 2
+MIN_TOP_SCORE = 0.55
+
+class RelevanceDecision(str, Enum):
+    OPINE = "OPINE"
+    ABSTAIN_INSUFFICIENT_SOURCES = "ABSTAIN_INSUFFICIENT_SOURCES"
+    ABSTAIN_NEAR_DUPLICATE = "ABSTAIN_NEAR_DUPLICATE"
+
+def check_relevance(store, event_id: str) -> RelevanceDecision:
+    ev = store.get_current_event(event_id)
+    if ev.status == "REVOKED":  # near-dup case from enrich
+        return RelevanceDecision.ABSTAIN_NEAR_DUPLICATE
+    hits = quick_retrieve_for_event(store, ev, top_k=10)
+    qualifying = [h for h in hits if h.score >= MIN_TOP_SCORE]
+    if len(qualifying) < MIN_SOURCES_FOR_OPINION:
+        store.set_event_status(event_id, "ABSTAINED")
+        return RelevanceDecision.ABSTAIN_INSUFFICIENT_SOURCES
+    return RelevanceDecision.OPINE
+```
+
+`quick_retrieve_for_event` is a small helper that runs `HybridRetriever` over the union of Conclusions+Claims with the event text as query — fast version of what prompt 08's full retrieval adapter does. May import from prompt 08's adapter once that exists.
+
+### Tests
+
+`noosphere/tests/test_enrich_relevance.py`:
+
+- Two events with cosine 0.95 → second flagged near-duplicate.
+- Two events with cosine 0.5 → neither flagged.
+- Event with text orthogonal to any seeded Conclusion → relevance ABSTAIN_INSUFFICIENT_SOURCES.
+- Event with two relevant Conclusions → relevance OPINE.
+
+## Prerequisites
+
+- Prompts 05, 06 applied.
+
+## SCOPE
+
+- `noosphere/noosphere/currents/enrich.py`                                 CREATE
+- `noosphere/noosphere/currents/relevance.py`                              CREATE
+- `noosphere/noosphere/store.py`                                           MODIFY (add the 4 accessors above)
+- `noosphere/tests/test_enrich_relevance.py`                               CREATE
+
+## Verification
+
+```bash
+cd /Users/michaelquintin/Desktop/Theseus
+pytest -q noosphere/tests/test_enrich_relevance.py
+```
+
+## Prohibitions
+
+- Do NOT lower the thresholds to make tests pass. They are load-bearing for the abstention invariant.
+- Do NOT call the LLM in this prompt. Embeddings + cosine only.
+- Do NOT skip the topic assignment. Without it, the UI's topic-cluster view (prompt 14) has nothing to group.
+
+Do not proceed to prompts 08+. Do not edit anything outside SCOPE.

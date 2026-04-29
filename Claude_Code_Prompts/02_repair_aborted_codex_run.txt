@@ -1,0 +1,123 @@
+# Claude Code Prompt 2 of N — Repair the aborted Codex run: act on the diagnosis
+
+**Sequence:** prompt 2 (cleanup wave). Depends on 01 (the diagnosis must exist and recommend an action). Report back with: which path was taken (REVERT / REPAIR-AND-COMPLETE / REPAIR-MINIMAL), the exact files touched, and the output of `npm run build` after the fix.
+
+**Before you start — read current state:**
+1. Read `Claude_Code_Prompts/ABORTED_RUN_DIAGNOSIS.md` in full. Section F's recommendation is what this prompt executes. If it has unresolved ambiguity (recommendation not picked, or "operator must decide"), STOP and surface that.
+2. Re-read `theseus-codex/desktop/main.ts` and `theseus-codex/package.json` to confirm the current state hasn't drifted since the diagnosis was produced.
+3. Read `theseus-codex/prisma.config.ts` so you understand why `npm install`'s `prisma generate` postinstall step needs `DATABASE_URL`.
+
+## Your task
+
+Execute exactly one of the three recommended paths from the diagnosis. Do not blend them — the whole point of the diagnosis was to commit to a single course of action.
+
+### Path REVERT
+
+If the diagnosis recommends REVERT:
+
+1. `git -C /Users/michaelquintin/Desktop/Theseus checkout HEAD -- theseus-codex/desktop/main.ts theseus-codex/package.json` (and `package-lock.json` if it was modified).
+2. `cd theseus-codex && npm uninstall electron electron-builder electron-log electron-updater` — this rewrites `package.json` and the lockfile to remove the deps even though they're not currently in package.json (because `npm uninstall` also cleans `node_modules/` of those packages and their transitives). Use `--save-dev` flag if any of them were declared as devDependencies in the aborted state.
+3. `rm -rf theseus-codex/desktop/dev.ts theseus-codex/desktop/preload.ts theseus-codex/desktop/tsconfig.json theseus-codex/dist-desktop` — only delete files that the aborted run created and that are explicitly listed in the diagnosis section A as `A` (added) or `??` (untracked). Do NOT delete `theseus-codex/desktop/main.ts` itself; it predates this run and is now back to its committed version.
+4. Run `cd theseus-codex && DATABASE_URL=$(cat .env | grep '^DATABASE_URL=' | head -n1 | cut -d= -f2-) npm install` to ensure node_modules is consistent with the now-reverted package.json.
+5. Run `cd theseus-codex && DATABASE_URL=... npm run build`. It must succeed. Capture and report the build output.
+
+### Path REPAIR-AND-COMPLETE
+
+If the diagnosis recommends REPAIR-AND-COMPLETE, the work is more involved. Fix in this order:
+
+1. **Fix every markdown-artifact bug** listed in the diagnosis section B. The most common shape: replace `target.hostname === "[localhost](http://localhost)"` with `target.hostname === "localhost"`. Apply each fix exactly as the diagnosis prescribed. Verify with a follow-up grep for `\[[a-zA-Z0-9.-]+\]\(http` — must return zero matches in any .ts/.tsx/.js/.jsx file under `theseus-codex/`.
+
+2. **Write the missing scaffolding files** flagged in section C as missing. The aborted prompt's full SCOPE in `_paused/02_founder_portal_electron_core.txt` defines the contract:
+   - `theseus-codex/desktop/tsconfig.json` — TypeScript config for the Electron main-process build (not the Next.js TS config). Compile target should be Node 20+ (Electron 35 ships Node 20.x), output to `dist-desktop/`, module resolution Node, no JSX.
+   - `theseus-codex/desktop/dev.ts` — dev-mode entry that starts `next dev`, sets `ELECTRON_DEV_URL`, and spawns `electron .`. The `main.ts` already has the dev-URL branch wired in; this script just orchestrates the two processes.
+   - `theseus-codex/desktop/preload.ts` — minimal preload that exposes nothing to the renderer (Electron security default; if the prompt's SCOPE says expose specific bridges, follow that).
+   - Whatever else section C lists.
+
+3. **Repair the dependency state.** If section D found that `package-lock.json` is out of sync (deps declared in package.json but not in the lock), run:
+   ```bash
+   cd theseus-codex
+   DATABASE_URL=$(grep '^DATABASE_URL=' .env | head -n1 | cut -d= -f2-) npm install
+   ```
+   This regenerates the lockfile correctly. If you don't have access to a real `.env`, use a throwaway: `DATABASE_URL=postgresql://throwaway:throwaway@localhost:5432/throwaway`. The `prisma generate` postinstall only needs the env var to be PARSEABLE — it won't actually connect during generate.
+
+4. **Verify TypeScript compiles** for both Next.js and Electron-main:
+   ```bash
+   cd theseus-codex
+   DATABASE_URL=postgresql://throwaway:throwaway@localhost:5432/throwaway npx tsc --noEmit -p tsconfig.json
+   npx tsc --noEmit -p desktop/tsconfig.json
+   ```
+
+5. **Verify build:** `cd theseus-codex && npm run build`. Must succeed. The desktop:build target is optional in this prompt — if it works, great; if it doesn't and the diagnosis didn't promise it, leave it for a future iteration.
+
+### Path REPAIR-MINIMAL
+
+If the diagnosis recommends REPAIR-MINIMAL:
+
+1. Fix the markdown-artifact bug(s) only (step 1 of REPAIR-AND-COMPLETE).
+2. Add a `.wip-electron-desktop` marker file at `theseus-codex/desktop/.wip-electron-desktop` containing a single line: `Aborted at <UTC timestamp>; see Claude_Code_Prompts/ABORTED_RUN_DIAGNOSIS.md for the unfinished list.`
+3. Add a top-of-file comment in `theseus-codex/desktop/main.ts` immediately under the existing imports: `// WIP: electron desktop wrapper is incomplete — see desktop/.wip-electron-desktop.`
+4. Run `npm run build` from `theseus-codex/` to confirm the non-electron build still works. The desktop scripts may fail; that's expected and documented by the WIP marker.
+
+## Prerequisites
+
+- Prompt 01 applied. `ABORTED_RUN_DIAGNOSIS.md` exists with a clear recommendation.
+
+## SCOPE (path-dependent — pick the one your diagnosis chose)
+
+For REVERT:
+
+- `theseus-codex/desktop/main.ts`                                          MODIFY (revert via git checkout)
+- `theseus-codex/package.json`                                             MODIFY (revert)
+- `theseus-codex/package-lock.json`                                        MODIFY (regenerate via npm install)
+- Any aborted-created files                                                DELETE (only those listed in diagnosis section A as added)
+
+For REPAIR-AND-COMPLETE:
+
+- `theseus-codex/desktop/main.ts`                                          MODIFY (fix markdown bug)
+- `theseus-codex/desktop/tsconfig.json`                                    CREATE (if missing)
+- `theseus-codex/desktop/dev.ts`                                           CREATE (if missing)
+- `theseus-codex/desktop/preload.ts`                                       CREATE (if missing)
+- `theseus-codex/package-lock.json`                                        MODIFY (regenerate)
+- Any other file the diagnosis flagged as missing or buggy                 CREATE/MODIFY
+
+For REPAIR-MINIMAL:
+
+- `theseus-codex/desktop/main.ts`                                          MODIFY (fix markdown bug + add WIP comment)
+- `theseus-codex/desktop/.wip-electron-desktop`                            CREATE
+
+In all paths:
+
+- `Claude_Code_Prompts/_paused/02_founder_portal_electron_core.txt`       LEAVE AS-IS — do not move it back to the top level. Whether to retry the founder-portal work is a separate decision the operator will make later.
+
+## Verification
+
+```bash
+cd /Users/michaelquintin/Desktop/Theseus
+
+# 1. The markdown-artifact bug is gone everywhere.
+grep -rn '\[[a-zA-Z0-9.-]\+\](http' theseus-codex/ --include='*.ts' --include='*.tsx' --include='*.js' --include='*.jsx' || echo "  (zero matches — clean)"
+
+# 2. Build succeeds (or in REPAIR-MINIMAL, the non-electron build succeeds).
+cd theseus-codex
+DATABASE_URL=postgresql://throwaway:throwaway@localhost:5432/throwaway npm run build
+
+# 3. (REPAIR-AND-COMPLETE only) The desktop TS config is valid.
+[ -f desktop/tsconfig.json ] && npx tsc --noEmit -p desktop/tsconfig.json && echo "desktop tsc: OK"
+
+# 4. (REVERT only) Confirm electron deps are gone.
+grep -E '"(electron|electron-builder|electron-log|electron-updater)"' package.json && \
+  echo "FAIL: deps still in package.json" || echo "  (electron deps removed)"
+```
+
+## Prohibitions
+
+- Do NOT execute more than one of the three paths. They are mutually exclusive.
+- Do NOT move `_paused/02_founder_portal_electron_core.txt` back to the top level. Whether to retry that prompt is a separate decision after this cleanup is done.
+- Do NOT touch the merger prompts (`03_*.txt`, `04_*.txt`) or any later prompt. Those are for a separate wave.
+- Do NOT add new electron deps in REPAIR-MINIMAL. The whole point of REPAIR-MINIMAL is to surface that the work is unfinished, not to finish it stealthily.
+- Do NOT skip the markdown-artifact grep verification. A surviving `[localhost](http://localhost)` is the entire reason this cleanup exists.
+- Do NOT use `git reset --hard` for REVERT. That would also blow away unrelated working-tree changes. Use `git checkout HEAD -- <specific paths>` only.
+
+After this prompt completes, the merger work (prompts 03 onward) should be safe to run.
+
+Do not proceed to prompts 03+. Do not edit anything outside SCOPE.

@@ -1,0 +1,163 @@
+# Claude Code Prompt 5 of 22 — Currents data model: schema additions for events, opinions, citations, and follow-up sessions
+
+**Sequence:** prompt 5 of 22 (Wave 2 opener — Currents backend). Depends on the merger (01-04). All Wave 2-7 prompts assume this schema. Report back with: the migration filename, the exact column names actually created, and the `npx prisma migrate status` output after applying.
+
+**Why this prompt exists.** The merged theseus-codex now needs to store live-news data: external events the firm has observed (tweets, articles), opinions the firm has formed about them (LLM-generated, source-grounded from the Noosphere), the verbatim citations linking each opinion back to a specific Conclusion or Claim, and anonymous follow-up chat sessions where the public can ask questions. None of these models exist yet.
+
+**Before you start — read current state:**
+1. Read `theseus-codex/prisma/schema.prisma` in full. Note the existing models (Upload, Conclusion, Contradiction, OpenQuestion, ResearchSuggestion, AuditEvent, Founder, Organization). Match their conventions: cuid IDs, camelCase column names, organizationId scoping, createdAt/updatedAt timestamps.
+2. Read `theseus-codex/prisma.config.ts` — confirm the migration command path.
+3. Read `noosphere/noosphere/models.py` — note the existing Conclusion and Claim shapes; the OpinionCitation model below references them by ID.
+
+## Your task
+
+Add five new Prisma models, the supporting enums, an Alembic migration in noosphere/, and Store accessor methods. The schema must be consistent across both codebases since `ingest-from-codex` writes from Python while the Codex web app reads via Prisma.
+
+### Models
+
+```prisma
+enum CurrentEventStatus  { OBSERVED  ENRICHED  OPINED  ABSTAINED  REVOKED }
+enum CurrentEventSource  { X_TWITTER  RSS  MANUAL }
+enum OpinionStance       { AGREES  DISAGREES  COMPLICATES  ABSTAINED }
+enum AbstentionReason    { INSUFFICIENT_SOURCES  NEAR_DUPLICATE  BUDGET  CITATION_FABRICATION  REVOKED_SOURCES }
+enum FollowUpRole        { USER  ASSISTANT }
+
+model CurrentEvent {
+  id              String                @id @default(cuid())
+  organizationId  String
+  source          CurrentEventSource
+  externalId      String                // X tweet id, RSS guid, etc.
+  authorHandle    String?
+  text            String                @db.Text
+  url             String?
+  capturedAt      DateTime              @default(now())
+  observedAt      DateTime              // when the source published it
+  topicHint       String?
+  isNearDuplicate Boolean               @default(false)
+  embedding       Bytes?                // float32 little-endian; 768 or 1024 dims
+  status          CurrentEventStatus    @default(OBSERVED)
+  dedupeHash      String                @unique
+  createdAt       DateTime              @default(now())
+  updatedAt       DateTime              @updatedAt
+  opinions        EventOpinion[]
+  @@index([organizationId, observedAt])
+  @@index([organizationId, status])
+}
+
+model EventOpinion {
+  id                  String              @id @default(cuid())
+  organizationId      String
+  eventId             String
+  event               CurrentEvent        @relation(fields: [eventId], references: [id])
+  stance              OpinionStance
+  confidence          Float               // 0.0–1.0
+  headline            String              @db.VarChar(140)
+  bodyMarkdown        String              @db.Text  // ≤ 800 chars
+  uncertaintyNotes    String[]            // strict: array of short strings
+  topicHint           String?
+  modelName           String              // e.g. "claude-haiku-4-5"
+  promptTokens        Int                 @default(0)
+  completionTokens    Int                 @default(0)
+  abstentionReason    AbstentionReason?
+  generatedAt         DateTime            @default(now())
+  revokedAt           DateTime?
+  revokedReason       String?
+  citations           OpinionCitation[]
+  @@index([organizationId, generatedAt])
+  @@index([eventId])
+}
+
+model OpinionCitation {
+  id              String         @id @default(cuid())
+  opinionId       String
+  opinion         EventOpinion   @relation(fields: [opinionId], references: [id])
+  sourceKind      String         // "conclusion" | "claim"
+  conclusionId    String?
+  claimId         String?
+  quotedSpan      String         @db.Text  // verbatim substring of source text
+  retrievalScore  Float
+  isRevoked       Boolean        @default(false)
+  revokedReason   String?
+  @@index([opinionId])
+  @@index([conclusionId])
+  @@index([claimId])
+}
+
+model FollowUpSession {
+  id                  String              @id @default(cuid())
+  opinionId           String
+  clientFingerprint   String              // sha256(IP+UA+UTC-day); rotates daily
+  createdAt           DateTime            @default(now())
+  lastActivityAt      DateTime            @default(now())
+  messages            FollowUpMessage[]
+  @@index([opinionId, lastActivityAt])
+  @@index([clientFingerprint, createdAt])
+}
+
+model FollowUpMessage {
+  id          String           @id @default(cuid())
+  sessionId   String
+  session     FollowUpSession  @relation(fields: [sessionId], references: [id])
+  role        FollowUpRole
+  content     String           @db.Text
+  citations   Json?            // [{source_kind, source_id, quoted_span}]
+  createdAt   DateTime         @default(now())
+  @@index([sessionId, createdAt])
+}
+```
+
+### Migration
+
+Run `npx prisma migrate dev --name currents_data_model` from `theseus-codex/`. The migration SQL goes to `theseus-codex/prisma/migrations/<ts>_currents_data_model/migration.sql`. Verify the SQL is reasonable (no destructive drops, every new index is present).
+
+### Noosphere Python side
+
+Add corresponding SQLAlchemy classes to `noosphere/noosphere/models.py` mirroring the same names + columns (snake_case in Python; the wire layer translates). The Python side is what the X ingestor (prompt 06) writes; the Codex reads via Prisma. They share the same Postgres tables.
+
+Also add Store accessors in `noosphere/noosphere/store.py`:
+- `add_current_event(event) -> str` (returns id; honors `dedupeHash` unique)
+- `find_current_event_by_dedupe(hash) -> CurrentEvent | None`
+- `add_event_opinion(opinion, citations) -> str` (transactional; rejects if any citation's quotedSpan is not a verbatim substring of the cited source's text)
+- `list_recent_opinions(org_id, since, limit) -> list[EventOpinion]`
+- `revoke_opinion(opinion_id, reason)`, `revoke_citations_for_source(source_kind, source_id, reason)`
+- `add_followup_session`, `add_followup_message`
+
+### Tests
+
+`noosphere/tests/test_currents_models.py`:
+- Round-trip insert + read for each model.
+- `add_event_opinion` rejects a citation whose quotedSpan isn't found in the cited Conclusion's body.
+- `revoke_citations_for_source` flips every citation pointing at a given source and updates dependent opinions' `abstentionReason` only if all their citations are now revoked.
+
+## Prerequisites
+
+- Prompts 01–04 applied. Merger landed cleanly (ck_merger passed).
+
+## SCOPE
+
+- `theseus-codex/prisma/schema.prisma`                                     MODIFY (add 5 models + 5 enums)
+- `theseus-codex/prisma/migrations/<ts>_currents_data_model/migration.sql` CREATE (auto-generated)
+- `noosphere/noosphere/models.py`                                          MODIFY (mirror models + enums)
+- `noosphere/noosphere/store.py`                                           MODIFY (add accessors)
+- `noosphere/alembic/versions/<rev>_currents_data_model.py`                CREATE (mirrors the Prisma migration)
+- `noosphere/tests/test_currents_models.py`                                CREATE
+
+## Verification
+
+```bash
+cd /Users/michaelquintin/Desktop/Theseus/theseus-codex
+DATABASE_URL=$(grep '^DATABASE_URL=' .env | cut -d= -f2-) npx prisma migrate status
+DATABASE_URL=$(grep '^DATABASE_URL=' .env | cut -d= -f2-) npm run build  # must still build
+
+cd /Users/michaelquintin/Desktop/Theseus
+pytest -q noosphere/tests/test_currents_models.py
+```
+
+## Prohibitions
+
+- Do NOT use a single Json blob for citations. The `OpinionCitation` table is the audit trail; we revoke citations individually when a source is revoked.
+- Do NOT use camelCase in the Python `models.py` — Python convention is snake_case; the SQLAlchemy `Column(name=...)` arg maps to camelCase columns.
+- Do NOT skip the `@@unique` on `CurrentEvent.dedupeHash`. It is the entire dedupe boundary.
+- Do NOT add `userId` or `founderId` to FollowUpSession. Anonymous-by-design.
+
+Do not proceed to prompts 06+. Do not edit anything outside SCOPE.

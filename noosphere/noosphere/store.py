@@ -5,17 +5,26 @@ SQLite persistence via SQLModel. Raw SQL is confined to this module.
 from __future__ import annotations
 
 import json
+import struct
 import uuid
 from contextlib import contextmanager
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from typing import Any, Generator, Iterator, Literal, Optional
 
-import numpy as np
+try:
+    import numpy as np
+except ImportError as exc:  # pragma: no cover - exercised only on broken local wheels.
+    np = None  # type: ignore[assignment]
+    _NUMPY_IMPORT_ERROR = exc
+else:
+    _NUMPY_IMPORT_ERROR = None
 from sqlalchemy import Column, LargeBinary, asc, desc, inspect, text
 from sqlalchemy.engine import Engine
+from sqlalchemy.exc import IntegrityError
 from sqlmodel import Field, Session, SQLModel, create_engine, select
 
 from noosphere.models import (
+    AbstentionReason,
     Actor,
     AdversarialChallenge,
     Artifact,
@@ -35,10 +44,15 @@ from noosphere.models import (
     CorpusBundle,
     CorpusSelector,
     CounterfactualEvalRun,
+    CurrentEvent,
+    CurrentEventStatus,
     DecayPolicy,
     DriftEvent,
     Entity,
+    EventOpinion,
     FounderOverride,
+    FollowUpMessage,
+    FollowUpSession,
     Freshness,
     LedgerEntry,
     Method,
@@ -47,6 +61,7 @@ from noosphere.models import (
     MIPManifest,
     Outcome,
     OutcomeKind,
+    OpinionCitation,
     PredictionResolution,
     PredictiveClaim,
     ReadingQueueEntry,
@@ -76,6 +91,36 @@ def _dt(v: datetime | date) -> datetime:
 
 def _utcnow() -> datetime:
     return datetime.now(timezone.utc)
+
+
+def _float_vector(value: Any) -> list[float]:
+    if isinstance(value, (bytes, bytearray, memoryview)):
+        raw = bytes(value)
+        if len(raw) % 4 != 0:
+            return []
+        return [float(x) for x in struct.unpack(f"<{len(raw) // 4}f", raw)]
+    if hasattr(value, "ravel") and np is not None:
+        value = value.ravel()
+    if hasattr(value, "tolist"):
+        value = value.tolist()
+    return [float(x) for x in value]
+
+
+def _float32_bytes(value: Any) -> bytes:
+    vec = _float_vector(value)
+    if not vec:
+        return b""
+    return struct.pack(f"<{len(vec)}f", *vec)
+
+
+def _cosine(left: list[float], right: list[float]) -> float | None:
+    if len(left) != len(right) or not left:
+        return None
+    left_norm = sum(x * x for x in left) ** 0.5
+    right_norm = sum(x * x for x in right) ** 0.5
+    if left_norm == 0.0 or right_norm == 0.0:
+        return None
+    return sum(a * b for a, b in zip(left, right)) / (left_norm * right_norm)
 
 
 class LedgerChainError(Exception):
@@ -720,6 +765,8 @@ class Store:
         vector: list[float],
         ref_claim_id: str = "",
     ) -> None:
+        if np is None:
+            raise ImportError("NumPy is required for embedding persistence") from _NUMPY_IMPORT_ERROR
         arr = np.asarray(vector, dtype=np.float32)
         blob = arr.tobytes()
         row = StoredEmbedding(
@@ -744,6 +791,8 @@ class Store:
             s.commit()
 
     def get_embedding_vector(self, embedding_id: str) -> Optional[list[float]]:
+        if np is None:
+            raise ImportError("NumPy is required for embedding persistence") from _NUMPY_IMPORT_ERROR
         with self.session() as s:
             r = s.get(StoredEmbedding, embedding_id)
             if r is None:
@@ -879,6 +928,321 @@ class Store:
                 except Exception:
                     continue
             return out
+
+    # --- Currents ---
+    def add_current_event(self, event: CurrentEvent) -> str:
+        """Insert a CurrentEvent, returning the existing id on dedupe collision."""
+        event_id = event.id
+        with self.session() as s:
+            existing = s.exec(
+                select(CurrentEvent).where(CurrentEvent.dedupe_hash == event.dedupe_hash)
+            ).first()
+            if existing is not None:
+                return existing.id
+            event.updated_at = _utcnow()
+            s.add(event)
+            try:
+                s.commit()
+            except IntegrityError:
+                s.rollback()
+                existing = s.exec(
+                    select(CurrentEvent).where(CurrentEvent.dedupe_hash == event.dedupe_hash)
+                ).first()
+                if existing is None:
+                    raise
+                return existing.id
+            return event_id
+
+    def find_current_event_by_dedupe(self, hash: str) -> Optional[CurrentEvent]:
+        with self.session() as s:
+            return s.exec(select(CurrentEvent).where(CurrentEvent.dedupe_hash == hash)).first()
+
+    def get_current_event(self, event_id: str) -> Optional[CurrentEvent]:
+        with self.session() as s:
+            return s.get(CurrentEvent, event_id)
+
+    def set_event_embedding(self, event_id: str, vector: Any) -> None:
+        """Persist a CurrentEvent embedding as float32 little-endian bytes."""
+        if np is not None:
+            raw_embedding = np.asarray(vector, dtype=np.float32).ravel().tobytes()
+        else:
+            raw_embedding = _float32_bytes(vector)
+        with self.session() as s:
+            event = s.get(CurrentEvent, event_id)
+            if event is None:
+                raise KeyError(f"unknown current event: {event_id}")
+            event.embedding = raw_embedding
+            event.updated_at = _utcnow()
+            s.add(event)
+            s.commit()
+
+    def find_near_duplicates(
+        self,
+        vector: Any,
+        *,
+        since_days: int,
+        cosine_min: float,
+        exclude_id: str | None = None,
+    ) -> list[CurrentEvent]:
+        """Return recent CurrentEvents whose stored embedding is cosine-close."""
+        if np is not None:
+            q = np.asarray(vector, dtype=float).ravel()
+            q_norm = float(np.linalg.norm(q))
+            if q_norm == 0.0:
+                return []
+        else:
+            q_fallback = _float_vector(vector)
+            if not q_fallback or sum(x * x for x in q_fallback) == 0.0:
+                return []
+        scored: list[tuple[float, CurrentEvent]] = []
+        with self.session() as s:
+            rows = s.exec(select(CurrentEvent)).all()
+            reference_at = _utcnow()
+            if exclude_id is not None:
+                for event in rows:
+                    if event.id != exclude_id:
+                        continue
+                    reference_at = event.observed_at
+                    if reference_at.tzinfo is None:
+                        reference_at = reference_at.replace(tzinfo=timezone.utc)
+                    break
+            cutoff = reference_at - timedelta(days=since_days)
+            for event in rows:
+                if event.id == exclude_id or not event.embedding:
+                    continue
+                observed_at = event.observed_at
+                if observed_at.tzinfo is None:
+                    observed_at = observed_at.replace(tzinfo=timezone.utc)
+                if observed_at < cutoff or observed_at > reference_at:
+                    continue
+                if np is not None:
+                    candidate = np.frombuffer(event.embedding, dtype=np.float32).astype(
+                        float
+                    )
+                    if candidate.shape != q.shape:
+                        continue
+                    candidate_norm = float(np.linalg.norm(candidate))
+                    if candidate_norm == 0.0:
+                        continue
+                    cosine = float(np.dot(q, candidate) / (q_norm * candidate_norm))
+                else:
+                    maybe_cosine = _cosine(q_fallback, _float_vector(event.embedding))
+                    if maybe_cosine is None:
+                        continue
+                    cosine = maybe_cosine
+                if cosine >= cosine_min:
+                    scored.append((cosine, event))
+        scored.sort(key=lambda item: item[0], reverse=True)
+        return [event for _, event in scored]
+
+    def nearest_topic(self, vector: Any, *, cosine_min: float) -> Optional[str]:
+        """Return the nearest stored topic-cluster id above the cosine threshold."""
+        if np is not None:
+            q = np.asarray(vector, dtype=float).ravel()
+            q_norm = float(np.linalg.norm(q))
+            if q_norm == 0.0:
+                return None
+        else:
+            q_fallback = _float_vector(vector)
+            if not q_fallback or sum(x * x for x in q_fallback) == 0.0:
+                return None
+        best: tuple[float, str] | None = None
+        with self.session() as s:
+            rows = s.exec(select(StoredTopicCluster)).all()
+            for row in rows:
+                try:
+                    centroid_raw = json.loads(row.centroid_json)
+                except json.JSONDecodeError:
+                    continue
+                if not isinstance(centroid_raw, list):
+                    continue
+                if np is not None:
+                    centroid = np.asarray(
+                        [float(x) for x in centroid_raw], dtype=float
+                    ).ravel()
+                    if centroid.shape != q.shape:
+                        continue
+                    centroid_norm = float(np.linalg.norm(centroid))
+                    if centroid_norm == 0.0:
+                        continue
+                    cosine = float(np.dot(q, centroid) / (q_norm * centroid_norm))
+                else:
+                    maybe_cosine = _cosine(
+                        q_fallback,
+                        [float(x) for x in centroid_raw],
+                    )
+                    if maybe_cosine is None:
+                        continue
+                    cosine = maybe_cosine
+                if cosine >= cosine_min and (best is None or cosine > best[0]):
+                    best = (cosine, row.cluster_id)
+        return best[1] if best is not None else None
+
+    def set_event_topic(self, event_id: str, topic_id: str) -> None:
+        """Attach the chosen topic id to CurrentEvent.topic_hint."""
+        with self.session() as s:
+            event = s.get(CurrentEvent, event_id)
+            if event is None:
+                raise KeyError(f"unknown current event: {event_id}")
+            event.topic_hint = topic_id
+            event.updated_at = _utcnow()
+            s.add(event)
+            s.commit()
+
+    def set_event_status(
+        self,
+        event_id: str,
+        status: CurrentEventStatus | str,
+        *,
+        note: str | None = None,
+    ) -> None:
+        """Update CurrentEvent.status; near-duplicate revocations set the flag too."""
+        status_value = (
+            status.value if isinstance(status, CurrentEventStatus) else str(status)
+        )
+        parsed_status = CurrentEventStatus(status_value)
+        with self.session() as s:
+            event = s.get(CurrentEvent, event_id)
+            if event is None:
+                raise KeyError(f"unknown current event: {event_id}")
+            event.status = parsed_status
+            if parsed_status == CurrentEventStatus.REVOKED and (
+                note or ""
+            ).startswith("near_duplicate_of:"):
+                event.is_near_duplicate = True
+            event.updated_at = _utcnow()
+            s.add(event)
+            s.commit()
+
+    def _source_text_for_citation(self, s: Session, citation: OpinionCitation) -> str:
+        source_kind = citation.source_kind.lower()
+        if source_kind == "conclusion":
+            if not citation.conclusion_id:
+                raise ValueError("conclusion citation requires conclusion_id")
+            row = s.get(StoredConclusion, citation.conclusion_id)
+            if row is None:
+                raise ValueError(f"unknown conclusion citation source: {citation.conclusion_id}")
+            return Conclusion.model_validate_json(row.payload_json).text
+        if source_kind == "claim":
+            if not citation.claim_id:
+                raise ValueError("claim citation requires claim_id")
+            row = s.get(StoredClaim, citation.claim_id)
+            if row is None:
+                raise ValueError(f"unknown claim citation source: {citation.claim_id}")
+            return Claim.model_validate_json(row.payload_json).text
+        raise ValueError(f"unsupported citation source_kind: {citation.source_kind}")
+
+    def add_event_opinion(self, opinion: EventOpinion, citations: list[OpinionCitation]) -> str:
+        """Insert an opinion and citations atomically after verbatim-span checks."""
+        opinion_id = opinion.id
+        with self.session() as s:
+            for citation in citations:
+                citation.source_kind = citation.source_kind.lower()
+                source_text = self._source_text_for_citation(s, citation)
+                if citation.quoted_span not in source_text:
+                    raise ValueError("quoted_span is not a verbatim substring of the cited source text")
+
+            s.add(opinion)
+            for citation in citations:
+                citation.opinion_id = opinion_id
+                s.add(citation)
+            s.commit()
+            return opinion_id
+
+    def get_event_opinion(self, opinion_id: str) -> Optional[EventOpinion]:
+        with self.session() as s:
+            return s.get(EventOpinion, opinion_id)
+
+    def list_opinion_citations(self, opinion_id: str) -> list[OpinionCitation]:
+        with self.session() as s:
+            return list(
+                s.exec(
+                    select(OpinionCitation).where(OpinionCitation.opinion_id == opinion_id)
+                ).all()
+            )
+
+    def list_recent_opinions(
+        self, org_id: str, since: datetime, limit: int
+    ) -> list[EventOpinion]:
+        with self.session() as s:
+            return list(
+                s.exec(
+                    select(EventOpinion)
+                    .where(EventOpinion.organization_id == org_id)
+                    .where(EventOpinion.generated_at >= since)
+                    .order_by(desc(EventOpinion.generated_at))
+                    .limit(limit)
+                ).all()
+            )
+
+    def revoke_opinion(self, opinion_id: str, reason: str) -> None:
+        with self.session() as s:
+            opinion = s.get(EventOpinion, opinion_id)
+            if opinion is None:
+                return
+            opinion.revoked_at = _utcnow()
+            opinion.revoked_reason = reason
+            s.add(opinion)
+            s.commit()
+
+    def revoke_citations_for_source(self, source_kind: str, source_id: str, reason: str) -> int:
+        source_kind_norm = source_kind.lower()
+        with self.session() as s:
+            stmt = select(OpinionCitation).where(OpinionCitation.source_kind == source_kind_norm)
+            if source_kind_norm == "conclusion":
+                stmt = stmt.where(OpinionCitation.conclusion_id == source_id)
+            elif source_kind_norm == "claim":
+                stmt = stmt.where(OpinionCitation.claim_id == source_id)
+            else:
+                raise ValueError(f"unsupported citation source_kind: {source_kind}")
+
+            rows = list(s.exec(stmt).all())
+            affected_opinion_ids = {row.opinion_id for row in rows}
+            for row in rows:
+                row.is_revoked = True
+                row.revoked_reason = reason
+                s.add(row)
+
+            for opinion_id in affected_opinion_ids:
+                citations = list(
+                    s.exec(
+                        select(OpinionCitation).where(OpinionCitation.opinion_id == opinion_id)
+                    ).all()
+                )
+                if citations and all(c.is_revoked for c in citations):
+                    opinion = s.get(EventOpinion, opinion_id)
+                    if opinion is not None:
+                        opinion.abstention_reason = AbstentionReason.REVOKED_SOURCES
+                        s.add(opinion)
+
+            s.commit()
+            return len(rows)
+
+    def add_followup_session(self, session: FollowUpSession) -> str:
+        session_id = session.id
+        with self.session() as s:
+            s.add(session)
+            s.commit()
+            return session_id
+
+    def get_followup_session(self, session_id: str) -> Optional[FollowUpSession]:
+        with self.session() as s:
+            return s.get(FollowUpSession, session_id)
+
+    def add_followup_message(self, message: FollowUpMessage) -> str:
+        message_id = message.id
+        with self.session() as s:
+            s.add(message)
+            session = s.get(FollowUpSession, message.session_id)
+            if session is not None:
+                session.last_activity_at = message.created_at
+                s.add(session)
+            s.commit()
+            return message_id
+
+    def get_followup_message(self, message_id: str) -> Optional[FollowUpMessage]:
+        with self.session() as s:
+            return s.get(FollowUpMessage, message_id)
 
     def list_claim_ids(self) -> list[str]:
         with self.session() as s:

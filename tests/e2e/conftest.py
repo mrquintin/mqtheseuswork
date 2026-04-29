@@ -31,6 +31,7 @@ import shutil
 import sqlite3
 import struct
 import subprocess
+import sys
 import threading
 import wave
 from dataclasses import dataclass
@@ -50,6 +51,24 @@ _CODEX_SCHEMA = (
     / "tests"
     / "fixtures"
     / "minimal_codex_schema.sql"
+)
+_REPO_ROOT = Path(__file__).parent.parent.parent
+_NOOSPHERE_TESTS = _REPO_ROOT / "noosphere" / "tests"
+_CURRENT_EVENTS_API_SRC = _REPO_ROOT / "current_events_api"
+
+for _path in (_NOOSPHERE_TESTS, _CURRENT_EVENTS_API_SRC):
+    if str(_path) not in sys.path:
+        sys.path.insert(0, str(_path))
+
+PIPELINE_ORG_ID = "org_pipeline_e2e"
+PIPELINE_EVENT_TEXT = (
+    "A public event says durable compounding needs disciplined evidence in markets."
+)
+PIPELINE_CONCLUSION_A = (
+    "Theseus says durable compounding depends on disciplined evidence."
+)
+PIPELINE_CONCLUSION_B = (
+    "The firm treats market headlines as tests against stored conclusions."
 )
 
 # Phrase deliberately long enough to exceed Silero's min-speech window,
@@ -504,3 +523,39 @@ def fake_codex_and_supabase(sqlite_codex_with_api_hookup):
         yield handle
     finally:
         handle.shutdown()
+
+
+@pytest.fixture
+def seeded_noosphere(tmp_path, monkeypatch):
+    """File-backed Noosphere store shared by the pipeline and FastAPI app."""
+
+    from noosphere.currents import enrich
+    from noosphere.models import Conclusion
+    from noosphere.store import Store
+
+    db_path = tmp_path / "currents-e2e.db"
+    database_url = f"sqlite:///{db_path}"
+    monkeypatch.setenv("DATABASE_URL", database_url)
+    monkeypatch.setenv("THESEUS_DATABASE_URL", database_url)
+    monkeypatch.setenv("NOOSPHERE_DATA_DIR", str(tmp_path))
+    monkeypatch.delenv("CURRENTS_ORG_ID", raising=False)
+
+    store = Store.from_database_url(database_url)
+    store.put_conclusion(
+        Conclusion(id="conclusion_pipeline_a", text=PIPELINE_CONCLUSION_A)
+    )
+    store.put_conclusion(
+        Conclusion(id="conclusion_pipeline_b", text=PIPELINE_CONCLUSION_B)
+    )
+
+    def fake_embed(text: str) -> list[float]:
+        if text == PIPELINE_EVENT_TEXT:
+            return [1.0, 0.0]
+        if text == PIPELINE_CONCLUSION_A:
+            return [0.98, 0.2]
+        if text == PIPELINE_CONCLUSION_B:
+            return [0.9, 0.4358898944]
+        return [0.0, 1.0]
+
+    monkeypatch.setattr(enrich, "embed_text", fake_embed)
+    return store

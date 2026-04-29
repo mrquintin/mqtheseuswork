@@ -1,0 +1,86 @@
+# Claude Code Prompt 8 of 22 — Retrieval adapter: HybridRetriever wrapper that returns Conclusions + Claims as EventRetrievalHits
+
+**Sequence:** prompt 8 of 22 (Wave 3 opener). Depends on 05–07. Report back with: top-k default chosen, Stage A/B counts on a real event, whether the existing HybridRetriever needed any modification.
+
+**Why this prompt exists.** Prompt 09 (the opinion generator) needs source material to ground an opinion in. The existing `HybridRetriever` in `noosphere/noosphere/retrieval.py` does BM25 + dense embedding retrieval. We need a thin adapter that:
+
+- Stage A: looks up *Conclusions* directly (founder-canonical positions; the strongest grounding).
+- Stage B: looks up *Claims* via HybridRetriever (more granular, broader coverage).
+- Filters out claims that are subsumed by an already-retrieved Conclusion (cosine > 0.85 to a Conclusion hit).
+- Filters out `ClaimOrigin.EXTERNAL` and `ClaimOrigin.ADVERSARIAL` (only firm-internal sources ground opinions).
+- Returns a unified `EventRetrievalHit` list ordered by relevance score.
+
+**Before you start — read current state:**
+1. Read `noosphere/noosphere/retrieval.py` — note `HybridRetriever`'s constructor + query method, what it returns.
+2. Read `noosphere/noosphere/models.py` — note `ClaimOrigin` enum values (FOUNDER, INTERNAL, EXTERNAL, ADVERSARIAL, etc.) and `Conclusion` shape.
+3. Read `noosphere/noosphere/currents/relevance.py` — note `quick_retrieve_for_event` (defined in prompt 07). The full adapter here is what `quick_retrieve_for_event` calls when finalized.
+
+## Your task
+
+```python
+# noosphere/noosphere/currents/retrieval_adapter.py
+
+from dataclasses import dataclass
+from typing import Literal
+
+@dataclass(frozen=True)
+class EventRetrievalHit:
+    source_kind: Literal["conclusion", "claim"]
+    source_id: str
+    text: str           # full text of the source
+    score: float        # 0–1, higher is better
+    topic_hint: str | None
+    origin: str | None  # ClaimOrigin if claim; None for Conclusion
+
+DEFAULT_TOP_K = 8
+SUBSUMPTION_COSINE = 0.85
+ALLOWED_CLAIM_ORIGINS = ("FOUNDER", "INTERNAL", "VOICE", "LITERATURE")
+
+def retrieve_for_event(store, event, top_k: int = DEFAULT_TOP_K) -> list[EventRetrievalHit]:
+    """
+    Stage A: top-N Conclusions matching the event's text.
+    Stage B: top-M Claims via HybridRetriever, filtered by allowed origin AND
+             not subsumed by a Stage-A hit (cosine to any conclusion hit < 0.85).
+    Return: ranked union, length ≤ top_k.
+    """
+    ...
+```
+
+Constraints:
+
+- Do NOT include claims with `origin in {EXTERNAL, ADVERSARIAL}`. They are not firm positions; opining from them would misrepresent the firm.
+- A Conclusion hit always outranks a Claim hit at the same cosine score (Conclusions are more authoritative).
+- If `top_k` is reached before all stages run, stop early.
+
+### Tests
+
+`noosphere/tests/test_retrieval_adapter.py`:
+
+- Seed Noosphere with 1 Conclusion ("inquiry not credentialing") and 3 Claims (1 FOUNDER about narrative pricing, 1 EXTERNAL about credentialing, 1 ADVERSARIAL).
+- An event about narrative pricing → Conclusion + the FOUNDER Claim returned, EXTERNAL + ADVERSARIAL filtered out.
+- An event with high cosine to the Conclusion AND a related FOUNDER Claim that's near-duplicate to the Conclusion → only the Conclusion appears (Claim subsumed).
+
+## Prerequisites
+
+- Prompts 05–07 applied. `quick_retrieve_for_event` may have been a stub; this prompt implements the real version that quick_retrieve_for_event will now call.
+
+## SCOPE
+
+- `noosphere/noosphere/currents/retrieval_adapter.py`                      CREATE
+- `noosphere/noosphere/currents/relevance.py`                              MODIFY (have `quick_retrieve_for_event` import retrieve_for_event)
+- `noosphere/tests/test_retrieval_adapter.py`                              CREATE
+
+## Verification
+
+```bash
+cd /Users/michaelquintin/Desktop/Theseus
+pytest -q noosphere/tests/test_retrieval_adapter.py noosphere/tests/test_enrich_relevance.py
+```
+
+## Prohibitions
+
+- Do NOT modify `HybridRetriever`. The adapter wraps it, doesn't change it.
+- Do NOT include the source text full body in retrieval-stage logging — it pollutes logs with noise.
+- Do NOT cache retrieval results across events. Each event's retrieval is fresh.
+
+Do not proceed to prompts 09+. Do not edit anything outside SCOPE.

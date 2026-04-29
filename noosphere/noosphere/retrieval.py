@@ -8,10 +8,14 @@ callers must surface empty hits honestly (no invented literature).
 from __future__ import annotations
 
 import re
+import struct
 from dataclasses import dataclass
 from typing import Any, Optional
 
-import numpy as np
+try:
+    import numpy as np
+except ImportError:  # pragma: no cover - fallback is for broken local wheels.
+    np = None  # type: ignore[assignment]
 from sqlalchemy import text
 
 from noosphere.models import Claim, ClaimOrigin
@@ -19,6 +23,29 @@ from noosphere.observability import get_logger
 from noosphere.store import Store
 
 logger = get_logger(__name__)
+
+
+def _float_vector(value: Any) -> list[float]:
+    if isinstance(value, (bytes, bytearray, memoryview)):
+        raw = bytes(value)
+        if len(raw) % 4 != 0:
+            return []
+        return [float(x) for x in struct.unpack(f"<{len(raw) // 4}f", raw)]
+    if hasattr(value, "ravel") and np is not None:
+        value = value.ravel()
+    if hasattr(value, "tolist"):
+        value = value.tolist()
+    return [float(x) for x in value]
+
+
+def _cosine(left: list[float], right: list[float]) -> float | None:
+    if len(left) != len(right) or not left:
+        return None
+    left_norm = sum(x * x for x in left) ** 0.5
+    right_norm = sum(x * x for x in right) ** 0.5
+    if left_norm == 0.0 or right_norm == 0.0:
+        return None
+    return sum(a * b for a, b in zip(left, right)) / (left_norm * right_norm)
 
 
 def _fts_safe_query(q: str) -> str:
@@ -101,22 +128,31 @@ class HybridRetriever:
     def dense_scores(
         self,
         store: Store,
-        query_embedding: np.ndarray,
+        query_embedding: Any,
         claim_ids: list[str],
         *,
         limit: int = 40,
     ) -> dict[str, float]:
-        q = np.asarray(query_embedding, dtype=float).ravel()
-        qn = float(np.linalg.norm(q) + 1e-9)
+        if np is not None:
+            q = np.asarray(query_embedding, dtype=float).ravel()
+            qn = float(np.linalg.norm(q) + 1e-9)
+        else:
+            q_fallback = _float_vector(query_embedding)
         scores: dict[str, float] = {}
         for cid in claim_ids[:800]:
             c = store.get_claim(cid)
             if c is None or not c.embedding:
                 continue
-            v = np.asarray(c.embedding, dtype=float).ravel()
-            if v.shape != q.shape:
-                continue
-            sim = float(np.dot(q, v) / (qn * (np.linalg.norm(v) + 1e-9)))
+            if np is not None:
+                v = np.asarray(c.embedding, dtype=float).ravel()
+                if v.shape != q.shape:
+                    continue
+                sim = float(np.dot(q, v) / (qn * (np.linalg.norm(v) + 1e-9)))
+            else:
+                maybe_sim = _cosine(q_fallback, _float_vector(c.embedding))
+                if maybe_sim is None:
+                    continue
+                sim = maybe_sim
             scores[cid] = sim
         top = sorted(scores.items(), key=lambda kv: kv[1], reverse=True)[:limit]
         return dict(top)
@@ -126,7 +162,7 @@ class HybridRetriever:
         store: Store,
         *,
         query_text: str,
-        query_embedding: Optional[np.ndarray],
+        query_embedding: Any | None,
         top_k: int = 12,
         origins: Optional[set[ClaimOrigin]] = None,
     ) -> list[RetrievalHit]:

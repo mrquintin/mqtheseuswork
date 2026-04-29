@@ -9,14 +9,24 @@
 # instructions either tool can act on.
 #
 # Usage:
-#   ./run_prompts_codex.sh                  # run all prompts, halt on first failure
-#   ./run_prompts_codex.sh --from 5         # start at prompt 05
-#   ./run_prompts_codex.sh --to 7           # stop after prompt 07 (inclusive)
-#   ./run_prompts_codex.sh --from 3 --to 7  # 03 through 07 inclusive
-#   ./run_prompts_codex.sh --only 03        # run only prompt 03
+#   ./run_prompts_codex.sh                       # run all prompts, halt on first failure
+#   ./run_prompts_codex.sh --from 5              # start at prompt 05
+#   ./run_prompts_codex.sh --to 7                # stop after prompt 07 (inclusive)
+#   ./run_prompts_codex.sh --from 3 --to 7       # 03 through 07 inclusive
+#   ./run_prompts_codex.sh --only 03             # run only prompt 03
 #   ./run_prompts_codex.sh --model gpt-5-codex   # override the model
-#   ./run_prompts_codex.sh --continue       # keep going on prompt failure
-#   ./run_prompts_codex.sh --dry-run        # show plan only
+#   ./run_prompts_codex.sh --continue            # keep going on prompt failure
+#   ./run_prompts_codex.sh --dry-run             # show plan only
+#   ./run_prompts_codex.sh --skip-checkpoints    # don't run between-phase verification checks
+#
+# Checkpoints:
+#   After certain prompts complete, a verification function runs to confirm the
+#   repo is in a healthy state before later prompts touch it. The checkpoints
+#   for the current round are wired in CHECKPOINT_AFTER / CHECKPOINT_FN below:
+#     after 02 → ck_cleanup  (verify aborted-run repair fully cleaned up)
+#     after 04 → ck_merger   (verify safe theseus-public→codex migration built cleanly)
+#   A failed checkpoint halts the batch with a clear message and a resume hint.
+#   Skip them with --skip-checkpoints if you have a reason (rare; they're cheap).
 #
 # Requires:
 #   codex   (the OpenAI Codex CLI, in $PATH; install per https://github.com/openai/codex)
@@ -55,17 +65,31 @@ TO=0
 ONLY=""
 CONTINUE_ON_FAIL=0
 DRY_RUN=0
+SKIP_CHECKPOINTS=0
+
+# ----- Checkpoints -----------------------------------------------------------
+# After prompt NN completes successfully, run the matching shell function. If
+# the function exits non-zero, the whole batch halts so the user can fix the
+# state before later prompts touch the now-broken repo.
+#
+# Parallel arrays (bash 3.2 has no associative arrays). Index N pairs
+# CHECKPOINT_AFTER[N] with CHECKPOINT_FN[N].
+#
+# Edit these to add/remove checkpoints between rounds.
+CHECKPOINT_AFTER=("02"        "04")
+CHECKPOINT_FN=(   "ck_cleanup" "ck_merger")
 
 # ----- Arg parsing -----------------------------------------------------------
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --from)     FROM="$2"; shift 2 ;;
-    --to)       TO="$2"; shift 2 ;;
-    --only)     ONLY="$2"; shift 2 ;;
-    --model)    MODEL="$2"; shift 2 ;;
-    --continue) CONTINUE_ON_FAIL=1; shift ;;
-    --dry-run)  DRY_RUN=1; shift ;;
-    -h|--help)  sed -n '2,30p' "$0"; exit 0 ;;
+    --from)              FROM="$2"; shift 2 ;;
+    --to)                TO="$2"; shift 2 ;;
+    --only)              ONLY="$2"; shift 2 ;;
+    --model)             MODEL="$2"; shift 2 ;;
+    --continue)          CONTINUE_ON_FAIL=1; shift ;;
+    --dry-run)           DRY_RUN=1; shift ;;
+    --skip-checkpoints)  SKIP_CHECKPOINTS=1; shift ;;
+    -h|--help)           sed -n '2,30p' "$0"; exit 0 ;;
     *) echo "unknown flag: $1"; exit 2 ;;
   esac
 done
@@ -150,6 +174,123 @@ if [ "$DRY_RUN" -eq 1 ]; then
   exit 0
 fi
 
+# ----- Checkpoint functions --------------------------------------------------
+# Each function returns 0 on pass, non-zero on fail. Output is human-readable
+# and goes straight to the terminal (no log redirection — the user is watching
+# this and needs to see the result clearly).
+
+ck_cleanup() {
+  # Runs after prompt 02 (the aborted-Codex-run repair).
+  # Confirms the markdown-artifact bug is gone and theseus-codex builds.
+  echo "${BOLD}Checkpoint:${NC} ck_cleanup — verifying the aborted run was fully repaired"
+
+  # 1. No markdown-link literals leaked into TS/TSX/JS source.
+  local hits
+  hits=$(grep -rn '\[[a-zA-Z0-9.-]\+\](http' "$REPO_ROOT/theseus-codex/" \
+           --include='*.ts' --include='*.tsx' --include='*.js' --include='*.jsx' \
+           2>/dev/null | grep -v node_modules | grep -v '\.next/' || true)
+  if [ -n "$hits" ]; then
+    echo "${RED}  FAIL: markdown-link literals remain in source:${NC}"
+    echo "$hits" | head -10 | sed 's/^/    /'
+    return 1
+  fi
+  echo "${GREEN}  ✓ no markdown-link artifacts in TS/TSX source${NC}"
+
+  # 2. theseus-codex passes a TypeScript type-check. We use --noEmit so this
+  #    is fast (no actual compile output) and use a throwaway DATABASE_URL
+  #    because prisma.config.ts requires it even for generate.
+  if ! ( cd "$REPO_ROOT/theseus-codex" && \
+         DATABASE_URL=postgresql://throwaway:throwaway@localhost:5432/throwaway \
+         npx tsc --noEmit -p tsconfig.json >/tmp/ck_cleanup_tsc.log 2>&1 ); then
+    echo "${RED}  FAIL: theseus-codex TypeScript check failed${NC}"
+    echo "       /tmp/ck_cleanup_tsc.log:"
+    head -40 /tmp/ck_cleanup_tsc.log | sed 's/^/    /'
+    return 1
+  fi
+  echo "${GREEN}  ✓ theseus-codex TypeScript check passes${NC}"
+
+  return 0
+}
+
+ck_merger() {
+  # Runs after prompt 04 (safe theseus-public → theseus-codex migration).
+  # Confirms the migration plan exists, safe migrated routes are in place, and
+  # the merged Next.js app builds without errors.
+  echo "${BOLD}Checkpoint:${NC} ck_merger — verifying the public→codex merger landed cleanly"
+
+  # 1. Merger plan exists from prompt 03.
+  if [ ! -f "$REPO_ROOT/Claude_Code_Prompts/MERGER_PLAN.md" ]; then
+    echo "${RED}  FAIL: Claude_Code_Prompts/MERGER_PLAN.md is missing${NC}"
+    echo "       Prompt 03 didn't produce its deliverable."
+    return 1
+  fi
+  echo "${GREEN}  ✓ MERGER_PLAN.md exists${NC}"
+
+  if grep -q '\*\*DECISION REQUIRED\*\*' "$REPO_ROOT/Claude_Code_Prompts/MERGER_PLAN.md"; then
+    echo "${RED}  FAIL: MERGER_PLAN.md still has unresolved DECISION REQUIRED markers${NC}"
+    echo "       Resolve or mark those entries DEFER before running prompt 04."
+    return 1
+  fi
+  echo "${GREEN}  ✓ MERGER_PLAN.md has no unresolved decision markers${NC}"
+
+  # 2. Key migrated routes are present in theseus-codex. This list intentionally
+  # excludes public routes deferred by MERGER_PLAN because they collide with
+  # existing founder routes or lack public-safe runtime data sources.
+  local missing=0
+  for route in \
+    "src/app/methodology/page.tsx" \
+    "src/app/c/[slug]/page.tsx" \
+    "src/app/c/[slug]/v/[version]/page.tsx" \
+    "src/app/responses/page.tsx" \
+    "src/app/feed.xml/route.ts" \
+    "src/app/atom.xml/route.ts" \
+    ; do
+    if [ ! -e "$REPO_ROOT/theseus-codex/$route" ]; then
+      echo "${RED}  FAIL: missing migrated route: theseus-codex/$route${NC}"
+      missing=$((missing + 1))
+    fi
+  done
+  if [ "$missing" -gt 0 ]; then
+    return 1
+  fi
+  echo "${GREEN}  ✓ all migrated content routes are in place${NC}"
+
+  # 3. Full Next.js build succeeds. This is the load-bearing check — if it
+  #    fails, prompts 05+ can't safely touch the app.
+  echo "  Running 'npm run build' in theseus-codex (may take 1-3 minutes)..."
+  if ! ( cd "$REPO_ROOT/theseus-codex" && \
+         DATABASE_URL=postgresql://throwaway:throwaway@localhost:5432/throwaway \
+         npm run build >/tmp/ck_merger_build.log 2>&1 ); then
+    echo "${RED}  FAIL: theseus-codex 'npm run build' failed${NC}"
+    echo "       last 40 lines of /tmp/ck_merger_build.log:"
+    tail -40 /tmp/ck_merger_build.log | sed 's/^/    /'
+    return 1
+  fi
+  echo "${GREEN}  ✓ theseus-codex builds cleanly${NC}"
+
+  # 4. theseus-public is still on disk (prompt 21 archives it later — not yet).
+  if [ ! -d "$REPO_ROOT/theseus-public" ]; then
+    echo "${YELLOW}  WARN: theseus-public/ is gone — was it archived early?${NC}"
+    # Don't fail; the user may have moved it intentionally.
+  fi
+
+  return 0
+}
+
+# Look up the checkpoint function for a given prompt number, if any.
+# Echoes the function name to stdout (or empty if no checkpoint).
+checkpoint_for() {
+  local n="$1"
+  local i
+  for i in "${!CHECKPOINT_AFTER[@]}"; do
+    if [ "${CHECKPOINT_AFTER[$i]}" = "$n" ]; then
+      echo "${CHECKPOINT_FN[$i]}"
+      return 0
+    fi
+  done
+  echo ""
+}
+
 # ----- Run -------------------------------------------------------------------
 OVERALL_START=$(date +%s)
 RAN=0; OK=0; FAIL=0
@@ -195,6 +336,23 @@ for f in ${PROMPTS[@]+"${PROMPTS[@]}"}; do
   else
     OK=$((OK+1))
     echo "${GREEN}✓ ${name} complete (${elapsed}s)${NC}"
+
+    # Checkpoint dispatch — only on success. A failed prompt skips its checkpoint
+    # because the failure already halts (or --continue ignores it).
+    ck_fn=$(checkpoint_for "$num")
+    if [ -n "$ck_fn" ] && [ "$SKIP_CHECKPOINTS" -eq 0 ]; then
+      echo
+      echo "${BLUE}──────────────────────────────────────────────────────────────${NC}"
+      if "$ck_fn"; then
+        echo "${GREEN}${BOLD}✓ checkpoint $ck_fn passed${NC}"
+      else
+        echo "${RED}${BOLD}✗ checkpoint $ck_fn FAILED — halting before later prompts touch a broken state${NC}"
+        echo "${RED}  Fix the underlying issue, then resume with:  ./run_prompts_codex.sh --from $((10#$num + 1))${NC}"
+        FAIL=$((FAIL+1))
+        break
+      fi
+      echo "${BLUE}──────────────────────────────────────────────────────────────${NC}"
+    fi
   fi
 done
 

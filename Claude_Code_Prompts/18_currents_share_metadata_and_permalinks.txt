@@ -1,0 +1,101 @@
+# Claude Code Prompt 18 of 22 — Permalinks + Open Graph metadata for shared opinions
+
+**Sequence:** prompt 18 of 22 (Wave 6 closer). Depends on 15. Report back with: an example OG card render from a link-preview tool, the share-link UTM policy (there is none — confirm).
+
+**Why this prompt exists.** When someone pastes `theseuscodex.com/currents/{id}` into Slack, X, or any link-preview-aware surface, the unfurled card should show the opinion's headline + a body excerpt. Without this, shared links look generic and the firm's voice is invisible at the most important moment — the share itself.
+
+**Before you start — read current state:**
+1. Read `theseus-codex/src/app/currents/[id]/page.tsx` (prompt 15).
+2. Read `theseus-codex/src/lib/site.ts` for the `SITE` origin used in URLs.
+
+## Your task
+
+### 1. `generateMetadata` for `/currents/[id]/page.tsx`
+
+```tsx
+import type { Metadata } from "next";
+import { getCurrent } from "@/lib/currentsApi";
+
+export async function generateMetadata({ params }): Promise<Metadata> {
+  try {
+    const op = await getCurrent(params.id);
+    const description = op.body_markdown.slice(0, 220).replace(/\s+/g, " ").trim() + "…";
+    return {
+      title: op.headline,
+      description,
+      openGraph: {
+        title: op.headline, description, type: "article",
+        siteName: "Theseus Codex",
+        url: `${SITE}/currents/${op.id}`,
+      },
+      twitter: { card: "summary_large_image", title: op.headline, description },
+    };
+  } catch {
+    return { title: "Current event" };
+  }
+}
+```
+
+### 2. `<CopyLinkButton>` on the detail page
+
+```tsx
+"use client";
+export function CopyLinkButton({ opinionId }: { opinionId: string }) {
+  const [copied, setCopied] = useState(false);
+  const onClick = async () => {
+    const url = `${window.location.origin}/currents/${encodeURIComponent(opinionId)}`;
+    try {
+      await navigator.clipboard.writeText(url);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1400);
+    } catch {
+      window.prompt("Copy this permalink:", url);
+    }
+  };
+  return (
+    <button onClick={onClick} className="…">
+      {copied ? "permalink copied" : "copy permalink"}
+    </button>
+  );
+}
+```
+
+Mounted in the detail page's header strip (small, muted, parchment-bordered).
+
+### 3. Share-link UTM policy
+
+There is none. Permalinks have no UTM params, no tracking pixels, no fingerprinting parameter. Verify by reading the produced URL string in `<CopyLinkButton>`: it must be exactly `${origin}/currents/{id}` with nothing appended. Document this in a code comment so a future "growth" instinct doesn't quietly add `?utm_source=...`.
+
+## Tests
+
+`CopyLinkButton.test.tsx`:
+- Click → `navigator.clipboard.writeText` called with `${origin}/currents/{id}` exactly (no extra params).
+- After click, button text is "permalink copied"; reverts after timeout.
+
+## Prerequisites
+
+- Prompt 15 applied.
+
+## SCOPE
+
+- `theseus-codex/src/app/currents/[id]/page.tsx`                           MODIFY (add generateMetadata)
+- `theseus-codex/src/app/currents/[id]/CopyLinkButton.tsx`                 CREATE
+- `theseus-codex/src/app/currents/[id]/DetailClient.tsx`                   MODIFY (mount the button in the header strip)
+- `theseus-codex/src/__tests__/CopyLinkButton.test.tsx`                    CREATE
+
+## Verification
+
+```bash
+cd /Users/michaelquintin/Desktop/Theseus/theseus-codex
+npm test
+# Paste a /currents/{id} URL into a link-preview tester — expect headline + excerpt.
+```
+
+## Prohibitions
+
+- Do NOT add UTM params, tracking pixels, or any other share-side instrumentation.
+- Do NOT add a "share on X" button. The firm doesn't promote engagement loops.
+- Do NOT include the opinion's `clientFingerprint` or any internal field in OG metadata.
+- Do NOT skip the description-truncation step. OG fields have soft length limits and a 5KB body breaks unfurls.
+
+Do not proceed to prompts 19+. Do not edit anything outside SCOPE.

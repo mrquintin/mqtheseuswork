@@ -1,0 +1,198 @@
+# Claude Code Prompt 6 of 22 — X/Twitter ingestor: pull tweets from curated accounts + keyword queries, dedupe, persist as CurrentEvents
+
+**Sequence:** prompt 6 of 22 (Wave 2). Depends on 05 (CurrentEvent model). Report back with: the exact list of curated account IDs and search queries the ingestor uses, the response payload from one real X API call, and the dedupe collision rate from one cycle.
+
+**Why this prompt exists.** The Currents pipeline begins with external observation. The firm reads X (Twitter) — both a curated account list and a small set of keyword queries — and turns each new post into a CurrentEvent row. Dedupe is critical: most "news" appears 50+ times in the firehose, and we don't want 50 opinions on the same event.
+
+**Before you start — read current state:**
+1. Read `noosphere/noosphere/models.py` — confirm `CurrentEvent` exists (from prompt 05). Note the `dedupeHash` column.
+2. Read `noosphere/noosphere/store.py` — confirm `add_current_event` and `find_current_event_by_dedupe` accessors are present.
+3. Search for any existing X/Twitter client in the repo (`grep -rln 'X_BEARER_TOKEN\|api.twitter.com\|api.x.com' noosphere/ theseus-codex/`). Reuse any existing client instead of writing a second one.
+4. Read `noosphere/noosphere/embeddings.py` — confirm the embedding function the ingestor will use.
+
+## Your task
+
+Build a Python module that pulls fresh content from X every cycle, dedupes against existing rows, and persists new ones as CurrentEvents.
+
+### Required env
+
+- `X_BEARER_TOKEN` — bearer token for the X API v2. The module's `make_client()` factory reads this; if missing, the factory raises `MissingCredentials("X_BEARER_TOKEN not set")`. The ingestor's caller (prompt 19's scheduler) will catch and skip the cycle, NOT crash.
+
+### Module structure
+
+```
+noosphere/noosphere/currents/
+├── __init__.py
+├── _x_client.py          # thin httpx wrapper, rate-limit aware
+├── x_ingestor.py         # orchestration
+├── config.py             # IngestorConfig dataclass + from_env()
+└── dedupe.py             # dedupeHash generator
+```
+
+### `IngestorConfig`
+
+```python
+@dataclass
+class IngestorConfig:
+    bearer_token: str
+    curated_accounts: list[str]      # X user IDs (numeric strings)
+    search_queries: list[str]        # X search v2 syntax
+    max_events_per_cycle: int = 40
+    base_url: str = "https://api.x.com/2"
+    request_timeout_s: float = 15.0
+    organization_id: str             # which Codex org owns these events
+
+    @classmethod
+    def from_env(cls) -> "IngestorConfig":
+        ...  # reads X_BEARER_TOKEN, CURRENTS_X_CURATED_ACCOUNTS (CSV),
+             # CURRENTS_X_SEARCH_QUERIES (CSV), CURRENTS_INGEST_ORG_ID
+```
+
+### `_x_client.py`
+
+Two methods, both async, both backoff-on-429:
+
+- `fetch_user_tweets(user_id, since_id=None, max_results=20)` → list of normalized tweet dicts
+- `search_recent(query, max_results=25)` → same shape
+
+Use `httpx.AsyncClient` with `timeout=request_timeout_s`. On 429, read `x-rate-limit-reset`, sleep until it, retry once. On other 4xx, raise `XAPIError` with the body. On 5xx, retry up to 3 times with exponential backoff.
+
+Normalized tweet shape:
+
+```python
+@dataclass(frozen=True)
+class XPost:
+    id: str
+    text: str
+    author_id: str
+    author_handle: str
+    created_at: str   # ISO-8601 UTC
+    url: str
+```
+
+### `dedupe.py`
+
+```python
+def dedupe_hash(text: str, url: str | None) -> str:
+    """sha256 over the normalized text+url. Normalization:
+       - lower-case
+       - collapse whitespace
+       - strip URLs from the text body before hashing (keeps semantic id stable
+         when the same article is shared with different shortlinks)
+       - strip @mentions and hashtags
+    """
+```
+
+Uniqueness across the URL'd version and the bare-text version means RTs and quote-tweets don't get re-opined.
+
+### `x_ingestor.py`
+
+```python
+@dataclass
+class IngestReport:
+    cycle_id: str
+    fetched: int
+    new_event_ids: list[str]
+    duplicates: int
+    errors: list[str]
+
+async def ingest_once(store: Store, cfg: IngestorConfig) -> IngestReport:
+    client = make_client(cfg)        # test seam — prompt 22 mocks this
+    new_ids: list[str] = []
+    errors: list[str] = []
+    fetched = 0
+    duplicates = 0
+    for user_id in cfg.curated_accounts:
+        try:
+            posts = await client.fetch_user_tweets(user_id)
+            fetched += len(posts)
+            for p in posts:
+                if _persist_or_skip(store, cfg, p, "X_TWITTER", new_ids):
+                    pass
+                else:
+                    duplicates += 1
+        except Exception as e:
+            errors.append(f"user:{user_id}:{type(e).__name__}: {e}")
+    for q in cfg.search_queries:
+        try:
+            posts = await client.search_recent(q)
+            fetched += len(posts)
+            for p in posts:
+                if _persist_or_skip(store, cfg, p, "X_TWITTER", new_ids):
+                    pass
+                else:
+                    duplicates += 1
+                if len(new_ids) >= cfg.max_events_per_cycle:
+                    break
+        except Exception as e:
+            errors.append(f"query:{q!r}:{type(e).__name__}: {e}")
+    return IngestReport(...)
+
+
+def _persist_or_skip(store, cfg, post, source, out: list) -> bool:
+    """Returns True if the post was persisted, False if skipped (dup)."""
+    h = dedupe_hash(post.text, post.url)
+    if store.find_current_event_by_dedupe(h):
+        return False
+    eid = store.add_current_event(CurrentEvent(
+        organization_id=cfg.organization_id,
+        source=source,
+        external_id=post.id,
+        author_handle=post.author_handle,
+        text=post.text,
+        url=post.url,
+        observed_at=datetime.fromisoformat(post.created_at),
+        dedupe_hash=h,
+        status="OBSERVED",
+    ))
+    out.append(eid)
+    return True
+```
+
+### `make_client` test seam
+
+Module-level factory: `def make_client(cfg) -> XClient`. The pipeline e2e test (prompt 22) monkeypatches this to return a `FakeXClient`. Do NOT inline `XClient(...)` constructions inside `ingest_once`.
+
+### Tests
+
+`noosphere/tests/test_x_ingestor.py`:
+
+- `dedupe_hash` is stable: same text+url → same hash; whitespace differences → same hash.
+- `ingest_once` with a fake client returning 3 posts → 3 new events; second call → 0 new (all dedupe).
+- An XAPIError on one curated account doesn't kill the whole cycle; the report's `errors` list captures it.
+- `make_client` raises `MissingCredentials` when `X_BEARER_TOKEN` is empty.
+
+## Prerequisites
+
+- Prompt 05 applied. CurrentEvent model + Store accessors exist.
+- `X_BEARER_TOKEN` is in the operator's env / secret store. (Not required to apply this prompt — but required to run the resulting code.)
+
+## SCOPE
+
+- `noosphere/noosphere/currents/__init__.py`                               CREATE
+- `noosphere/noosphere/currents/_x_client.py`                              CREATE
+- `noosphere/noosphere/currents/x_ingestor.py`                             CREATE
+- `noosphere/noosphere/currents/config.py`                                 CREATE
+- `noosphere/noosphere/currents/dedupe.py`                                 CREATE
+- `noosphere/tests/test_x_ingestor.py`                                     CREATE
+- `theseus-codex/.env.example`                                             MODIFY (add CURRENTS_X_* vars)
+
+## Verification
+
+```bash
+cd /Users/michaelquintin/Desktop/Theseus
+pytest -q noosphere/tests/test_x_ingestor.py
+
+# Live smoke (requires real X_BEARER_TOKEN):
+X_BEARER_TOKEN=... CURRENTS_X_CURATED_ACCOUNTS=... CURRENTS_X_SEARCH_QUERIES=... \
+  python -c "import asyncio; from noosphere.currents.x_ingestor import ingest_once; from noosphere.currents.config import IngestorConfig; from noosphere.store import open_store; asyncio.run(ingest_once(open_store(), IngestorConfig.from_env()))"
+```
+
+## Prohibitions
+
+- Do NOT poll faster than once every 5 minutes. X rate-limits the bearer-token tier hard.
+- Do NOT log the full bearer token, ever.
+- Do NOT persist tweets without a dedupeHash. The unique constraint is the safety net.
+- Do NOT inline-construct `XClient`. The factory seam is mandatory for testability.
+
+Do not proceed to prompts 07+. Do not edit anything outside SCOPE.

@@ -6,13 +6,14 @@ import ThemeToggle from "./ThemeToggle";
  *
  * Three controls on the right:
  *   - <ThemeToggle/>          → flip amber-on-stone ↔︎ ink-on-parchment
+ *   - public route links      → migrated public pages
  *   - `authed=false`          → "Founder login →"
  *   - `authed=true`           → "Dashboard →" (direct bounce back to
  *                                the private workspace)
  *
- * This is deliberately minimal: no persistent nav bar, no search, no
- * nothing. The blog is primarily for reading, so we keep the chrome
- * out of the way and let typography carry the brand.
+   * This is deliberately minimal: no search and no deep sitemap. The blog is
+   * primarily for reading, so we keep the chrome out of the way and let
+   * typography carry the brand.
  */
 export default function PublicHeader({ authed }: { authed: boolean }) {
   return (
@@ -24,6 +25,8 @@ export default function PublicHeader({ authed }: { authed: boolean }) {
         display: "flex",
         justifyContent: "space-between",
         alignItems: "center",
+        flexWrap: "wrap",
+        gap: "0.75rem",
         padding: "0.85rem 1.5rem",
         borderBottom: "1px solid rgba(212, 160, 23, 0.18)",
         background:
@@ -72,6 +75,28 @@ export default function PublicHeader({ authed }: { authed: boolean }) {
           Codex
         </span>
       </Link>
+
+      <nav
+        className="mono"
+        aria-label="Public navigation"
+        style={{
+          display: "flex",
+          gap: "0.9rem",
+          alignItems: "center",
+          marginLeft: "auto",
+          marginRight: "1rem",
+          fontSize: "0.58rem",
+          letterSpacing: "0.22em",
+          textTransform: "uppercase",
+        }}
+      >
+        <Link href="/methodology" style={{ color: "var(--amber-dim)", textDecoration: "none" }}>
+          Methodology
+        </Link>
+        <Link href="/responses" style={{ color: "var(--amber-dim)", textDecoration: "none" }}>
+          Responses
+        </Link>
+      </nav>
 
       <div style={{ display: "flex", gap: "0.6rem", alignItems: "center" }}>
         <ThemeToggle size={30} />

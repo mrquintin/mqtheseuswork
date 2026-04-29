@@ -1,0 +1,106 @@
+# Claude Code Prompt 15 of 22 — Detail page `/currents/[id]` with source drawer + audit trail
+
+**Sequence:** prompt 15 of 22 (Wave 5). Depends on 13, 14. Report back with: drawer layout, hash-link behavior (`#src-{id}`), how revoked sources are surfaced.
+
+**Why this prompt exists.** Clicking an opinion card needs to land on a page that shows the full opinion with its sources fully expanded — verbatim quoted spans, links to the canonical Conclusion or Claim, and an audit trail (model, generated_at, retrieval scores, revocation status). This is what makes the "source-grounded" claim auditable.
+
+**Before you start — read current state:**
+1. Read `theseus-codex/src/lib/currentsApi.ts` — `getCurrent` and `getCurrentSources`.
+2. Read `theseus-codex/src/app/c/[slug]/page.tsx` — the existing Conclusion detail page; the source drawer's "go to canonical" links target `/c/{slug}` URLs.
+
+## Your task
+
+### `/currents/[id]/page.tsx` (server)
+
+```tsx
+export const dynamic = "force-dynamic";
+
+export default async function CurrentDetailPage({ params }) {
+  const [op, sources] = await Promise.all([
+    getCurrent(params.id),
+    getCurrentSources(params.id),
+  ]);
+  return <DetailClient opinion={op} sources={sources} />;
+}
+```
+
+### `DetailClient.tsx`
+
+Two-column layout (desktop) / stacked (mobile):
+
+- Left column: `<AuditTrail>` — opinion metadata (model, generated_at, retrieval scores per citation, revocation status).
+- Center column: full opinion (headline + body markdown), then "Sources" heading, then full citations expanded as `<SourceCard>` instances.
+- Right column (sticky): `<SourceDrawer>` that opens to a specific source when its citation chip is clicked or the URL has `#src-{id}`.
+
+### `<SourceCard>`
+
+Shows: source kind ("conclusion" / "claim"), full source text, verbatim quoted span highlighted (use the `highlight.ts` helper), retrieval score, "go to canonical" link to `/c/{slug}` (Conclusion) or `/conclusions/{id}#claim-{cid}` (Claim).
+
+If `is_revoked`, show a strikethrough + amber "Revoked: {reason}" banner. Don't hide it — revocation context is part of the audit.
+
+### `highlight.ts`
+
+```ts
+export function highlightSubstring(text: string, span: string): React.ReactNode {
+  // Returns a fragment with the verbatim span wrapped in <mark>.
+  // No regex, no innerHTML — pure React nodes.
+  // If span isn't a substring (shouldn't happen post-validation), falls back
+  // to plain text and emits a console.warn.
+}
+```
+
+### `<AuditTrail>`
+
+Sidebar text:
+```
+generated 2 hours ago
+model claude-haiku-4-5
+confidence 78%
+1 source revoked   ← only if any
+[#ask] Ask a follow-up
+```
+
+The `#ask` anchor is what the follow-up chat (prompt 16) listens for.
+
+### URL hash sync
+
+If URL has `#src-{source_id}`, scroll to that source card and flash its border (one-time CSS animation). The card has `id={`src-${source_id}`}` on its outer element.
+
+## Tests
+
+`SourceCard.test.tsx`: revoked state rendered; canonical link correct.
+`highlight.test.ts`: substring wrapped in `<mark>`; missing substring falls back without crashing.
+`AuditTrail.test.tsx`: revoked-source count appears only when > 0.
+
+## Prerequisites
+
+- Prompts 13–14 applied.
+
+## SCOPE
+
+- `theseus-codex/src/app/currents/[id]/page.tsx`                           CREATE
+- `theseus-codex/src/app/currents/[id]/DetailClient.tsx`                   CREATE
+- `theseus-codex/src/app/currents/[id]/AuditTrail.tsx`                     CREATE
+- `theseus-codex/src/app/currents/[id]/SourceCard.tsx`                     CREATE
+- `theseus-codex/src/app/currents/[id]/SourceDrawer.tsx`                   CREATE
+- `theseus-codex/src/lib/highlight.ts`                                     CREATE
+- `theseus-codex/src/__tests__/SourceCard.test.tsx`                        CREATE
+- `theseus-codex/src/__tests__/highlight.test.ts`                          CREATE
+- `theseus-codex/src/__tests__/AuditTrail.test.tsx`                        CREATE
+
+## Verification
+
+```bash
+cd /Users/michaelquintin/Desktop/Theseus/theseus-codex
+npm test
+npm run build
+# Visit /currents/{some-id}#src-{source-id} — drawer scrolls + flashes
+```
+
+## Prohibitions
+
+- Do NOT use `innerHTML` for highlighting. React nodes only.
+- Do NOT hide revoked sources. Show the strikethrough + reason.
+- Do NOT delay rendering until both fetches complete. SSR runs `Promise.all`; either failure surfaces a clear error page.
+
+Do not proceed to prompts 16+. Do not edit anything outside SCOPE.

@@ -42,7 +42,7 @@ function runPrismaMigrations(dbUrl: string): void {
   }
 }
 
-async function createWindow(port: number): Promise<void> {
+async function createWindow(url: string, enableAutoUpdates: boolean): Promise<void> {
   mainWindow = new BrowserWindow({
     width: 1400,
     height: 900,
@@ -56,17 +56,17 @@ async function createWindow(port: number): Promise<void> {
     },
   });
 
-  mainWindow.webContents.setWindowOpenHandler(({ url }) => {
-    shell.openExternal(url);
+  mainWindow.webContents.setWindowOpenHandler(({ url: targetUrl }) => {
+    shell.openExternal(targetUrl);
     return { action: "deny" };
   });
 
-  mainWindow.webContents.on("will-navigate", (event, url) => {
-    const target = new URL(url);
+  mainWindow.webContents.on("will-navigate", (event, targetUrl) => {
+    const target = new URL(targetUrl);
     const isLocal = target.hostname === "127.0.0.1" || target.hostname === "localhost";
     if (!isLocal) {
       event.preventDefault();
-      shell.openExternal(url);
+      shell.openExternal(targetUrl);
     }
   });
 
@@ -74,17 +74,25 @@ async function createWindow(port: number): Promise<void> {
     mainWindow = null;
   });
 
-  await mainWindow.loadURL(`http://127.0.0.1:${port}`);
+  await mainWindow.loadURL(url);
 
-  try {
-    initAutoUpdater(mainWindow);
-  } catch (e) {
-    console.warn("Auto-updater not configured:", e);
+  if (enableAutoUpdates) {
+    try {
+      initAutoUpdater(mainWindow);
+    } catch (e) {
+      console.warn("Auto-updater not configured:", e);
+    }
   }
 }
 
 app.whenReady().then(async () => {
   try {
+    const devServerUrl = process.env.ELECTRON_DEV_URL;
+    if (devServerUrl) {
+      await createWindow(devServerUrl, false);
+      return;
+    }
+
     const dbUrl = getDatabaseUrl();
     // `prisma migrate deploy` is idempotent — it applies any pending
     // migrations and is a no-op if the DB is already up to date. Running
@@ -93,7 +101,7 @@ app.whenReady().then(async () => {
     runPrismaMigrations(dbUrl);
 
     const port = await startNextServer(dbUrl);
-    await createWindow(port);
+    await createWindow(`http://127.0.0.1:${port}`, true);
   } catch (err) {
     console.error("[main] startup failed:", err);
     app.quit();

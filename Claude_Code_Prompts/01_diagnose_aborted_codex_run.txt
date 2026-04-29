@@ -1,0 +1,106 @@
+# Claude Code Prompt 1 of N — Diagnose the aborted Codex run that touched theseus-codex/desktop/main.ts and package.json
+
+**Sequence:** prompt 1 (cleanup wave). Pure read-only diagnosis — no code changes. Prompt 02 acts on this report. Report back with: the produced `ABORTED_RUN_DIAGNOSIS.md` and a one-paragraph executive summary in the chat.
+
+**Why this prompt exists.** A Codex CLI run of the (now-paused) `02_founder_portal_electron_core.txt` prompt was Ctrl-C'd at ~354 seconds, mid-`npm install`. The aborted agent had already:
+
+- Modified `theseus-codex/desktop/main.ts` (changed `createWindow` signature from port-based to URL-based, added `enableAutoUpdates` flag, added an `ELECTRON_DEV_URL` dev branch).
+- Modified `theseus-codex/package.json` (added `main: "dist-desktop/main.js"`, added `desktop:*` scripts, added `electron`, `electron-builder`, `electron-log`, `electron-updater` deps).
+- Run `npm install` once, which failed at `prisma generate` (the `prisma.config.ts` requires `DATABASE_URL` even for generate).
+- Run `DATABASE_URL=... npm install --package-lock=false` as a workaround — interrupted by Ctrl-C.
+
+There is at least one clearly visible bug in the agent's output: `target.hostname === "[localhost](http://localhost)"` — that's a markdown link literal that landed in TypeScript source. There may be others. This prompt finds them all.
+
+**Before you start — read current state:**
+1. Read `theseus-codex/desktop/main.ts` in full. The original (pre-aborted-run) version is whatever's in `git show HEAD:theseus-codex/desktop/main.ts` if it differs from the working tree.
+2. Read `theseus-codex/package.json` and `theseus-codex/package-lock.json` (if present).
+3. Read `theseus-codex/prisma.config.ts` — note that `DATABASE_URL` is required even for `prisma generate`, which is the proximate cause of the install failure.
+4. Read `Claude_Code_Prompts/_paused/02_founder_portal_electron_core.txt` — this is the prompt that was running. Its SCOPE list tells you which files SHOULD have been created/modified by a complete run.
+5. Read `.codex_runs/20260428-172917_02_founder_portal_electron_core.log` (or whatever the most recent log file is) — this is the actual transcript of the aborted run, useful for confirming what edits the agent applied.
+
+## Your task
+
+Produce one document, `Claude_Code_Prompts/ABORTED_RUN_DIAGNOSIS.md`, that answers every question in this list. No source-code edits in this prompt — diagnosis only.
+
+### A. Working-tree state
+
+Run `git -C /Users/michaelquintin/Desktop/Theseus status --short` and capture the output. List every file the aborted run modified (or created), with its status code (`M` modified, `A` added, `??` untracked, `D` deleted).
+
+For each modified file, run `git diff -- <path>` and summarize what changed in 1-2 sentences. Do NOT include the full diff — the summary is enough; the diff is on disk if anyone needs it.
+
+### B. Markdown-artifact bug check
+
+Grep `theseus-codex/desktop/main.ts` (and any other touched .ts/.tsx file) for the pattern `\[[a-zA-Z0-9.-]+\]\(http`. Each match is a markdown link literal that ended up in source — it's a runtime bug. List every match: file, line number, the surrounding code, and what the corrected line should look like (almost always: replace `[text](url)` with the bare `text` since that's what the original code intended).
+
+The known instance: line ~63 of `desktop/main.ts` has `target.hostname === "[localhost](http://localhost)"` and should be `target.hostname === "localhost"`. Confirm by reading the file. There may be more — check exhaustively.
+
+### C. Missing-file check
+
+The aborted prompt's SCOPE (in `_paused/02_founder_portal_electron_core.txt`) declared a set of files to CREATE or MODIFY. For each:
+
+- If MODIFY: confirm the file exists.
+- If CREATE: check whether it exists, was partially written (file present but obviously empty/truncated), or is missing.
+
+Specifically check existence of: `theseus-codex/desktop/dev.ts`, `theseus-codex/desktop/tsconfig.json`, `theseus-codex/desktop/preload.ts`, `theseus-codex/dist-desktop/` (build output dir), `theseus-codex/build-desktop/` or wherever electron-builder config lives.
+
+Also verify that `theseus-codex/desktop/main.ts` references functions that actually exist somewhere: `getDatabaseUrl`, `startNextServer`, `runPrismaMigrations`, `initAutoUpdater`. Each that's referenced but undefined is a build error waiting to happen.
+
+### D. Dependency state
+
+Run `cd theseus-codex && ls node_modules/electron* 2>/dev/null` to see which electron-family packages are physically installed. Compare to the deps added in `package.json`'s diff. Anything in `package.json` but not on disk is an incomplete install.
+
+Run `cat theseus-codex/package.json | grep -E '"(electron|electron-builder|electron-log|electron-updater)"'` and compare to `npm ls electron electron-builder electron-log electron-updater --depth=0` (cd into theseus-codex first). Discrepancies between declared and installed get reported.
+
+If `theseus-codex/package-lock.json` exists, check whether its `electron`/`electron-*` entries match `package.json`. The aborted agent ran `npm install --package-lock=false`, which means the lockfile was NOT updated even though node_modules may have been. That is a real problem: a clean clone running `npm ci` (which respects the lockfile) would not install the electron deps.
+
+### E. Build-state check
+
+Without making any changes, attempt `cd theseus-codex && DATABASE_URL=postgresql://throwaway:throwaway@localhost:5432/throwaway npx prisma generate` and capture stdout/stderr. If it fails, surface the exact error.
+
+Then attempt `cd theseus-codex && DATABASE_URL=postgresql://throwaway:throwaway@localhost:5432/throwaway npx tsc --noEmit -p tsconfig.json` (or the equivalent type-check command) — capture any TypeScript errors that surfaced because of the markdown-artifact bug or missing-file references.
+
+These commands MUST NOT modify the repo. They probe state without writing.
+
+### F. Recommended action
+
+Based on A–E, recommend one of:
+
+1. **REVERT** — The electron work is so partial that the cleanest path is `git checkout HEAD -- theseus-codex/desktop/main.ts theseus-codex/package.json theseus-codex/package-lock.json` and `npm uninstall electron electron-builder electron-log electron-updater`. Pick this if completing the implementation would require writing a substantial amount of new code with high risk.
+2. **REPAIR-AND-COMPLETE** — Fix the markdown bug, write the missing scaffolding files (`desktop/dev.ts`, `desktop/tsconfig.json`, etc.), update the lockfile, verify build. Pick this if everything that's needed is small and well-understood.
+3. **REPAIR-MINIMAL** — Fix the markdown bug, leave the electron scaffolding partial-but-non-blocking, mark the work `wip-electron-desktop` so future operators know it's intentionally half-done. Pick this only if the user is going to come back to this work soon AND the partial state doesn't break the build for non-electron use cases.
+
+Pick the strongest case among the three, but list the rationale. Prompt 02 will execute whatever this section recommends.
+
+## Prerequisites
+
+- None. Read-only audit.
+
+## SCOPE
+
+- `Claude_Code_Prompts/ABORTED_RUN_DIAGNOSIS.md`                            CREATE
+
+That is the only deliverable. No source code changes.
+
+## Verification
+
+```bash
+cd /Users/michaelquintin/Desktop/Theseus
+cat Claude_Code_Prompts/ABORTED_RUN_DIAGNOSIS.md | head -120
+```
+
+The diagnosis must:
+- List every modified file with a 1-2 sentence summary.
+- Catch every markdown-artifact bug, not just the known one.
+- Account for every file declared in the aborted prompt's SCOPE.
+- Resolve declared-vs-installed dep mismatches.
+- Recommend one of REVERT / REPAIR-AND-COMPLETE / REPAIR-MINIMAL with explicit rationale.
+
+## Prohibitions
+
+- Do NOT modify any source file in this prompt. The diagnosis is the only output.
+- Do NOT run `npm install` or any command that mutates `node_modules` or the lockfile.
+- Do NOT delete the half-finished files. Prompt 02 decides what to do with them.
+- Do NOT silently fix the markdown-artifact bug while you're reading the file. List it; let prompt 02 fix it.
+- Do NOT recommend an action without supporting evidence from sections A–E.
+
+Do not proceed to prompt 02. Do not edit anything outside SCOPE.

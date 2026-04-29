@@ -1,0 +1,130 @@
+# Claude Code Prompt 1 of 21 — Merger plan: read both sites, produce the route map and collision audit
+
+**Sequence:** prompt 3 of 22 (Wave 1 opener — the unification of theseus-public into theseus-codex). Every later prompt assumes the plan this one produces. Report back with: the produced `MERGER_PLAN.md`, the collision matrix, and any path deferred from automated migration.
+
+**Why this prompt exists.** The repo currently has two Next.js projects: `theseus-codex/` (the founder portal, deploys to theseuscodex.com / mqtheseuswork-qiw6.vercel.app, with `/` already a public blog index and `/dashboard` already auth-gated) and `theseus-public/` (a separate static-export site with the firm's published research pages — methodology, conclusions, methods, interop, etc.). The user wants one site under theseus-codex. The Wave 1 merger does that move. Wave 2+ then adds the live-news (currents) feature on top of the merged app.
+
+The merger is mostly content migration, not auth restructuring (the auth boundary is already correct in theseus-codex). But theseus-public has accumulated its own conventions, data sourcing, and design tokens, and dropping its files into theseus-codex's `src/app/` blindly will produce route collisions and broken imports. This prompt produces the plan that prompt 04 executes.
+
+**Before you start — read current state:**
+1. Read `theseus-codex/src/app/layout.tsx` — note the existing root layout, font loading, and global CSS imports.
+2. Read `theseus-codex/src/app/page.tsx` — the existing public blog index. Note its data source (Prisma `db.upload.findMany`), its auth-aware "Founder login →" affordance, its rendering directives.
+3. Read `theseus-codex/src/middleware.ts` — note exactly which paths are gated (must include `/dashboard/*`).
+4. List every page route under `theseus-codex/src/app/` (use `find theseus-codex/src/app -name page.tsx`).
+5. List every page route under `theseus-public/src/app/` (use `find theseus-public/src/app -name page.tsx`).
+6. Read `theseus-public/src/lib/bundle.ts`, `theseus-public/src/lib/site.ts`, `theseus-public/scripts/write-feeds.mjs` — note how the static site sources its data and produces its RSS/Atom feeds. The merged app may keep, replace, or rebuild these.
+7. Read `theseus-codex/prisma/schema.prisma` — note which models hold the same content theseus-public renders from its bundle (Conclusion, Method, Interop, etc.). The merged routes will read from Prisma directly, not from a JSON bundle.
+8. Read `theseus-public/next.config.ts` and compare to `theseus-codex/next.config.ts`. Note any divergence in `experimental`, `images`, headers, or output settings.
+9. Read `theseus-public/src/app/globals.css` and `theseus-codex/src/app/globals.css` — note token names, CSS variables, font imports. Collisions in token names (e.g. both define `--border` with different values) are a frequent source of post-merger visual regressions.
+10. Read `theseus-public/vercel.json` — note `outputDirectory: "out"` (static export) vs theseus-codex's runtime config.
+
+## Your task
+
+Produce one document, `Claude_Code_Prompts/MERGER_PLAN.md`, with these sections:
+
+### 1. Route map (current → target)
+
+A table with three columns: source path in `theseus-public/src/app/`, target path in `theseus-codex/src/app/`, and a status column (`MIGRATE | COLLIDES | DATA_SOURCE_CHANGE | DEFER | UNCHECKED`).
+
+Example rows:
+
+| Source | Target | Status |
+|---|---|---|
+| `theseus-public/src/app/page.tsx` | `theseus-codex/src/app/page.tsx` | COLLIDES (theseus-codex already has its own homepage) |
+| `theseus-public/src/app/methodology/page.tsx` | `theseus-codex/src/app/methodology/page.tsx` | MIGRATE |
+| `theseus-public/src/app/c/[slug]/page.tsx` | `theseus-codex/src/app/c/[slug]/page.tsx` | DATA_SOURCE_CHANGE (was bundle.json, now Prisma) |
+
+For every COLLIDES row, propose a resolution. The default for the homepage is: keep theseus-codex's `/` (it's already public + already aware of auth), and discard theseus-public's homepage. Currents teaser will be added in Wave 6.
+
+### 2. Library + component map
+
+For each top-level module in `theseus-public/src/lib/` and `theseus-public/src/components/`, decide:
+- **REUSE-AS-IS** (file moves into theseus-codex unchanged, e.g. small utility helpers).
+- **PORT** (file's logic is needed but the data source must change — Prisma, not bundle).
+- **DROP** (functionality already exists in theseus-codex; remove from migration set).
+- **DEFER** (uncertain; flag for the operator).
+
+### 3. Asset migration
+
+List every static asset (sculptures, OG images, fonts) under `theseus-public/public/` that does or does not exist in `theseus-codex/public/`. Resolve duplicates by content hash, not name.
+
+### 4. Design-token reconciliation
+
+For every CSS variable defined in either `globals.css`, list:
+- Where defined.
+- Whether the value matches across both sites.
+- Resolution: keep theseus-codex's value, keep theseus-public's value, or RENAME one to avoid silent override.
+
+If theseus-codex defines `--border: #e5e5e5` and theseus-public defines `--border: #d4d0c9`, that is a real visual regression risk. Pick the one the merged site should use. Document the decision.
+
+### 5. Data sourcing decisions
+
+For every theseus-public page that read from `bundle.json` (computed by `scripts/write-feeds.mjs`), describe how the merged page will source its data:
+
+- For Conclusions list/detail: use `db.conclusion.findMany` with `where: { publishedAt: { not: null } }`.
+- For Methods list/detail: use `db.method.findMany`.
+- For Interop list/detail: use `db.interop.findMany`.
+- For RSS/Atom feeds: keep the script-based generation but read from Prisma; produce the feeds at build time AND/OR at request time, depending on freshness needs.
+
+Make these decisions concrete in the plan; prompt 04 will implement the safe subset.
+
+### 6. Build + deploy implications
+
+- Drop `vercel.json`'s `outputDirectory: "out"` setting that lives in theseus-public — the merged theseus-codex is a runtime Next.js app, not a static export. Confirm theseus-codex's existing `vercel.json` (if any) is correct.
+- Confirm theseus-codex's `package.json` build command produces a working server build.
+- Note that the prebuild step `node scripts/write-feeds.mjs` from theseus-public must be ported into theseus-codex's prebuild OR replaced with runtime feed generation — the merger plan must commit to one.
+
+### 7. Risk register
+
+List every risk that could land bad results:
+- "If theseus-codex's `/c/[slug]/page.tsx` already exists with different params, the merge will overwrite it." — confirm or refute by reading.
+- "If theseus-public's globals.css imports a font theseus-codex doesn't have, the merged app will 404 the font." — confirm or refute.
+- "If a Conclusion has `publishedAt IS NOT NULL` but the bundle.json never knew about it, a fresh Prisma read will show MORE content than theseus-public did." — that may be fine, but confirm with the operator.
+
+### 8. Migration order
+
+The actual sequence prompt 04 will follow:
+
+1. Move pure-content pages first (methodology, methods, interop) — least risk.
+2. Move `/c/[slug]` and `/c/[slug]/v/[version]` next, with the data-source change.
+3. Move `/conclusions/[id]`, `/open-questions`, `/responses`.
+4. Update or rebuild RSS/Atom generation.
+5. Migrate static assets and reconcile globals.css.
+6. Update root layout's nav to include the migrated routes.
+7. Verify nothing under `/dashboard` was touched.
+8. Archive `theseus-public/` to `reference/theseus-public-pre-merge/`.
+
+## Prerequisites
+
+- None. This is the wave opener.
+
+## SCOPE
+
+- `Claude_Code_Prompts/MERGER_PLAN.md`                                     CREATE
+
+That's the only deliverable. No source code changes in this prompt.
+
+## Verification
+
+```bash
+cd /Users/michaelquintin/Desktop/Theseus
+cat Claude_Code_Prompts/MERGER_PLAN.md | head -120
+```
+
+The plan must:
+- Account for every page under `theseus-public/src/app/` (none silently dropped).
+- Resolve every COLLIDES row with a documented decision. If a same-URL public/private collision would require auth restructuring, keep the existing founder route and mark the public migration DEFER.
+- Specify the data source for every migrated page.
+- Reconcile every CSS variable that exists in both globals.css files.
+- List the migration order prompts 02-03 will follow.
+
+If any decision is ambiguous (e.g., the operator must pick between two reasonable defaults), choose the conservative automated default: mark that route or data source `DEFER`, explain what decision is still needed, and keep it out of prompt 04's migration set. Do not write `**DECISION REQUIRED**` markers into `MERGER_PLAN.md`; prompt 04 treats those markers as a hard stop.
+
+## Prohibitions
+
+- Do NOT write any source code in this prompt. The plan is the only output.
+- Do NOT touch `theseus-public/`, `theseus-codex/`, or any other code-bearing directory.
+- Do NOT delete or move files. Even `theseus-public/` stays in place until prompt 22 archives it.
+- Do NOT assume the merger is straightforward. The collision audit is the safety check — surface every conflict, even minor ones.
+
+Do not proceed to prompts 02-21. Do not edit anything outside SCOPE.

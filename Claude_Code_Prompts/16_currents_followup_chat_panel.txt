@@ -1,0 +1,108 @@
+# Claude Code Prompt 16 of 22 — Follow-up chat panel: streaming SSE, anonymous session, citation chips inline
+
+**Sequence:** prompt 16 of 22 (Wave 5 closer). Depends on 15. Report back with: chat layout, the sessionStorage key format, citation rendering inline.
+
+**Why this prompt exists.** Detail-page visitors should be able to ask follow-up questions about an opinion. The follow-up chat:
+
+- Anonymous sessions stored in `sessionStorage` (24h TTL).
+- POSTs `{question, session_id?}` to `/api/currents/[id]/follow-up`, gets back an SSE stream.
+- Renders streaming tokens, then citation chips inline (linking to `/c/{slug}` for the conclusion or to the conclusion's claim anchor).
+- Enforces a client-side 2-second min interval between sends to avoid hitting the server rate limiter accidentally.
+- Shows "typing" indicator while awaiting first token.
+
+**Before you start — read current state:**
+1. Read `theseus-codex/src/lib/currentsApi.ts` for the upstream proxy URL shape.
+2. Read `theseus-codex/src/app/currents/[id]/DetailClient.tsx` (prompt 15) — the chat mounts under the `#ask` anchor.
+
+## Your task
+
+### `followupSession.ts`
+
+```ts
+const KEY_PREFIX = "currents.followup.";
+const TTL_MS = 24 * 60 * 60 * 1000;
+
+export function loadSession(opinionId: string): string | null { /* checks TTL */ }
+export function saveSession(opinionId: string, sessionId: string): void {}
+export function clearSession(opinionId: string): void {}
+```
+
+### `streamFollowup.ts`
+
+Async generator over the SSE response from `/api/currents/{id}/follow-up`:
+
+```ts
+export async function* streamFollowup(
+  opinionId: string,
+  question: string,
+  sessionId: string | null,
+): AsyncGenerator<{kind: "meta" | "token" | "citation" | "done"; payload: any}> { ... }
+```
+
+### `<FollowupChat>`
+
+Client component, rendered at the bottom of `DetailClient`. State machine:
+
+```
+idle → awaiting_first_token → streaming → done
+                ↓
+               error
+```
+
+UI:
+- Chat history (user/assistant alternating).
+- User messages: plain text.
+- Assistant messages: rendered via `safeMarkdown` from prompt 13.
+- Inline citation chips: when a `citation` event arrives, append a chip showing `⸺ {source_kind}` linking to the canonical source page.
+- Input: textarea + send button. Enter sends; Shift+Enter newline.
+- Typing dots while awaiting first token.
+
+Client-side guards:
+- Min 2s between sends; the button disables for that interval.
+- Question length capped at 1000 chars; live counter under the textarea.
+- On 429 from server, surface the retry-after as a tooltip.
+
+`#ask` URL anchor scrolls to the textarea and focuses it.
+
+## Tests
+
+`FollowupChat.test.tsx`:
+- Clicking send POSTs to correct URL.
+- SSE meta event saves session id to sessionStorage.
+- SSE token events accumulate into the assistant message bubble.
+- 2s min-interval guard disables button when violated.
+- Hallucinated citation (one whose `source_id` wasn't in the retrieval set) is NOT rendered (server should drop, but defense-in-depth).
+
+`followupSession.test.ts`:
+- TTL respected; expired keys return null.
+- saveSession + loadSession round-trip.
+
+## Prerequisites
+
+- Prompt 15 applied.
+
+## SCOPE
+
+- `theseus-codex/src/lib/followupSession.ts`                               CREATE
+- `theseus-codex/src/lib/streamFollowup.ts`                                CREATE
+- `theseus-codex/src/app/currents/[id]/FollowupChat.tsx`                   CREATE
+- `theseus-codex/src/app/currents/[id]/DetailClient.tsx`                   MODIFY (mount chat at #ask)
+- `theseus-codex/src/__tests__/FollowupChat.test.tsx`                      CREATE
+- `theseus-codex/src/__tests__/followupSession.test.ts`                    CREATE
+
+## Verification
+
+```bash
+cd /Users/michaelquintin/Desktop/Theseus/theseus-codex
+npm test
+npm run build
+```
+
+## Prohibitions
+
+- Do NOT use `localStorage`. The session is anonymous and ephemeral; sessionStorage is the right tier.
+- Do NOT bypass the 2s client-side throttle. The server enforces it too, but client-side prevents needless 429s.
+- Do NOT render citations inline as plain text. They are interactive chips that link.
+- Do NOT auto-resume a stream on disconnect. New question, new POST.
+
+Do not proceed to prompts 17+. Do not edit anything outside SCOPE.

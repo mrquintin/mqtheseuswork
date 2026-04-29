@@ -1,0 +1,114 @@
+# Claude Code Prompt 11 of 22 — theseus-codex route handlers that proxy to current_events_api
+
+**Sequence:** prompt 11 of 22 (Wave 4 closer). Depends on 10. Report back with: the URL the proxy reads from in dev/prod, the SSE pass-through latency overhead, the headers stripped at the boundary.
+
+**Why this prompt exists.** The merged theseus-codex public routes need to fetch live data without hardcoding the FastAPI URL into client components. Server-side route handlers under `theseus-codex/src/app/api/currents/*` proxy to the FastAPI service, so:
+- The browser only ever talks to `theseuscodex.com` — same-origin, no CORS for the client.
+- The FastAPI URL is one env var change away if we move infra.
+- The server-side proxy can strip internal headers (auth, x-fingerprint) before forwarding, and add ones we want (request id, ip).
+
+**Before you start — read current state:**
+1. Read `theseus-codex/src/app/api/` for any existing proxy patterns. Match conventions.
+2. Read `current_events_api/current_events_api/main.py` (from prompt 10) — note the exact paths the proxy targets.
+
+## Your task
+
+Add Next.js route handlers that pass through to FastAPI:
+
+| Codex route | FastAPI target | Notes |
+|---|---|---|
+| `GET /api/currents` | `GET /v1/currents` | query params forwarded |
+| `GET /api/currents/[id]` | `GET /v1/currents/{id}` | |
+| `GET /api/currents/[id]/sources` | `GET /v1/currents/{id}/sources` | |
+| `GET /api/currents/stream` | `GET /v1/currents/stream` | SSE pass-through |
+| `POST /api/currents/[id]/follow-up` | `POST /v1/currents/{id}/follow-up` | SSE pass-through; sets x-client-id from request fingerprint |
+| `GET /api/currents/[id]/follow-up/[session]/messages` | same | |
+
+### Library
+
+```ts
+// theseus-codex/src/lib/currentsApi.ts
+const BACKEND = process.env.CURRENTS_API_URL ?? "http://127.0.0.1:8088";
+
+export async function listCurrents(params: ListCurrentsParams): Promise<{ items: PublicOpinion[] }>;
+export async function getCurrent(id: string): Promise<PublicOpinion>;
+export async function getCurrentSources(id: string): Promise<PublicSource[]>;
+
+// theseus-codex/src/lib/currentsTypes.ts
+export interface PublicOpinion { /* matches FastAPI's PublicOpinion */ }
+export interface PublicCitation { /* ... */ }
+export interface PublicSource { /* ... */ }
+```
+
+Keep the wire types in `currentsTypes.ts` snake_case (matching FastAPI's Pydantic JSON output) so the proxy is byte-for-byte. Convert to camelCase in components that need it; do not transform at the proxy boundary.
+
+### SSE pass-through
+
+```ts
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+
+export async function GET(req: NextRequest, { params }: { params: { id: string } }) {
+  const upstream = await fetch(`${BACKEND}/v1/currents/${params.id}/follow-up`, {
+    method: "POST",
+    headers: { ...passThroughHeaders(req), "x-client-id": fingerprintFor(req) },
+    body: req.body,
+    duplex: "half",
+  });
+  return new Response(upstream.body, {
+    headers: {
+      "content-type": "text/event-stream",
+      "cache-control": "no-cache, no-transform",
+      "connection": "keep-alive",
+    },
+  });
+}
+```
+
+`passThroughHeaders`: forward `user-agent`, `x-forwarded-for` (or first IP from `forwarded`), and not much else. NEVER forward cookies or auth headers.
+
+`fingerprintFor`: `sha256(ip + ua + UTC-day).slice(0, 32)`. Used by the FastAPI rate-limiter as the "anonymous identity" for follow-up rate-limiting.
+
+### Tests
+
+`theseus-codex/src/__tests__/currentsApi.test.ts`:
+- `listCurrents` issues correct query params.
+- The route handler strips `cookie` and `authorization` headers before forwarding.
+- The fingerprint is deterministic for the same IP+UA+day.
+- SSE pass-through preserves the `text/event-stream` content type.
+
+## Prerequisites
+
+- Prompt 10 applied.
+
+## SCOPE
+
+- `theseus-codex/src/app/api/currents/route.ts`                            CREATE
+- `theseus-codex/src/app/api/currents/[id]/route.ts`                       CREATE
+- `theseus-codex/src/app/api/currents/[id]/sources/route.ts`               CREATE
+- `theseus-codex/src/app/api/currents/stream/route.ts`                     CREATE
+- `theseus-codex/src/app/api/currents/[id]/follow-up/route.ts`             CREATE
+- `theseus-codex/src/app/api/currents/[id]/follow-up/[session]/messages/route.ts`  CREATE
+- `theseus-codex/src/lib/currentsApi.ts`                                   CREATE
+- `theseus-codex/src/lib/currentsTypes.ts`                                 CREATE
+- `theseus-codex/src/lib/currentsFingerprint.ts`                           CREATE
+- `theseus-codex/src/__tests__/currentsApi.test.ts`                        CREATE
+- `theseus-codex/.env.example`                                             MODIFY (add CURRENTS_API_URL)
+
+## Verification
+
+```bash
+cd /Users/michaelquintin/Desktop/Theseus
+# Start FastAPI in one shell, theseus-codex dev in another, then:
+curl -s http://localhost:3000/api/currents | head
+curl -N http://localhost:3000/api/currents/stream  # SSE — should emit heartbeats
+```
+
+## Prohibitions
+
+- Do NOT bypass the proxy and call FastAPI from the browser. Same-origin only.
+- Do NOT forward cookies. The currents surface is fully anonymous.
+- Do NOT add caching to the SSE handler.
+- Do NOT add a fallback model/path if FastAPI is down. Surface the error; the page UX (prompt 13) handles graceful display.
+
+Do not proceed to prompts 12+. Do not edit anything outside SCOPE.

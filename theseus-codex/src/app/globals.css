@@ -1,5 +1,11 @@
 /* ═════════════════════════════════════════════════════════════════════════
- * Theseus Codex — "Amber Oracle" aesthetic
+ * Theseus Codex — unified globals source of truth
+ *
+ * This file now owns both the founder portal and the migrated public pages.
+ * Public-site classes are scoped with `public-*`; generic public globals from
+ * theseus-public are intentionally not imported.
+ *
+ * "Amber Oracle" aesthetic
  *
  * Terminal-inspired amber CRT on charcoal, classical Roman typography,
  * subtle scan-line phosphor glow. Text-first (EB Garamond for body,
@@ -22,62 +28,52 @@
 /* ── Theseus Design Tokens — Amber Oracle ────────────────────────────────── */
 
 :root {
-  /* Charcoal / void palette. Slight warm tint so amber reads as "glow" not "sun". */
-  --stone:        #08070a;   /* the void behind the terminal */
-  --stone-light:  #120f0b;   /* card surfaces */
-  --stone-mid:    #1b1612;   /* raised surfaces, input backgrounds */
-
-  /* Amber CRT palette. Primary gold-amber with a hotter ember for action states. */
-  --amber:        #e9a338;   /* primary amber — links, active nav, highlights */
-  --amber-dim:    #a8762a;   /* secondary amber — metadata, inactive nav */
-  --amber-deep:   #5e4617;   /* tertiary amber — disabled, subtle borders */
-  --amber-glow:   rgba(233, 163, 56, 0.35);  /* used for drop-shadows */
-
-  /* Parchment — used sparingly now; amber dominates. */
-  --parchment:    #efe2c7;
-  --parchment-dim:#9c8f72;
-
-  /* Legacy aliases so existing inline styles keep working. */
-  --gold:         var(--amber);
-  --gold-dim:     var(--amber-dim);
-  --ember:        #c94a1f;
-  --border:       #3a2d12;
-  --success:      #7ea83a;
-  --info:         #3a7aa8;
-
-  /* Phosphor glow presets. */
-  --glow-sm: 0 0 6px var(--amber-glow);
-  --glow-md: 0 0 14px var(--amber-glow), 0 0 2px var(--amber);
-  --glow-lg: 0 0 28px var(--amber-glow), 0 0 4px var(--amber);
+  --stone:        #08070a;   /* codex-origin: void background */
+  --stone-light:  #120f0b;   /* codex-origin: card surfaces */
+  --stone-mid:    #1b1612;   /* codex-origin: raised/input surfaces */
+  --amber:        #e9a338;   /* codex-origin: links, active nav, highlights */
+  --amber-dim:    #a8762a;   /* codex-origin: metadata and quiet accents */
+  --amber-deep:   #5e4617;   /* codex-origin: disabled/subtle borders */
+  --amber-glow:   rgba(233, 163, 56, 0.35);  /* codex-origin: drop-shadows */
+  --parchment:    #efe2c7;   /* codex-origin: primary readable foreground */
+  --parchment-dim:#9c8f72;   /* codex-origin: secondary readable foreground */
+  --gold:         var(--amber);      /* codex-origin: legacy alias */
+  --gold-dim:     var(--amber-dim);  /* codex-origin: legacy alias */
+  --ember:        #c94a1f;   /* codex-origin: error/action heat */
+  --border:       #3a2d12;   /* codex-origin: kept over public --border conflict */
+  --success:      #7ea83a;   /* codex-origin: success state */
+  --info:         #3a7aa8;   /* codex-origin: informational state */
+  --glow-sm: 0 0 6px var(--amber-glow);  /* codex-origin: small phosphor glow */
+  --glow-md: 0 0 14px var(--amber-glow), 0 0 2px var(--amber);  /* codex-origin: medium phosphor glow */
+  --glow-lg: 0 0 28px var(--amber-glow), 0 0 4px var(--amber);  /* codex-origin: large phosphor glow */
 }
 
 [data-theme="light"] {
-  /* Light mode = ink-on-parchment (the scholarly codex, not the terminal). */
-  --stone:        #f2e8d9;
-  --stone-light:  #ede0cc;
-  --stone-mid:    #e4d4ba;
-  --amber:        #7a5218;
-  --amber-dim:    #9a6c28;
-  --amber-deep:   #c1a670;
-  --amber-glow:   rgba(122, 82, 24, 0.18);
-  --parchment:    #2a2318;
-  --parchment-dim:#5a4e3a;
-  --gold:         var(--amber);
-  --gold-dim:     var(--amber-dim);
-  --ember:        #8b3a2a;
-  --border:       #cbbfa8;
-  --success:      #3a6a2a;
-  --info:         #2a4a6a;
-  --glow-sm: 0 0 6px var(--amber-glow);
-  --glow-md: 0 0 14px var(--amber-glow);
-  --glow-lg: 0 0 22px var(--amber-glow);
+  --stone:        #f2e8d9;   /* codex-origin light: parchment background */
+  --stone-light:  #ede0cc;   /* codex-origin light: card surfaces */
+  --stone-mid:    #e4d4ba;   /* codex-origin light: raised/input surfaces */
+  --amber:        #7a5218;   /* codex-origin light: links and highlights */
+  --amber-dim:    #9a6c28;   /* codex-origin light: metadata and quiet accents */
+  --amber-deep:   #c1a670;   /* codex-origin light: disabled/subtle borders */
+  --amber-glow:   rgba(122, 82, 24, 0.18);  /* codex-origin light: drop-shadows */
+  --parchment:    #2a2318;   /* codex-origin light: primary foreground */
+  --parchment-dim:#5a4e3a;   /* codex-origin light: secondary foreground */
+  --gold:         var(--amber);      /* codex-origin light: legacy alias */
+  --gold-dim:     var(--amber-dim);  /* codex-origin light: legacy alias */
+  --ember:        #8b3a2a;   /* codex-origin light: error/action heat */
+  --border:       #cbbfa8;   /* codex-origin light: kept over public --border conflict */
+  --success:      #3a6a2a;   /* codex-origin light: success state */
+  --info:         #2a4a6a;   /* codex-origin light: informational state */
+  --glow-sm: 0 0 6px var(--amber-glow);  /* codex-origin light: small phosphor glow */
+  --glow-md: 0 0 14px var(--amber-glow);  /* codex-origin light: medium glow */
+  --glow-lg: 0 0 22px var(--amber-glow);  /* codex-origin light: large glow */
 }
 
 html { transition: background 0.25s, color 0.25s; }
 
 @theme inline {
-  --color-background: var(--stone);
-  --color-foreground: var(--parchment);
+  --color-background: var(--stone);      /* codex-origin: Tailwind background mapping */
+  --color-foreground: var(--parchment);  /* codex-origin: Tailwind foreground mapping */
 }
 
 * { box-sizing: border-box; }
@@ -196,6 +192,189 @@ input::placeholder, textarea::placeholder {
 .portal-card:hover {
   border-color: var(--amber-dim);
   box-shadow: var(--glow-sm);
+}
+
+/* ── Migrated public publication pages ─────────────────────────────────────
+ * These are prefixed ports of theseus-public's `.container`, `.card`,
+ * `.muted`, and `.hr` utilities. They use Codex-origin tokens rather than
+ * reintroducing the old public global variables.
+ */
+.public-container {
+  max-width: 860px;
+  margin: 0 auto;
+  padding: 2.25rem 1.25rem 4rem;
+  position: relative;
+  z-index: 1;
+}
+
+.public-container a {
+  color: var(--amber);
+}
+
+.public-title {
+  font-size: clamp(1.55rem, 4vw, 2.2rem);
+  line-height: 1.25;
+  margin: 0;
+  color: var(--amber);
+  text-shadow: var(--glow-sm);
+}
+
+.public-lede {
+  max-width: 75ch;
+  margin-top: 0.85rem;
+  font-size: 1rem;
+}
+
+.public-muted {
+  color: var(--parchment-dim);
+}
+
+.public-kicker {
+  margin-top: 0;
+  font-size: 0.85rem;
+}
+
+.public-card {
+  border: 1px solid var(--border);
+  background: var(--stone-light);
+  border-radius: 2px;
+  padding: 1rem 1.1rem;
+  margin-top: 0.75rem;
+}
+
+.public-card h2,
+.public-section h2 {
+  font-size: 1rem;
+  margin: 0;
+  color: var(--amber);
+}
+
+.public-card p {
+  margin: 0.65rem 0 0;
+}
+
+.public-section {
+  margin-top: 1.25rem;
+}
+
+.public-section p {
+  max-width: 75ch;
+  margin: 0.5rem 0 0;
+}
+
+.public-section ul,
+.public-section ol {
+  margin: 0.6rem 0 0;
+  padding-left: 1.2rem;
+}
+
+.public-section li {
+  margin: 0.35rem 0;
+}
+
+.public-hr {
+  height: 1px;
+  background: var(--border);
+  border: 0;
+  margin: 1.25rem 0;
+}
+
+.public-inline-stat {
+  margin-left: 0.65rem;
+}
+
+.public-citation {
+  margin-top: 0.85rem;
+}
+
+.public-citation-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.75rem;
+  align-items: center;
+}
+
+.public-citation-head .mono {
+  font-size: 0.85rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.public-pre {
+  margin-top: 0.5rem;
+  padding: 0.75rem;
+  border: 1px solid var(--border);
+  border-radius: 2px;
+  overflow-x: auto;
+  font-size: 0.85rem;
+  background: var(--stone-mid);
+  color: var(--parchment);
+  white-space: pre;
+}
+
+.public-section .public-response-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.public-section .public-response-list .mono {
+  font-size: 0.8rem;
+}
+
+.public-footer-link {
+  margin-top: 1.75rem;
+}
+
+.public-form-card {
+  margin-top: 1.25rem;
+}
+
+.public-label {
+  color: var(--parchment-dim);
+  font-size: 0.9rem;
+  display: block;
+  margin-top: 0.75rem;
+}
+
+.public-label input,
+.public-label select,
+.public-label textarea {
+  display: block;
+  width: 100%;
+  margin-top: 0.35rem;
+}
+
+.public-checkbox {
+  color: var(--parchment-dim);
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+  margin-top: 0.75rem;
+}
+
+.public-checkbox input {
+  width: auto;
+}
+
+@media (max-width: 720px) {
+  .public-container {
+    padding: 1.75rem 1rem 3.5rem;
+  }
+
+  .public-inline-stat {
+    display: block;
+    margin-left: 0;
+    margin-top: 0.35rem;
+  }
+
+  .public-citation-head {
+    align-items: flex-start;
+    flex-direction: column;
+  }
 }
 
 /* ── Upload zone ─────────────────────────────────────────────────────────── */
@@ -557,4 +736,43 @@ input::placeholder, textarea::placeholder {
   .gate-hairline,
   .codex-arrival,
   .codex-arrival-hairline { animation: none !important; }
+}
+
+/* Currents — parchment + warm gold, distinct from the rest of the codex
+   enough to read as "live" but not loud. */
+:root {
+  --currents-bg:                 #141210;
+  --currents-bg-elevated:        #1c1916;
+  --currents-border:             #2a2520;
+  --currents-parchment:          #e8e1d3;
+  --currents-parchment-dim:      #b0a896;
+  --currents-muted:              #847c6c;
+  --currents-gold:               #d4a017;
+  --currents-amber:              #c9944a;
+  --currents-stance-agrees:      #8db567;
+  --currents-stance-disagrees:   #b95c5c;
+  --currents-stance-complicates: #c9944a;
+  --currents-stance-abstained:   #847c6c;
+}
+
+@keyframes currents-pulse {
+  0%, 100% { opacity: 1.0; transform: scale(1.0); }
+  50%      { opacity: 0.55; transform: scale(0.85); }
+}
+
+@keyframes currents-fade-in {
+  from { opacity: 0; transform: translateY(-4px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+.currents-fade-in { animation: currents-fade-in 0.4s ease-out; }
+
+.currents-pulse {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--currents-gold);
+  box-shadow: 0 0 8px rgba(212, 160, 23, 0.55);
+  animation: currents-pulse 1.8s ease-in-out infinite;
 }

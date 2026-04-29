@@ -6,10 +6,14 @@ from __future__ import annotations
 
 import hashlib
 import json
+import random
 from pathlib import Path
 from typing import Any, Protocol, runtime_checkable
 
-import numpy as np
+try:
+    import numpy as np
+except ImportError:  # pragma: no cover - fallback is for broken local wheels.
+    np = None  # type: ignore[assignment]
 
 
 def _text_hash(model: str, text: str) -> str:
@@ -89,10 +93,13 @@ class SentenceTransformersClient:
                     continue
             vec_np = self._model.encode(
                 [t],
-                convert_to_numpy=True,
+                convert_to_numpy=np is not None,
                 show_progress_bar=False,
             )
-            vec = np.asarray(vec_np[0], dtype=float).tolist()
+            if np is not None:
+                vec = np.asarray(vec_np[0], dtype=float).tolist()
+            else:
+                vec = [float(x) for x in vec_np[0]]
             if self._cache is not None:
                 self._cache.put(self._model_name, t, vec)
             out.append(vec)
@@ -114,8 +121,12 @@ class MockEmbeddingClient:
         out: list[list[float]] = []
         for t in texts:
             seed = int(hashlib.sha256(t.encode()).hexdigest()[:8], 16)
-            rng = np.random.default_rng(seed)
-            out.append(rng.standard_normal(self._dim).astype(float).tolist())
+            if np is not None:
+                rng = np.random.default_rng(seed)
+                out.append(rng.standard_normal(self._dim).astype(float).tolist())
+            else:
+                rng = random.Random(seed)
+                out.append([rng.gauss(0.0, 1.0) for _ in range(self._dim)])
         return out
 
 

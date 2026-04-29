@@ -1,0 +1,113 @@
+# Claude Code Prompt 10 of 22 — FastAPI service for the live feed: REST + SSE + follow-up streaming
+
+**Sequence:** prompt 10 of 22 (Wave 4 opener). Depends on 05, 09. Report back with: the running service's `/healthz` output, the SSE frame schema, and the CORS-allowlist policy.
+
+**Why this prompt exists.** The Codex's Next.js public routes need a backend to serve live opinion data. We could write all of it as Next.js route handlers, but the SSE streaming + per-question follow-up generation has tight coupling to Noosphere's Python pipeline (retrieval, embeddings, LLM client, budget). A small FastAPI service is the cleanest seam: theseus-codex's route handlers proxy to it; Noosphere's scheduler writes through it (well — it writes to the DB; the service tails the DB).
+
+**Before you start — read current state:**
+1. Read `noosphere/noosphere/currents/opinion_generator.py` and `followup.py` from prompt 09. The service calls these directly (in-process, not HTTP).
+2. Read `noosphere/noosphere/store.py` — the `list_recent_opinions` and related accessors the routes use.
+3. Search for any FastAPI service already in the repo (`grep -rln 'FastAPI\(' --include='*.py'`). If `current_events_api/` exists from a prior round, REUSE it (extend, don't replace).
+
+## Your task
+
+Build (or restore) the `current_events_api/` package:
+
+```
+current_events_api/
+├── pyproject.toml
+├── current_events_api/
+│   ├── __init__.py
+│   ├── main.py               # FastAPI app, route includes, lifespan
+│   ├── deps.py               # Store + budget + auth dependencies
+│   ├── schemas.py            # PublicOpinion, PublicCitation Pydantic schemas
+│   ├── event_bus.py          # in-process asyncio.Queue fan-out
+│   ├── sse.py                # SSE response helpers (heartbeat, frame format)
+│   ├── rate_limit.py         # sliding window per IP + fingerprint
+│   ├── metrics.py            # Prometheus text renderer
+│   ├── publisher.py          # DB-tail → bus
+│   └── routes/
+│       ├── __init__.py
+│       ├── currents.py       # GET /v1/currents, /v1/currents/{id}, /sources
+│       ├── stream.py         # GET /v1/currents/stream (SSE)
+│       └── followup.py       # POST /v1/currents/{id}/follow-up (SSE)
+└── tests/
+    ├── conftest.py
+    ├── test_routes_currents.py
+    ├── test_routes_followup.py
+    └── test_rate_limit.py
+```
+
+### Routes
+
+| Method | Path | Notes |
+|---|---|---|
+| GET | `/v1/currents` | List opinions, query params: `since`, `until`, `topic`, `stance`, `limit ≤ 50` |
+| GET | `/v1/currents/{id}` | Single opinion + citations |
+| GET | `/v1/currents/{id}/sources` | Full source detail (Conclusion or Claim text) for each citation |
+| GET | `/v1/currents/stream` | SSE — emits new PublicOpinion frames as they arrive; heartbeat every 15s |
+| POST | `/v1/currents/{id}/follow-up` | SSE — accepts `{question, session_id?}`; streams meta → tokens → citation frames → done |
+| GET | `/v1/currents/{id}/follow-up/{session_id}/messages` | Paginated message history |
+| GET | `/healthz` | `{ok: true}` — for load balancers |
+| GET | `/readyz` | Checks DB reachable + scheduler liveness file fresh |
+| GET | `/metrics` | Prometheus text format |
+
+### `PublicOpinion` schema
+
+Strip internal fields (`promptTokens`, `completionTokens`, `clientFingerprint`, raw `revokedReason` text — keep only `revokedSourcesCount` aggregate). The wire shape is what theseus-codex's route handlers proxy through unchanged.
+
+### `event_bus.py`
+
+```python
+class OpinionBus:
+    def __init__(self): self._subscribers = []
+    async def publish(self, opinion_dict): ...
+    async def subscribe(self) -> AsyncIterator[dict]: ...
+    def feed_client_count(self) -> int: return len(self._subscribers)
+    def followup_client_count(self) -> int: ...
+```
+
+In-memory, per-process. Single-worker invariant.
+
+### `publisher.py`
+
+`OpinionTailer` — polls DB every 2s for opinions with `generatedAt > cursor`, publishes to bus. Started in FastAPI lifespan. This is what makes new opinions land in connected SSE clients without pub/sub infra.
+
+### `rate_limit.py`
+
+Sliding-window: 30 requests / IP / minute on the read endpoints; 20 follow-up POSTs / fingerprint / day; 8 messages / session. Returns 429 with JSON body indicating reason.
+
+### CORS
+
+Read `CURRENTS_CORS_ORIGINS` env (comma-separated). The merged Codex deploy origin (e.g. `https://mqtheseuswork-qiw6.vercel.app`) goes here. No wildcard allowed.
+
+## Prerequisites
+
+- Prompts 05–09 applied.
+
+## SCOPE
+
+All files listed in the tree above. CREATE for new ones, MODIFY if a prior round's `current_events_api/` already has them.
+
+## Verification
+
+```bash
+cd /Users/michaelquintin/Desktop/Theseus
+pip install -e current_events_api/
+pytest -q current_events_api/tests/
+
+# Live smoke:
+NOOSPHERE_DATA_DIR=./noosphere_data DATABASE_URL=$(grep '^DATABASE_URL=' theseus-codex/.env | cut -d= -f2-) \
+  uvicorn current_events_api.main:app --host 0.0.0.0 --port 8088 &
+curl -s http://localhost:8088/healthz   # → {"ok":true}
+curl -s http://localhost:8088/v1/currents | head
+```
+
+## Prohibitions
+
+- Do NOT scale uvicorn beyond 1 worker. The OpinionBus is in-memory.
+- Do NOT expose `/metrics` to the public internet.
+- Do NOT include the LLM token counts or fingerprints in any wire schema.
+- Do NOT put auth on the public read endpoints. They're public by design.
+
+Do not proceed to prompts 11+. Do not edit anything outside SCOPE.

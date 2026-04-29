@@ -1,0 +1,9 @@
+FROM python:3.12-slim
+WORKDIR /app
+ENV PYTHONUNBUFFERED=1 PYTHONPATH=/app/noosphere:/app/current_events_api
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+COPY noosphere ./noosphere
+COPY current_events_api ./current_events_api
+EXPOSE 8088
+CMD ["uvicorn", "current_events_api.main:app", "--host", "0.0.0.0", "--port", "8088", "--workers", "1"]

@@ -1,0 +1,114 @@
+# Claude Code Prompt 4 of 22 — Execute the safe migration: move non-colliding theseus-public pages into theseus-codex
+
+**Sequence:** prompt 4 of 22 (Wave 1). Depends on 03 (the MERGER_PLAN.md must exist and be unambiguous; if it has any `**DECISION REQUIRED**` markers, STOP and ask the operator before running this). Report back with: the diff stats per migrated route, the design-token decisions actually applied, and any test that broke during the migration.
+
+**Before you start — read current state:**
+1. Read `Claude_Code_Prompts/MERGER_PLAN.md` in full. Every action in this prompt must conform to it. If a path you're about to migrate is marked `**DECISION REQUIRED**` and unresolved, STOP.
+2. Re-read the source pages you're about to migrate, in full. Don't trust the plan's summary; the actual TSX has nuances (server components vs client components, `cache: "no-store"`, fetch URLs, etc.) that have to migrate intact.
+3. Read `theseus-codex/src/lib/db.ts` (or wherever Prisma is initialized) — confirm the `db` export the new pages will use.
+4. Read `theseus-codex/prisma/schema.prisma` — confirm the model names and relationships the migrated pages query.
+
+## Your task
+
+Move every page, component, and lib module that the MERGER_PLAN marks safe for this automated migration from `theseus-public/` into `theseus-codex/src/`. Adjust imports, switch conclusion/response data sources from `bundle.json` to Prisma, reconcile globals.css, and migrate static assets. Do NOT delete `theseus-public/` itself — that happens in prompt 21.
+
+**Routes to migrate now (per MERGER_PLAN; this is the canonical list):**
+
+- `/methodology`
+- `/c/[slug]` and `/c/[slug]/v/[version]` — individual conclusion pages (DATA_SOURCE_CHANGE: bundle → Prisma)
+- `/responses`
+- RSS at `/feed.xml`, Atom at `/atom.xml`
+
+The homepage is NOT migrated — theseus-codex's existing `/` stays as the public blog index. The deferred pages (`/methods`, `/interop`, `/open-questions`, `/conclusions/[id]`, and data-backed methodology children) are NOT migrated in this prompt because MERGER_PLAN keeps existing founder route ownership or lacks a public-safe runtime data source. The currents pages (`/currents` etc.) are NOT in this prompt — they come in Wave 5.
+
+## Prerequisites
+
+- Prompt 03 applied; `MERGER_PLAN.md` exists and contains no `**DECISION REQUIRED**` markers.
+
+## SCOPE
+
+This is the most file-heavy prompt of the merger. Migrations are listed by source path; the target is its theseus-codex counterpart.
+
+### Pages (all CREATE in theseus-codex; DO NOT delete from theseus-public yet)
+
+- `theseus-codex/src/app/methodology/page.tsx`
+- `theseus-codex/src/app/c/[slug]/page.tsx`
+- `theseus-codex/src/app/c/[slug]/v/[version]/page.tsx`
+- `theseus-codex/src/app/responses/page.tsx`
+
+### Lib + components (CREATE/MODIFY per MERGER_PLAN classifications)
+
+- `theseus-codex/src/lib/site.ts` (PORT — values may need reconciliation with existing site config)
+- `theseus-codex/src/lib/conclusionsRead.ts` (NEW — replaces theseus-public's bundle reads with Prisma reads)
+- `theseus-codex/src/components/ConclusionView.tsx` (PORT)
+- `theseus-codex/src/components/RespondForm.tsx` (PORT, if the existing component cannot be reused)
+- `theseus-codex/src/components/PublicHeader.tsx` (already exists in theseus-codex — MODIFY only if MERGER_PLAN says so)
+
+### Feeds
+
+- `theseus-codex/src/app/feed.xml/route.ts` (NEW — runtime route handler that emits the RSS XML, sourced from Prisma)
+- `theseus-codex/src/app/atom.xml/route.ts` (NEW — same for Atom)
+- Drop the build-time `scripts/write-feeds.mjs` approach in favor of runtime route handlers. Cache via `revalidate = 3600` so the feed regenerates hourly.
+
+### Static assets
+
+- `theseus-codex/public/...` — migrate any asset present in `theseus-public/public/` but missing from `theseus-codex/public/`. Resolve duplicates by content hash per the MERGER_PLAN — do NOT silently overwrite an existing theseus-codex asset.
+
+### Globals + tokens
+
+- `theseus-codex/src/app/globals.css` MODIFY — apply the design-token reconciliation decisions from MERGER_PLAN section 4. Every kept token gets a comment indicating which site it originated from. Add a short header noting that `globals.css` is now the unified source of truth.
+
+### Root layout
+
+- `theseus-codex/src/app/layout.tsx` MODIFY — add nav links only for the migrated public routes (Methodology, Responses, and conclusion links if there is an index/list affordance) in the order MERGER_PLAN specifies. Do NOT rearrange existing nav items.
+
+## Step-by-step
+
+1. **Lib first.** Implement `conclusionsRead.ts`. It exports a small set of typed read functions: `listPublishedConclusions(): Promise<PublishedConclusion[]>`, `getConclusionBySlug(slug)`, `getConclusionVersion(slug, v)`, etc. Behavior must match what theseus-public's bundle reads produced for the migrated conclusion/response/feed routes — same shape, same ordering, same filtering.
+
+2. **Components next.** Move `ConclusionView.tsx` and any helper components. Update import paths.
+
+3. **Pages next, in dependency order from MERGER_PLAN section 8.** For each migrated page: copy the TSX, update imports (`@/lib/...` paths), swap any `bundle.X` references for the new lib functions, ensure server-component vs client-component declarations are correct, ensure `revalidate` and `dynamic` directives match what theseus-public used. Do not create any route MERGER_PLAN marks DEFER.
+
+4. **Globals.** Apply token reconciliation. Verify by inspecting at least one previously-shared style class in both old and new contexts and confirming the visual result is unchanged.
+
+5. **Feeds.** Implement `feed.xml/route.ts` and `atom.xml/route.ts` as runtime route handlers. Output exactly the same XML structure theseus-public's `write-feeds.mjs` produced; existing RSS readers will be diffing against the old payload.
+
+6. **Static assets.** Run a content-hash comparison of every file under both `public/` directories. Migrate the ones missing from theseus-codex. Skip duplicates whose hashes match.
+
+7. **Root layout nav.** Add only the migrated public routes to the nav, in the order MERGER_PLAN specifies. Verify no existing nav item is removed.
+
+8. **Smoke.** Run `cd theseus-codex && npm run build` and confirm zero errors. Visit each migrated route via `npm run dev` and confirm the rendered page matches what `theseus-public` produced (you can spot-check by leaving theseus-public's `npm run dev` running on a different port).
+
+## Verification
+
+```bash
+cd /Users/michaelquintin/Desktop/Theseus/theseus-codex
+npm install
+npm run build
+
+# Smoke check every migrated route
+npm run dev &
+for route in / /methodology /responses \
+             /feed.xml /atom.xml; do
+  curl -s -o /dev/null -w "%{http_code}  $route\n" "http://localhost:3000$route"
+done
+```
+
+Every route should return 200. Routes that depend on a Prisma row that doesn't exist in dev DB are allowed to return 404, but should NOT 500.
+
+```bash
+# Confirm theseus-public is untouched
+git -C /Users/michaelquintin/Desktop/Theseus diff --stat -- theseus-public/
+# Should show zero changes
+```
+
+## Prohibitions
+
+- Do NOT delete anything from `theseus-public/`. That dir stays in place until prompt 22.
+- Do NOT change auth behavior. Middleware stays as-is. The migrated routes are public; nothing under `/dashboard` is touched.
+- Do NOT introduce a new package manager or build tool in theseus-codex. Use whatever's there.
+- Do NOT translate `bundle.json` reads by silently changing the data shape. The migrated lib functions must return shapes downstream pages can consume without further changes.
+- Do NOT migrate the homepage. theseus-codex's `/` stays.
+
+Do not proceed to prompts 03-21. Do not edit anything outside SCOPE.

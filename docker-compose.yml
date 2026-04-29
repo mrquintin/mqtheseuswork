@@ -1,55 +1,27 @@
-# Local docker-compose for the Theseus Codex + public site + Postgres.
-#
-# Production deployments on Vercel + Supabase do NOT use this file — the
-# Codex is deployed to Vercel and the database lives on Supabase. This
-# compose is for self-hosted development and CI smoke tests where we want
-# the whole stack running in containers on a single machine.
-#
-# Previous versions of this file mounted a `portal-data` volume into
-# `/app/data` because the Codex used SQLite. That volume is no longer
-# needed — the Prisma schema is Postgres-only and the `theseus-codex`
-# container reads `DATABASE_URL` from the environment at startup.
-
 services:
-  postgres:
-    image: postgres:16-alpine
-    environment:
-      POSTGRES_USER: theseus
-      POSTGRES_PASSWORD: theseus
-      POSTGRES_DB: theseus_codex
+  currents-api:
+    build:
+      context: .
+      dockerfile: Dockerfile.api
+    env_file: ./current_events_api/.env
     ports:
-      - "5432:5432"
+      - "8088:8088"
     volumes:
-      - postgres-data:/var/lib/postgresql/data
+      - currents-data:/data/noosphere
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U theseus -d theseus_codex"]
-      interval: 5s
-      timeout: 5s
-      retries: 10
+      test: ["CMD", "python", "-c", "import urllib.request,sys;sys.exit(0 if urllib.request.urlopen('http://localhost:8088/healthz',timeout=2).status==200 else 1)"]
+      interval: 15s
+      retries: 3
     restart: unless-stopped
 
-  theseus-codex:
+  currents-scheduler:
     build:
-      context: ./theseus-codex
-    image: theseus-codex:latest
-    depends_on:
-      postgres:
-        condition: service_healthy
-    environment:
-      # Compose's internal DNS resolves `postgres` to the container above.
-      DATABASE_URL: postgresql://theseus:theseus@postgres:5432/theseus_codex?schema=public
-      DIRECT_URL: postgresql://theseus:theseus@postgres:5432/theseus_codex?schema=public
-    ports:
-      - "3000:3000"
-    restart: unless-stopped
-
-  theseus-public:
-    build:
-      context: ./theseus-public
-    image: theseus-public:latest
-    ports:
-      - "8080:80"
+      context: .
+      dockerfile: Dockerfile.scheduler
+    env_file: ./current_events_api/.env
+    volumes:
+      - currents-data:/data/noosphere
     restart: unless-stopped
 
 volumes:
-  postgres-data:
+  currents-data:

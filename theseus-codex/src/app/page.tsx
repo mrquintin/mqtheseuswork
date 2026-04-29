@@ -4,6 +4,8 @@ import PublicHeader from "@/components/PublicHeader";
 import SculptureBackdrop from "@/components/SculptureBackdrop";
 import { db } from "@/lib/db";
 import { getFounder } from "@/lib/auth";
+import { listCurrents } from "@/lib/currentsApi";
+import type { PublicOpinion } from "@/lib/currentsTypes";
 
 /**
  * Public blog index — the Codex's front door.
@@ -33,6 +35,124 @@ import { getFounder } from "@/lib/auth";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 60; // still re-fetch every minute for freshness
+
+async function CurrentsTeaser() {
+  let items: PublicOpinion[] = [];
+
+  try {
+    const resp = await listCurrents({ limit: 3 });
+    items = Array.isArray(resp.items) ? resp.items : [];
+  } catch {
+    return null;
+  }
+
+  if (!items.length) return null;
+
+  return (
+    <section
+      aria-label="Current events teaser"
+      style={{
+        background: "rgba(28, 25, 22, 0.82)",
+        border: "1px solid var(--currents-border)",
+        borderRadius: "4px",
+        boxShadow: "0 16px 36px rgba(0, 0, 0, 0.18)",
+        marginBottom: "2rem",
+        padding: "1rem 1rem 0.85rem",
+      }}
+    >
+      <div
+        style={{
+          alignItems: "center",
+          display: "flex",
+          gap: "0.8rem",
+          justifyContent: "space-between",
+          marginBottom: "0.85rem",
+        }}
+      >
+        <p
+          className="mono"
+          style={{
+            color: "var(--currents-amber)",
+            fontSize: "0.62rem",
+            letterSpacing: "0.22em",
+            margin: 0,
+            textTransform: "uppercase",
+          }}
+        >
+          Live · current events
+        </p>
+        <Link
+          href="/currents"
+          className="mono"
+          style={{
+            color: "var(--currents-gold)",
+            fontSize: "0.64rem",
+            letterSpacing: "0.18em",
+            textDecoration: "none",
+            textTransform: "uppercase",
+            whiteSpace: "nowrap",
+          }}
+        >
+          See all →
+        </Link>
+      </div>
+
+      <ul
+        style={{
+          display: "grid",
+          gap: "0.65rem",
+          listStyle: "none",
+          margin: 0,
+          padding: 0,
+        }}
+      >
+        {items.map((op) => {
+          const topic = op.topic_hint || op.event?.topic_hint || "untagged";
+
+          return (
+            <li key={op.id}>
+              <Link
+                href={`/currents/${encodeURIComponent(op.id)}`}
+                style={{
+                  borderTop: "1px solid rgba(232, 225, 211, 0.08)",
+                  color: "inherit",
+                  display: "block",
+                  paddingTop: "0.65rem",
+                  textDecoration: "none",
+                }}
+              >
+                <span
+                  style={{
+                    color: "var(--currents-parchment)",
+                    display: "block",
+                    fontFamily: "'EB Garamond', serif",
+                    fontSize: "1rem",
+                    lineHeight: 1.3,
+                  }}
+                >
+                  {op.headline}
+                </span>
+                <span
+                  className="mono"
+                  style={{
+                    color: "var(--currents-muted)",
+                    display: "block",
+                    fontSize: "0.58rem",
+                    letterSpacing: "0.16em",
+                    marginTop: "0.22rem",
+                    textTransform: "uppercase",
+                  }}
+                >
+                  {op.stance} · {topic}
+                </span>
+              </Link>
+            </li>
+          );
+        })}
+      </ul>
+    </section>
+  );
+}
 
 export default async function PublicBlogIndex() {
   const founder = await getFounder();
@@ -201,6 +321,8 @@ export default async function PublicBlogIndex() {
           padding: "1rem 2rem 6rem",
         }}
       >
+        <CurrentsTeaser />
+
         <h2
           className="mono"
           style={{

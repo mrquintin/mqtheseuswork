@@ -41,6 +41,19 @@ vi.mock("@/lib/api/round3", () => ({
     },
   ]),
   fetchProvenanceForConclusion: vi.fn().mockResolvedValue([]),
+  fetchProvenanceForConclusionDiag: vi.fn().mockResolvedValue({
+    records: [
+      {
+        id: "prov-1",
+        conclusionId: "conc-1",
+        sourceUploadId: "upload-1",
+        extractionMethod: "llm_extraction",
+        confidence: 0.85,
+        chain: [{ step: 0, kind: "source", ref: "upload-1", detail: "Extracted from upload" }],
+        createdAt: "2026-01-15T10:00:00Z",
+      },
+    ],
+  }),
   fetchCascade: vi.fn().mockResolvedValue([
     {
       id: "cascade-1",
@@ -52,6 +65,19 @@ vi.mock("@/lib/api/round3", () => ({
       children: [],
     },
   ]),
+  fetchCascadeDiag: vi.fn().mockResolvedValue({
+    roots: [
+      {
+        id: "cascade-1",
+        conclusionId: "conc-1",
+        parentId: null,
+        kind: "root",
+        label: "Root conclusion",
+        confidence: 0.9,
+        children: [],
+      },
+    ],
+  }),
   fetchEvalRuns: vi.fn().mockResolvedValue([
     {
       id: "eval-1",
@@ -104,6 +130,19 @@ vi.mock("@/lib/api/round3", () => ({
       createdAt: "2026-01-15T10:00:00Z",
     },
   ]),
+  fetchPeerReviewsDiag: vi.fn().mockResolvedValue({
+    records: [
+      {
+        id: "review-1",
+        conclusionId: "conc-1",
+        reviewerName: "Reviewer A",
+        verdict: "endorse",
+        commentary: "Well-supported conclusion",
+        findings: [],
+        createdAt: "2026-01-15T10:00:00Z",
+      },
+    ],
+  }),
   fetchDecayRecords: vi.fn().mockResolvedValue([
     {
       id: "decay-1",
@@ -185,13 +224,13 @@ describe("Round 3 pages render without error", () => {
   });
 
   it("renders provenance page", async () => {
-    const { default: ProvenancePage } = await import("@/app/provenance/page");
+    const { default: ProvenancePage } = await import("@/app/(authed)/provenance/page");
     const result = await renderServerComponent(ProvenancePage);
     expect(result).toBeDefined();
   });
 
   it("renders cascade explorer page", async () => {
-    const { default: CascadePage } = await import("@/app/cascade/[conclusionId]/page");
+    const { default: CascadePage } = await import("@/app/(authed)/cascade/[conclusionId]/page");
     const result = await renderServerComponent(CascadePage, {
       params: Promise.resolve({ conclusionId: "conc-1" }),
     });
@@ -199,13 +238,13 @@ describe("Round 3 pages render without error", () => {
   });
 
   it("renders eval page", async () => {
-    const { default: EvalPage } = await import("@/app/eval/page");
+    const { default: EvalPage } = await import("@/app/(authed)/eval/page");
     const result = await renderServerComponent(EvalPage);
     expect(result).toBeDefined();
   });
 
   it("renders eval run detail page", async () => {
-    const { default: EvalRunDetailPage } = await import("@/app/eval/runs/[runId]/page");
+    const { default: EvalRunDetailPage } = await import("@/app/(authed)/eval/runs/[runId]/page");
     const result = await renderServerComponent(EvalRunDetailPage, {
       params: Promise.resolve({ runId: "eval-1" }),
     });
@@ -213,13 +252,13 @@ describe("Round 3 pages render without error", () => {
   });
 
   it("renders post-mortem page", async () => {
-    const { default: PostMortemPage } = await import("@/app/post-mortem/page");
+    const { default: PostMortemPage } = await import("@/app/(authed)/post-mortem/page");
     const result = await renderServerComponent(PostMortemPage);
     expect(result).toBeDefined();
   });
 
   it("renders peer review page", async () => {
-    const { default: PeerReviewPage } = await import("@/app/peer-review/[conclusionId]/page");
+    const { default: PeerReviewPage } = await import("@/app/(authed)/peer-review/[conclusionId]/page");
     const result = await renderServerComponent(PeerReviewPage, {
       params: Promise.resolve({ conclusionId: "conc-1" }),
       searchParams: Promise.resolve({}),
@@ -228,7 +267,7 @@ describe("Round 3 pages render without error", () => {
   });
 
   it("renders decay page", async () => {
-    const { default: DecayPage } = await import("@/app/decay/page");
+    const { default: DecayPage } = await import("@/app/(authed)/decay/page");
     const result = await renderServerComponent(DecayPage, {
       searchParams: Promise.resolve({}),
     });
@@ -236,7 +275,7 @@ describe("Round 3 pages render without error", () => {
   });
 
   it("renders rigor gate page", async () => {
-    const { default: RigorGatePage } = await import("@/app/rigor-gate/page");
+    const { default: RigorGatePage } = await import("@/app/(authed)/rigor-gate/page");
     const result = await renderServerComponent(RigorGatePage, {
       searchParams: Promise.resolve({}),
     });
@@ -244,7 +283,7 @@ describe("Round 3 pages render without error", () => {
   });
 
   it("renders rigor gate detail page", async () => {
-    const { default: RigorGateDetailPage } = await import("@/app/rigor-gate/[submissionId]/page");
+    const { default: RigorGateDetailPage } = await import("@/app/(authed)/rigor-gate/[submissionId]/page");
     const result = await renderServerComponent(RigorGateDetailPage, {
       params: Promise.resolve({ submissionId: "gate-1" }),
       searchParams: Promise.resolve({}),
@@ -253,13 +292,13 @@ describe("Round 3 pages render without error", () => {
   });
 
   it("renders methods page", async () => {
-    const { default: MethodsPage } = await import("@/app/methods/page");
+    const { default: MethodsPage } = await import("@/app/(authed)/methods/page");
     const result = await renderServerComponent(MethodsPage);
     expect(result).toBeDefined();
   });
 
   it("renders method version page", async () => {
-    const { default: MethodVersionPage } = await import("@/app/methods/[name]/[version]/page");
+    const { default: MethodVersionPage } = await import("@/app/(authed)/methods/[name]/[version]/page");
     const result = await renderServerComponent(MethodVersionPage, {
       params: Promise.resolve({ name: "llm_extraction", version: "1.2.0" }),
       searchParams: Promise.resolve({}),
@@ -268,25 +307,25 @@ describe("Round 3 pages render without error", () => {
   });
 
   it("renders method candidates page", async () => {
-    const { default: MethodCandidatesPage } = await import("@/app/methods/candidates/page");
+    const { default: MethodCandidatesPage } = await import("@/app/(authed)/methods/candidates/page");
     const result = await renderServerComponent(MethodCandidatesPage);
     expect(result).toBeDefined();
   });
 
   it("renders provenance tab", async () => {
-    const { default: ProvenanceTab } = await import("@/app/conclusions/[id]/provenance-tab");
+    const { default: ProvenanceTab } = await import("@/app/(authed)/conclusions/[id]/provenance-tab");
     const result = await renderServerComponent(ProvenanceTab, { conclusionId: "conc-1" });
     expect(result).toBeDefined();
   });
 
   it("renders cascade tab", async () => {
-    const { default: CascadeTab } = await import("@/app/conclusions/[id]/cascade-tab");
+    const { default: CascadeTab } = await import("@/app/(authed)/conclusions/[id]/cascade-tab");
     const result = await renderServerComponent(CascadeTab, { conclusionId: "conc-1" });
     expect(result).toBeDefined();
   });
 
   it("renders peer review tab", async () => {
-    const { default: PeerReviewTab } = await import("@/app/conclusions/[id]/peer-review-tab");
+    const { default: PeerReviewTab } = await import("@/app/(authed)/conclusions/[id]/peer-review-tab");
     const result = await renderServerComponent(PeerReviewTab, { conclusionId: "conc-1" });
     expect(result).toBeDefined();
   });

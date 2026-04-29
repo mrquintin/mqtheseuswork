@@ -1,0 +1,79 @@
+# Claude Code Prompt 14 of 22 — Filter bar (search, topic, stance, since), topic-cluster view
+
+**Sequence:** prompt 14 of 22 (Wave 5). Depends on 13. Report back with: filter UX, URL-param scheme, behavior when a live arrival doesn't match the active filter.
+
+**Why this prompt exists.** With more than ~30 opinions the flat feed becomes hard to scan. A filter bar (search, topic chip, stance, since-preset) plus an alternate "cluster by topic" view let a visitor find what they care about. URL parameters are the source of truth so filtered URLs are shareable.
+
+**Before you start — read current state:**
+1. Read `theseus-codex/src/app/currents/FeedClient.tsx` (prompt 13). The filter wraps it.
+2. Read `theseus-codex/src/lib/currentsTypes.ts` for `PublicOpinion` shape (need topic_hint, stance fields).
+
+## Your task
+
+### Filter shape
+
+```ts
+interface Filter {
+  q: string;             // free-text search (matches headline + body + topic_hint)
+  topic: string | null;  // exact topic id; null = all
+  stance: ("agrees" | "disagrees" | "complicates" | "abstained")[]; // empty = all
+  since: "1h" | "6h" | "24h" | "7d" | "all";
+  view: "feed" | "clusters";
+}
+```
+
+### `filterMatch.ts`
+
+Pure functions. `matches(op, filter)` returns boolean. `filterToParams(filter)` and `paramsToFilter(searchParams)` round-trip via URL.
+
+### `FilterBar.tsx`
+
+Client component. Search input (debounced 250ms), topic dropdown (populated from currently-loaded opinions' distinct `topic_hint` values), 4 stance chips (toggleable), 4 since-preset buttons, view-mode toggle (feed | clusters).
+
+URL-param sync: use `useSearchParams` + `router.replace` so changing a filter updates the URL without scrolling.
+
+### `TopicClusters.tsx`
+
+Groups opinions by `topic_hint`, renders one collapsible section per topic, each section shows the top 3 opinions and "+N more" linking to filtered feed.
+
+### Wire-up in `FeedClient`
+
+Read URL params on mount + on URL change. Apply `matches` to the streaming list. When a new live opinion arrives that doesn't match the active filter, render a banner: "N new items match other filters" — clicking it clears the filter. This way the user never silently misses live arrivals.
+
+## Tests
+
+`filterMatch.test.ts`: each filter dimension exercised; `filterToParams` ↔ `paramsToFilter` round-trip.
+`FilterBar.test.tsx`: stance chip toggles; URL is updated; debounce respected.
+`TopicClusters.test.tsx`: groups correctly; "+N more" link points to filtered feed URL.
+
+## Prerequisites
+
+- Prompt 13 applied.
+
+## SCOPE
+
+- `theseus-codex/src/lib/filterMatch.ts`                                   CREATE
+- `theseus-codex/src/app/currents/FilterBar.tsx`                           CREATE
+- `theseus-codex/src/app/currents/TopicClusters.tsx`                       CREATE
+- `theseus-codex/src/app/currents/FeedClient.tsx`                          MODIFY (mount FilterBar, apply filter, "N new items" banner)
+- `theseus-codex/src/__tests__/filterMatch.test.ts`                        CREATE
+- `theseus-codex/src/__tests__/FilterBar.test.tsx`                         CREATE
+- `theseus-codex/src/__tests__/TopicClusters.test.tsx`                     CREATE
+
+## Verification
+
+```bash
+cd /Users/michaelquintin/Desktop/Theseus/theseus-codex
+npm test
+npm run build
+# Visit /currents?stance=disagrees&since=24h — only those opinions
+# Visit /currents?view=clusters — topic-grouped layout
+```
+
+## Prohibitions
+
+- Do NOT make filters server-side. URL params + client filter on a 200-opinion in-memory list is fast and shareable.
+- Do NOT discard live arrivals when they don't match the filter. Show the banner instead.
+- Do NOT add "save filter" or auth-tied state. Filters are URL-shaped only.
+
+Do not proceed to prompts 15+. Do not edit anything outside SCOPE.

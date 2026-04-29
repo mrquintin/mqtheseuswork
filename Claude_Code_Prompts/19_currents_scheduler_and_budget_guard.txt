@@ -1,0 +1,119 @@
+# Claude Code Prompt 19 of 22 — Scheduler: 5-minute pipeline loop + persistent hourly budget guard
+
+**Sequence:** prompt 19 of 22 (Wave 7 opener). Depends on 06, 07, 09. Report back with: per-cycle log line format, budget-exhaustion backoff, the scheduler status file format.
+
+**Why this prompt exists.** Until now, all the Currents pieces exist but nothing drives them on a cadence. This prompt adds the standing loop: every 5 minutes, ingest from X → enrich → relevance-gate → opine. Plus the hourly budget guard with persistence so an hourly token ceiling actually holds across restarts.
+
+**Before you start — read current state:**
+1. Read `noosphere/noosphere/currents/x_ingestor.py` (06), `enrich.py` + `relevance.py` (07), `opinion_generator.py` (09).
+2. Read `noosphere/noosphere/currents/budget.py` (09) — confirm `HourlyBudgetGuard` exists with `load(path)` and `save(path)`.
+
+## Your task
+
+### `scheduler.py`
+
+```python
+import asyncio, signal, time, logging
+from dataclasses import dataclass, asdict
+from pathlib import Path
+
+CYCLE_SECONDS = 300                 # 5 min
+MAX_EVENTS_PER_CYCLE = 40           # hard cap so one bad cycle can't drain the budget
+MAX_OPINIONS_PER_CYCLE = 12
+SHORT_BACKOFF_SECONDS = 30
+LONG_BACKOFF_SECONDS = CYCLE_SECONDS  # full cycle skip on budget exhaustion
+
+@dataclass
+class CycleReport:
+    cycle_id: str
+    started_at: str
+    duration_ms: int
+    ingested: int
+    enriched: int
+    abstained_insufficient: int
+    abstained_near_duplicate: int
+    abstained_budget: int
+    opined: int
+    errors: list[str]
+    remaining_prompt_tokens: int
+    remaining_completion_tokens: int
+
+async def run_cycle(store, ingestor_cfg, budget) -> CycleReport:
+    """ingest_once → for each new event: enrich → check_relevance →
+       if OPINE: generate_opinion (catching BudgetExhausted) → next.
+       Cap MAX_EVENTS_PER_CYCLE, MAX_OPINIONS_PER_CYCLE."""
+
+async def loop(store, ingestor_cfg, budget):
+    """Standing loop. Sleeps CYCLE_SECONDS - elapsed between cycles.
+    On budget exhaustion: LONG_BACKOFF_SECONDS to let the hour roll over.
+    On generic crash: SHORT_BACKOFF_SECONDS, log, continue."""
+
+def main(argv):
+    """argparse: subcommands `once` and `loop`. Both bootstrap a Store + cfg."""
+```
+
+### Status file
+
+After every cycle, write `noosphere_data/currents_status.json`:
+
+```json
+{ "last_cycle": { ...CycleReport... } }
+```
+
+The FastAPI service's `/readyz` (prompt 10) checks this file's mtime; if older than 600s (2× cycle), service is marked not-ready.
+
+### `__main__.py`
+
+`python -m noosphere.currents once` and `python -m noosphere.currents loop` are operator entry points.
+
+### Budget persistence wiring
+
+The API service (prompt 10) instantiates `HourlyBudgetGuard.load(path)` at startup. Both processes (scheduler + API) read/write the same JSON. Atomic `tempfile + os.replace`. Hour rollover resets to zero — never carry balances.
+
+### In-process publisher
+
+The API service tails the DB cursor (`OpinionTailer` from prompt 10) so SSE subscribers get new opinions in near-real-time after the scheduler writes them. No additional broker.
+
+## Tests
+
+`tests/test_scheduler_cycle.py` — happy path: one fake event → enriched → relevance OPINE → generate_opinion mocked PUBLISHED → cycle report shows ingested=1, opined=1.
+`tests/test_budget_persistence.py` — charge, save, reload in same hour → preserved; reload in next hour → zero.
+`tests/test_publisher_tail.py` — insert opinion → bus receives it within `_interval`.
+
+## Prerequisites
+
+- Prompts 05–10 applied.
+
+## SCOPE
+
+- `noosphere/noosphere/currents/scheduler.py`                              CREATE
+- `noosphere/noosphere/currents/__main__.py`                               CREATE
+- `noosphere/noosphere/currents/status.py`                                 CREATE
+- `noosphere/noosphere/currents/budget.py`                                 MODIFY (add load/save methods if not yet)
+- `current_events_api/current_events_api/main.py`                          MODIFY (use HourlyBudgetGuard.load(path) + start OpinionTailer in lifespan)
+- `noosphere/tests/test_scheduler_cycle.py`                                CREATE
+- `noosphere/tests/test_budget_persistence.py`                             CREATE
+- `noosphere/tests/test_publisher_tail.py`                                 CREATE
+
+## Verification
+
+```bash
+cd /Users/michaelquintin/Desktop/Theseus
+pytest -q noosphere/tests/test_scheduler_cycle.py noosphere/tests/test_budget_persistence.py
+
+# Single dry-run cycle:
+NOOSPHERE_DATA_DIR=./noosphere_data X_BEARER_TOKEN=dummy ANTHROPIC_API_KEY=dummy \
+  python -m noosphere.currents once
+
+# Standing loop (Ctrl-C to stop):
+python -m noosphere.currents loop
+```
+
+## Prohibitions
+
+- Do NOT introduce Redis, Kafka, Celery, or any other broker. SQLite/Postgres + in-process tail is the model.
+- Do NOT run the scheduler inside the FastAPI process. Separate restart domains.
+- Do NOT carry budget across hour boundaries.
+- Do NOT silently retry indefinitely. Each cycle has its own per-event try/except, but the loop continues regardless.
+
+Do not proceed to prompts 20+. Do not edit anything outside SCOPE.

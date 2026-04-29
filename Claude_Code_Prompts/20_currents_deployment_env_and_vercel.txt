@@ -1,0 +1,146 @@
+# Claude Code Prompt 20 of 22 — Deployment: env vars, Vercel config for the merged Codex, FastAPI hosting plan
+
+**Sequence:** prompt 20 of 22 (Wave 7). Depends on every prior prompt. Report back with: the final canonical `.env.example`, the Vercel project settings actually applied, the FastAPI service's deploy target.
+
+**Why this prompt exists.** The merged Codex deploys to a single Vercel project (already wired). The currents feature adds a separate FastAPI service that Vercel won't host. This prompt resolves: what env vars exist canonically, where the FastAPI service runs, how the proxy URL is configured for prod.
+
+**Before you start — read current state:**
+1. Read `theseus-codex/.env.example`, `theseus-codex/vercel.json`, and any existing Vercel project link.
+2. Read `current_events_api/` for any existing Dockerfile or deploy notes.
+
+## Your task
+
+### 1. Canonical `.env.example` for theseus-codex
+
+Append (preserving existing content):
+
+```dotenv
+# --- Currents feature (live news) ---
+# URL of the current_events_api FastAPI service (server-side only — never
+# exposed to the browser; the Codex's /api/currents/* routes proxy here).
+CURRENTS_API_URL=http://127.0.0.1:8088
+
+# Currents-specific secrets are NOT set in theseus-codex's env. They live on
+# the host running current_events_api + the noosphere scheduler:
+#   X_BEARER_TOKEN, ANTHROPIC_API_KEY, NOOSPHERE_DATA_DIR
+# Document them in current_events_api/.env.example, NOT here.
+```
+
+### 2. `current_events_api/.env.example`
+
+```dotenv
+X_BEARER_TOKEN=
+ANTHROPIC_API_KEY=
+NOOSPHERE_DATA_DIR=/data/noosphere
+DATABASE_URL=postgresql://...      # same Postgres the Codex uses
+CURRENTS_API_HOST=0.0.0.0
+CURRENTS_API_PORT=8088
+CURRENTS_CORS_ORIGINS=https://mqtheseuswork-qiw6.vercel.app
+CURRENTS_LLM_MODEL=claude-haiku-4-5
+CURRENTS_LLM_MAX_PROMPT_TOKENS_PER_HOUR=1500000
+CURRENTS_LLM_MAX_COMPLETION_TOKENS_PER_HOUR=400000
+CURRENTS_X_CURATED_ACCOUNTS=
+CURRENTS_X_SEARCH_QUERIES=
+CURRENTS_INGEST_MAX_EVENTS_PER_CYCLE=40
+CURRENTS_INGEST_ORG_ID=
+```
+
+### 3. FastAPI hosting
+
+Vercel cannot host long-lived Python with SSE. Two supportable targets:
+
+**Option A (recommended):** A single small VM (Fly.io, DigitalOcean droplet, or a Mac mini you already own). Provide a `Dockerfile.api` and a `Dockerfile.scheduler`, plus a `docker-compose.yml` that wires both with a shared `currents-data` volume. Document the deploy in `docs/Vercel_Supabase_Deploy.md`'s Currents section.
+
+**Option B:** Two separate Vercel-friendly serverless deployments using a different runtime (e.g. Modal, Replicate). Less recommended because SSE is awkward and budgets are harder to enforce per-process.
+
+Implement A.
+
+### 4. Dockerfiles
+
+```dockerfile
+# Dockerfile.api
+FROM python:3.12-slim
+WORKDIR /app
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+COPY noosphere ./noosphere
+COPY current_events_api ./current_events_api
+EXPOSE 8088
+CMD ["uvicorn", "current_events_api.main:app", "--host", "0.0.0.0", "--port", "8088", "--workers", "1"]
+```
+
+```dockerfile
+# Dockerfile.scheduler
+FROM python:3.12-slim
+WORKDIR /app
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+COPY noosphere ./noosphere
+CMD ["python", "-m", "noosphere.currents", "loop"]
+```
+
+### 5. `docker-compose.yml` (top-level)
+
+Two services, shared volume, dependent on a Postgres URL from `.env`:
+
+```yaml
+services:
+  currents-api:
+    build: { context: ., dockerfile: Dockerfile.api }
+    env_file: ./current_events_api/.env
+    ports: ["8088:8088"]
+    volumes: ["currents-data:/data/noosphere"]
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request,sys;sys.exit(0 if urllib.request.urlopen('http://localhost:8088/healthz',timeout=2).status==200 else 1)"]
+      interval: 15s
+      retries: 3
+    restart: unless-stopped
+  currents-scheduler:
+    build: { context: ., dockerfile: Dockerfile.scheduler }
+    env_file: ./current_events_api/.env
+    volumes: ["currents-data:/data/noosphere"]
+    restart: unless-stopped
+volumes:
+  currents-data:
+```
+
+### 6. Vercel settings update
+
+Document in `docs/Vercel_Supabase_Deploy.md`:
+
+- Add `CURRENTS_API_URL` to the Vercel project's env vars (Settings → Environment Variables) pointing at the externally-hosted FastAPI URL (e.g. `https://currents.theseuscodex.com` once a domain is set up).
+- The merged Codex stays on its existing Vercel project — no new project needed.
+- The build command stays `npm run build`. The `vercel-build` script that runs `prisma migrate deploy` continues to work.
+
+## Prerequisites
+
+- Prompts 05–19 applied.
+
+## SCOPE
+
+- `theseus-codex/.env.example`                                             MODIFY (append currents block)
+- `current_events_api/.env.example`                                        CREATE
+- `Dockerfile.api`                                                         CREATE (top-level)
+- `Dockerfile.scheduler`                                                   CREATE (top-level)
+- `docker-compose.yml`                                                     CREATE (or MODIFY if exists)
+- `docs/Vercel_Supabase_Deploy.md`                                         MODIFY (add Currents deploy section)
+- `requirements.txt` (top-level, used by both Dockerfiles)                 CREATE/MODIFY (consolidate noosphere + current_events_api deps)
+
+## Verification
+
+```bash
+cd /Users/michaelquintin/Desktop/Theseus
+docker compose build
+docker compose up -d
+curl -s http://localhost:8088/healthz
+docker compose logs -f currents-scheduler  # wait for first cycle
+```
+
+## Prohibitions
+
+- Do NOT deploy the FastAPI service to Vercel. SSE pinning + Python runtime mismatch.
+- Do NOT scale `currents-api` past 1 worker without first replacing the in-process bus.
+- Do NOT commit `.env`. Only `.env.example`.
+- Do NOT bake API keys into images.
+
+Do not proceed to prompts 21+. Do not edit anything outside SCOPE.

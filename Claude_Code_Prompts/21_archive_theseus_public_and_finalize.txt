@@ -1,0 +1,135 @@
+# Claude Code Prompt 21 of 22 — Archive theseus-public/, update LOAD_BEARING_PATHS, finalize the merger
+
+**Sequence:** prompt 21 of 22 (Wave 7 closer). Depends on every prior prompt being green. Report back with: the final `git status` after archival, the updated LOAD_BEARING_PATHS list, any cross-reference still pointing at theseus-public/.
+
+**Why this prompt exists.** The merger is done; theseus-public/ is now redundant. But "delete it" is too cavalier — we keep it under `reference/` for provenance. AND we update the deletion guardrail in `scripts/sync-to-github.sh` to include every load-bearing path the new currents work just produced, so a future cleanup operation can't silently delete it the way the previous incarnation got deleted.
+
+**Before you start — read current state:**
+1. Read `Claude_Code_Prompts/MERGER_PLAN.md` (prompt 03). Confirm every migrated route is now in theseus-codex (run a checklist).
+2. Read `scripts/sync-to-github.sh`'s `LOAD_BEARING_PATHS` array. The patch added in an earlier session lists currents UI components and noosphere extractors; we extend it.
+3. Grep the entire repo for references to `theseus-public/` paths — `grep -rln 'theseus-public' --include='*.ts' --include='*.tsx' --include='*.md' --include='*.json' --include='*.sh'`. Each match is a potential broken link after archival.
+
+## Your task
+
+### 1. Pre-archival sanity check
+
+Verify every route from the MERGER_PLAN's MIGRATE list now exists in theseus-codex. If any is missing, STOP and surface that — archival before completion would lose the file.
+
+```bash
+for path in src/app/methodology/page.tsx src/app/methods/page.tsx src/app/c/[slug]/page.tsx \
+            src/app/interop/page.tsx src/app/open-questions/page.tsx src/app/responses/page.tsx \
+            src/app/feed.xml/route.ts src/app/atom.xml/route.ts; do
+  test -e "theseus-codex/$path" || echo "MISSING: theseus-codex/$path"
+done
+```
+
+If any are missing, STOP.
+
+### 2. Move theseus-public into reference/
+
+```bash
+mkdir -p reference
+git mv theseus-public reference/theseus-public-pre-merge
+```
+
+`reference/` is gitignored at the top level (`reference/` in `.gitignore`), so this effectively removes theseus-public from the tracked tree. The files stay on disk for provenance.
+
+### 3. Strip stale cross-references
+
+For each match `grep` found, decide:
+- A README pointer to "the public site at theseus-public/..." → update to "theseus-codex/..." or remove the line.
+- A doc that compares old/new architecture → leave the historical reference but note it was merged.
+- A script that `cd`s into theseus-public/ → update or delete.
+
+### 4. Update `scripts/sync-to-github.sh` LOAD_BEARING_PATHS
+
+Append the currents-feature paths to the array. This is the central defense against a future `git checkout` or cleanup script silently nuking the work:
+
+```bash
+LOAD_BEARING_PATHS=(
+  # ... existing entries (currents UI, extractors, dialectic, etc.) ...
+  "theseus-codex/src/app/currents/"
+  "theseus-codex/src/app/api/currents/"
+  "theseus-codex/src/lib/currentsApi.ts"
+  "theseus-codex/src/lib/currentsTypes.ts"
+  "theseus-codex/src/lib/useLiveOpinions.ts"
+  "theseus-codex/src/lib/safeMarkdown.ts"
+  "theseus-codex/src/lib/highlight.ts"
+  "theseus-codex/src/lib/followupSession.ts"
+  "theseus-codex/src/lib/streamFollowup.ts"
+  "theseus-codex/src/lib/relativeTime.ts"
+  "theseus-codex/src/lib/filterMatch.ts"
+  "theseus-codex/src/lib/currentsFingerprint.ts"
+  "theseus-codex/src/components/CurrentsNavPulse.tsx"
+  "current_events_api/current_events_api/main.py"
+  "current_events_api/current_events_api/event_bus.py"
+  "current_events_api/current_events_api/sse.py"
+  "current_events_api/current_events_api/publisher.py"
+  "current_events_api/current_events_api/routes/"
+  "noosphere/noosphere/currents/"
+  # Migrated content routes
+  "theseus-codex/src/app/methodology/"
+  "theseus-codex/src/app/methods/"
+  "theseus-codex/src/app/interop/"
+  "theseus-codex/src/app/c/"
+  "theseus-codex/src/app/open-questions/"
+  "theseus-codex/src/app/responses/"
+  "theseus-codex/src/app/feed.xml/"
+  "theseus-codex/src/app/atom.xml/"
+)
+```
+
+### 5. Update top-level README
+
+The READMEs's "Repository map" section currently lists `theseus-public/` and `theseus-codex/` separately. Update to reflect the merger: theseus-public is gone; theseus-codex's `/` is the public surface, `/dashboard` is the founder portal, `/currents` is the live news. Reference `current_events_api/` as the supporting Python service. Keep the existing Theseus Codex URL pointing at the same Vercel deploy.
+
+### 6. Cleanup pass
+
+- Remove the `theseus-public/vercel.json` (it's now under `reference/`, but if Vercel reads the workspace root, having it under `reference/` might still confuse — make sure the path is fully gitignored so Vercel doesn't see it).
+- Remove any `next.config.ts` lingering top-level reference to theseus-public.
+
+### 7. Final smoke
+
+```bash
+cd theseus-codex
+npm run build
+```
+
+Must succeed. Then the verification block below.
+
+## Prerequisites
+
+- Prompts 03–20 applied.
+
+## SCOPE
+
+- `theseus-public/`                                                        MOVE → reference/theseus-public-pre-merge/
+- `scripts/sync-to-github.sh`                                              MODIFY (extend LOAD_BEARING_PATHS)
+- `README.md`                                                              MODIFY (update repository map)
+- Any file that references theseus-public/ paths                           MODIFY (case-by-case per step 3)
+
+## Verification
+
+```bash
+cd /Users/michaelquintin/Desktop/Theseus
+test ! -d theseus-public && echo "theseus-public/ no longer at top level"
+test -d reference/theseus-public-pre-merge && echo "preserved under reference/"
+grep -rln 'theseus-public' --include='*.ts' --include='*.tsx' --include='*.md' --include='*.json' \
+  | grep -v reference/ | grep -v node_modules | grep -v .next/ \
+  || echo "no stale cross-references remain"
+
+# Guardrail check
+grep -A 3 'LOAD_BEARING_PATHS=(' scripts/sync-to-github.sh | head -50
+
+# Build still green
+cd theseus-codex && DATABASE_URL=postgresql://throwaway:throwaway@localhost:5432/throwaway npm run build
+```
+
+## Prohibitions
+
+- Do NOT delete `theseus-public/`. It moves to `reference/`. The user has been bitten by deletion before; preserve provenance.
+- Do NOT remove existing entries from `LOAD_BEARING_PATHS`. Only add.
+- Do NOT skip the "stale cross-references" grep. Every reference left behind is a future broken link.
+- Do NOT commit a `.env` file as part of this prompt.
+
+Do not proceed to prompt 22. Do not edit anything outside SCOPE.

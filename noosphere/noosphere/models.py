@@ -8,10 +8,26 @@ positioned in embedding space.
 """
 
 from __future__ import annotations
+import json
 from datetime import date, datetime
 from enum import Enum
 from typing import Optional, Any, Literal, NewType
 from pydantic import BaseModel, Field, ConfigDict
+from sqlalchemy import (
+    Boolean as SABoolean,
+    Column,
+    DateTime as SADateTime,
+    Float as SAFloat,
+    Index,
+    Integer as SAInteger,
+    LargeBinary,
+    String,
+    Text,
+    UniqueConstraint,
+)
+from sqlalchemy.dialects import postgresql
+from sqlalchemy.types import JSON, TypeDecorator
+from sqlmodel import Field as SQLField, SQLModel
 import uuid
 
 
@@ -64,6 +80,79 @@ class Freshness(str, Enum):
     AGING = "aging"
     STALE = "stale"
     RETIRED = "retired"
+
+
+class CurrentEventStatus(str, Enum):
+    OBSERVED = "OBSERVED"
+    ENRICHED = "ENRICHED"
+    OPINED = "OPINED"
+    ABSTAINED = "ABSTAINED"
+    REVOKED = "REVOKED"
+
+
+class CurrentEventSource(str, Enum):
+    X_TWITTER = "X_TWITTER"
+    RSS = "RSS"
+    MANUAL = "MANUAL"
+
+
+class OpinionStance(str, Enum):
+    AGREES = "AGREES"
+    DISAGREES = "DISAGREES"
+    COMPLICATES = "COMPLICATES"
+    ABSTAINED = "ABSTAINED"
+
+
+class AbstentionReason(str, Enum):
+    INSUFFICIENT_SOURCES = "INSUFFICIENT_SOURCES"
+    NEAR_DUPLICATE = "NEAR_DUPLICATE"
+    BUDGET = "BUDGET"
+    CITATION_FABRICATION = "CITATION_FABRICATION"
+    REVOKED_SOURCES = "REVOKED_SOURCES"
+
+
+class FollowUpRole(str, Enum):
+    USER = "USER"
+    ASSISTANT = "ASSISTANT"
+
+
+def _new_cuid() -> str:
+    """Prisma-compatible textual id shape for Python-created Currents rows."""
+    return f"c{uuid.uuid4().hex[:24]}"
+
+
+def _now() -> datetime:
+    return datetime.now()
+
+
+class _StringListType(TypeDecorator):
+    """Postgres text[] in production, JSON in SQLite-backed tests."""
+
+    impl = JSON
+    cache_ok = True
+
+    def load_dialect_impl(self, dialect):
+        if dialect.name == "postgresql":
+            return dialect.type_descriptor(postgresql.ARRAY(Text()))
+        return dialect.type_descriptor(JSON())
+
+    def process_bind_param(self, value, dialect):
+        if value is None:
+            return []
+        return [str(v) for v in value]
+
+    def process_result_value(self, value, dialect):
+        if value is None:
+            return []
+        if isinstance(value, str):
+            try:
+                decoded = json.loads(value)
+            except json.JSONDecodeError:
+                return [value]
+            if isinstance(decoded, list):
+                return [str(v) for v in decoded]
+            return []
+        return [str(v) for v in value]
 
 
 # ── Pre-existing enums (needed by store / coherence) ────────────────────────
@@ -677,6 +766,127 @@ class Conclusion(BaseModel):
     # Round 3 additions
     freshness: Freshness = Freshness.FRESH
     last_validated_at: Optional[datetime] = None
+
+
+class CurrentEvent(SQLModel, table=True):
+    """External event observed by the Currents pipeline.
+
+    Attribute names are Pythonic snake_case; Column(name=...) preserves the
+    camelCase Prisma column names in the shared database.
+    """
+
+    __tablename__ = "CurrentEvent"
+    __table_args__ = (
+        UniqueConstraint("dedupeHash", name="CurrentEvent_dedupeHash_key"),
+        Index("CurrentEvent_organizationId_observedAt_idx", "organizationId", "observedAt"),
+        Index("CurrentEvent_organizationId_status_idx", "organizationId", "status"),
+    )
+
+    id: str = SQLField(default_factory=_new_cuid, primary_key=True)
+    organization_id: str = SQLField(sa_column=Column("organizationId", String, nullable=False))
+    source: CurrentEventSource = SQLField(sa_column=Column("source", String, nullable=False))
+    external_id: str = SQLField(sa_column=Column("externalId", String, nullable=False))
+    author_handle: Optional[str] = SQLField(default=None, sa_column=Column("authorHandle", String, nullable=True))
+    text: str = SQLField(sa_column=Column("text", Text, nullable=False))
+    url: Optional[str] = SQLField(default=None, sa_column=Column("url", String, nullable=True))
+    captured_at: datetime = SQLField(default_factory=_now, sa_column=Column("capturedAt", SADateTime, nullable=False))
+    observed_at: datetime = SQLField(sa_column=Column("observedAt", SADateTime, nullable=False))
+    topic_hint: Optional[str] = SQLField(default=None, sa_column=Column("topicHint", String, nullable=True))
+    is_near_duplicate: bool = SQLField(default=False, sa_column=Column("isNearDuplicate", SABoolean, nullable=False))
+    embedding: Optional[bytes] = SQLField(default=None, sa_column=Column("embedding", LargeBinary, nullable=True))
+    status: CurrentEventStatus = SQLField(
+        default=CurrentEventStatus.OBSERVED,
+        sa_column=Column("status", String, nullable=False),
+    )
+    dedupe_hash: str = SQLField(sa_column=Column("dedupeHash", String, nullable=False))
+    created_at: datetime = SQLField(default_factory=_now, sa_column=Column("createdAt", SADateTime, nullable=False))
+    updated_at: datetime = SQLField(default_factory=_now, sa_column=Column("updatedAt", SADateTime, nullable=False))
+
+
+class EventOpinion(SQLModel, table=True):
+    """Firm opinion generated from a CurrentEvent and grounded in citations."""
+
+    __tablename__ = "EventOpinion"
+    __table_args__ = (
+        Index("EventOpinion_organizationId_generatedAt_idx", "organizationId", "generatedAt"),
+        Index("EventOpinion_eventId_idx", "eventId"),
+    )
+
+    id: str = SQLField(default_factory=_new_cuid, primary_key=True)
+    organization_id: str = SQLField(sa_column=Column("organizationId", String, nullable=False))
+    event_id: str = SQLField(sa_column=Column("eventId", String, nullable=False))
+    stance: OpinionStance = SQLField(sa_column=Column("stance", String, nullable=False))
+    confidence: float = SQLField(sa_column=Column("confidence", SAFloat, nullable=False))
+    headline: str = SQLField(sa_column=Column("headline", String(140), nullable=False))
+    body_markdown: str = SQLField(sa_column=Column("bodyMarkdown", Text, nullable=False))
+    uncertainty_notes: list[str] = SQLField(
+        default_factory=list,
+        sa_column=Column("uncertaintyNotes", _StringListType(), nullable=False),
+    )
+    topic_hint: Optional[str] = SQLField(default=None, sa_column=Column("topicHint", String, nullable=True))
+    model_name: str = SQLField(sa_column=Column("modelName", String, nullable=False))
+    prompt_tokens: int = SQLField(default=0, sa_column=Column("promptTokens", SAInteger, nullable=False))
+    completion_tokens: int = SQLField(default=0, sa_column=Column("completionTokens", SAInteger, nullable=False))
+    abstention_reason: Optional[AbstentionReason] = SQLField(
+        default=None,
+        sa_column=Column("abstentionReason", String, nullable=True),
+    )
+    generated_at: datetime = SQLField(default_factory=_now, sa_column=Column("generatedAt", SADateTime, nullable=False))
+    revoked_at: Optional[datetime] = SQLField(default=None, sa_column=Column("revokedAt", SADateTime, nullable=True))
+    revoked_reason: Optional[str] = SQLField(default=None, sa_column=Column("revokedReason", String, nullable=True))
+
+
+class OpinionCitation(SQLModel, table=True):
+    """Verbatim source span grounding one EventOpinion."""
+
+    __tablename__ = "OpinionCitation"
+    __table_args__ = (
+        Index("OpinionCitation_opinionId_idx", "opinionId"),
+        Index("OpinionCitation_conclusionId_idx", "conclusionId"),
+        Index("OpinionCitation_claimId_idx", "claimId"),
+    )
+
+    id: str = SQLField(default_factory=_new_cuid, primary_key=True)
+    opinion_id: str = SQLField(sa_column=Column("opinionId", String, nullable=False))
+    source_kind: str = SQLField(sa_column=Column("sourceKind", String, nullable=False))
+    conclusion_id: Optional[str] = SQLField(default=None, sa_column=Column("conclusionId", String, nullable=True))
+    claim_id: Optional[str] = SQLField(default=None, sa_column=Column("claimId", String, nullable=True))
+    quoted_span: str = SQLField(sa_column=Column("quotedSpan", Text, nullable=False))
+    retrieval_score: float = SQLField(sa_column=Column("retrievalScore", SAFloat, nullable=False))
+    is_revoked: bool = SQLField(default=False, sa_column=Column("isRevoked", SABoolean, nullable=False))
+    revoked_reason: Optional[str] = SQLField(default=None, sa_column=Column("revokedReason", String, nullable=True))
+
+
+class FollowUpSession(SQLModel, table=True):
+    """Anonymous follow-up chat session keyed by a rotating fingerprint."""
+
+    __tablename__ = "FollowUpSession"
+    __table_args__ = (
+        Index("FollowUpSession_opinionId_lastActivityAt_idx", "opinionId", "lastActivityAt"),
+        Index("FollowUpSession_clientFingerprint_createdAt_idx", "clientFingerprint", "createdAt"),
+    )
+
+    id: str = SQLField(default_factory=_new_cuid, primary_key=True)
+    opinion_id: str = SQLField(sa_column=Column("opinionId", String, nullable=False))
+    client_fingerprint: str = SQLField(sa_column=Column("clientFingerprint", String, nullable=False))
+    created_at: datetime = SQLField(default_factory=_now, sa_column=Column("createdAt", SADateTime, nullable=False))
+    last_activity_at: datetime = SQLField(default_factory=_now, sa_column=Column("lastActivityAt", SADateTime, nullable=False))
+
+
+class FollowUpMessage(SQLModel, table=True):
+    """One message in an anonymous follow-up session."""
+
+    __tablename__ = "FollowUpMessage"
+    __table_args__ = (
+        Index("FollowUpMessage_sessionId_createdAt_idx", "sessionId", "createdAt"),
+    )
+
+    id: str = SQLField(default_factory=_new_cuid, primary_key=True)
+    session_id: str = SQLField(sa_column=Column("sessionId", String, nullable=False))
+    role: FollowUpRole = SQLField(sa_column=Column("role", String, nullable=False))
+    content: str = SQLField(sa_column=Column("content", Text, nullable=False))
+    citations: Optional[Any] = SQLField(default=None, sa_column=Column("citations", JSON, nullable=True))
+    created_at: datetime = SQLField(default_factory=_now, sa_column=Column("createdAt", SADateTime, nullable=False))
 
 
 # === Round 3 additions ===

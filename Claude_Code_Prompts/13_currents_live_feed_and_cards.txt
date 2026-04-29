@@ -1,0 +1,114 @@
+# Claude Code Prompt 13 of 22 — Live feed: streaming opinion cards with stance, confidence, citations
+
+**Sequence:** prompt 13 of 22 (Wave 5). Depends on 12. Report back with: card layout screenshot, the animation triggered when a new opinion arrives, behavior when API is unreachable.
+
+**Why this prompt exists.** This is the page founders' visitors actually see at `/currents`. Server-rendered seed (first 20 opinions), client-side hydration via `useLiveOpinions`, opinion cards with the firm's source-grounded stance + confidence + citations.
+
+**Before you start — read current state:**
+1. Read `theseus-codex/src/app/currents/layout.tsx` (prompt 12).
+2. Read `theseus-codex/src/lib/currentsApi.ts` (prompt 11) — `listCurrents` is the seed loader.
+3. Read any existing static-conclusion render in theseus-codex (e.g. `ConclusionView.tsx`) — the markdown sanitization approach should mirror it.
+
+## Your task
+
+Build `/currents/page.tsx` (server component, seeded), `FeedClient.tsx` (client; consumes `useLiveOpinions`), `OpinionCard.tsx` (the visual element), `LiveBanner.tsx` (the "live" / "reconnecting…" indicator), and small helpers `safeMarkdown.ts` + `relativeTime.ts`.
+
+### `OpinionCard` shape
+
+- Border-left in the stance color (`--currents-stance-{agrees|disagrees|complicates|abstained}`).
+- Top metadata row: stance pill, confidence band ("low/mid/high"), topic hint, age (relative time).
+- Headline (EB Garamond, serif, 1.15rem), links to `/currents/{id}`.
+- Body markdown rendered safely (paragraphs, italic, bold, inline code, links — nothing else; no raw HTML).
+- Uncertainty notes in italic amber if any.
+- Source strip at bottom: up to 3 citation chips ("⸺ conclusion" / "⸺ claim"), each linking to `/currents/{id}#src-{source_id}`. "+N more" if exceeded.
+- "Ask a follow-up →" link in gold to `/currents/{id}#ask`.
+- Author handle + external source link in muted text.
+
+### `safeMarkdown.ts`
+
+Pure function: `renderSafeMarkdown(md: string): React.ReactNode`. Hand-rolled is fine — body is ≤ 800 chars by contract. Aggressively escape `<`, `>`, `&`. Links get `rel="noopener nofollow ugc" target="_blank"`. Reject any `<script>` content.
+
+### `relativeTime.ts`
+
+`relativeTime(iso, now=Date.now()): string` — "5s ago", "2m ago", "3h ago", "8d ago".
+
+### `LiveBanner.tsx`
+
+```tsx
+<div className="…">
+  <span className={connected ? "currents-pulse" : ""}
+        style={{ background: connected ? undefined : "var(--currents-muted)" }} />
+  <span>{connected ? "live" : "reconnecting…"}</span>
+  {lastOpinionAt && <span>· last update {relativeTime(lastOpinionAt)}</span>}
+</div>
+```
+
+### `FeedClient.tsx`
+
+Reads the seed prop, hydrates via `useLiveOpinions`, renders `<LiveBanner>` then a list of `<OpinionCard>`. New opinions get `currents-fade-in` animation (the keyframe from prompt 12).
+
+Empty state: parchment-bordered card explaining "No opinions yet. The firm abstains when its knowledge base does not support a position."
+
+### `/currents/page.tsx` (server)
+
+```tsx
+export const dynamic = "force-dynamic";
+
+export default async function CurrentsPage() {
+  let seed: PublicOpinion[] = [];
+  try {
+    const resp = await listCurrents({ limit: 20 });
+    seed = resp.items;
+  } catch (err) {
+    console.error("currents_seed_fetch_failed", err);
+    // FeedClient handles empty seed; no need to throw
+  }
+  return <FeedClient seed={seed} />;
+}
+```
+
+## Tests
+
+`OpinionCard.test.tsx`:
+- Renders stance pill, headline, sanitized body.
+- Citation chip count: shows "+N" when >3.
+- Markdown containing `<script>` is escaped.
+- "Ask a follow-up" link goes to `/currents/<id>#ask`.
+
+`relativeTime.test.ts`: 5s/59s/60s/90m/25h/8d return expected strings.
+
+## Prerequisites
+
+- Prompt 12 applied.
+
+## SCOPE
+
+- `theseus-codex/src/app/currents/page.tsx`                                CREATE (server)
+- `theseus-codex/src/app/currents/FeedClient.tsx`                          CREATE
+- `theseus-codex/src/app/currents/OpinionCard.tsx`                         CREATE
+- `theseus-codex/src/app/currents/LiveBanner.tsx`                          CREATE
+- `theseus-codex/src/lib/safeMarkdown.ts`                                  CREATE
+- `theseus-codex/src/lib/relativeTime.ts`                                  CREATE
+- `theseus-codex/src/__tests__/OpinionCard.test.tsx`                       CREATE
+- `theseus-codex/src/__tests__/relativeTime.test.ts`                       CREATE
+
+## Verification
+
+```bash
+cd /Users/michaelquintin/Desktop/Theseus/theseus-codex
+npm test -- --testPathPattern='OpinionCard|relativeTime'
+npm run build
+
+# Smoke (requires FastAPI on :8088):
+npm run dev
+# Visit http://localhost:3000/currents — should show seed (or empty state if API down)
+```
+
+## Prohibitions
+
+- Do NOT use `dangerouslySetInnerHTML` without going through `safeMarkdown`. The LLM is not a trusted author.
+- Do NOT poll. SSE only.
+- Do NOT show full citation text on the card. The drawer (prompt 15) handles full text.
+- Do NOT crash the homepage when the API is down. Empty seed must be handled.
+
+Do not proceed to prompts 14+. Do not edit anything outside SCOPE.

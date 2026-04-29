@@ -1,0 +1,190 @@
+# Claude Code Prompt 12 of 22 — /currents layout: parchment-and-gold design tokens, useLiveOpinions hook, shared shell
+
+**Sequence:** prompt 12 of 22 (Wave 5 opener — the public UI). Depends on 11. Report back with: the resolved color tokens, the SSE reconnect backoff timing, and screenshots of the empty layout.
+
+**Why this prompt exists.** The public-reading aesthetic of theseus-codex (the merged site) is parchment + ink + restrained gold accents. Currents inherits that, with a subtle "live" gold treatment to distinguish dynamic opinion content from static published research. This prompt sets up the design tokens and the SSE-consuming hook that every Currents page will use.
+
+**Before you start — read current state:**
+1. Read `theseus-codex/src/app/globals.css` post-merger — note existing tokens (`--border`, `--muted`, etc.).
+2. Read any prior `useLiveOpinions` hook left behind in the repo (highly unlikely after the deletions, but check). If found, port it; otherwise build fresh.
+3. Read `theseus-codex/src/lib/currentsTypes.ts` from prompt 11 for the `PublicOpinion` shape.
+
+## Your task
+
+### 1. Append currents tokens to `globals.css`
+
+```css
+:root {
+  /* Existing theseus-codex tokens above ↑ */
+
+  /* Currents — parchment + warm gold, distinct from the rest of the codex
+     enough to read as "live" but not loud. */
+  --currents-bg:               #141210;
+  --currents-bg-elevated:      #1c1916;
+  --currents-border:           #2a2520;
+  --currents-parchment:        #e8e1d3;
+  --currents-parchment-dim:    #b0a896;
+  --currents-muted:            #847c6c;
+  --currents-gold:             #d4a017;
+  --currents-amber:            #c9944a;
+  --currents-stance-agrees:    #8db567;
+  --currents-stance-disagrees: #b95c5c;
+  --currents-stance-complicates: #c9944a;
+  --currents-stance-abstained: #847c6c;
+}
+
+@keyframes currents-pulse {
+  0%, 100% { opacity: 1.0; transform: scale(1.0); }
+  50%      { opacity: 0.55; transform: scale(0.85); }
+}
+
+@keyframes currents-fade-in {
+  from { opacity: 0; transform: translateY(-4px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+.currents-fade-in { animation: currents-fade-in 0.4s ease-out; }
+.currents-pulse {
+  display: inline-block; width: 6px; height: 6px; border-radius: 50%;
+  background: var(--currents-gold);
+  box-shadow: 0 0 8px rgba(212, 160, 23, 0.55);
+  animation: currents-pulse 1.8s ease-in-out infinite;
+}
+```
+
+### 2. `useLiveOpinions` hook
+
+```typescript
+// theseus-codex/src/lib/useLiveOpinions.ts
+"use client";
+
+import { useEffect, useReducer, useRef } from "react";
+import type { PublicOpinion } from "./currentsTypes";
+
+interface State {
+  opinions: PublicOpinion[];
+  connected: boolean;
+}
+
+export function useLiveOpinions(seed: PublicOpinion[]) {
+  const [state, dispatch] = useReducer(reducer, { opinions: seed, connected: false });
+  const reconnectMs = useRef(1000);
+  useEffect(() => {
+    let cancelled = false; let es: EventSource | null = null;
+    const connect = () => {
+      es = new EventSource("/api/currents/stream");
+      es.onopen = () => { dispatch({ type: "connected" }); reconnectMs.current = 1000; };
+      es.onmessage = (e) => {
+        try { dispatch({ type: "opinion", payload: JSON.parse(e.data) }); } catch {}
+      };
+      es.onerror = () => {
+        es?.close();
+        dispatch({ type: "disconnected" });
+        if (cancelled) return;
+        const wait = Math.min(reconnectMs.current, 30_000);
+        reconnectMs.current = Math.min(reconnectMs.current * 2, 30_000);
+        setTimeout(connect, wait);
+      };
+    };
+    connect();
+    return () => { cancelled = true; es?.close(); };
+  }, []);
+  return state;
+}
+
+// Reducer: prepends new opinions, dedupes by id, caps at 200 in-memory
+```
+
+### 3. `/currents/layout.tsx`
+
+```tsx
+import { ReactNode } from "react";
+import "./currents.css";  // or just use globals.css tokens above
+
+export const metadata = { title: "Current events — Theseus" };
+
+export default function CurrentsLayout({ children }: { children: ReactNode }) {
+  return (
+    <div style={{ background: "var(--currents-bg)", minHeight: "100vh",
+                  color: "var(--currents-parchment)", paddingBottom: "4rem" }}>
+      <header style={{ padding: "2rem 0 1rem", borderBottom: "1px solid var(--currents-border)" }}>
+        <div className="container">
+          <div style={{ fontSize: "0.75rem", letterSpacing: "0.16em",
+                        textTransform: "uppercase", color: "var(--currents-amber)" }}>
+            Theseus · live
+          </div>
+          <h1 style={{ fontFamily: "'EB Garamond', serif", fontSize: "1.85rem",
+                       margin: "0.4rem 0 0.2rem" }}>
+            Current events, source-grounded.
+          </h1>
+          <p style={{ color: "var(--currents-parchment-dim)", maxWidth: "60ch",
+                      margin: 0, fontSize: "0.95rem" }}>
+            The firm reads the news and opines from its published Noosphere.
+            Every claim links back to a verbatim source. When the sources don't
+            support a position, the firm abstains.
+          </p>
+        </div>
+      </header>
+      <div className="container" style={{ paddingTop: "1.6rem" }}>{children}</div>
+    </div>
+  );
+}
+```
+
+### 4. `<CurrentsNavPulse />`
+
+The component the merged root layout uses to put a "Current events" link with a pulsing gold dot in the nav. Must remain visible regardless of backend status (no backend dependence — pure CSS animation). Mark this file as load-bearing so it doesn't get silently deleted again (sync-to-github.sh's guardrail will be updated in prompt 21).
+
+```tsx
+"use client";
+import Link from "next/link";
+import { usePathname } from "next/navigation";
+
+export function CurrentsNavPulse() {
+  const pathname = usePathname();
+  const active = pathname?.startsWith("/currents");
+  return (
+    <Link href="/currents" aria-label="Current events — live"
+          style={{ display: "inline-flex", alignItems: "center", gap: "0.35rem",
+                   color: active ? "var(--currents-gold)" : undefined,
+                   fontWeight: active ? 600 : undefined }}>
+      Current events
+      <span aria-hidden className="currents-pulse" />
+    </Link>
+  );
+}
+```
+
+## Tests
+
+`theseus-codex/src/__tests__/useLiveOpinions.test.tsx` — fake EventSource, prepends opinions, dedupes by id, reconnect backoff doubles.
+`theseus-codex/src/__tests__/CurrentsNavPulse.test.tsx` — renders link, sets active color when pathname starts /currents.
+
+## Prerequisites
+
+- Prompt 11 applied.
+
+## SCOPE
+
+- `theseus-codex/src/app/globals.css`                                      MODIFY (append currents tokens + keyframes)
+- `theseus-codex/src/lib/useLiveOpinions.ts`                               CREATE
+- `theseus-codex/src/app/currents/layout.tsx`                              CREATE
+- `theseus-codex/src/components/CurrentsNavPulse.tsx`                      CREATE
+- `theseus-codex/src/__tests__/useLiveOpinions.test.tsx`                   CREATE
+- `theseus-codex/src/__tests__/CurrentsNavPulse.test.tsx`                  CREATE
+
+## Verification
+
+```bash
+cd /Users/michaelquintin/Desktop/Theseus/theseus-codex
+npm test
+npm run build
+```
+
+## Prohibitions
+
+- Do NOT add a "Loading…" spinner that hides the seed data. The page renders the seed instantly.
+- Do NOT poll. SSE only.
+- Do NOT use a pre-built component library for the layout. Tokens + inline styles match the rest of theseus-codex's aesthetic.
+
+Do not proceed to prompts 13+. Do not edit anything outside SCOPE.

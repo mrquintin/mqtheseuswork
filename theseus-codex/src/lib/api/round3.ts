@@ -213,9 +213,13 @@ export async function submitToRigorGate(
   };
 }
 
+type RouteContext = {
+  params: Promise<Record<string, string | string[] | undefined>>;
+};
+
 type RouteHandler = (
   req: Request,
-  ctx?: { params: Promise<Record<string, string>> },
+  ctx: RouteContext,
 ) => Promise<NextResponse>;
 
 export function withGated(kind: string, handler: RouteHandler): RouteHandler {

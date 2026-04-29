@@ -17,6 +17,40 @@ datasource db {
   provider = "postgresql"
 }
 
+enum CurrentEventStatus {
+  OBSERVED
+  ENRICHED
+  OPINED
+  ABSTAINED
+  REVOKED
+}
+
+enum CurrentEventSource {
+  X_TWITTER
+  RSS
+  MANUAL
+}
+
+enum OpinionStance {
+  AGREES
+  DISAGREES
+  COMPLICATES
+  ABSTAINED
+}
+
+enum AbstentionReason {
+  INSUFFICIENT_SOURCES
+  NEAR_DUPLICATE
+  BUDGET
+  CITATION_FABRICATION
+  REVOKED_SOURCES
+}
+
+enum FollowUpRole {
+  USER
+  ASSISTANT
+}
+
 // ── Multi-tenant root (cloud: Postgres + RLS; local dev: SQLite) ─────────────
 
 model Organization {
@@ -43,6 +77,8 @@ model Organization {
   publishedConclusions PublishedConclusion[]
   publicResponses      PublicResponse[]
   apiKeys              ApiKey[]
+  currentEvents        CurrentEvent[]
+  eventOpinions        EventOpinion[]
 }
 
 // ── Founders (portal users) — maps to FounderProfile in noosphere/models.py ─
@@ -433,6 +469,105 @@ model PublishedConclusion {
   @@unique([slug, version])
   @@index([organizationId])
   @@index([slug])
+}
+
+// ── Currents — observed external events + source-grounded opinions ──────────
+
+model CurrentEvent {
+  id              String             @id @default(cuid())
+  organizationId  String
+  source          CurrentEventSource
+  externalId      String
+  authorHandle    String?
+  text            String             @db.Text
+  url             String?
+  capturedAt      DateTime           @default(now())
+  observedAt      DateTime
+  topicHint       String?
+  isNearDuplicate Boolean            @default(false)
+  embedding       Bytes?
+  status          CurrentEventStatus @default(OBSERVED)
+  dedupeHash      String             @unique
+  createdAt       DateTime           @default(now())
+  updatedAt       DateTime           @updatedAt
+
+  organization Organization   @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  opinions     EventOpinion[]
+
+  @@index([organizationId, observedAt])
+  @@index([organizationId, status])
+}
+
+model EventOpinion {
+  id               String           @id @default(cuid())
+  organizationId   String
+  eventId          String
+  stance           OpinionStance
+  confidence       Float
+  headline         String           @db.VarChar(140)
+  bodyMarkdown     String           @db.Text
+  uncertaintyNotes String[]
+  topicHint        String?
+  modelName        String
+  promptTokens     Int              @default(0)
+  completionTokens Int              @default(0)
+  abstentionReason AbstentionReason?
+  generatedAt      DateTime         @default(now())
+  revokedAt        DateTime?
+  revokedReason    String?
+
+  organization     Organization      @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  event            CurrentEvent      @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  citations        OpinionCitation[]
+  followUpSessions FollowUpSession[]
+
+  @@index([organizationId, generatedAt])
+  @@index([eventId])
+}
+
+model OpinionCitation {
+  id             String       @id @default(cuid())
+  opinionId      String
+  sourceKind     String
+  conclusionId   String?
+  claimId        String?
+  quotedSpan     String       @db.Text
+  retrievalScore Float
+  isRevoked      Boolean      @default(false)
+  revokedReason  String?
+
+  opinion EventOpinion @relation(fields: [opinionId], references: [id], onDelete: Cascade)
+
+  @@index([opinionId])
+  @@index([conclusionId])
+  @@index([claimId])
+}
+
+model FollowUpSession {
+  id                String            @id @default(cuid())
+  opinionId         String
+  clientFingerprint String
+  createdAt         DateTime          @default(now())
+  lastActivityAt    DateTime          @default(now())
+
+  opinion  EventOpinion      @relation(fields: [opinionId], references: [id], onDelete: Cascade)
+  messages FollowUpMessage[]
+
+  @@index([opinionId, lastActivityAt])
+  @@index([clientFingerprint, createdAt])
+}
+
+model FollowUpMessage {
+  id        String       @id @default(cuid())
+  sessionId String
+  role      FollowUpRole
+  content   String       @db.Text
+  citations Json?
+  createdAt DateTime     @default(now())
+
+  session FollowUpSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  @@index([sessionId, createdAt])
 }
 
 /// Structured reader responses — moderation queue (SP10).
