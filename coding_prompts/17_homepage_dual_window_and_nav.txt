@@ -1,0 +1,95 @@
+# Codex Prompt 17 of 18 — Homepage dual-window (Currents | Forecasts) + nav + share metadata
+
+**Sequence:** prompt 17 of 18 (Round 10, Wave H — integration). Depends on 12, 13, 14, 16. Report back with: the responsive breakpoint matrix (when does the dual window stack?), the nav items added, and the OG metadata for `/forecasts` and `/forecasts/[id]`.
+
+**Why this prompt exists.** The user's voice memo described the surface explicitly: "if there's, like, a button, or, like, there's, like, an interface where you can see, like, its commentary, like, you can scroll through, like, a little window, right next to that window, is a, uh, is a predictions side." This prompt builds that homepage: a parallel two-window layout with the Currents commentary feed on one side and the Forecasts predictions feed on the other, plus the nav, the homepage teaser, and the share-metadata wiring.
+
+**Before you start — read current state:**
+1. Read `theseus-codex/src/app/page.tsx` — the existing homepage. The `<CurrentsTeaser>` from Round 9 prompt 17 is already there; this prompt replaces it with the two-window block.
+2. Read `theseus-codex/src/app/layout.tsx` — top nav. You add a `Forecasts` nav item.
+3. Read Round 9 prompt 18 — the OG-metadata + permalink-copy patterns. Forecasts share metadata mirrors them.
+
+## Your task
+
+### 1. Homepage `<DualPulseSection>` component
+
+`theseus-codex/src/app/(home)/DualPulseSection.tsx` (or wherever the homepage components live):
+
+```
++------------------------------------------------------+------------------------------------------------------+
+|  ⏵ CURRENTS — live opinion                           |  ◇ FORECASTS — live predictions                       |
+|  ----------------------------------------------------|  ----------------------------------------------------|
+|  <OpinionCard>                                        |  <ForecastCard>                                       |
+|  <OpinionCard>                                        |  <ForecastCard>                                       |
+|  <OpinionCard>                                        |  <ForecastCard>                                       |
+|  <OpinionCard>                                        |  <ForecastCard>                                       |
+|                                                       |                                                        |
+|  view all currents →                                  |  view all forecasts →                                  |
++------------------------------------------------------+------------------------------------------------------+
+```
+
+- Server-renders the most recent 4 of each from `/api/currents?limit=4&seeded=true` and `/api/forecasts?limit=4&seeded=true`.
+- Hydrates with `useLiveOpinions` and `useLiveForecasts` so new items stream in to either side independently.
+- Each side has its own LivePulse indicator.
+- Section header tagline (verbatim or close): "Theseus thinks out loud — what's happening, and what's about to."
+
+#### Responsive behavior
+
+- ≥1024px: two columns side-by-side, equal width, with a subtle vertical rule between.
+- 720–1023px: two columns, narrower padding, the rule kept.
+- <720px: stacked vertically; CURRENTS first (it has the bigger volume of activity and reads first to a returning user); a tab toggle at the top of the stacked layout lets the user pick which to show full-height.
+
+#### Empty / disconnected states
+
+- If one side has no data: render a parchment block with the empty message and keep the other side live.
+- If both sides have no data: render a single full-width block with "Theseus is starting up — first opinion expected within the hour."
+
+### 2. Nav
+
+`theseus-codex/src/app/layout.tsx`: add `Forecasts` after `Currents`. Order, left-to-right: `Methodology · Currents · Forecasts · Responses · About`. Mobile menu mirrors the order. The Forecasts nav item gets a small `LivePulse` dot when SSE is connected (matches Currents' treatment from Round 9).
+
+### 3. Share metadata + permalinks
+
+`theseus-codex/src/app/forecasts/page.tsx` and `forecasts/[id]/page.tsx` and `forecasts/portfolio/page.tsx` each export `generateMetadata`:
+
+- `/forecasts`: title `Theseus — Forecasts`, og:image generated from a static parchment background with current `meanBrier` overlaid (or just the title if not yet computed).
+- `/forecasts/[id]`: title is the prediction headline; og:image is a generated card showing probability + market price + edge (use the same OG-image generator the codex already uses for `/c/[slug]`).
+- `/forecasts/portfolio`: title `Theseus — Forecasts portfolio`.
+
+No UTM tracking on share URLs — explicit policy from Round 9 prompt 18 applies here too.
+
+The `<CopyPermalink>` button from Round 9 prompt 18 is dropped onto every detail page identically.
+
+### 4. Transparency footer
+
+`theseus-codex/src/app/(home)/TransparencyFooter.tsx` (or extend the existing one): add a line "Predictions are model-generated, source-grounded, and not financial advice. Live trading: <DISABLED|ENABLED>" — the status pulled from the public `/v1/portfolio` summary so the reader can verify the platform's trading posture without leaving the page.
+
+### 5. Tests
+
+`theseus-codex/tests/pages/homepage.test.tsx`:
+- Renders both sides at ≥1024px viewport.
+- Stacks vertically at <720px viewport (tab toggle visible).
+- Forecasts side shows empty-state when the seeded fetch returns [].
+
+`theseus-codex/tests/components/dual-pulse.test.tsx`:
+- The two SSE hooks operate independently — a Forecasts frame does not appear in the Currents column even if the test injects a malformed cross-channel frame.
+
+## Definition of done
+
+- `cd theseus-codex && npm run build` passes.
+- Homepage renders the two-window block in dev with seeded data.
+- Lighthouse / build-output shows no regression in homepage CLS or LCP from the existing single-window version (acceptable bound: +50ms LCP, +0.02 CLS).
+- The transparency footer reflects the live trading status correctly under both flag states.
+- The OG image for a sample prediction renders without runtime errors.
+
+## SCOPE
+
+- `theseus-codex/src/app/page.tsx`                                       MODIFY
+- `theseus-codex/src/app/layout.tsx`                                     MODIFY
+- `theseus-codex/src/app/(home)/DualPulseSection.tsx`                    CREATE
+- `theseus-codex/src/app/(home)/TransparencyFooter.tsx`                  MODIFY
+- `theseus-codex/src/app/forecasts/page.tsx`                             MODIFY
+- `theseus-codex/src/app/forecasts/[id]/page.tsx`                        MODIFY
+- `theseus-codex/src/app/forecasts/portfolio/page.tsx`                   MODIFY
+- `theseus-codex/tests/pages/homepage.test.tsx`                          MODIFY
+- `theseus-codex/tests/components/dual-pulse.test.tsx`                   CREATE

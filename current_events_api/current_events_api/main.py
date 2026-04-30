@@ -26,7 +26,15 @@ from current_events_api.metrics import Metrics
 from current_events_api.publisher import OpinionTailer
 from current_events_api.rate_limit import RateLimitRegistry
 from current_events_api.routes.currents import router as currents_router
+from current_events_api.routes.forecasts import (
+    forecasts_readyz_contract,
+    router as forecasts_router,
+)
+from current_events_api.routes.forecasts_followup import router as forecasts_followup_router
+from current_events_api.routes.forecasts_stream import router as forecasts_stream_router
 from current_events_api.routes.followup import router as followup_router
+from current_events_api.routes.operator import router as operator_router
+from current_events_api.routes.portfolio import router as portfolio_router
 from current_events_api.routes.stream import router as stream_router
 from noosphere.currents.budget import PersistentHourlyBudgetGuard
 from noosphere.currents.status import status_path_from_env
@@ -46,6 +54,31 @@ def scheduler_status_path() -> Path:
 
 def scheduler_status_max_age_seconds() -> int:
     raw = os.environ.get("CURRENTS_STATUS_MAX_AGE_SECONDS", "600")
+    try:
+        return max(1, int(raw))
+    except ValueError:
+        return 600
+
+
+def forecasts_resolution_status_path() -> Path:
+    explicit = (
+        os.environ.get("FORECASTS_RESOLUTION_STATUS_PATH", "").strip()
+        or os.environ.get("FORECASTS_STATUS_PATH", "").strip()
+    )
+    if explicit:
+        return Path(explicit)
+    data_dir = os.environ.get("NOOSPHERE_DATA_DIR", "").strip()
+    if data_dir:
+        return Path(data_dir) / "forecasts_status.json"
+    return Path("/var/lib/theseus/forecasts_status.json")
+
+
+def forecasts_resolution_status_max_age_seconds() -> int:
+    raw = (
+        os.environ.get("FORECASTS_RESOLUTION_STATUS_MAX_AGE_SECONDS")
+        or os.environ.get("FORECASTS_STATUS_MAX_AGE_SECONDS")
+        or "600"
+    )
     try:
         return max(1, int(raw))
     except ValueError:
@@ -83,12 +116,23 @@ if _cors_origins:
         CORSMiddleware,
         allow_origins=_cors_origins,
         allow_methods=["GET", "POST", "OPTIONS"],
-        allow_headers=["content-type", "x-client-id", "x-client-fingerprint"],
+        allow_headers=[
+            "content-type",
+            "x-client-id",
+            "x-client-fingerprint",
+            "x-forecasts-operator",
+            "x-forecasts-timestamp",
+        ],
         allow_credentials=False,
         max_age=600,
     )
 
-# Static stream path must be registered before /v1/currents/{opinion_id}.
+# Static stream paths must be registered before dynamic detail routes.
+app.include_router(forecasts_stream_router)
+app.include_router(forecasts_followup_router)
+app.include_router(portfolio_router)
+app.include_router(operator_router)
+app.include_router(forecasts_router)
 app.include_router(stream_router)
 app.include_router(followup_router)
 app.include_router(currents_router)
@@ -136,7 +180,24 @@ def readyz(request: Request) -> dict[str, Any]:
                 "max_age_seconds": max_age,
             },
         )
-    return {"ok": True, "db": True, "scheduler": "fresh"}
+
+    try:
+        forecasts_readyz = forecasts_readyz_contract()
+    except HTTPException as exc:
+        detail = exc.detail if isinstance(exc.detail, dict) else {"error": exc.detail}
+        detail = {
+            "ok": False,
+            "db": db_ok,
+            "scheduler": "fresh",
+            "forecasts": detail,
+        }
+        raise HTTPException(exc.status_code, detail) from exc
+    return {
+        "ok": True,
+        "db": True,
+        "scheduler": "fresh",
+        "forecasts": forecasts_readyz,
+    }
 
 
 @app.get("/metrics", dependencies=[Depends(require_metrics_access)])
@@ -145,6 +206,8 @@ def metrics(
     metrics_obj: Metrics = Depends(get_metrics),
 ) -> PlainTextResponse:
     metrics_obj.set_gauge("currents_feed_clients", bus.feed_client_count())
+    metrics_obj.set_gauge("forecasts_feed_clients", bus.forecasts_client_count())
+    metrics_obj.set_gauge("forecasts_operator_clients", bus.operator_client_count())
     metrics_obj.set_gauge("currents_followup_clients", bus.followup_client_count())
     return PlainTextResponse(
         metrics_obj.render(),

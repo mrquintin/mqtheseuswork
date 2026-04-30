@@ -1,0 +1,91 @@
+# Codex Prompt 7 of 18 — Resolution poller + calibration scoring
+
+**Sequence:** prompt 7 of 18 (Round 10, Wave B). Depends on 02, 03, 04, 06. Report back with: the Brier-score formula used, the calibration-bucket scheme, and what happens when an external market is cancelled rather than resolved.
+
+**Why this prompt exists.** A prediction without resolution is unfalsifiable — it cannot improve the calibration of future predictions, it cannot be displayed on the public scoreboard, and it cannot inform the betting engine. This prompt closes the loop: when an external market resolves on Polymarket or Kalshi, we ingest the outcome, compute calibration metrics for every PUBLISHED prediction tied to that market, and update the rolling calibration table on `ForecastPortfolioState`.
+
+**Before you start — read current state:**
+1. Read `noosphere/noosphere/resolution.py` (the *internal* prediction resolver). The interfaces differ — internal resolutions are founder-confirmed manual; external resolutions are auto-pulled from market metadata — but the structured-log format and the immutability rule (resolutions are append-only; never edit a resolved row in place) carry over.
+2. Read `noosphere/noosphere/forecasts/polymarket_ingestor.py` and `kalshi_ingestor.py` from prompts 03 and 04 — your poller calls into the same clients to fetch market state.
+3. Read `noosphere/noosphere/store.py` for the `put_forecast_resolution` and `get_unresolved_predictions_for_market` helpers added in prompt 02.
+
+## Your task
+
+### `noosphere/noosphere/forecasts/resolution_tracker.py`
+
+```python
+@dataclass
+class ResolutionResult:
+    market_id: str
+    outcome: Literal["YES", "NO", "CANCELLED", "STILL_OPEN"]
+    resolved_predictions: int
+    skipped_predictions: int
+    errors: list[str]
+
+async def poll_market(
+    store, market_id: str, *, polymarket_client=None, kalshi_client=None,
+) -> ResolutionResult:
+    """
+    Fetch external market state. If resolved, write ForecastResolution rows
+    for every PUBLISHED ForecastPrediction tied to this market.
+
+    Idempotent: re-polling a resolved market is a no-op.
+
+    Cancelled markets: write ForecastResolution with outcome=CANCELLED and
+    brierScore=null, logLoss=null, calibrationBucket=null. Predictions tied
+    to a cancelled market are *excluded* from aggregate calibration metrics.
+    """
+
+async def poll_all_open(store, *, polymarket_client=None, kalshi_client=None) -> list[ResolutionResult]:
+    """Iterate all OPEN ForecastMarket rows and poll each. Concurrency 4."""
+```
+
+### Scoring math
+
+For every resolved (non-cancelled) prediction:
+
+- **Brier score:** `(probability_yes - actual)^2` where `actual` is `1.0` for YES outcome and `0.0` for NO. Lower is better. Range 0–1.
+- **Log loss:** `-actual * ln(p) - (1-actual) * ln(1-p)` with `p = clamp(probability_yes, 1e-6, 1 - 1e-6)`.
+- **Calibration bucket:** floor(probability_yes * 10) / 10. So 0.73 → 0.7. Each ForecastResolution stores the bucket; aggregate calibration is computed by selecting all resolutions, grouping by bucket, and computing the empirical YES-rate per bucket. The aggregate is computed on read (in the API), not stored.
+
+### Aggregate update on `ForecastPortfolioState`
+
+After each resolution write:
+- bump `totalResolved`
+- recompute and persist `meanBrier` and `meanLogLoss` over the last 90 days
+- never delete; this is append-only history
+
+### Hooking the poller into ingestors
+
+Modify `polymarket_ingestor.py` and `kalshi_ingestor.py` to call `resolution_tracker.poll_market(...)` for each updated market whose `closeTime` has passed. Do NOT block the ingest loop — fire-and-forget via `asyncio.create_task` collected at the end of the cycle.
+
+### CLI
+
+`noosphere forecasts resolve --market <id>` and `noosphere forecasts resolve --all` (driver around `poll_all_open`).
+
+### Tests
+
+`noosphere/tests/test_resolution_tracker.py`:
+- `test_resolves_yes_outcome` — market resolved YES; prediction at p=0.7 → Brier=0.09, logLoss=-ln(0.7).
+- `test_resolves_no_outcome` — symmetric.
+- `test_handles_cancelled_market` — outcome=CANCELLED → resolution row exists but Brier/logLoss are null; portfolio aggregates unchanged.
+- `test_idempotent_repolling` — calling `poll_market` twice on a resolved market produces one resolution row, not two.
+- `test_still_open_no_op` — open market → no resolution rows.
+- `test_aggregate_metrics` — seed 5 resolutions; assert `meanBrier`/`meanLogLoss` on `ForecastPortfolioState` matches the formula.
+- `test_calibration_bucket_assignment` — predictions at 0.05, 0.45, 0.95 produce buckets 0.0, 0.4, 0.9.
+
+## Definition of done
+
+- `pytest noosphere/tests/test_resolution_tracker.py` passes.
+- Resolution rows are append-only — verify by attempting `put_forecast_resolution` twice on the same predictionId in a test; the second call must be a no-op (or raise; pick one and document it).
+- The poller is wired into both ingestors; integration test (`tests/test_forecasts_e2e_resolution.py`) shows that a Polymarket market state-change from OPEN → RESOLVED produces a ForecastResolution row in the same scheduler tick.
+- The cancelled-market path does NOT write Brier/logLoss; verified by a test that asserts those columns are NULL.
+
+## SCOPE
+
+- `noosphere/noosphere/forecasts/resolution_tracker.py`                  CREATE
+- `noosphere/noosphere/forecasts/polymarket_ingestor.py`                 MODIFY
+- `noosphere/noosphere/forecasts/kalshi_ingestor.py`                     MODIFY
+- `noosphere/noosphere/cli.py`                                           MODIFY
+- `noosphere/tests/test_resolution_tracker.py`                           CREATE
+- `noosphere/tests/test_forecasts_e2e_resolution.py`                     CREATE

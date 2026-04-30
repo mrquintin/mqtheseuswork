@@ -1,0 +1,111 @@
+# Codex Prompt 11 of 18 — theseus-codex /api/forecasts/* same-origin proxy + SSE pass-through
+
+**Sequence:** prompt 11 of 18 (Round 10, Wave D). Depends on 10. Report back with: the proxy timeout policy, the SSE chunk-by-chunk forwarding strategy, and the operator-route boundary (which paths the public proxy refuses).
+
+**Why this prompt exists.** Browsers consume the prediction surface from the same origin as the rest of theseus-codex (`theseuscodex.com`). The Next.js app proxies every `/api/forecasts/*` call through to FastAPI. SSE streams must be forwarded chunk-by-chunk without buffering. We mirror the `/api/currents/*` proxy added in Round 9 prompt 11.
+
+**Before you start — read current state:**
+1. Read every file under `theseus-codex/src/app/api/currents/` — your forecasts proxies copy that pattern verbatim where possible.
+2. Read `theseus-codex/src/lib/currentsApi.ts` (server helper) — your `forecastsApi.ts` mirrors it.
+3. Read `current_events_api/current_events_api/routes/operator.py` from prompt 10 — the operator surface lives at `/v1/operator/*` upstream; the public proxy MUST refuse to forward those paths.
+
+## Your task
+
+### 1. Public route handlers under `theseus-codex/src/app/api/forecasts/`
+
+```
+api/forecasts/
+├── route.ts                                        # GET → /v1/forecasts (list)
+├── stream/route.ts                                 # GET → /v1/forecasts/stream (SSE)
+├── [id]/route.ts                                   # GET → /v1/forecasts/{id}
+├── [id]/sources/route.ts                           # GET → /v1/forecasts/{id}/sources
+├── [id]/resolution/route.ts                        # GET → /v1/forecasts/{id}/resolution
+├── [id]/bets/route.ts                              # GET → /v1/forecasts/{id}/bets (paper-only upstream)
+├── [id]/follow-up/route.ts                         # POST → /v1/forecasts/{id}/follow-up (SSE)
+└── markets/
+    ├── route.ts                                    # GET → /v1/markets
+    └── [id]/route.ts                               # GET → /v1/markets/{id}
+```
+
+Plus `theseus-codex/src/app/api/portfolio/`:
+
+```
+api/portfolio/
+├── route.ts                                        # GET → /v1/portfolio
+├── calibration/route.ts                            # GET → /v1/portfolio/calibration
+└── bets/route.ts                                   # GET → /v1/portfolio/bets
+```
+
+### 2. Operator routes under `theseus-codex/src/app/(authed)/api/forecasts/operator/`
+
+These live BEHIND the existing founder-auth middleware (`(authed)` route group). The handler:
+- Validates the founder session (existing `getFounderFromSession()` helper).
+- Computes the upstream HMAC from `FORECASTS_OPERATOR_SECRET` (server-side env, never exposed) over `(timestamp, path, body_hash)`.
+- Forwards to FastAPI's `/v1/operator/*`.
+
+Routes:
+```
+(authed)/api/forecasts/operator/
+├── [id]/authorize-live/route.ts                    # POST
+├── [id]/bets/[betId]/confirm/route.ts              # POST
+├── kill-switch/engage/route.ts                     # POST
+├── kill-switch/disengage/route.ts                  # POST
+├── live-bets/route.ts                              # GET
+└── stream/route.ts                                 # GET (operator SSE)
+```
+
+### 3. Refusal layer
+
+In `forecastsApi.ts`, refuse to forward any path containing `/v1/operator/` from the public surface. Specifically: the public proxy targets `/v1/forecasts/*`, `/v1/markets/*`, `/v1/portfolio/*`. The operator proxy targets `/v1/operator/*`. There is no shared helper that would forward an operator path on a public handler's behalf.
+
+### 4. SSE pass-through
+
+Copy the chunk-forwarding logic from `theseus-codex/src/app/api/currents/stream/route.ts` (Round 9). Verify the response is sent with `Content-Type: text/event-stream`, `Cache-Control: no-cache, no-transform`, `Connection: keep-alive`, and that intermediate Next/Vercel layers do not buffer (test with a 30s heartbeat by running `curl -N` against `npm run dev`).
+
+### 5. Type-safe client helpers
+
+`theseus-codex/src/lib/forecastsTypes.ts` — TypeScript types matching the FastAPI schemas (PublicForecast, PublicForecastCitation, PublicMarket, PublicBet, PublicResolution, PortfolioSummary).
+
+`theseus-codex/src/lib/forecastsApi.ts` — server-side fetch helpers `listForecasts`, `getForecast`, `getMarket`, `getPortfolioSummary`, etc., used by RSC pages in prompts 13–14.
+
+`theseus-codex/src/lib/forecastsOperatorApi.ts` — operator-side helpers, only callable from `(authed)` routes.
+
+### 6. Tests
+
+`theseus-codex/tests/api/forecasts.test.ts` (Vitest or whatever the existing repo uses):
+- Each route returns the upstream JSON unchanged (mock the upstream with msw).
+- Public proxy refuses `/v1/operator/*` paths with 404.
+- Operator routes return 401 when no founder session is present.
+- SSE pass-through forwards three frames in order (the upstream mock emits them with 50ms gaps).
+
+## Definition of done
+
+- `cd theseus-codex && npm run build` passes.
+- `npm run test` (or the project's equivalent) passes the new test file.
+- `grep -rn '/v1/operator' theseus-codex/src/app/api/forecasts/` returns ZERO matches outside the `(authed)` tree.
+- `curl -N http://localhost:3000/api/forecasts/stream` (with the upstream running locally) shows live frames.
+
+## SCOPE
+
+- `theseus-codex/src/app/api/forecasts/route.ts`                                  CREATE
+- `theseus-codex/src/app/api/forecasts/stream/route.ts`                           CREATE
+- `theseus-codex/src/app/api/forecasts/[id]/route.ts`                             CREATE
+- `theseus-codex/src/app/api/forecasts/[id]/sources/route.ts`                     CREATE
+- `theseus-codex/src/app/api/forecasts/[id]/resolution/route.ts`                  CREATE
+- `theseus-codex/src/app/api/forecasts/[id]/bets/route.ts`                        CREATE
+- `theseus-codex/src/app/api/forecasts/[id]/follow-up/route.ts`                   CREATE
+- `theseus-codex/src/app/api/forecasts/markets/route.ts`                          CREATE
+- `theseus-codex/src/app/api/forecasts/markets/[id]/route.ts`                     CREATE
+- `theseus-codex/src/app/api/portfolio/route.ts`                                  CREATE
+- `theseus-codex/src/app/api/portfolio/calibration/route.ts`                      CREATE
+- `theseus-codex/src/app/api/portfolio/bets/route.ts`                             CREATE
+- `theseus-codex/src/app/(authed)/api/forecasts/operator/[id]/authorize-live/route.ts`        CREATE
+- `theseus-codex/src/app/(authed)/api/forecasts/operator/[id]/bets/[betId]/confirm/route.ts`  CREATE
+- `theseus-codex/src/app/(authed)/api/forecasts/operator/kill-switch/engage/route.ts`         CREATE
+- `theseus-codex/src/app/(authed)/api/forecasts/operator/kill-switch/disengage/route.ts`      CREATE
+- `theseus-codex/src/app/(authed)/api/forecasts/operator/live-bets/route.ts`                  CREATE
+- `theseus-codex/src/app/(authed)/api/forecasts/operator/stream/route.ts`                     CREATE
+- `theseus-codex/src/lib/forecastsTypes.ts`                                       CREATE
+- `theseus-codex/src/lib/forecastsApi.ts`                                         CREATE
+- `theseus-codex/src/lib/forecastsOperatorApi.ts`                                 CREATE
+- `theseus-codex/tests/api/forecasts.test.ts`                                     CREATE

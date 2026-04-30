@@ -9,7 +9,7 @@ from fastapi import APIRouter, Depends
 from fastapi.responses import StreamingResponse
 
 from current_events_api.deps import enforce_read_rate_limit, get_bus, get_metrics
-from current_events_api.event_bus import OpinionBus
+from current_events_api.event_bus import CURRENT_TOPIC, OpinionBus
 from current_events_api.metrics import Metrics
 from current_events_api.sse import sse_frame, sse_response, with_heartbeats
 
@@ -22,7 +22,7 @@ def stream_currents(
     metrics: Annotated[Metrics, Depends(get_metrics)],
 ) -> StreamingResponse:
     async def frames() -> AsyncIterator[bytes]:
-        async for opinion in bus.subscribe():
+        async for opinion in bus.subscribe(topic=CURRENT_TOPIC):
             metrics.inc("currents_sse_frames_total", {"kind": "opinion"})
             yield sse_frame("opinion", opinion, event_id=str(opinion.get("id") or ""))
 

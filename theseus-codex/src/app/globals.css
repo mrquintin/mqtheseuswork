@@ -753,6 +753,26 @@ input::placeholder, textarea::placeholder {
   --currents-stance-disagrees:   #b95c5c;
   --currents-stance-complicates: #c9944a;
   --currents-stance-abstained:   #847c6c;
+
+  /* Forecasts — calmer cousin of currents. Same parchment, slightly cooler gold,
+     dedicated probability + calibration palettes. */
+  --forecasts-bg:                #14130f;
+  --forecasts-bg-elevated:       #1c1a14;
+  --forecasts-border:            #2a261d;
+  --forecasts-parchment:         #e8e1d3;
+  --forecasts-parchment-dim:     #b0a896;
+  --forecasts-muted:             #847c6c;
+  --forecasts-cool-gold:         #c4a04b;
+  --forecasts-prob-yes:          #6fa15c;
+  --forecasts-prob-no:           #b95c5c;
+  --forecasts-prob-track:        #2a261d;
+
+  /* Calibration heatmap (5-step ramp) */
+  --forecasts-calib-1:           #5a3a3a;
+  --forecasts-calib-2:           #8d5d4d;
+  --forecasts-calib-3:           #c9944a;
+  --forecasts-calib-4:           #a3a45c;
+  --forecasts-calib-5:           #6fa15c;
 }
 
 @keyframes currents-pulse {
@@ -765,6 +785,11 @@ input::placeholder, textarea::placeholder {
   to   { opacity: 1; transform: translateY(0); }
 }
 
+@keyframes forecasts-prob-shimmer {
+  0%, 100% { opacity: 0.85; }
+  50%      { opacity: 1.0; }
+}
+
 .currents-fade-in { animation: currents-fade-in 0.4s ease-out; }
 
 .currents-pulse {
@@ -775,4 +800,17 @@ input::placeholder, textarea::placeholder {
   background: var(--currents-gold);
   box-shadow: 0 0 8px rgba(212, 160, 23, 0.55);
   animation: currents-pulse 1.8s ease-in-out infinite;
+}
+
+.forecasts-prob-bar {
+  height: 6px;
+  border-radius: 3px;
+  background: var(--forecasts-prob-track);
+  overflow: hidden;
+}
+
+.forecasts-prob-bar > .fill {
+  height: 100%;
+  background: var(--forecasts-prob-yes);
+  transition: width 600ms ease-out;
 }

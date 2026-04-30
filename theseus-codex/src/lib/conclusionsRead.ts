@@ -5,6 +5,7 @@ export type PublicCitation = PublicationPayloadV1["citations"][number];
 
 export type PublishedConclusion = {
   id: string;
+  kind: string;
   slug: string;
   version: number;
   sourceConclusionId: string;
@@ -38,10 +39,11 @@ export type PublishedBundle = {
 
 type PublishedConclusionRow = {
   id: string;
+  kind?: string;
   slug: string;
   version: number;
   sourceConclusionId: string;
-  publishedAt: Date;
+  publishedAt: Date | string;
   doi: string;
   zenodoRecordId: string;
   discountedConfidence: number;
@@ -63,6 +65,7 @@ type PublicResponseRow = {
 
 const PUBLISHED_CONCLUSION_SELECT = {
   id: true,
+  kind: true,
   slug: true,
   version: true,
   sourceConclusionId: true,
@@ -172,10 +175,11 @@ function parsePayload(row: Pick<PublishedConclusionRow, "payloadJson" | "slug">)
 function toPublishedConclusion(row: PublishedConclusionRow): PublishedConclusion {
   return {
     id: row.id,
+    kind: row.kind || "CONCLUSION",
     slug: row.slug,
     version: row.version,
     sourceConclusionId: row.sourceConclusionId,
-    publishedAt: row.publishedAt.toISOString(),
+    publishedAt: row.publishedAt instanceof Date ? row.publishedAt.toISOString() : new Date(row.publishedAt).toISOString(),
     doi: row.doi,
     zenodoRecordId: row.zenodoRecordId,
     discountedConfidence: row.discountedConfidence,
@@ -249,6 +253,38 @@ export async function listPublishedConclusionsForFeed(): Promise<PublishedConclu
     select: PUBLISHED_CONCLUSION_SELECT,
   });
   return (rows as PublishedConclusionRow[]).map(toPublishedConclusion);
+}
+
+export async function listPublishedArticles(limit = 8): Promise<PublishedConclusion[]> {
+  const organizationId = await resolvePublicOrganizationId();
+  if (!organizationId) return [];
+
+  try {
+    const rows = await db.$queryRaw<PublishedConclusionRow[]>`
+      SELECT
+        id,
+        kind,
+        slug,
+        version,
+        "sourceConclusionId",
+        "publishedAt",
+        doi,
+        "zenodoRecordId",
+        "discountedConfidence",
+        "statedConfidence",
+        "calibrationDiscountReason",
+        "payloadJson"
+      FROM "PublishedConclusion"
+      WHERE "organizationId" = ${organizationId}
+        AND kind = 'ARTICLE'
+      ORDER BY "publishedAt" DESC
+      LIMIT ${limit}
+    `;
+    return rows.map(toPublishedConclusion);
+  } catch (error) {
+    console.error("[public] article query failed (schema lag?):", error);
+    return [];
+  }
 }
 
 export async function getConclusionBySlug(slug: string): Promise<PublishedConclusion | null> {

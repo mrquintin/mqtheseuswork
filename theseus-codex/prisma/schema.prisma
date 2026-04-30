@@ -51,6 +51,72 @@ enum FollowUpRole {
   ASSISTANT
 }
 
+enum ForecastSource {
+  POLYMARKET
+  KALSHI
+}
+
+enum ForecastMarketStatus {
+  OPEN
+  CLOSED
+  RESOLVED
+  CANCELLED
+}
+
+enum ForecastPredictionStatus {
+  PUBLISHED
+  ABSTAINED_INSUFFICIENT_SOURCES
+  ABSTAINED_MARKET_EXPIRED
+  ABSTAINED_NEAR_DUPLICATE
+  ABSTAINED_BUDGET
+  ABSTAINED_CITATION_FABRICATION
+  ABSTAINED_REVOKED_SOURCES
+}
+
+enum ForecastSupportLabel {
+  DIRECT
+  INDIRECT
+  CONTRARY
+}
+
+enum ForecastOutcome {
+  YES
+  NO
+  CANCELLED
+  AMBIGUOUS
+}
+
+enum ForecastBetMode {
+  PAPER
+  LIVE
+}
+
+enum ForecastExchange {
+  POLYMARKET
+  KALSHI
+}
+
+enum ForecastBetSide {
+  YES
+  NO
+}
+
+enum ForecastBetStatus {
+  PENDING
+  AUTHORIZED
+  CONFIRMED
+  SUBMITTED
+  FILLED
+  CANCELLED
+  SETTLED
+  FAILED
+}
+
+enum ForecastFollowUpRole {
+  USER
+  ASSISTANT
+}
+
 // ── Multi-tenant root (cloud: Postgres + RLS; local dev: SQLite) ─────────────
 
 model Organization {
@@ -79,6 +145,10 @@ model Organization {
   apiKeys              ApiKey[]
   currentEvents        CurrentEvent[]
   eventOpinions        EventOpinion[]
+  forecastMarkets      ForecastMarket[]
+  forecastPredictions  ForecastPrediction[]
+  forecastBets         ForecastBet[]
+  forecastPortfolios   ForecastPortfolioState[]
 }
 
 // ── Founders (portal users) — maps to FounderProfile in noosphere/models.py ─
@@ -448,6 +518,8 @@ model PublishedConclusion {
 
   slug    String
   version Int    @default(1)
+  /// CONCLUSION for reviewed firm conclusions; ARTICLE for generated longform essays.
+  kind    String @default("CONCLUSION")
 
   /// Headline discounted confidence (SP05); stated founder/model confidence alongside in JSON.
   discountedConfidence      Float
@@ -469,6 +541,7 @@ model PublishedConclusion {
   @@unique([slug, version])
   @@index([organizationId])
   @@index([slug])
+  @@index([kind, publishedAt])
 }
 
 // ── Currents — observed external events + source-grounded opinions ──────────
@@ -499,20 +572,20 @@ model CurrentEvent {
 }
 
 model EventOpinion {
-  id               String           @id @default(cuid())
+  id               String            @id @default(cuid())
   organizationId   String
   eventId          String
   stance           OpinionStance
   confidence       Float
-  headline         String           @db.VarChar(140)
-  bodyMarkdown     String           @db.Text
+  headline         String            @db.VarChar(140)
+  bodyMarkdown     String            @db.Text
   uncertaintyNotes String[]
   topicHint        String?
   modelName        String
-  promptTokens     Int              @default(0)
-  completionTokens Int              @default(0)
+  promptTokens     Int               @default(0)
+  completionTokens Int               @default(0)
   abstentionReason AbstentionReason?
-  generatedAt      DateTime         @default(now())
+  generatedAt      DateTime          @default(now())
   revokedAt        DateTime?
   revokedReason    String?
 
@@ -526,14 +599,15 @@ model EventOpinion {
 }
 
 model OpinionCitation {
-  id             String       @id @default(cuid())
+  id             String  @id @default(cuid())
   opinionId      String
   sourceKind     String
   conclusionId   String?
   claimId        String?
-  quotedSpan     String       @db.Text
+  quotedSpan     String  @db.Text
   retrievalScore Float
-  isRevoked      Boolean      @default(false)
+  isRevoked      Boolean @default(false)
+  revokedAt      DateTime?
   revokedReason  String?
 
   opinion EventOpinion @relation(fields: [opinionId], references: [id], onDelete: Cascade)
@@ -544,11 +618,11 @@ model OpinionCitation {
 }
 
 model FollowUpSession {
-  id                String            @id @default(cuid())
+  id                String   @id @default(cuid())
   opinionId         String
   clientFingerprint String
-  createdAt         DateTime          @default(now())
-  lastActivityAt    DateTime          @default(now())
+  createdAt         DateTime @default(now())
+  lastActivityAt    DateTime @default(now())
 
   opinion  EventOpinion      @relation(fields: [opinionId], references: [id], onDelete: Cascade)
   messages FollowUpMessage[]
@@ -566,6 +640,181 @@ model FollowUpMessage {
   createdAt DateTime     @default(now())
 
   session FollowUpSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  @@index([sessionId, createdAt])
+}
+
+// ── Forecasts — external prediction markets + source-grounded predictions ───
+
+model ForecastMarket {
+  id                 String               @id @default(cuid())
+  organizationId     String
+  source             ForecastSource
+  externalId         String
+  title              String               @db.VarChar(280)
+  description        String?              @db.Text
+  resolutionCriteria String?              @db.Text
+  category           String?
+  currentYesPrice    Decimal?             @db.Decimal(8, 6)
+  currentNoPrice     Decimal?             @db.Decimal(8, 6)
+  volume             Decimal?             @db.Decimal(18, 4)
+  openTime           DateTime?
+  closeTime          DateTime?
+  resolvedAt         DateTime?
+  resolvedOutcome    ForecastOutcome?
+  rawPayload         Json
+  status             ForecastMarketStatus @default(OPEN)
+  createdAt          DateTime             @default(now())
+  updatedAt          DateTime             @updatedAt
+
+  organization Organization         @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  predictions  ForecastPrediction[]
+
+  @@unique([source, externalId])
+  @@index([organizationId, status, closeTime])
+  @@index([source, category])
+  @@index([updatedAt])
+}
+
+model ForecastPrediction {
+  id               String                   @id @default(cuid())
+  marketId         String
+  organizationId   String
+  probabilityYes   Decimal?                 @db.Decimal(8, 6)
+  confidenceLow    Decimal?                 @db.Decimal(8, 6)
+  confidenceHigh   Decimal?                 @db.Decimal(8, 6)
+  headline         String                   @db.VarChar(140)
+  reasoning        String                   @db.Text
+  status           ForecastPredictionStatus
+  abstentionReason String?
+  topicHint        String?
+  modelName        String
+  promptTokens     Int                      @default(0)
+  completionTokens Int                      @default(0)
+  liveAuthorizedAt DateTime?
+  liveAuthorizedBy String?
+  createdAt        DateTime                 @default(now())
+  updatedAt        DateTime                 @updatedAt
+
+  market           ForecastMarket            @relation(fields: [marketId], references: [id], onDelete: Cascade)
+  organization     Organization              @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  citations        ForecastCitation[]
+  resolution       ForecastResolution?
+  bets             ForecastBet[]
+  followUpSessions ForecastFollowUpSession[]
+
+  @@index([organizationId, status, createdAt])
+  @@index([marketId, createdAt])
+  @@index([liveAuthorizedAt])
+}
+
+model ForecastCitation {
+  id             String               @id @default(cuid())
+  predictionId   String
+  sourceType     String
+  sourceId       String
+  quotedSpan     String               @db.Text
+  supportLabel   ForecastSupportLabel
+  retrievalScore Float?
+  isRevoked      Boolean              @default(false)
+  revokedReason  String?
+  createdAt      DateTime             @default(now())
+
+  prediction ForecastPrediction @relation(fields: [predictionId], references: [id], onDelete: Cascade)
+
+  @@index([predictionId])
+  @@index([sourceType, sourceId])
+}
+
+model ForecastResolution {
+  id                String          @id @default(cuid())
+  predictionId      String          @unique
+  marketOutcome     ForecastOutcome
+  brierScore        Float?
+  logLoss           Float?
+  calibrationBucket Decimal?        @db.Decimal(3, 1)
+  resolvedAt        DateTime
+  justification     String          @db.Text
+  rawSettlement     Json?
+  createdAt         DateTime        @default(now())
+
+  prediction ForecastPrediction @relation(fields: [predictionId], references: [id], onDelete: Cascade)
+
+  @@index([resolvedAt])
+  @@index([calibrationBucket])
+}
+
+model ForecastBet {
+  id               String            @id @default(cuid())
+  predictionId     String
+  organizationId   String
+  mode             ForecastBetMode   @default(PAPER)
+  exchange         ForecastExchange
+  side             ForecastBetSide
+  stakeUsd         Decimal           @db.Decimal(12, 2)
+  entryPrice       Decimal           @db.Decimal(8, 6)
+  exitPrice        Decimal?          @db.Decimal(8, 6)
+  status           ForecastBetStatus
+  externalOrderId  String?
+  clientOrderId    String?
+  settlementPnlUsd Decimal?          @db.Decimal(12, 2)
+  liveAuthorizedAt DateTime?
+  confirmedAt      DateTime?
+  submittedAt      DateTime?
+  createdAt        DateTime          @default(now())
+  settledAt        DateTime?
+
+  prediction   ForecastPrediction @relation(fields: [predictionId], references: [id])
+  organization Organization       @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+
+  @@index([organizationId, mode, createdAt])
+  @@index([predictionId, status])
+  @@index([externalOrderId])
+  @@index([clientOrderId])
+}
+
+model ForecastPortfolioState {
+  id                String   @id @default(cuid())
+  organizationId    String
+  paperBalanceUsd   Decimal  @db.Decimal(12, 2)
+  liveBalanceUsd    Decimal? @db.Decimal(12, 2)
+  dailyLossUsd      Decimal  @default(0) @db.Decimal(12, 2)
+  dailyLossResetAt  DateTime
+  killSwitchEngaged Boolean  @default(false)
+  killSwitchReason  String?
+  totalResolved     Int      @default(0)
+  meanBrier90d      Float?
+  meanLogLoss90d    Float?
+  updatedAt         DateTime @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+
+  @@unique([organizationId])
+}
+
+model ForecastFollowUpSession {
+  id                String   @id @default(cuid())
+  predictionId      String
+  clientFingerprint String
+  createdAt         DateTime @default(now())
+  lastActivityAt    DateTime @default(now())
+
+  prediction ForecastPrediction        @relation(fields: [predictionId], references: [id], onDelete: Cascade)
+  messages   ForecastFollowUpMessage[]
+
+  @@index([predictionId, lastActivityAt])
+  @@index([clientFingerprint, createdAt])
+}
+
+model ForecastFollowUpMessage {
+  id        String               @id @default(cuid())
+  sessionId String
+  role      ForecastFollowUpRole
+  content   String               @db.Text
+  citations Json?
+  createdAt DateTime             @default(now())
+
+  session ForecastFollowUpSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
 
   @@index([sessionId, createdAt])
 }

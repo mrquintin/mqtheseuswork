@@ -1,0 +1,106 @@
+# Codex Prompt 18 of 18 — End-to-end pipeline test + 8 invariants + Playwright smoke + RELEASE_CHECKLIST
+
+**Sequence:** prompt 18 of 18 (Round 10, Wave I — regression). Depends on 02–17. Report back with: pass/fail of each invariant, the Playwright run video summary, and the contents of `RELEASE_CHECKLIST.md`.
+
+**Why this prompt exists.** Without a regression suite that hits the whole pipeline, future rounds will silently break the safety properties that justify shipping live trading capability at all. This prompt defines and enforces the eight invariants that must hold before, and after, any change to the Forecasts module.
+
+**The eight invariants (these are the contract):**
+
+1. **No prediction without ≥3 sources.** Empty Noosphere + new market → ABSTAINED_INSUFFICIENT_SOURCES; no LLM call. With 1 or 2 sources → same. With 3+ → predict.
+2. **Citations are verbatim-anchored.** Every `quoted_span` is a real substring of its cited source. Two failures in retries → ABSTAINED_CITATION_FABRICATION.
+3. **Follow-up re-retrieves.** Each user question runs fresh retrieval; the LLM is not given the prediction's saved citations as its only source pool.
+4. **Budget enforcement.** Hour-bounded ceilings hold across container restarts (persisted JSON, atomic writes). The Forecasts budget is independent of the Currents budget — exhausting one does not block the other.
+5. **Live trading is OFF by default.** Default env produces `mode=PAPER_ONLY` on import. Setting only `FORECASTS_LIVE_TRADING_ENABLED=true` without credentials → `mode=LIVE_DISABLED_NO_CREDENTIALS`.
+6. **Live bets require eight gates.** All eight from `safety.py:check_all_gates` must pass; failing any gate refuses the bet and emits a structured-log line with the gate code.
+7. **Resolution is append-only.** A second `put_forecast_resolution` for the same predictionId is a no-op (or raises); calibration metrics never decrement on re-runs.
+8. **Revoked source propagates.** Revoking a Conclusion that a published prediction cited → that prediction's `revoked_sources_count` becomes ≥ 1 within one scheduler tick.
+
+**Before you start — read current state:**
+1. Read `coding_prompts/archive_round9/22_e2e_integration_and_invariants.txt` for the Round 9 invariant suite shape; copy that style.
+2. Read every test file produced by prompts 02–17 to understand what's already covered. Your job is the *integration* layer that exercises them together; do not duplicate unit tests.
+
+## Your task
+
+### 1. End-to-end pipeline test
+
+`noosphere/tests/test_forecasts_pipeline_e2e.py`:
+
+```python
+async def test_full_pipeline_against_fake_exchanges(tmp_path, fake_anthropic, fake_polymarket, fake_kalshi, fake_postgres):
+    """
+    1. Seed 5 PUBLIC Conclusions covering politics + economics topics.
+    2. Configure Polymarket fake to return 3 markets, Kalshi fake to return 2,
+       all with valid resolution-criteria text and OPEN status.
+    3. Run forecasts.scheduler with intervals set to 0.05s for 1.5 seconds.
+    4. Expect exactly 5 ForecastMarket rows.
+    5. Expect 4–5 ForecastPredictions (one market may abstain on insufficient sources;
+        accept that as the model's right). Each citation is verbatim-validated.
+    6. Resolve 2 markets via fake_polymarket.set_resolution(...); run scheduler again.
+    7. Expect 2 ForecastResolution rows; calibration aggregate updated.
+    8. Settle paper bets: any PAPER bet on a resolved market → status SETTLED.
+    9. Crucial: assert NO httpx call was made to a non-fake URL during the test.
+    """
+```
+
+### 2. Invariant tests
+
+`noosphere/tests/test_forecasts_invariants.py` — one test per invariant, named `test_invariant_1_no_prediction_without_sources` … `test_invariant_8_revoked_source_propagation`. Each test is self-contained, hits the full pipeline (or the relevant slice), and asserts the precise property.
+
+### 3. Playwright UI smoke
+
+`theseus-codex/playwright/forecasts.smoke.spec.ts`:
+
+- Navigate to `/`. Assert the dual-window block is visible.
+- Navigate to `/forecasts`. Assert at least one ForecastCard. Click it. Assert the detail page renders headline, citations, and a Source drawer.
+- Open Source drawer; press `]` 3 times; assert focus moves through citations.
+- Navigate to `/forecasts/portfolio`. Assert calibration chart and Brier chart render. Assert the kill-switch indicator reflects the seeded `false` state.
+- Navigate to `/(authed)/forecasts/operator`. Assert it requires login (302 to /login). Authenticate as the seeded founder. Assert the operator panels render. Assert the CONFIRM buttons are disabled when `FORECASTS_LIVE_TRADING_ENABLED=false`.
+- Toggle `FORECASTS_LIVE_TRADING_ENABLED=true` via env-injection in the test harness; reload; assert authorize-live buttons appear; click one and assert the prediction's `live_authorized_at` is set in the API.
+- DO NOT actually submit a live bet. The test harness lacks live credentials by design.
+
+### 4. RELEASE_CHECKLIST.md
+
+`coding_prompts/RELEASE_CHECKLIST.md` (overwriting Round 9's). Sections:
+
+- **Before merge to main**
+  - All 18 prompts' tests pass.
+  - `cd theseus-codex && npm run build` passes.
+  - `cd theseus-codex && npm run test` passes.
+  - `pytest noosphere current_events_api` passes.
+  - Playwright smoke passes.
+  - All 8 invariants hold.
+- **Before deploy**
+  - `FORECASTS_LIVE_TRADING_ENABLED=false` in production env (verify in Vercel dashboard + Docker compose env).
+  - Polymarket / Kalshi credentials NOT set in env (verify with `printenv | grep -E 'POLYMARKET|KALSHI'`).
+  - `FORECASTS_MAX_STAKE_USD=0` in production env.
+  - Status file path is on a persistent volume mount.
+- **First-week monitoring**
+  - Daily: check `/v1/portfolio` for kill-switch state and calibration drift.
+  - Weekly: check Brier-over-time chart for trend.
+  - Monthly: read 5 random predictions end-to-end and confirm citations check.
+- **Live trading enablement (separate procedure)**
+  - Founder reviews 30 days of paper trading with mean Brier ≤ 0.20.
+  - Founder funds Polymarket wallet / Kalshi account with capped amount.
+  - Founder sets the four env vars: `FORECASTS_LIVE_TRADING_ENABLED=true`, `FORECASTS_MAX_STAKE_USD=<n>`, `FORECASTS_MAX_DAILY_LOSS_USD=<n>`, `FORECASTS_KILL_SWITCH_AUTO_THRESHOLD_USD=<n>`.
+  - Per-prediction authorize-live + per-bet confirm is the only path to actual fills.
+
+### 5. CI integration
+
+If `.github/workflows/` exists, add a `forecasts-ci.yml` that runs the new tests on PRs touching `noosphere/noosphere/forecasts/`, `current_events_api/`, or `theseus-codex/src/app/forecasts/`.
+
+## Definition of done
+
+- All 8 invariant tests pass. (If a global `pytest-qt` plugin breaks collection on this host, run `pytest -p no:pytest-qt …`. The invariants do not depend on that plugin.)
+- The e2e pipeline test passes against fake exchanges. This is the load-bearing check — it must pass.
+- **If Playwright can be installed in this environment**: Playwright smoke passes against a `next start` instance with seeded fixtures.
+- **If Playwright cannot be installed** (no Chromium, no network for the install, or the existing repo has no Playwright dependency): write the spec file as specified in §3 of "Your task" but do not invoke it. Instead add a `theseus-codex/tests/pages/forecasts-smoke.test.tsx` (Vitest / React Testing Library, the harness already used by other tests in this repo) that asserts the same surface — dual-window block visible at `/`, ForecastCard renders at `/forecasts`, detail page renders, portfolio renders, operator route requires auth. Note in your final report which path you took. Skipping Playwright is acceptable; skipping the equivalent component-level coverage is not.
+- `coding_prompts/RELEASE_CHECKLIST.md` exists with all four sections.
+- `grep -rn 'FORECASTS_LIVE_TRADING_ENABLED' coding_prompts/RELEASE_CHECKLIST.md` finds at least 3 mentions (the flag is mentioned in pre-merge, pre-deploy, and live-enablement sections).
+
+## SCOPE
+
+- `noosphere/tests/test_forecasts_pipeline_e2e.py`                       CREATE
+- `noosphere/tests/test_forecasts_invariants.py`                         CREATE
+- `theseus-codex/playwright/forecasts.smoke.spec.ts`                     CREATE
+- `coding_prompts/RELEASE_CHECKLIST.md`                                  CREATE
+- `.github/workflows/forecasts-ci.yml`                                   CREATE

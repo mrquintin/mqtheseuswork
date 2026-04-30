@@ -4,6 +4,8 @@ services:
       context: .
       dockerfile: Dockerfile.api
     env_file: ./current_events_api/.env
+    environment:
+      NOOSPHERE_DATA_DIR: /data/noosphere
     ports:
       - "8088:8088"
     volumes:
@@ -14,13 +16,30 @@ services:
       retries: 3
     restart: unless-stopped
 
-  currents-scheduler:
+  scheduler:
     build:
       context: .
       dockerfile: Dockerfile.scheduler
     env_file: ./current_events_api/.env
+    environment:
+      NOOSPHERE_DATA_DIR: /data/noosphere
+      FORECASTS_SCHEDULER_ENABLED: ${FORECASTS_SCHEDULER_ENABLED:-false}
+      FORECASTS_STATUS_PATH: /data/noosphere/forecasts_status.json
+      FORECASTS_BUDGET_PATH: /data/noosphere/forecasts_budget.json
+      FORECASTS_INGEST_INTERVAL_S: ${FORECASTS_INGEST_INTERVAL_S:-900}
+      FORECASTS_GENERATE_INTERVAL_S: ${FORECASTS_GENERATE_INTERVAL_S:-600}
+      FORECASTS_RESOLUTION_POLL_INTERVAL_S: ${FORECASTS_RESOLUTION_POLL_INTERVAL_S:-300}
+      FORECASTS_PAPER_BET_DRAIN_INTERVAL_S: ${FORECASTS_PAPER_BET_DRAIN_INTERVAL_S:-60}
+      FORECASTS_MAX_PREDICTIONS_PER_CYCLE: ${FORECASTS_MAX_PREDICTIONS_PER_CYCLE:-8}
+      FORECASTS_BUDGET_HOURLY_PROMPT_TOKENS: ${FORECASTS_BUDGET_HOURLY_PROMPT_TOKENS:-1500000}
+      FORECASTS_BUDGET_HOURLY_COMPLETION_TOKENS: ${FORECASTS_BUDGET_HOURLY_COMPLETION_TOKENS:-400000}
     volumes:
       - currents-data:/data/noosphere
+    healthcheck:
+      test: ["CMD-SHELL", "if [ \"$${FORECASTS_SCHEDULER_ENABLED:-false}\" != \"true\" ]; then exit 0; fi; python -c \"import os,sys,time; path=os.environ.get('FORECASTS_STATUS_PATH') or os.path.join(os.environ.get('NOOSPHERE_DATA_DIR','/data/noosphere'),'forecasts_status.json'); max_age=float(os.environ.get('FORECASTS_STATUS_MAX_AGE_SECONDS','1800')); sys.exit(0 if os.path.isfile(path) and time.time() - os.path.getmtime(path) <= max_age else 1)\""]
+      interval: 30s
+      retries: 3
+      start_period: 20s
     restart: unless-stopped
 
 volumes:

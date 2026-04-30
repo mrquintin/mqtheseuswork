@@ -1,0 +1,88 @@
+# Codex Prompt 5 of 18 — Forecast retrieval adapter (reuse HybridRetriever, not reimplement)
+
+**Sequence:** prompt 5 of 18 (Round 10, Wave B — LLM). Depends on 02. Report back with: the retrieval-input recipe (how a market becomes a search query), the source-mix at top_k=8 across three sample markets, and confirmation that no FOUNDER- or INTERNAL-marked source gets quoted *as a public source* unless the source's `surfaceable` flag is True.
+
+**Why this prompt exists.** Predictions cite the same Noosphere knowledge base that opinions cite. We must not reimplement retrieval — we must wrap the existing `HybridRetriever` from `noosphere.currents.retrieval_adapter` (the Currents wrapper) so that filter rules (FOUNDER/INTERNAL surfacing, claim deduplication, recency boost, etc.) stay in one place. The adapter for Forecasts only differs in *what gets fed into the retriever*: a market's title + description + resolution criteria, not a current event's text.
+
+**Before you start — read current state:**
+1. Read `noosphere/noosphere/currents/retrieval_adapter.py`. Confirm the `retrieve_for_event(store, event, top_k)` signature and what it returns.
+2. Read `noosphere/noosphere/retrieval.py` — the underlying HybridRetriever. Note its `query` shape and the filter args.
+3. Read `noosphere/noosphere/conclusions.py` — confirm the `surfaceable` flag and how `FOUNDER`/`INTERNAL` visibility is enforced today.
+
+## Your task
+
+### `noosphere/noosphere/forecasts/retrieval_adapter.py`
+
+```python
+from dataclasses import dataclass
+from noosphere.models import Conclusion, Claim, ForecastMarket
+
+@dataclass
+class RetrievedSource:
+    source_type: Literal["CONCLUSION", "CLAIM"]
+    source_id: str
+    text: str
+    relevance: float
+    surfaceable: bool      # public-facing safe?
+    visibility: Literal["PUBLIC", "FOUNDER", "INTERNAL"]
+    metadata: dict          # discipline, confidence, citations chain, etc.
+
+def build_query_from_market(market: ForecastMarket) -> str:
+    """
+    Compose a single query string the embedding-side retriever can use.
+
+    Recipe:
+      title
+      "\n\n"
+      description (truncated to 600 chars)
+      "\n\n"
+      "Resolution criteria: " + resolutionCriteria (truncated to 400 chars)
+      "\n\n"
+      "Category: " + category
+    """
+
+def retrieve_for_market(
+    store, market: ForecastMarket, *, top_k: int = 8,
+) -> list[RetrievedSource]:
+    """
+    Wrap HybridRetriever.
+
+    Filter rules:
+      - drop sources with `visibility != PUBLIC` UNLESS source.surfaceable is True
+      - drop revoked conclusions
+      - drop sources older than 18 months unless `is_load_bearing` is True
+      - apply MMR (maximal marginal relevance) with lambda=0.7 to diversify
+      - return at most top_k sources
+
+    On error: never raise. Return [] and emit a `forecasts.retrieval.error`
+    structured log. The generator (prompt 06) treats [] as
+    INSUFFICIENT_SOURCES.
+    """
+```
+
+Reuse — do not rewrite — the underlying retriever. The only Forecasts-specific code is `build_query_from_market` and the post-retrieval filter pass.
+
+### Why a wrapper at all (document this in the module docstring)
+
+> "The Forecasts pipeline retrieves from the same Noosphere index as Currents, but its inputs and stricter surfacing rules differ. Centralizing this wrapper means a future change to Currents-side retrieval cannot silently weaken Forecasts-side surfacing — the filter is enforced here, post-retrieval, where Forecasts owns it."
+
+### Tests
+
+`noosphere/tests/test_forecasts_retrieval_adapter.py`:
+- `test_build_query_recipe` — exact substring assertions on a sample market.
+- `test_filters_non_surfaceable_founder_sources` — seed 4 conclusions; one is FOUNDER non-surfaceable; assert it does not appear.
+- `test_drops_revoked` — seed a revoked conclusion; assert excluded.
+- `test_age_filter` — seed an old non-load-bearing conclusion; excluded. Same conclusion marked `is_load_bearing=True` is included.
+- `test_returns_empty_on_retriever_failure` — monkeypatch the retriever to raise; assert `[]` and a single log line.
+- `test_top_k_respected` — seed 30 high-relevance conclusions; `top_k=8` returns ≤8.
+
+## Definition of done
+
+- `pytest noosphere/tests/test_forecasts_retrieval_adapter.py` passes.
+- No method on `HybridRetriever` was patched; the adapter only consumes its public interface.
+- The module docstring contains the "Why a wrapper" paragraph above (verbatim or close enough that the intent is preserved).
+
+## SCOPE
+
+- `noosphere/noosphere/forecasts/retrieval_adapter.py`                   CREATE
+- `noosphere/tests/test_forecasts_retrieval_adapter.py`                  CREATE

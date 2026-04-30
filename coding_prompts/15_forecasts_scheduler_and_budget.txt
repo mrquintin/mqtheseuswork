@@ -1,0 +1,111 @@
+# Codex Prompt 15 of 18 — Forecasts scheduler + budget guard + status file
+
+**Sequence:** prompt 15 of 18 (Round 10, Wave F — operations). Depends on 03, 04, 06, 07, 08. Report back with: the cron-loop interval matrix, the budget-persistence path, and the readyz contract (which freshness threshold counts as "stuck").
+
+**Why this prompt exists.** The Forecasts pipeline must run on a clock without manual intervention. We mirror Currents' scheduler (Round 9 prompt 19): a long-running asyncio loop that ingests, generates, polls resolutions, and runs the paper-bet engine on cadence; an hourly budget guard that persists across restarts; a status file the API's readyz reads to confirm liveness.
+
+**Before you start — read current state:**
+1. Read `noosphere/noosphere/currents/scheduler.py` and `status.py` in full. Your code copies the structure: a `run_forever` coroutine, a status writer that drops `forecasts_status.json` every tick, a SIGTERM handler.
+2. Read `noosphere/noosphere/currents/budget.py` — the same `HourlyBudgetGuard` is reused (instance per pipeline; the budgets are independent).
+
+## Your task
+
+### `noosphere/noosphere/forecasts/scheduler.py`
+
+```python
+@dataclass(frozen=True)
+class SchedulerConfig:
+    ingest_interval_s: int = 900           # 15 min: market list refresh
+    generate_interval_s: int = 600         # 10 min: scan for new markets to predict
+    resolution_poll_interval_s: int = 300  # 5  min
+    paper_bet_drain_interval_s: int = 60   # 1  min: settle resolved-but-not-yet-settled bets
+    status_file: Path = Path("/var/lib/theseus/forecasts_status.json")
+    budget_file: Path = Path("/var/lib/theseus/forecasts_budget.json")
+    max_predictions_per_cycle: int = 8
+
+    @classmethod
+    def from_env(cls) -> "SchedulerConfig": ...
+
+async def run_forever(store: Store, *, config: SchedulerConfig) -> None:
+    """
+    Owns four sub-loops, each on its own interval, each guarded by an
+    asyncio.Lock so two ticks of the same loop cannot overlap.
+
+    Sub-loops:
+      1. ingest:     PolymarketIngestor + KalshiIngestor (sequential).
+      2. generate:   for each OPEN market without a recent published prediction,
+                     call generate_forecast(...). Caps at max_predictions_per_cycle.
+                     Hourly budget enforced.
+      3. resolve:    poll_all_open() — checks each open market for resolution;
+                     writes ForecastResolutions; settles paper bets via
+                     settle_paper_bets_for_market.
+      4. paper_drain: catch-up settler in case the resolve loop dropped a beat.
+
+    Each tick writes status_file with: { ts, last_ingest_ts, last_generate_ts,
+    last_resolve_ts, kill_switch_engaged, paper_balance, live_balance }.
+
+    SIGTERM/SIGINT: drain in-flight ticks (≤ 30s), persist the budget, exit 0.
+    """
+```
+
+### Budget guard
+
+Reuse `HourlyBudgetGuard`. The Forecasts instance reads `FORECASTS_BUDGET_HOURLY_PROMPT_TOKENS` and `FORECASTS_BUDGET_HOURLY_COMPLETION_TOKENS`, persists to `forecasts_budget.json`. The Currents guard is unchanged. They are independent.
+
+### Status file shape
+
+```json
+{
+  "ts": "2026-04-29T17:32:00Z",
+  "kill_switch_engaged": false,
+  "kill_switch_reason": null,
+  "last_ingest_ts": "2026-04-29T17:30:00Z",
+  "last_generate_ts": "2026-04-29T17:32:00Z",
+  "last_resolve_ts": "2026-04-29T17:30:00Z",
+  "paper_balance_usd": 9876.42,
+  "live_balance_usd": 0.00,
+  "live_trading_enabled": false,
+  "open_markets": 47,
+  "predictions_this_hour": 6
+}
+```
+
+### `current_events_api/current_events_api/routes/forecasts.py` — extend `readyz`
+
+Read `forecasts_status.json`; fail readyz if `now - last_ingest_ts > 2 * ingest_interval_s` OR `kill_switch_engaged` (with a clear error code). The readyz response includes the status payload so an external monitor can read it without a separate call.
+
+### CLI
+
+`noosphere forecasts run` — runs `run_forever`. Logs structured JSON to stdout.
+
+### Container glue
+
+`Dockerfile.scheduler` already exists for Currents. Update it to also start the Forecasts scheduler in the same container *only if* `FORECASTS_SCHEDULER_ENABLED=true`. Two pipelines in one container is fine since they share Postgres; the budget guards keep them from starving each other.
+
+`docker-compose.yml` — surface the new env vars; add a healthcheck that hits `forecasts_status.json` mtime.
+
+### Tests
+
+`noosphere/tests/test_forecasts_scheduler.py`:
+- A fast-clock test (interval seconds set to 0.05) confirms each sub-loop runs at least once over 1s of wall time.
+- Status file is written on the first tick.
+- SIGTERM during a generate tick drains and persists budget within 5s.
+- Two consecutive ticks of `generate` cannot overlap (asyncio.Lock — verify by injecting a slow generator).
+- Kill-switch engaged → generate sub-loop short-circuits to "skipped"; ingest still runs.
+
+## Definition of done
+
+- `pytest noosphere/tests/test_forecasts_scheduler.py` passes. (If a global `pytest-qt` plugin breaks collection on this host, run `pytest -p no:pytest-qt …` instead. Codex's deliverable does not depend on that plugin.)
+- **If Docker is installed and runnable on this host**: `docker-compose up scheduler` boots both Currents and Forecasts pipelines, `docker logs` shows their first-tick output, and the budget JSON survives `docker-compose restart`.
+- **If Docker is NOT available** (the developer machine may not have it): instead of the docker-compose checks, run `python -m noosphere.forecasts.scheduler --once` directly. Confirm: (a) it writes the status JSON path, (b) it emits at least one structured-log line per sub-loop, (c) re-running with the same budget JSON path resumes the budget counters (i.e., persistence works across process restarts even without containers). Note in your final report which path you took.
+- `curl localhost:8000/readyz` returns 200 with both pipelines reporting fresh; flipping the kill switch flips readyz to 503 with reason text. (If `localhost:8000` is not reachable in this environment, exercise the readyz handler via FastAPI's TestClient in `current_events_api/tests/test_readyz.py` instead — both verifications are equivalent.)
+
+## SCOPE
+
+- `noosphere/noosphere/forecasts/scheduler.py`                           CREATE
+- `noosphere/noosphere/forecasts/status.py`                              CREATE
+- `noosphere/noosphere/cli.py`                                           MODIFY
+- `current_events_api/current_events_api/routes/forecasts.py`            MODIFY
+- `Dockerfile.scheduler`                                                 MODIFY
+- `docker-compose.yml`                                                   MODIFY
+- `noosphere/tests/test_forecasts_scheduler.py`                          CREATE

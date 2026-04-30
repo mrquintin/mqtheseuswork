@@ -1,0 +1,134 @@
+# Codex Prompt 12 of 18 — Forecasts public layout: tokens, hooks, grid + cards
+
+**Sequence:** prompt 12 of 18 (Round 10, Wave E — public UI). Depends on 11. Report back with: the resolved color tokens, the side-by-side commentary/forecasts layout breakpoints, and the SSE reconnect-backoff timing.
+
+**Why this prompt exists.** This is the surface the user described in the voice memo: "as well as having this, like, public facing opinions platform … I would also love to see a, uh, predictions part of it … some kind of interface where it's making macro predictions". Two windows on the homepage: commentary on one side, predictions on the other. A standalone `/forecasts` page when the reader wants the full grid. Same parchment-and-gold aesthetic as Currents, with prediction-specific accents (probability bars, calibration heatmap palette).
+
+**Before you start — read current state:**
+1. Read `theseus-codex/src/app/globals.css` — the `--currents-*` tokens added in Round 9 prompt 12. Forecasts tokens sit alongside, do not replace.
+2. Read `theseus-codex/src/lib/useLiveOpinions.ts` (the Currents SSE hook). Your `useLiveForecasts` mirrors it; share helpers via a small `useSSE` extracted utility if it does not yet exist (do NOT inline-duplicate the reconnect/backoff logic).
+3. Read `theseus-codex/src/app/currents/OpinionCard.tsx` and `FeedClient.tsx` — your `ForecastCard` and `ForecastGridClient` follow that shape.
+
+## Your task
+
+### 1. Token additions to `theseus-codex/src/app/globals.css`
+
+```css
+:root {
+  /* Existing currents tokens above ↑ */
+
+  /* Forecasts — calmer cousin of currents. Same parchment, slightly cooler gold,
+     dedicated probability + calibration palettes. */
+  --forecasts-bg:                #14130f;
+  --forecasts-bg-elevated:       #1c1a14;
+  --forecasts-border:            #2a261d;
+  --forecasts-parchment:         #e8e1d3;     /* same as currents — readable continuity */
+  --forecasts-parchment-dim:     #b0a896;
+  --forecasts-muted:             #847c6c;
+  --forecasts-cool-gold:         #c4a04b;     /* cooler than currents-gold */
+  --forecasts-prob-yes:          #6fa15c;
+  --forecasts-prob-no:           #b95c5c;
+  --forecasts-prob-track:        #2a261d;
+
+  /* Calibration heatmap (5-step ramp) */
+  --forecasts-calib-1:           #5a3a3a;
+  --forecasts-calib-2:           #8d5d4d;
+  --forecasts-calib-3:           #c9944a;
+  --forecasts-calib-4:           #a3a45c;
+  --forecasts-calib-5:           #6fa15c;
+}
+
+@keyframes forecasts-prob-shimmer {
+  0%, 100% { opacity: 0.85; }
+  50%      { opacity: 1.0; }
+}
+
+.forecasts-prob-bar {
+  height: 6px; border-radius: 3px;
+  background: var(--forecasts-prob-track);
+  overflow: hidden;
+}
+.forecasts-prob-bar > .fill {
+  height: 100%; background: var(--forecasts-prob-yes);
+  transition: width 600ms ease-out;
+}
+```
+
+### 2. SSE hook: `theseus-codex/src/lib/useLiveForecasts.ts`
+
+```typescript
+"use client";
+import { useEffect, useRef, useState } from "react";
+import type { PublicForecast, PublicResolution, PublicBet } from "./forecastsTypes";
+
+interface LiveState {
+  forecasts: PublicForecast[];
+  resolutions: Record<string, PublicResolution>;
+  paperBets: PublicBet[];
+  connected: boolean;
+}
+
+export function useLiveForecasts(initial: PublicForecast[]): LiveState {
+  // Open EventSource at /api/forecasts/stream.
+  // Frames: forecast.published, forecast.resolved, bet.placed, heartbeat.
+  // Reconnect with exponential backoff: 1s, 2s, 4s, 8s, capped at 30s.
+  // On forecast.published → prepend to list, dedupe by id.
+  // On forecast.resolved → update resolutions[id].
+  // On bet.placed (PAPER only — operator stream is separate) → prepend to paperBets.
+  ...
+}
+```
+
+### 3. ForecastCard component
+
+`theseus-codex/src/app/forecasts/ForecastCard.tsx`. Visual contract:
+
+- Headline (the model's, NOT the market title — the headline is the thesis).
+- Probability bar: 0–100% YES with text overlay `64% YES`.
+- Below the bar: `Market: 0.58` (the implied market price); a small chevron (`+0.06`) showing the model's edge if any. Color the chevron green for positive, red for negative; muted if < 0.05.
+- Status pill: PUBLISHED | RESOLVED-CORRECT | RESOLVED-INCORRECT | RESOLVED-CANCELLED. Use the `--forecasts-prob-*` palette.
+- Metadata row: `Polymarket` or `Kalshi` source badge, market category, time-to-resolution (e.g., "resolves in 12d").
+- Citation count: `▦ 4 sources`.
+- Tap target leads to `/forecasts/[id]`.
+
+### 4. ForecastGridClient
+
+`theseus-codex/src/app/forecasts/ForecastGridClient.tsx`. Wraps `useLiveForecasts`. Renders cards in a CSS grid (`grid-template-columns: repeat(auto-fill, minmax(320px, 1fr))`). Mobile: single column. New cards animate in with `currents-fade-in` (reuse the existing keyframe).
+
+### 5. Layout shell
+
+`theseus-codex/src/app/forecasts/layout.tsx` — sets the `--forecasts-*` palette on the section wrapper and provides the page chrome (title, subtitle, "Live" pulse via the existing `<CurrentsNavPulse>` analogue — extract a generic `<LivePulse color>` if needed).
+
+### 6. Empty / disconnected states
+
+- Empty: a parchment block explaining "No predictions yet — the model abstains until it has at least 3 verifiable sources."
+- Disconnected (SSE down): muted text "Reconnecting…" with the live pulse paused.
+
+### 7. Tests
+
+`theseus-codex/tests/components/ForecastCard.test.tsx` and `tests/lib/useLiveForecasts.test.ts` (reuse whatever testing harness Currents uses):
+- Card: renders all variants of status pill correctly.
+- Card: edge chevron is hidden when `|edge| < 0.05`.
+- Hook: reconnect backoff sequence on consecutive `error` events.
+- Hook: `forecast.resolved` updates only the matching prediction's resolution slot.
+- Hook: ignores frames with unknown `event:` type without crashing.
+
+## Definition of done
+
+- `cd theseus-codex && npm run build` passes.
+- `/forecasts` is reachable in dev and renders an empty state when no predictions exist.
+- The `useLiveForecasts` hook's reconnect timing matches the spec (verified by mocking an EventSource).
+- Tokens render against both light and dark system preferences (the rest of the codex is dark-only by default; verify nothing degrades).
+
+## SCOPE
+
+- `theseus-codex/src/app/globals.css`                                    MODIFY
+- `theseus-codex/src/lib/useLiveForecasts.ts`                            CREATE
+- `theseus-codex/src/lib/useSSE.ts`                                      CREATE
+- `theseus-codex/src/app/forecasts/layout.tsx`                           CREATE
+- `theseus-codex/src/app/forecasts/page.tsx`                             CREATE
+- `theseus-codex/src/app/forecasts/ForecastCard.tsx`                     CREATE
+- `theseus-codex/src/app/forecasts/ForecastGridClient.tsx`               CREATE
+- `theseus-codex/src/app/forecasts/LivePulse.tsx`                        CREATE
+- `theseus-codex/tests/components/ForecastCard.test.tsx`                 CREATE
+- `theseus-codex/tests/lib/useLiveForecasts.test.ts`                     CREATE

@@ -167,3 +167,129 @@ def scratch_binary_fixture(tmp_path) -> Path:
     p = tmp_path / "scratch.bin"
     p.write_bytes(b"\x00\x01\x02 scratch payload")
     return p
+
+
+@pytest.fixture
+def forecasts_seed():
+    """A test-only Forecasts corpus: two open markets, two predictions, two paper bets."""
+    from datetime import datetime, timedelta, timezone
+    from decimal import Decimal
+
+    from noosphere.models import (
+        ForecastBet,
+        ForecastBetMode,
+        ForecastBetSide,
+        ForecastBetStatus,
+        ForecastExchange,
+        ForecastMarket,
+        ForecastPrediction,
+        ForecastPredictionStatus,
+        ForecastSource,
+    )
+    from noosphere.store import Store
+
+    st = Store.from_database_url("sqlite:///:memory:")
+    now = datetime(2026, 4, 29, 12, 0, tzinfo=timezone.utc)
+    org_id = "org_forecasts"
+
+    poly_market = ForecastMarket(
+        id="forecast_market_poly",
+        organization_id=org_id,
+        source=ForecastSource.POLYMARKET,
+        external_id="poly_001",
+        title="Will the policy bill pass before June?",
+        description="A binary market tracking passage of a named bill.",
+        resolution_criteria="Resolves YES if the bill passes before 2026-06-01.",
+        category="policy",
+        current_yes_price=Decimal("0.610000"),
+        current_no_price=Decimal("0.390000"),
+        volume=Decimal("125000.0000"),
+        open_time=now - timedelta(days=3),
+        close_time=now + timedelta(days=20),
+        raw_payload={"fixture": True, "source": "polymarket"},
+    )
+    kalshi_market = ForecastMarket(
+        id="forecast_market_kalshi",
+        organization_id=org_id,
+        source=ForecastSource.KALSHI,
+        external_id="kalshi_001",
+        title="Will CPI print above consensus?",
+        description="A binary market tracking the next CPI release.",
+        resolution_criteria="Resolves YES if the official CPI print exceeds consensus.",
+        category="macro",
+        current_yes_price=Decimal("0.470000"),
+        current_no_price=Decimal("0.530000"),
+        volume=Decimal("87000.0000"),
+        open_time=now - timedelta(days=2),
+        close_time=now + timedelta(days=12),
+        raw_payload={"fixture": True, "source": "kalshi"},
+    )
+    st.put_forecast_market(poly_market)
+    st.put_forecast_market(kalshi_market)
+
+    poly_prediction = ForecastPrediction(
+        id="forecast_prediction_poly",
+        market_id=poly_market.id,
+        organization_id=org_id,
+        probability_yes=Decimal("0.680000"),
+        confidence_low=Decimal("0.570000"),
+        confidence_high=Decimal("0.760000"),
+        headline="Sources imply passage is more likely than the market price",
+        reasoning="Fixture reasoning grounded in a source-citation path.",
+        status=ForecastPredictionStatus.PUBLISHED,
+        topic_hint="policy",
+        model_name="fixture-model",
+        created_at=now,
+    )
+    kalshi_prediction = ForecastPrediction(
+        id="forecast_prediction_kalshi",
+        market_id=kalshi_market.id,
+        organization_id=org_id,
+        probability_yes=Decimal("0.430000"),
+        confidence_low=Decimal("0.340000"),
+        confidence_high=Decimal("0.520000"),
+        headline="The macro setup leans slightly below consensus",
+        reasoning="Fixture reasoning grounded in a source-citation path.",
+        status=ForecastPredictionStatus.PUBLISHED,
+        topic_hint="macro",
+        model_name="fixture-model",
+        created_at=now + timedelta(minutes=1),
+    )
+    st.put_forecast_prediction(poly_prediction)
+    st.put_forecast_prediction(kalshi_prediction)
+
+    poly_bet = ForecastBet(
+        id="forecast_bet_poly_yes",
+        prediction_id=poly_prediction.id,
+        organization_id=org_id,
+        mode=ForecastBetMode.PAPER,
+        exchange=ForecastExchange.POLYMARKET,
+        side=ForecastBetSide.YES,
+        stake_usd=Decimal("100.00"),
+        entry_price=Decimal("0.610000"),
+        status=ForecastBetStatus.FILLED,
+        created_at=now + timedelta(minutes=2),
+    )
+    kalshi_bet = ForecastBet(
+        id="forecast_bet_kalshi_no",
+        prediction_id=kalshi_prediction.id,
+        organization_id=org_id,
+        mode=ForecastBetMode.PAPER,
+        exchange=ForecastExchange.KALSHI,
+        side=ForecastBetSide.NO,
+        stake_usd=Decimal("100.00"),
+        entry_price=Decimal("0.530000"),
+        status=ForecastBetStatus.FILLED,
+        created_at=now + timedelta(minutes=3),
+    )
+    st.put_forecast_bet(poly_bet)
+    st.put_forecast_bet(kalshi_bet)
+
+    return {
+        "store": st,
+        "organization_id": org_id,
+        "now": now,
+        "markets": [poly_market, kalshi_market],
+        "predictions": [poly_prediction, kalshi_prediction],
+        "bets": [poly_bet, kalshi_bet],
+    }

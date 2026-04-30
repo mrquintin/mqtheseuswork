@@ -1,0 +1,144 @@
+# Codex Prompt 9 of 18 — Live trading safety layer + Polymarket/Kalshi adapters (DEFAULT OFF)
+
+**Sequence:** prompt 9 of 18 (Round 10, Wave C — bets, live mode behind gates). Depends on 02, 08. Report back with: every gate that must be open before a live bet submits, the kill-switch reason codes, and proof that running the test suite NEVER hits a real exchange (httpx-mock or respx assertion count).
+
+**Why this prompt exists.** Live-money trading is a footgun. The voice memo asks for it and we will ship the capability, but only behind a multi-layered consent fence. This prompt builds the safety layer first, then the two adapters that consume it. The default deployment posture is: live trading is OFF, the env flag is not set, no credentials are present, and the code paths that would call an exchange short-circuit on the first gate.
+
+**SAFETY CONTRACT (read this before writing anything).**
+The system you are building must satisfy ALL of the following at runtime, on every live-trade submission attempt, in order. ANY gate failing → no submit, structured-log line emitted, kill-switch *not* engaged (this is a normal control-flow case, not an emergency).
+
+1. `FORECASTS_LIVE_TRADING_ENABLED == "true"` (string compare, lowercased).
+2. The exchange adapter's credentials are configured (Polymarket: a private key; Kalshi: an API key id + private key PEM).
+3. The relevant prediction has `live_authorized_at != NULL` — set only via the operator endpoint added in prompt 11.
+4. The bet has a per-bet operator confirmation: status transition AUTHORIZED → CONFIRMED via a CSRF-protected POST handled by the operator UI in prompt 14, NOT by automation.
+5. `stake_usd <= FORECASTS_MAX_STAKE_USD`.
+6. The day's running loss does not exceed `FORECASTS_MAX_DAILY_LOSS_USD` (read from `ForecastPortfolioState.dailyLossUsd`).
+7. `ForecastPortfolioState.killSwitchEngaged == False`.
+8. The portfolio has sufficient `liveBalanceUsd` for the stake (no leverage, no margin, no shorts beyond `NO`-side native exposure).
+
+The bet only submits when 1–8 all hold. There are no exceptions, no operator overrides, no "force" flags. To bypass any gate you must edit the code — and the code review for that edit is a separate decision.
+
+**Before you start — read current state:**
+1. Read `noosphere/noosphere/forecasts/paper_bet_engine.py` from prompt 08. Live engine reuses the staking math (Kelly, edge threshold) — it diverges only at the *submission* step.
+2. Read `noosphere/noosphere/forecasts/_kalshi_client.py` and `_polymarket_client.py`. Live adapters extend these clients with order-placement methods.
+3. Read `coding_prompts/FORECASTS_DESIGN.md` §6 for the mode state machine.
+
+## Your task
+
+### `noosphere/noosphere/forecasts/safety.py`
+
+```python
+@dataclass(frozen=True)
+class GateContext:
+    live_trading_enabled: bool
+    polymarket_configured: bool
+    kalshi_configured: bool
+    max_stake_usd: float
+    max_daily_loss_usd: float
+    kill_switch_engaged: bool
+    daily_loss_usd: float
+    live_balance_usd: float
+
+class GateFailure(Exception):
+    code: Literal[
+        "DISABLED", "NOT_CONFIGURED", "NOT_AUTHORIZED",
+        "NOT_CONFIRMED", "STAKE_OVER_CEILING",
+        "DAILY_LOSS_OVER_CEILING", "KILL_SWITCH_ENGAGED",
+        "INSUFFICIENT_BALANCE",
+    ]
+    detail: str
+
+def check_all_gates(*, prediction, bet, ctx: GateContext) -> None:
+    """Raises GateFailure on the first failing gate. Order matches the safety contract."""
+
+def engage_kill_switch(store, organization_id: str, *, reason: str,
+                        engaged_at: datetime | None = None) -> None: ...
+def disengage_kill_switch(store, organization_id: str, *, operator_id: str,
+                            note: str = "") -> None: ...
+```
+
+Auto-engagement triggers (each is a separate detection function in `safety.py`):
+- Daily loss exceeds `FORECASTS_KILL_SWITCH_AUTO_THRESHOLD_USD` → reason `DAILY_LOSS_THRESHOLD`.
+- Three consecutive bet submissions return exchange errors → reason `EXCHANGE_ERROR_STREAK`.
+- Calibration over the last 50 resolved predictions degrades to mean Brier > 0.30 → reason `CALIBRATION_DEGRADED`.
+
+Disengagement requires an operator-supplied `note ≥ 20 chars` and is logged.
+
+### `noosphere/noosphere/forecasts/_polymarket_live_client.py`
+
+Extends `PolymarketGammaClient`. Adds:
+- Wallet construction from `POLYMARKET_PRIVATE_KEY` (Polygon hex private key) using `eth_account` or equivalent.
+- `place_order(condition_id, outcome_index, side, size, price, order_type)` — uses Polymarket's CLOB API. Confirm method names and the EIP-712 typed-data signing scheme against current docs; this prompt does not pin the SDK because Polymarket's surface evolves.
+- `cancel_order(order_id)`.
+- `get_order(order_id)`.
+- All methods are coroutines and return Pydantic models with `external_order_id`, `status`, `filled_size`, `average_price`.
+
+### `noosphere/noosphere/forecasts/_kalshi_live_client.py`
+
+Extends `KalshiClient`. Adds:
+- `place_order(ticker, side, count, price, order_type, client_order_id)` — Kalshi `POST /portfolio/orders`. Maps to a dataclass on return.
+- `cancel_order(order_id)`.
+- `get_order(order_id)`.
+- All RSA-signed via the same scheme used in prompt 04.
+
+### `noosphere/noosphere/forecasts/live_bet_engine.py`
+
+```python
+async def submit_live_bet(
+    store, bet_id: str, *,
+    polymarket_client=None, kalshi_client=None,
+    operator_id: str,
+) -> ForecastBet:
+    """
+    Pipeline:
+      1. Load ForecastBet + parent prediction + market.
+      2. Build GateContext from env + ForecastPortfolioState. check_all_gates.
+      3. Submit order via the matching live client. Set status=SUBMITTED with
+         externalOrderId.
+      4. Poll order status (up to 30s) for FILLED/CANCELLED/FAILED. Update row.
+      5. On FILLED: decrement liveBalanceUsd by stake.
+      6. On any exchange error: set status=FAILED with errorCode + errorMessage.
+         Increment exchange_error_streak counter; auto-engage kill switch if 3.
+      7. Return the updated ForecastBet.
+
+    NEVER bypasses check_all_gates. NEVER submits without an operator_id.
+    """
+
+async def settle_live_bet_on_resolution(
+    store, bet_id: str, market_outcome: Literal["YES","NO","CANCELLED"],
+) -> ForecastBet:
+    """Mirror of paper settlement; updates liveBalance from realized payoff."""
+```
+
+### Tests
+
+`noosphere/tests/test_live_bet_safety.py`:
+- One test per gate: each gate fails in isolation while the other 7 pass; assert `GateFailure.code` matches.
+- `test_all_gates_pass_submits_via_polymarket` — fully mocked Polymarket client returns FILLED; bet ends with status SETTLED after a fake resolution.
+- `test_kill_switch_blocks_even_if_authorized` — bet authorized + confirmed, but kill switch engaged → DISABLED-style GateFailure.
+- `test_default_env_blocks_everything` — clean env (no flags, no creds): `check_all_gates` raises with `DISABLED`.
+- `test_no_real_exchange_calls` — count httpx-mock invocations; ALL test runs use mocked clients.
+
+`noosphere/tests/test_live_bet_engine.py`:
+- `test_polymarket_filled_path` — mocked client; bet ends FILLED then SETTLED with realized payoff.
+- `test_kalshi_filled_path` — symmetric.
+- `test_partial_fill` — order returns 50% filled; bet status remains SUBMITTED with `filled_size` < `stake`; admin must intervene (no auto-cancel rule in v1; document this).
+- `test_exchange_error_streak_engages_kill_switch` — three consecutive FAILED → kill switch ON, reason `EXCHANGE_ERROR_STREAK`.
+- `test_disengage_requires_long_note` — note < 20 chars rejected; ≥ 20 succeeds.
+
+## Definition of done
+
+- `pytest noosphere/tests/test_live_bet_safety.py noosphere/tests/test_live_bet_engine.py` passes.
+- `grep -r 'asyncio.create_task.*submit_live' noosphere/noosphere/forecasts/` returns ZERO matches — live submission is never fire-and-forget; it is always awaited from the operator endpoint added in prompt 11.
+- `grep 'FORECASTS_LIVE_TRADING_ENABLED' noosphere/noosphere/forecasts/safety.py` shows the env-var read.
+- A startup self-check (`forecasts/__init__.py` or a dedicated module) emits a structured log line on import that names the current trading mode (`PAPER_ONLY` or `LIVE_ENABLED_AWAITING_AUTHORIZATION` or `LIVE_DISABLED_NO_CREDENTIALS`).
+
+## SCOPE
+
+- `noosphere/noosphere/forecasts/safety.py`                              CREATE
+- `noosphere/noosphere/forecasts/_polymarket_live_client.py`             CREATE
+- `noosphere/noosphere/forecasts/_kalshi_live_client.py`                 CREATE
+- `noosphere/noosphere/forecasts/live_bet_engine.py`                     CREATE
+- `noosphere/noosphere/forecasts/__init__.py`                            MODIFY
+- `noosphere/tests/test_live_bet_safety.py`                              CREATE
+- `noosphere/tests/test_live_bet_engine.py`                              CREATE

@@ -1,0 +1,90 @@
+# Codex Prompt 8 of 18 — Paper-bet engine (PAPER mode is the default; no real money is touched)
+
+**Sequence:** prompt 8 of 18 (Round 10, Wave C — bets, paper-only). Depends on 02, 06, 07. Report back with: the staking formula chosen, the edge threshold, and a sample paper P&L over the test fixture's resolved markets.
+
+**Why this prompt exists.** Calibrating predictions matters more than placing bets. The paper engine lets the system run end-to-end — placing simulated trades, marking-to-market against live prices, and settling on resolution — *without ever calling an exchange*. This is what runs by default in production. Live trading (prompt 09) layers on top of this; live and paper share the same scoring surface and the same prediction inputs.
+
+**Before you start — read current state:**
+1. Read `coding_prompts/FORECASTS_DESIGN.md` §6 (trading-mode state machine). The paper path goes: PUBLISHED → PAPER_AUTHORIZED → PAPER_FILLED → SETTLED. There is no manual confirmation step in PAPER mode.
+2. Read `noosphere/noosphere/forecasts/forecast_generator.py` — the engine fires off `place_paper_bet(prediction)` after a successful PUBLISHED outcome.
+3. Read `noosphere/noosphere/store.py` for the `ForecastBet` and `ForecastPortfolioState` helpers.
+
+## Your task
+
+### `noosphere/noosphere/forecasts/paper_bet_engine.txt`  [`paper_bet_engine.py`]
+
+```python
+@dataclass(frozen=True)
+class PaperBetConfig:
+    edge_threshold: float = 0.05          # |model_p - market_p| < this → no bet
+    kelly_fraction: float = 0.25          # fractional Kelly
+    max_stake_usd: float = 50.0           # ceiling per bet (PAPER)
+    initial_balance_usd: float = 10_000.0
+    organization_id: str = ""
+
+    @classmethod
+    def from_env(cls) -> "PaperBetConfig": ...
+```
+
+Env keys: `FORECASTS_PAPER_EDGE_THRESHOLD`, `FORECASTS_PAPER_KELLY_FRACTION`, `FORECASTS_PAPER_MAX_STAKE_USD`, `FORECASTS_PAPER_INITIAL_BALANCE_USD`, `FORECASTS_INGEST_ORG_ID`.
+
+```python
+async def evaluate_and_stake(
+    store, prediction_id: str, *, config: PaperBetConfig, now: datetime | None = None,
+) -> Optional[ForecastBet]:
+    """
+    Look up the prediction + its market.
+      1. Compute edge = (probability_yes - market_yes_price). If
+         abs(edge) < config.edge_threshold → no bet (return None).
+      2. Side := YES if edge > 0 else NO.
+      3. Kelly fraction-of-bankroll:
+            f* = (b*p - q) / b
+         where p = model probability of side winning, q = 1-p, and
+         b = (1 - market_price_for_side) / market_price_for_side. Clamp to [0, 1].
+      4. Stake := min(f* * kelly_fraction * paper_balance, max_stake_usd).
+         If stake < $1 → no bet.
+      5. Persist a ForecastBet row with mode=PAPER, status=PAPER_FILLED, entryPrice
+         set to the *market's* current price for the chosen side, stakeUsd, side.
+      6. Decrement paper_balance by stakeUsd. Return the row.
+    """
+
+async def settle_paper_bets_for_market(store, market_id: str) -> int:
+    """
+    On market resolution: for every PAPER ForecastBet on this market with
+    status=PAPER_FILLED, compute payoff = (stake / entryPrice) if side won else 0,
+    set status=SETTLED, exitPrice = 1.0 if won else 0.0, P&L = payoff - stake.
+    Increment paper_balance by payoff. Return count of settled bets.
+    """
+```
+
+### Wiring
+
+- `forecast_generator.generate_forecast(...)` calls `evaluate_and_stake(...)` after a successful PUBLISHED outcome. If `is_live_authorized(...)` is False (prompt 09 introduces this; for now, always False), only paper is fired.
+- `resolution_tracker.poll_market(...)` calls `settle_paper_bets_for_market(...)` after writing the ForecastResolution.
+
+### Tests
+
+`noosphere/tests/test_paper_bet_engine.py`:
+- `test_no_bet_below_edge_threshold` — model 0.52, market 0.50, threshold 0.05 → None.
+- `test_bet_yes_when_model_higher` — model 0.70, market 0.55 → side=YES, stake within ceiling.
+- `test_bet_no_when_model_lower` — model 0.30, market 0.55 → side=NO.
+- `test_kelly_clamped_to_max_stake_ceiling` — extreme edge produces stake > max → clamped.
+- `test_decrements_balance` — bet of $25 on $10000 balance → balance becomes $9975.
+- `test_settle_winning_bet` — bet at entry 0.55 on YES, market resolves YES → payoff = stake / 0.55; P&L positive; balance increased.
+- `test_settle_losing_bet` — bet on YES, market resolves NO → P&L = -stake.
+- `test_settle_cancelled_market` — market cancelled → bet refunded at face value (P&L = 0; status = SETTLED).
+- `test_idempotent_settlement` — calling `settle_paper_bets_for_market` twice settles each bet exactly once.
+
+## Definition of done
+
+- `pytest noosphere/tests/test_paper_bet_engine.py` passes.
+- The engine never imports any real exchange SDK. `grep -r 'polymarket\|kalshi' noosphere/noosphere/forecasts/paper_bet_engine.py` returns zero matches.
+- Paper bets are end-to-end: a synthetic test (test_forecasts_e2e_resolution.py from prompt 07) extended here shows generate_forecast → evaluate_and_stake → resolution → settle_paper_bets_for_market produces an SETTLED ForecastBet with non-zero P&L.
+
+## SCOPE
+
+- `noosphere/noosphere/forecasts/paper_bet_engine.py`                    CREATE
+- `noosphere/noosphere/forecasts/forecast_generator.py`                  MODIFY
+- `noosphere/noosphere/forecasts/resolution_tracker.py`                  MODIFY
+- `noosphere/tests/test_paper_bet_engine.py`                             CREATE
+- `noosphere/tests/test_forecasts_e2e_resolution.py`                     MODIFY

@@ -1,0 +1,77 @@
+name: Forecasts regression
+
+on:
+  pull_request:
+    paths:
+      - "noosphere/noosphere/forecasts/**"
+      - "noosphere/tests/test_forecasts_pipeline_e2e.py"
+      - "noosphere/tests/test_forecasts_invariants.py"
+      - "current_events_api/**"
+      - "theseus-codex/src/app/forecasts/**"
+      - "theseus-codex/src/app/(authed)/forecasts/**"
+      - "theseus-codex/src/app/api/forecasts/**"
+      - "theseus-codex/src/lib/forecasts*.ts"
+      - "theseus-codex/playwright.config.ts"
+      - "theseus-codex/playwright/forecasts.smoke.spec.ts"
+      - "theseus-codex/tests/pages/forecasts-smoke.test.tsx"
+      - ".github/workflows/forecasts-ci.yml"
+  workflow_dispatch:
+
+jobs:
+  python-forecasts-regression:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+          cache-dependency-path: |
+            requirements.txt
+            noosphere/requirements.txt
+            current_events_api/pyproject.toml
+
+      - name: Install Python dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install -e current_events_api pytest
+
+      - name: Run Forecasts pipeline and invariant tests
+        env:
+          PYTHONPATH: noosphere:current_events_api:.
+        run: |
+          python -m pytest -p no:pytest-qt \
+            noosphere/tests/test_forecasts_pipeline_e2e.py \
+            noosphere/tests/test_forecasts_invariants.py
+
+  codex-forecasts-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: theseus-codex/package-lock.json
+
+      - name: Install Codex dependencies
+        working-directory: theseus-codex
+        run: npm ci
+
+      - name: Run Forecasts UI tests
+        working-directory: theseus-codex
+        run: |
+          npm run test -- \
+            tests/api/forecasts.test.ts \
+            tests/components/ForecastCard.test.tsx \
+            tests/components/SourceDrawer.test.tsx \
+            tests/components/dual-pulse.test.tsx \
+            tests/lib/useLiveForecasts.test.ts \
+            tests/pages/forecast-detail.test.tsx \
+            tests/pages/forecasts-smoke.test.tsx \
+            tests/pages/homepage.test.tsx \
+            tests/pages/operator.test.tsx \
+            tests/pages/portfolio.test.tsx

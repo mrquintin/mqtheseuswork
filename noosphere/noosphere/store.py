@@ -51,6 +51,17 @@ from noosphere.models import (
     DriftEvent,
     Entity,
     EventOpinion,
+    ForecastBet,
+    ForecastBetMode,
+    ForecastCitation,
+    ForecastFollowUpMessage,
+    ForecastFollowUpSession,
+    ForecastMarket,
+    ForecastMarketStatus,
+    ForecastPortfolioState,
+    ForecastPrediction,
+    ForecastPredictionStatus,
+    ForecastResolution,
     FounderOverride,
     FollowUpMessage,
     FollowUpSession,
@@ -122,6 +133,12 @@ def _cosine(left: list[float], right: list[float]) -> float | None:
     if left_norm == 0.0 or right_norm == 0.0:
         return None
     return sum(a * b for a, b in zip(left, right)) / (left_norm * right_norm)
+
+
+def _copy_sqlmodel_fields(target: Any, source: Any, *, exclude: set[str]) -> None:
+    for key in type(source).model_fields:
+        if key not in exclude:
+            setattr(target, key, getattr(source, key))
 
 
 class LedgerChainError(Exception):
@@ -542,6 +559,45 @@ def _sqlite_migrate_temporal_columns(engine: Engine) -> None:
             conn.execute(text("ALTER TABLE artifact ADD COLUMN effective_at_inferred BOOLEAN DEFAULT 1"))
 
 
+def _sqlite_migrate_forecast_columns(engine: Engine) -> None:
+    if not str(engine.url).startswith("sqlite"):
+        return
+    insp = inspect(engine)
+    tables = insp.get_table_names()
+    if "ForecastPortfolioState" not in tables:
+        return
+    cols = {c["name"] for c in insp.get_columns("ForecastPortfolioState")}
+    with engine.begin() as conn:
+        if "totalResolved" not in cols:
+            conn.execute(text('ALTER TABLE "ForecastPortfolioState" ADD COLUMN "totalResolved" INTEGER NOT NULL DEFAULT 0'))
+
+
+def _sqlite_migrate_publication_columns(engine: Engine) -> None:
+    if not str(engine.url).startswith("sqlite"):
+        return
+    insp = inspect(engine)
+    tables = insp.get_table_names()
+    if "PublishedConclusion" not in tables:
+        return
+    cols = {c["name"] for c in insp.get_columns("PublishedConclusion")}
+    with engine.begin() as conn:
+        if "kind" not in cols:
+            conn.execute(text('ALTER TABLE "PublishedConclusion" ADD COLUMN "kind" VARCHAR NOT NULL DEFAULT \'CONCLUSION\''))
+
+
+def _sqlite_migrate_currents_columns(engine: Engine) -> None:
+    if not str(engine.url).startswith("sqlite"):
+        return
+    insp = inspect(engine)
+    tables = insp.get_table_names()
+    if "OpinionCitation" not in tables:
+        return
+    cols = {c["name"] for c in insp.get_columns("OpinionCitation")}
+    with engine.begin() as conn:
+        if "revokedAt" not in cols:
+            conn.execute(text('ALTER TABLE "OpinionCitation" ADD COLUMN "revokedAt" DATETIME'))
+
+
 def _artifact_row_default_effective(row: StoredArtifact) -> tuple[datetime, bool]:
     """Return (effective_at, inferred) for a DB row missing effective_at."""
     if row.source_date_iso:
@@ -614,6 +670,9 @@ class Store:
         SQLModel.metadata.create_all(eng)
         _sqlite_migrate_temporal_columns(eng)
         _sqlite_migrate_literature_columns(eng)
+        _sqlite_migrate_currents_columns(eng)
+        _sqlite_migrate_forecast_columns(eng)
+        _sqlite_migrate_publication_columns(eng)
         _backfill_artifact_effective_times(eng)
         _seed_embedding_model_versions(eng)
         return cls(eng)
@@ -1306,6 +1365,7 @@ class Store:
 
     def revoke_citations_for_source(self, source_kind: str, source_id: str, reason: str) -> int:
         source_kind_norm = source_kind.lower()
+        forecast_source_type = source_kind_norm.upper()
         with self.session() as s:
             stmt = select(OpinionCitation).where(OpinionCitation.source_kind == source_kind_norm)
             if source_kind_norm == "conclusion":
@@ -1316,9 +1376,11 @@ class Store:
                 raise ValueError(f"unsupported citation source_kind: {source_kind}")
 
             rows = list(s.exec(stmt).all())
+            revoked_at = _utcnow()
             affected_opinion_ids = {row.opinion_id for row in rows}
             for row in rows:
                 row.is_revoked = True
+                row.revoked_at = revoked_at
                 row.revoked_reason = reason
                 s.add(row)
 
@@ -1334,8 +1396,20 @@ class Store:
                         opinion.abstention_reason = AbstentionReason.REVOKED_SOURCES
                         s.add(opinion)
 
+            forecast_rows = list(
+                s.exec(
+                    select(ForecastCitation)
+                    .where(ForecastCitation.source_type == forecast_source_type)
+                    .where(ForecastCitation.source_id == source_id)
+                ).all()
+            )
+            for row in forecast_rows:
+                row.is_revoked = True
+                row.revoked_reason = reason
+                s.add(row)
+
             s.commit()
-            return len(rows)
+            return len(rows) + len(forecast_rows)
 
     def add_followup_session(self, session: FollowUpSession) -> str:
         session_id = session.id
@@ -1362,6 +1436,208 @@ class Store:
     def get_followup_message(self, message_id: str) -> Optional[FollowUpMessage]:
         with self.session() as s:
             return s.get(FollowUpMessage, message_id)
+
+    # --- Forecasts ---
+    def put_forecast_market(self, market: ForecastMarket) -> str:
+        """Upsert a ForecastMarket by id, falling back to source/external_id."""
+        source_value = market.source.value if hasattr(market.source, "value") else str(market.source)
+        with self.session() as s:
+            existing = s.get(ForecastMarket, market.id)
+            if existing is None:
+                existing = s.exec(
+                    select(ForecastMarket)
+                    .where(ForecastMarket.source == source_value)
+                    .where(ForecastMarket.external_id == market.external_id)
+                ).first()
+            market.updated_at = _utcnow()
+            if existing is not None:
+                _copy_sqlmodel_fields(existing, market, exclude={"id", "created_at"})
+                s.add(existing)
+                s.commit()
+                return existing.id
+            s.add(market)
+            s.commit()
+            return market.id
+
+    def get_forecast_market(self, market_id: str) -> Optional[ForecastMarket]:
+        with self.session() as s:
+            return s.get(ForecastMarket, market_id)
+
+    def list_open_forecast_markets(
+        self,
+        *,
+        organization_id: str | None = None,
+        limit: int = 100,
+    ) -> list[ForecastMarket]:
+        status_value = ForecastMarketStatus.OPEN.value
+        with self.session() as s:
+            stmt = select(ForecastMarket).where(ForecastMarket.status == status_value)
+            if organization_id is not None:
+                stmt = stmt.where(ForecastMarket.organization_id == organization_id)
+            return list(
+                s.exec(
+                    stmt.order_by(asc(ForecastMarket.close_time), asc(ForecastMarket.created_at)).limit(limit)
+                ).all()
+            )
+
+    def put_forecast_prediction(self, prediction: ForecastPrediction) -> str:
+        prediction.updated_at = _utcnow()
+        with self.session() as s:
+            existing = s.get(ForecastPrediction, prediction.id)
+            if existing is not None:
+                _copy_sqlmodel_fields(existing, prediction, exclude={"id", "created_at"})
+                s.add(existing)
+            else:
+                s.add(prediction)
+            s.commit()
+            return prediction.id if existing is None else existing.id
+
+    def get_forecast_prediction(self, prediction_id: str) -> Optional[ForecastPrediction]:
+        with self.session() as s:
+            return s.get(ForecastPrediction, prediction_id)
+
+    def list_recent_forecast_predictions(
+        self,
+        *,
+        since: datetime,
+        limit: int,
+    ) -> list[ForecastPrediction]:
+        with self.session() as s:
+            return list(
+                s.exec(
+                    select(ForecastPrediction)
+                    .where(ForecastPrediction.created_at >= since)
+                    .order_by(desc(ForecastPrediction.created_at))
+                    .limit(limit)
+                ).all()
+            )
+
+    def put_forecast_citation(self, citation: ForecastCitation) -> str:
+        with self.session() as s:
+            existing = s.get(ForecastCitation, citation.id)
+            if existing is not None:
+                _copy_sqlmodel_fields(existing, citation, exclude={"id", "created_at"})
+                s.add(existing)
+            else:
+                s.add(citation)
+            s.commit()
+            return citation.id if existing is None else existing.id
+
+    def list_forecast_citations(self, prediction_id: str) -> list[ForecastCitation]:
+        with self.session() as s:
+            return list(
+                s.exec(
+                    select(ForecastCitation)
+                    .where(ForecastCitation.prediction_id == prediction_id)
+                    .order_by(asc(ForecastCitation.created_at))
+                ).all()
+            )
+
+    def put_forecast_resolution(self, resolution: ForecastResolution) -> str:
+        """Append-only insert; a second resolution for the prediction is a no-op."""
+        with self.session() as s:
+            existing = s.exec(
+                select(ForecastResolution).where(
+                    ForecastResolution.prediction_id == resolution.prediction_id
+                )
+            ).first()
+            if existing is not None:
+                return existing.id
+            s.add(resolution)
+            s.commit()
+            return resolution.id
+
+    def get_forecast_resolution(self, prediction_id: str) -> Optional[ForecastResolution]:
+        with self.session() as s:
+            return s.exec(
+                select(ForecastResolution).where(
+                    ForecastResolution.prediction_id == prediction_id
+                )
+            ).first()
+
+    def get_unresolved_predictions_for_market(self, market_id: str) -> list[ForecastPrediction]:
+        with self.session() as s:
+            resolved_ids = set(s.exec(select(ForecastResolution.prediction_id)).all())
+            rows = s.exec(
+                select(ForecastPrediction)
+                .where(ForecastPrediction.market_id == market_id)
+                .where(ForecastPrediction.status == ForecastPredictionStatus.PUBLISHED.value)
+                .order_by(asc(ForecastPrediction.created_at))
+            ).all()
+            return [row for row in rows if row.id not in resolved_ids]
+
+    def put_forecast_bet(self, bet: ForecastBet) -> str:
+        mode_value = bet.mode.value if hasattr(bet.mode, "value") else str(bet.mode)
+        if mode_value == ForecastBetMode.LIVE.value and bet.live_authorized_at is None:
+            raise ValueError("LIVE forecast bets require live_authorized_at")
+        with self.session() as s:
+            existing = s.get(ForecastBet, bet.id)
+            if existing is not None:
+                _copy_sqlmodel_fields(existing, bet, exclude={"id", "created_at"})
+                s.add(existing)
+            else:
+                s.add(bet)
+            s.commit()
+            return bet.id if existing is None else existing.id
+
+    def list_bets_for_prediction(self, prediction_id: str) -> list[ForecastBet]:
+        with self.session() as s:
+            return list(
+                s.exec(
+                    select(ForecastBet)
+                    .where(ForecastBet.prediction_id == prediction_id)
+                    .order_by(asc(ForecastBet.created_at))
+                ).all()
+            )
+
+    def get_portfolio_state(self, organization_id: str) -> Optional[ForecastPortfolioState]:
+        with self.session() as s:
+            return s.exec(
+                select(ForecastPortfolioState).where(
+                    ForecastPortfolioState.organization_id == organization_id
+                )
+            ).first()
+
+    def set_portfolio_state(self, state: ForecastPortfolioState) -> str:
+        state.updated_at = _utcnow()
+        with self.session() as s:
+            existing = s.exec(
+                select(ForecastPortfolioState).where(
+                    ForecastPortfolioState.organization_id == state.organization_id
+                )
+            ).first()
+            if existing is not None:
+                _copy_sqlmodel_fields(existing, state, exclude={"id"})
+                s.add(existing)
+                s.commit()
+                return existing.id
+            s.add(state)
+            s.commit()
+            return state.id
+
+    def add_forecast_followup_session(self, session: ForecastFollowUpSession) -> str:
+        with self.session() as s:
+            s.add(session)
+            s.commit()
+            return session.id
+
+    def get_forecast_followup_session(self, session_id: str) -> Optional[ForecastFollowUpSession]:
+        with self.session() as s:
+            return s.get(ForecastFollowUpSession, session_id)
+
+    def add_forecast_followup_message(self, message: ForecastFollowUpMessage) -> str:
+        with self.session() as s:
+            s.add(message)
+            session = s.get(ForecastFollowUpSession, message.session_id)
+            if session is not None:
+                session.last_activity_at = message.created_at
+                s.add(session)
+            s.commit()
+            return message.id
+
+    def get_forecast_followup_message(self, message_id: str) -> Optional[ForecastFollowUpMessage]:
+        with self.session() as s:
+            return s.get(ForecastFollowUpMessage, message_id)
 
     def list_claim_ids(self) -> list[str]:
         with self.session() as s:

@@ -4,4 +4,4 @@ ENV PYTHONUNBUFFERED=1 PYTHONPATH=/app/noosphere:/app/current_events_api
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 COPY noosphere ./noosphere
-CMD ["python", "-m", "noosphere.currents", "loop"]
+CMD ["sh", "-c", "set -eu; pids=''; stop(){ for pid in $pids; do kill -TERM \"$pid\" 2>/dev/null || true; done; wait || true; }; trap stop TERM INT; if [ \"${FORECASTS_SCHEDULER_ENABLED:-false}\" = \"true\" ]; then python -m noosphere.forecasts.scheduler run & pids=\"$pids $!\"; fi; python -m noosphere.currents loop & currents_pid=$!; pids=\"$pids $currents_pid\"; wait \"$currents_pid\"; status=$?; stop; exit \"$status\""]

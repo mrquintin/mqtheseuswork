@@ -21,6 +21,9 @@ Commands:
   classify        Classify a single claim (methodology vs substance)
 """
 
+from __future__ import annotations
+
+import asyncio
 import json
 from datetime import datetime, date
 from pathlib import Path
@@ -32,9 +35,6 @@ from rich.table import Table
 from rich.panel import Panel
 from rich.progress import Progress, SpinnerColumn, TextColumn
 from rich.text import Text
-
-from noosphere.orchestrator import NoosphereOrchestrator
-from noosphere.models import Discipline
 
 # ── Setup ────────────────────────────────────────────────────────────────────
 
@@ -59,6 +59,8 @@ def parse_date(date_str: str) -> date:
 
 def parse_disciplines(discipline_str: Optional[str]) -> List[Discipline]:
     """Parse comma-separated discipline names."""
+    from noosphere.models import Discipline
+
     if not discipline_str:
         return []
     names = [d.strip() for d in discipline_str.split(",")]
@@ -76,7 +78,16 @@ def parse_disciplines(discipline_str: Optional[str]) -> List[Discipline]:
 
 def get_orchestrator(data_dir: Optional[str]) -> NoosphereOrchestrator:
     """Load orchestrator with optional data directory override."""
+    from noosphere.orchestrator import NoosphereOrchestrator
+
     return NoosphereOrchestrator(data_dir or "./noosphere_data")
+
+
+def _store_from_settings():
+    from noosphere.config import get_settings
+    from noosphere.store import Store
+
+    return Store.from_database_url(get_settings().database_url)
 
 
 # ── CLI Group ────────────────────────────────────────────────────────────────
@@ -89,6 +100,262 @@ def cli(ctx):
     if ctx.invoked_subcommand is None:
         # Show help if no subcommand
         click.echo(ctx.get_help())
+
+
+# ── Command: forecasts ─────────────────────────────────────────────────────
+
+@click.group("forecasts")
+def forecasts_cli() -> None:
+    """Forecast-market ingestion and prediction commands."""
+
+
+@forecasts_cli.group("ingest")
+def forecasts_ingest_cli() -> None:
+    """Run forecast-market ingestors."""
+
+
+@forecasts_ingest_cli.command("polymarket")
+@click.option(
+    "--dry-run",
+    is_flag=True,
+    default=False,
+    help="Run against an in-memory store; no durable rows are written.",
+)
+def forecasts_ingest_polymarket(dry_run: bool) -> None:
+    """Ingest active open markets from Polymarket Gamma."""
+    from dataclasses import asdict
+
+    from noosphere.forecasts.config import PolymarketConfig
+    from noosphere.forecasts.polymarket_ingestor import ingest_once
+    from noosphere.store import Store
+
+    cfg = PolymarketConfig.from_env()
+    if not cfg.organization_id:
+        click.echo(
+            json.dumps(
+                {
+                    "ok": False,
+                    "error": (
+                        "No token is required for Polymarket Gamma, but "
+                        "FORECASTS_INGEST_ORG_ID is not set."
+                    ),
+                },
+                indent=2,
+            ),
+            err=True,
+        )
+        raise SystemExit(2)
+
+    store = (
+        Store.from_database_url("sqlite:///:memory:")
+        if dry_run
+        else _store_from_settings()
+    )
+    result = asyncio.run(ingest_once(store, config=cfg))
+    click.echo(
+        json.dumps(
+            {
+                "ok": not result.errors,
+                "dry_run": dry_run,
+                "accepted_categories": cfg.accepted_categories or ["*"],
+                "result": asdict(result),
+            },
+            indent=2,
+            default=str,
+        )
+    )
+
+
+@forecasts_ingest_cli.command("kalshi")
+@click.option(
+    "--dry-run",
+    is_flag=True,
+    default=False,
+    help="Run against an in-memory store; no durable rows are written.",
+)
+def forecasts_ingest_kalshi(dry_run: bool) -> None:
+    """Ingest open markets from Kalshi's authenticated read-only API."""
+    from dataclasses import asdict
+
+    from noosphere.forecasts.config import KalshiConfig
+    from noosphere.forecasts.kalshi_ingestor import ingest_once
+    from noosphere.store import Store
+
+    cfg = KalshiConfig.from_env()
+    if cfg.is_configured and not cfg.organization_id:
+        click.echo(
+            json.dumps(
+                {
+                    "ok": False,
+                    "error": (
+                        "Kalshi credentials are configured, but "
+                        "FORECASTS_INGEST_ORG_ID is not set."
+                    ),
+                },
+                indent=2,
+            ),
+            err=True,
+        )
+        raise SystemExit(2)
+
+    store = (
+        Store.from_database_url("sqlite:///:memory:")
+        if dry_run
+        else _store_from_settings()
+    )
+    result = asyncio.run(ingest_once(store, config=cfg))
+    click.echo(
+        json.dumps(
+            {
+                "ok": _forecast_ingest_ok(result.errors),
+                "dry_run": dry_run,
+                "accepted_categories": cfg.accepted_categories or ["*"],
+                "result": asdict(result),
+            },
+            indent=2,
+            default=str,
+        )
+    )
+
+
+@forecasts_ingest_cli.command("all")
+@click.option(
+    "--dry-run",
+    is_flag=True,
+    default=False,
+    help="Run against an in-memory store; no durable rows are written.",
+)
+def forecasts_ingest_all(dry_run: bool) -> None:
+    """Operator entry point: run Polymarket, then Kalshi, sequentially."""
+    from dataclasses import asdict
+
+    from noosphere.forecasts.config import KalshiConfig, PolymarketConfig
+    from noosphere.forecasts.kalshi_ingestor import ingest_once as ingest_kalshi_once
+    from noosphere.forecasts.polymarket_ingestor import (
+        ingest_once as ingest_polymarket_once,
+    )
+    from noosphere.store import Store
+
+    polymarket_cfg = PolymarketConfig.from_env()
+    kalshi_cfg = KalshiConfig.from_env()
+    if not polymarket_cfg.organization_id:
+        click.echo(
+            json.dumps(
+                {
+                    "ok": False,
+                    "error": (
+                        "No token is required for Polymarket Gamma, but "
+                        "FORECASTS_INGEST_ORG_ID is not set."
+                    ),
+                },
+                indent=2,
+            ),
+            err=True,
+        )
+        raise SystemExit(2)
+
+    store = (
+        Store.from_database_url("sqlite:///:memory:")
+        if dry_run
+        else _store_from_settings()
+    )
+
+    async def _run_all():
+        polymarket_result = await ingest_polymarket_once(
+            store,
+            config=polymarket_cfg,
+        )
+        kalshi_result = await ingest_kalshi_once(store, config=kalshi_cfg)
+        return polymarket_result, kalshi_result
+
+    polymarket_result, kalshi_result = asyncio.run(_run_all())
+    aggregate = _aggregate_forecast_results(polymarket_result, kalshi_result)
+    click.echo(
+        json.dumps(
+            {
+                "ok": _forecast_ingest_ok(aggregate["errors"]),
+                "dry_run": dry_run,
+                "accepted_categories": {
+                    "polymarket": polymarket_cfg.accepted_categories or ["*"],
+                    "kalshi": kalshi_cfg.accepted_categories or ["*"],
+                },
+                "result": aggregate,
+                "sources": {
+                    "polymarket": asdict(polymarket_result),
+                    "kalshi": asdict(kalshi_result),
+                },
+            },
+            indent=2,
+            default=str,
+        )
+    )
+
+
+def _aggregate_forecast_results(*results) -> dict[str, object]:
+    return {
+        "fetched": sum(result.fetched for result in results),
+        "inserted": sum(result.inserted for result in results),
+        "updated": sum(result.updated for result in results),
+        "skipped": sum(result.skipped for result in results),
+        "errors": [error for result in results for error in result.errors],
+    }
+
+
+def _forecast_ingest_ok(errors: list[str]) -> bool:
+    return all(error == "KALSHI_NOT_CONFIGURED" for error in errors)
+
+
+@forecasts_cli.command("resolve")
+@click.option("--market", "market_id", default=None, help="ForecastMarket id to poll.")
+@click.option("--all", "resolve_all", is_flag=True, default=False, help="Poll all OPEN forecast markets.")
+def forecasts_resolve(market_id: str | None, resolve_all: bool) -> None:
+    """Poll external settlement metadata and append ForecastResolution rows."""
+    from dataclasses import asdict
+
+    from noosphere.forecasts.resolution_tracker import poll_all_open, poll_market
+
+    if bool(market_id) == bool(resolve_all):
+        click.echo(
+            json.dumps(
+                {"ok": False, "error": "Specify exactly one of --market or --all."},
+                indent=2,
+            ),
+            err=True,
+        )
+        raise SystemExit(2)
+
+    store = _store_from_settings()
+    if resolve_all:
+        results = asyncio.run(poll_all_open(store))
+    else:
+        assert market_id is not None
+        results = [asyncio.run(poll_market(store, market_id))]
+
+    errors = [error for result in results for error in result.errors]
+    click.echo(
+        json.dumps(
+            {
+                "ok": not errors,
+                "results": [asdict(result) for result in results],
+            },
+            indent=2,
+            default=str,
+        )
+    )
+
+
+@forecasts_cli.command("run")
+@click.option(
+    "--once",
+    is_flag=True,
+    default=False,
+    help="Run one tick per Forecasts scheduler sub-loop and exit.",
+)
+def forecasts_run(once: bool) -> None:
+    """Run the standing Forecasts scheduler loop."""
+    from noosphere.forecasts.scheduler import main as scheduler_main
+
+    raise SystemExit(scheduler_main(["--once"] if once else ["run"]))
 
 
 # ── Command: ingest ─────────────────────────────────────────────────────────
@@ -1448,6 +1715,7 @@ def research(episode, generate, list_briefs, json_out, data_dir):
 # ── Plugin discovery ────────────────────────────────────────────────────────
 from noosphere.cli_commands import register_commands
 
+cli.add_command(forecasts_cli)
 register_commands(cli)
 
 

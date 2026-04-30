@@ -1,11 +1,18 @@
 "use client";
 
-import { useEffect, useReducer, useRef } from "react";
+import { useReducer } from "react";
 import type { PublicOpinion } from "./currentsTypes";
+import {
+  SSE_INITIAL_RECONNECT_MS,
+  SSE_MAX_RECONNECT_MS,
+  useSSE,
+} from "./useSSE";
 
-export const LIVE_OPINIONS_INITIAL_RECONNECT_MS = 1000;
-export const LIVE_OPINIONS_MAX_RECONNECT_MS = 30_000;
+export const LIVE_OPINIONS_INITIAL_RECONNECT_MS = SSE_INITIAL_RECONNECT_MS;
+export const LIVE_OPINIONS_MAX_RECONNECT_MS = SSE_MAX_RECONNECT_MS;
 export const LIVE_OPINIONS_MAX_ITEMS = 200;
+
+const OPINION_STREAM_EVENTS = ["opinion"] as const;
 
 export interface LiveOpinionsState {
   opinions: PublicOpinion[];
@@ -40,55 +47,48 @@ export function liveOpinionsReducer(
   }
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
+}
+
+function parseOpinionFrame(data: string): PublicOpinion | null {
+  try {
+    const frame: unknown = JSON.parse(data);
+    const payload = isRecord(frame) && "payload" in frame ? frame.payload : frame;
+    if (
+      !isRecord(payload) ||
+      typeof payload.id !== "string" ||
+      typeof payload.headline !== "string" ||
+      typeof payload.body_markdown !== "string" ||
+      typeof payload.stance !== "string" ||
+      typeof payload.confidence !== "number" ||
+      typeof payload.generated_at !== "string"
+    ) {
+      return null;
+    }
+    return payload as unknown as PublicOpinion;
+  } catch {
+    return null;
+  }
+}
+
 export function useLiveOpinions(seed: PublicOpinion[]): LiveOpinionsState {
   const [state, dispatch] = useReducer(liveOpinionsReducer, {
     opinions: seed,
     connected: false,
   });
-  const reconnectMs = useRef(LIVE_OPINIONS_INITIAL_RECONNECT_MS);
-  const timeoutId = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  useEffect(() => {
-    let cancelled = false;
-    let es: EventSource | null = null;
-
-    const connect = () => {
-      if (cancelled) return;
-
-      es = new EventSource("/api/currents/stream");
-      es.onopen = () => {
-        dispatch({ type: "connected" });
-        reconnectMs.current = LIVE_OPINIONS_INITIAL_RECONNECT_MS;
-      };
-      es.onmessage = (event) => {
-        try {
-          dispatch({ type: "opinion", payload: JSON.parse(event.data) });
-        } catch {
-          // Ignore malformed stream frames; the next valid opinion should still render.
-        }
-      };
-      es.onerror = () => {
-        es?.close();
-        dispatch({ type: "disconnected" });
-        if (cancelled) return;
-
-        const wait = Math.min(reconnectMs.current, LIVE_OPINIONS_MAX_RECONNECT_MS);
-        reconnectMs.current = Math.min(
-          reconnectMs.current * 2,
-          LIVE_OPINIONS_MAX_RECONNECT_MS,
-        );
-        timeoutId.current = setTimeout(connect, wait);
-      };
-    };
-
-    connect();
-
-    return () => {
-      cancelled = true;
-      if (timeoutId.current !== null) clearTimeout(timeoutId.current);
-      es?.close();
-    };
-  }, []);
+  useSSE({
+    url: "/api/currents/stream",
+    eventTypes: OPINION_STREAM_EVENTS,
+    onOpen: () => dispatch({ type: "connected" }),
+    onError: () => dispatch({ type: "disconnected" }),
+    onEvent: (eventType, data) => {
+      if (eventType !== "message" && eventType !== "opinion") return;
+      const payload = parseOpinionFrame(data);
+      if (payload) dispatch({ type: "opinion", payload });
+    },
+  });
 
   return state;
 }

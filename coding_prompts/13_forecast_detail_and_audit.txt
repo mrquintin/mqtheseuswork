@@ -1,0 +1,103 @@
+# Codex Prompt 13 of 18 — /forecasts/[id]: detail page, retrieval audit, citation drawer, follow-up panel
+
+**Sequence:** prompt 13 of 18 (Round 10, Wave E). Depends on 11, 12. Report back with: the audit-trail rendering, the verbatim-highlight implementation, and the keyboard navigation map for the citation drawer.
+
+**Why this prompt exists.** The detail page is where a reader audits the prediction. They see the full reasoning, every cited source's verbatim quote with the surrounding paragraph available behind a drawer, the resolution status, the calibration history, and a follow-up Q&A panel for "Why?" questions. This page is the principal artifact of the platform's intellectual transparency: a reader who doesn't trust the headline can verify every grounded claim.
+
+**Before you start — read current state:**
+1. Read `theseus-codex/src/app/currents/[id]/page.tsx` and the surrounding `SourceDrawer.tsx`, `AuditTrail.tsx`, etc. from Round 9 prompt 15. The Forecasts detail page mirrors this structure.
+2. Read `theseus-codex/src/app/currents/[id]/ChatPanel.tsx` (the follow-up component from Round 9 prompt 16). Same SSE follow-up shape; the only diff is the upstream URL.
+3. Read `current_events_api/current_events_api/routes/forecasts.py` from prompt 10 — confirm the resolution endpoint's response shape.
+
+## Your task
+
+### 1. `theseus-codex/src/app/forecasts/[id]/page.tsx`
+
+Server component. Fetches:
+- The prediction (with citations) via `forecastsApi.getForecast(id)`.
+- The market metadata via `forecastsApi.getMarket(prediction.marketId)`.
+- The resolution (if any) via `forecastsApi.getResolution(id)`. 404 → null.
+- The paper bets on this prediction via `forecastsApi.getBets(id)`.
+
+Renders a layout split:
+- Hero: headline + probability bar + edge vs. market + time-to-resolution.
+- Reasoning section: rendered markdown of `reasoning_markdown` with citation pills `[1]`, `[2]`, … inline. Clicking a pill scrolls to the citation in the drawer; pressing `[]` keys also navigates.
+- Audit trail: collapsible section showing all retrieved sources (not just cited ones), with relevance scores and which made it into the final reasoning.
+- Resolution panel: if resolved, show outcome, Brier, log loss, calibration bucket, justification text. Color-coded.
+- Bets panel: list of paper bets on this prediction, each with side, stake, entryPrice, status, P&L if settled.
+- Follow-up panel: the chat component from Round 9 prompt 16, repurposed for forecasts (`/api/forecasts/[id]/follow-up`).
+
+### 2. `SourceDrawer.tsx`
+
+Right-side drawer. Each citation:
+- Source ID + type (CONCLUSION / CLAIM).
+- Quoted span — the verbatim substring — *highlighted* with a parchment-on-gold background.
+- The surrounding paragraph from `source.text`, with the quoted span visually distinguished. Show ±200 chars around the span.
+- A "View source" link to `/c/[slug]` for conclusions, or to a claim view (which may not exist; in that case render the claim text in-place with no link).
+- Support label badge: DIRECT | INDIRECT | CONTRARY.
+
+Keyboard:
+- `[` / `]` cycle through citations.
+- `Esc` closes drawer.
+- Tab order is footnote pill → drawer item → next pill.
+
+### 3. `AuditTrail.tsx`
+
+A list of every RetrievedSource the model saw, with three columns:
+| Source | Relevance | Status |
+|---|---|---|
+| `<source_type>/<id>` | 0.79 | **CITED** / dropped |
+
+Hovering a row reveals the first 240 chars of the source. The intent is "show me what the model could have used".
+
+### 4. `ResolutionPanel.tsx`
+
+```
++-------------------------------------------------------+
+| RESOLVED YES — Polymarket settled 2026-04-02          |
+| Brier: 0.04   Log-loss: 0.21   Bucket: 0.8            |
+| Calibration so far in 0.8 bucket: 78% YES (n=23)      |
+| Justification: market resolved per UMA oracle …       |
++-------------------------------------------------------+
+```
+
+If outcome is CANCELLED, show a different layout (no Brier, prediction marked "withdrawn").
+
+### 5. Verbatim-highlight implementation
+
+In `SourceDrawer.tsx`, do the highlight by:
+1. Finding `quoted_span` in `source.text` with a *case-sensitive, exact* `indexOf` (no normalization).
+2. Splitting into `[before, span, after]`.
+3. Wrapping `span` in a `<mark>` with the gold background.
+
+If `indexOf` returns `-1` (which should never happen if the validator did its job), render the span in a red-bordered box labelled `CITATION FAILED VERIFICATION`. This is a defense-in-depth check at the edge of the system, after the validator has already passed.
+
+### 6. Tests
+
+`theseus-codex/tests/components/SourceDrawer.test.tsx`:
+- Renders with 3 citations; cycling `]` 4 times wraps to the first.
+- Verbatim highlight finds the exact span; mismatched span shows the red error box.
+- `Esc` closes the drawer.
+
+`theseus-codex/tests/pages/forecast-detail.test.tsx`:
+- Resolution panel shows correct values for YES, NO, CANCELLED outcomes.
+- Bets panel hides when `paperBets.length === 0`.
+- AuditTrail correctly marks cited vs. dropped sources.
+
+## Definition of done
+
+- `cd theseus-codex && npm run build` passes.
+- Detail page renders for a seeded prediction in dev (`/forecasts/<seeded-id>`).
+- Follow-up Q&A streams against the API in dev (use the seeded org's keys).
+- The verbatim-highlight defense renders a red error box if the data lies; verify with a hand-crafted test fixture that has `quoted_span` not in `source.text`.
+
+## SCOPE
+
+- `theseus-codex/src/app/forecasts/[id]/page.tsx`                        CREATE
+- `theseus-codex/src/app/forecasts/[id]/SourceDrawer.tsx`                CREATE
+- `theseus-codex/src/app/forecasts/[id]/AuditTrail.tsx`                  CREATE
+- `theseus-codex/src/app/forecasts/[id]/ResolutionPanel.tsx`             CREATE
+- `theseus-codex/src/app/forecasts/[id]/BetsPanel.tsx`                   CREATE
+- `theseus-codex/src/app/forecasts/[id]/ChatPanel.tsx`                   CREATE
+- `theseus-codex/tests/components/SourceDrawer.test.tsx`                 CREATE
+- `theseus-codex/tests/pages/forecast-detail.test.tsx`                   CREATE

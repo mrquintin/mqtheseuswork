@@ -1,0 +1,81 @@
+# Codex Prompt 1 of 18 — Forecasts platform design brief (no code)
+
+**Sequence:** prompt 1 of 18 (Round 10, Wave 0 — pure design pass). Produces `coding_prompts/FORECASTS_DESIGN.md`. Report back with: the route table, the env-var matrix, and the trading-mode state machine.
+
+**Why this prompt exists.** Round 10 adds a *Predictions* surface to theseus-codex that mirrors the existing `/currents` (commentary) surface but is grounded in external prediction markets — Polymarket and Kalshi. Bets default to PAPER mode and live-money trading is gated behind multiple explicit operator authorizations. Before any code is written, we need a single document that names every table, route, env var, and gate, and that flags collisions with existing code. Same role `MERGER_PLAN.md` played for Round 9.
+
+**Before you start — read current state:**
+1. Read `coding_prompts/archive_round9/README.md` to understand the Currents architecture you are mirroring.
+2. Read `noosphere/noosphere/currents/` end-to-end. The Forecasts pipeline copies its shape: `ingestor → enrich/relevance → generator → publisher → API → UI`. Do not duplicate code in your plan; reuse where possible (`HybridRetriever`, `HourlyBudgetGuard`, `_llm_client`, `PromptSeparator`).
+3. Read `noosphere/noosphere/predictive_extractor.py` and `noosphere/noosphere/resolution.py`. These already power *internal* predictions extracted from claims (founder-confirmed). The Forecasts module is **separate** — it owns *external* market predictions, public-facing, with their own resolution path. Your plan must explain this separation precisely so future readers don't conflate them.
+4. Read `theseus-codex/src/app/currents/` and `theseus-codex/prisma/schema.prisma` (the Currents tables). Forecasts mirrors them.
+5. Read `current_events_api/current_events_api/routes/` and `theseus-codex/src/app/api/currents/` — your `/v1/forecasts/*` routes mirror these.
+6. Skim Polymarket Gamma API docs (https://docs.polymarket.com/) and Kalshi API docs (https://trading-api.readme.io/) so your plan reflects the real market schemas. The plan does not have to call them; it has to describe what the *ingestors* will read.
+
+## Your task
+
+Write `coding_prompts/FORECASTS_DESIGN.md` with the following sections, in order. Keep the document under 4,500 words. Be specific — vague design briefs produce vague code.
+
+### 1. Goals and non-goals
+- One paragraph each. Non-goals must include "no autonomous live trading", "no signal-following without source citation", "no stock trading in this round" (defer per voice memo).
+
+### 2. Architecture diagram (ASCII)
+Same style as Round 9's README. Show: Polymarket + Kalshi → ingestor → ForecastMarket → generator → ForecastPrediction → resolution poller → calibration → optional bet engine → publisher → FastAPI → Codex proxy → public UI.
+
+### 3. Data model — full table list
+For every new table: name, columns with types, indexes, and FK relationships. Tables (minimum):
+- `ForecastMarket` — external market mirror (id, source enum POLYMARKET|KALSHI, externalId, title, description, resolutionCriteria, category, currentYesPrice, currentNoPrice, volume, openTime, closeTime, resolvedAt, resolvedOutcome, raw payload JSON, statusEnum)
+- `ForecastPrediction` — model's principled prediction for a market (id, marketId FK, organizationId, probabilityYes, confidenceLow, confidenceHigh, headline, reasoning, status enum PUBLISHED|ABSTAINED_*, abstentionReason, modelName, promptTokens, completionTokens, createdAt)
+- `ForecastCitation` — verbatim citation, mirrors `OpinionCitation` (predictionId FK, sourceType, sourceId, quotedSpan, supportLabel)
+- `ForecastResolution` — terminal record (predictionId FK, marketOutcome, brierScore, logLoss, calibrationBucket, resolvedAt, justification text — auto-filled from market resolution metadata)
+- `ForecastBet` — single record covering both paper and live modes (predictionId FK, mode enum PAPER|LIVE, exchange enum POLYMARKET|KALSHI, side enum YES|NO, stakeUsd, entryPrice, exitPrice, status enum PENDING|FILLED|CANCELLED|SETTLED, externalOrderId, settlement P&L, createdAt, settledAt). Live rows always have `live_authorized_at` set.
+- `ForecastPortfolioState` — singleton-per-org (paperBalance, liveBalanceUsd, dailyLossUsd, dailyLossResetAt, killSwitchEngaged, killSwitchReason, updatedAt)
+- `ForecastFollowUpSession` + `ForecastFollowUpMessage` — same shape as Currents follow-up tables, scoped to a prediction.
+
+### 4. Route table — every public route
+| Method | Path | Handler | Auth | Notes |
+|---|---|---|---|---|
+| FastAPI: `GET /v1/forecasts` | … | … | none | List, with topic/status/since filters |
+| FastAPI: `GET /v1/forecasts/{id}` | … | … | none | Single |
+| FastAPI: `GET /v1/forecasts/{id}/sources` | … | … | none | Audit trail |
+| FastAPI: `GET /v1/forecasts/stream` | … | … | none | SSE |
+| FastAPI: `POST /v1/forecasts/{id}/follow-up` | … | … | none | SSE Q&A |
+| FastAPI: `GET /v1/portfolio` | … | … | none | Read-only paper P&L + calibration |
+| FastAPI: `POST /v1/forecasts/{id}/bets/{betId}/confirm` | … | … | **operator** | Per-bet live-trade confirmation; CSRF-protected |
+| FastAPI: `POST /v1/admin/kill-switch` | … | … | **operator** | Engages kill switch |
+| Codex: `/api/forecasts/*` | … | proxy | … | Same-origin pass-through |
+| Codex page: `/forecasts` | … | … | public | Live grid |
+| Codex page: `/forecasts/[id]` | … | … | public | Detail |
+| Codex page: `/forecasts/portfolio` | … | … | public | Calibration & P&L (read-only) |
+| Codex page: `/(authed)/forecasts/operator` | … | … | **founder** | Bet authorization, kill switch |
+
+Mark every existing route in the table that this round modifies. Flag collisions with `**COLLISION**` and propose an alternative path; do not silently override.
+
+### 5. Env-var matrix
+A markdown table listing every new env var, default, and what owns it. Minimum:
+`POLYMARKET_API_BASE`, `POLYMARKET_GAMMA_BASE`, `POLYMARKET_PRIVATE_KEY` (live only, default empty), `KALSHI_API_BASE`, `KALSHI_API_KEY`, `KALSHI_API_KEY_ID`, `FORECASTS_LIVE_TRADING_ENABLED` (default `false`), `FORECASTS_MAX_STAKE_USD` (default `0`), `FORECASTS_MAX_DAILY_LOSS_USD` (default `0`), `FORECASTS_KILL_SWITCH_AUTO_THRESHOLD_USD`, `FORECASTS_PAPER_INITIAL_BALANCE_USD`, `FORECASTS_BUDGET_HOURLY_PROMPT_TOKENS`, `FORECASTS_BUDGET_HOURLY_COMPLETION_TOKENS`, `FORECASTS_INGEST_INTERVAL_S`, `FORECASTS_RESOLUTION_POLL_INTERVAL_S`.
+
+### 6. Trading-mode state machine
+A diagram + prose: PAPER → STAGED_LIVE (operator approved this prediction for live) → CONFIRMED_LIVE (operator confirmed this *bet*) → SUBMITTED → FILLED/CANCELLED → SETTLED. Document every transition trigger and what's required to reverse. Document the kill switch: which transitions it blocks and how it is engaged + disengaged.
+
+### 7. Risk register
+Enumerate every plausible failure mode and the mitigation. Minimum entries: market data delisting, API rate-limit, citation fabrication, model overconfidence, exchange downtime, slippage on live fills, key-leak, runaway-loss loop, calibration drift over time, dependency on a single LLM provider.
+
+### 8. Module-by-module implementation order
+A numbered list of exactly the 17 implementation prompts (02–18) that follow this one, with one-line summaries. This is your contract with future-you that the rest of the round is well-scoped.
+
+### 9. Open questions for the founder
+A bulleted list of decisions the founder must make before later prompts run. Examples: which Kalshi categories to ingest, paper-bet stake formula (Kelly fraction? Fixed?), whether to expose the operator UI to all founders or only the primary.
+
+## Definition of done
+
+- `coding_prompts/FORECASTS_DESIGN.md` exists, ≤ 4,500 words.
+- Every section above is present and non-empty.
+- No `**DECISION REQUIRED**` markers remain — anything you can't decide goes in §9 with a tentative recommendation.
+- The route table flags every existing-route collision.
+- The env-var matrix lists at least the 16 vars enumerated above.
+- No code is written. No source files are modified. Only the new design doc is created.
+
+## SCOPE
+
+- `coding_prompts/FORECASTS_DESIGN.md`                                  CREATE

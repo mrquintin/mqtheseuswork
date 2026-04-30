@@ -10,17 +10,20 @@ positioned in embedding space.
 from __future__ import annotations
 import json
 from datetime import date, datetime
+from decimal import Decimal
 from enum import Enum
 from typing import Optional, Any, Literal, NewType
 from pydantic import BaseModel, Field, ConfigDict
 from sqlalchemy import (
     Boolean as SABoolean,
+    CheckConstraint,
     Column,
     DateTime as SADateTime,
     Float as SAFloat,
     Index,
     Integer as SAInteger,
     LargeBinary,
+    Numeric,
     String,
     Text,
     UniqueConstraint,
@@ -112,6 +115,72 @@ class AbstentionReason(str, Enum):
 
 
 class FollowUpRole(str, Enum):
+    USER = "USER"
+    ASSISTANT = "ASSISTANT"
+
+
+class ForecastSource(str, Enum):
+    POLYMARKET = "POLYMARKET"
+    KALSHI = "KALSHI"
+
+
+class ForecastMarketStatus(str, Enum):
+    OPEN = "OPEN"
+    CLOSED = "CLOSED"
+    RESOLVED = "RESOLVED"
+    CANCELLED = "CANCELLED"
+
+
+class ForecastPredictionStatus(str, Enum):
+    PUBLISHED = "PUBLISHED"
+    ABSTAINED_INSUFFICIENT_SOURCES = "ABSTAINED_INSUFFICIENT_SOURCES"
+    ABSTAINED_MARKET_EXPIRED = "ABSTAINED_MARKET_EXPIRED"
+    ABSTAINED_NEAR_DUPLICATE = "ABSTAINED_NEAR_DUPLICATE"
+    ABSTAINED_BUDGET = "ABSTAINED_BUDGET"
+    ABSTAINED_CITATION_FABRICATION = "ABSTAINED_CITATION_FABRICATION"
+    ABSTAINED_REVOKED_SOURCES = "ABSTAINED_REVOKED_SOURCES"
+
+
+class ForecastSupportLabel(str, Enum):
+    DIRECT = "DIRECT"
+    INDIRECT = "INDIRECT"
+    CONTRARY = "CONTRARY"
+
+
+class ForecastOutcome(str, Enum):
+    YES = "YES"
+    NO = "NO"
+    CANCELLED = "CANCELLED"
+    AMBIGUOUS = "AMBIGUOUS"
+
+
+class ForecastBetMode(str, Enum):
+    PAPER = "PAPER"
+    LIVE = "LIVE"
+
+
+class ForecastExchange(str, Enum):
+    POLYMARKET = "POLYMARKET"
+    KALSHI = "KALSHI"
+
+
+class ForecastBetSide(str, Enum):
+    YES = "YES"
+    NO = "NO"
+
+
+class ForecastBetStatus(str, Enum):
+    PENDING = "PENDING"
+    AUTHORIZED = "AUTHORIZED"
+    CONFIRMED = "CONFIRMED"
+    SUBMITTED = "SUBMITTED"
+    FILLED = "FILLED"
+    CANCELLED = "CANCELLED"
+    SETTLED = "SETTLED"
+    FAILED = "FAILED"
+
+
+class ForecastFollowUpRole(str, Enum):
     USER = "USER"
     ASSISTANT = "ASSISTANT"
 
@@ -854,7 +923,34 @@ class OpinionCitation(SQLModel, table=True):
     quoted_span: str = SQLField(sa_column=Column("quotedSpan", Text, nullable=False))
     retrieval_score: float = SQLField(sa_column=Column("retrievalScore", SAFloat, nullable=False))
     is_revoked: bool = SQLField(default=False, sa_column=Column("isRevoked", SABoolean, nullable=False))
+    revoked_at: Optional[datetime] = SQLField(default=None, sa_column=Column("revokedAt", SADateTime, nullable=True))
     revoked_reason: Optional[str] = SQLField(default=None, sa_column=Column("revokedReason", String, nullable=True))
+
+
+class PublishedConclusion(SQLModel, table=True):
+    """Public `/c/[slug]` snapshot shared by conclusions and generated articles."""
+
+    __tablename__ = "PublishedConclusion"
+    __table_args__ = (
+        UniqueConstraint("slug", "version", name="PublishedConclusion_slug_version_key"),
+        Index("PublishedConclusion_organizationId_idx", "organizationId"),
+        Index("PublishedConclusion_slug_idx", "slug"),
+        Index("PublishedConclusion_kind_publishedAt_idx", "kind", "publishedAt"),
+    )
+
+    id: str = SQLField(default_factory=_new_cuid, primary_key=True)
+    organization_id: str = SQLField(sa_column=Column("organizationId", String, nullable=False))
+    source_conclusion_id: str = SQLField(sa_column=Column("sourceConclusionId", String, nullable=False))
+    slug: str = SQLField(sa_column=Column("slug", String, nullable=False))
+    version: int = SQLField(default=1, sa_column=Column("version", SAInteger, nullable=False))
+    kind: str = SQLField(default="CONCLUSION", sa_column=Column("kind", String, nullable=False))
+    discounted_confidence: float = SQLField(sa_column=Column("discountedConfidence", SAFloat, nullable=False))
+    stated_confidence: float = SQLField(default=0.0, sa_column=Column("statedConfidence", SAFloat, nullable=False))
+    calibration_discount_reason: str = SQLField(default="", sa_column=Column("calibrationDiscountReason", String, nullable=False))
+    payload_json: str = SQLField(default="{}", sa_column=Column("payloadJson", Text, nullable=False))
+    doi: str = SQLField(default="", sa_column=Column("doi", String, nullable=False))
+    zenodo_record_id: str = SQLField(default="", sa_column=Column("zenodoRecordId", String, nullable=False))
+    published_at: datetime = SQLField(default_factory=_now, sa_column=Column("publishedAt", SADateTime, nullable=False))
 
 
 class FollowUpSession(SQLModel, table=True):
@@ -884,6 +980,200 @@ class FollowUpMessage(SQLModel, table=True):
     id: str = SQLField(default_factory=_new_cuid, primary_key=True)
     session_id: str = SQLField(sa_column=Column("sessionId", String, nullable=False))
     role: FollowUpRole = SQLField(sa_column=Column("role", String, nullable=False))
+    content: str = SQLField(sa_column=Column("content", Text, nullable=False))
+    citations: Optional[Any] = SQLField(default=None, sa_column=Column("citations", JSON, nullable=True))
+    created_at: datetime = SQLField(default_factory=_now, sa_column=Column("createdAt", SADateTime, nullable=False))
+
+
+class ForecastMarket(SQLModel, table=True):
+    """External prediction-market mirror owned by the Forecasts pipeline."""
+
+    __tablename__ = "ForecastMarket"
+    __table_args__ = (
+        UniqueConstraint("source", "externalId", name="ForecastMarket_source_externalId_key"),
+        Index("ForecastMarket_organizationId_status_closeTime_idx", "organizationId", "status", "closeTime"),
+        Index("ForecastMarket_source_category_idx", "source", "category"),
+        Index("ForecastMarket_updatedAt_idx", "updatedAt"),
+    )
+
+    id: str = SQLField(default_factory=_new_cuid, primary_key=True)
+    organization_id: str = SQLField(sa_column=Column("organizationId", String, nullable=False))
+    source: ForecastSource = SQLField(sa_column=Column("source", String, nullable=False))
+    external_id: str = SQLField(sa_column=Column("externalId", String, nullable=False))
+    title: str = SQLField(sa_column=Column("title", String(280), nullable=False))
+    description: Optional[str] = SQLField(default=None, sa_column=Column("description", Text, nullable=True))
+    resolution_criteria: Optional[str] = SQLField(default=None, sa_column=Column("resolutionCriteria", Text, nullable=True))
+    category: Optional[str] = SQLField(default=None, sa_column=Column("category", String, nullable=True))
+    current_yes_price: Optional[Decimal] = SQLField(default=None, sa_column=Column("currentYesPrice", Numeric(8, 6), nullable=True))
+    current_no_price: Optional[Decimal] = SQLField(default=None, sa_column=Column("currentNoPrice", Numeric(8, 6), nullable=True))
+    volume: Optional[Decimal] = SQLField(default=None, sa_column=Column("volume", Numeric(18, 4), nullable=True))
+    open_time: Optional[datetime] = SQLField(default=None, sa_column=Column("openTime", SADateTime, nullable=True))
+    close_time: Optional[datetime] = SQLField(default=None, sa_column=Column("closeTime", SADateTime, nullable=True))
+    resolved_at: Optional[datetime] = SQLField(default=None, sa_column=Column("resolvedAt", SADateTime, nullable=True))
+    resolved_outcome: Optional[ForecastOutcome] = SQLField(default=None, sa_column=Column("resolvedOutcome", String, nullable=True))
+    raw_payload: dict[str, Any] = SQLField(default_factory=dict, sa_column=Column("rawPayload", JSON, nullable=False))
+    status: ForecastMarketStatus = SQLField(
+        default=ForecastMarketStatus.OPEN,
+        sa_column=Column("status", String, nullable=False),
+    )
+    created_at: datetime = SQLField(default_factory=_now, sa_column=Column("createdAt", SADateTime, nullable=False))
+    updated_at: datetime = SQLField(default_factory=_now, sa_column=Column("updatedAt", SADateTime, nullable=False))
+
+
+class ForecastPrediction(SQLModel, table=True):
+    """Source-grounded probability forecast for one external market."""
+
+    __tablename__ = "ForecastPrediction"
+    __table_args__ = (
+        Index("ForecastPrediction_organizationId_status_createdAt_idx", "organizationId", "status", "createdAt"),
+        Index("ForecastPrediction_marketId_createdAt_idx", "marketId", "createdAt"),
+        Index("ForecastPrediction_liveAuthorizedAt_idx", "liveAuthorizedAt"),
+    )
+
+    id: str = SQLField(default_factory=_new_cuid, primary_key=True)
+    market_id: str = SQLField(sa_column=Column("marketId", String, nullable=False))
+    organization_id: str = SQLField(sa_column=Column("organizationId", String, nullable=False))
+    probability_yes: Optional[Decimal] = SQLField(default=None, sa_column=Column("probabilityYes", Numeric(8, 6), nullable=True))
+    confidence_low: Optional[Decimal] = SQLField(default=None, sa_column=Column("confidenceLow", Numeric(8, 6), nullable=True))
+    confidence_high: Optional[Decimal] = SQLField(default=None, sa_column=Column("confidenceHigh", Numeric(8, 6), nullable=True))
+    headline: str = SQLField(sa_column=Column("headline", String(140), nullable=False))
+    reasoning: str = SQLField(sa_column=Column("reasoning", Text, nullable=False))
+    status: ForecastPredictionStatus = SQLField(sa_column=Column("status", String, nullable=False))
+    abstention_reason: Optional[str] = SQLField(default=None, sa_column=Column("abstentionReason", String, nullable=True))
+    topic_hint: Optional[str] = SQLField(default=None, sa_column=Column("topicHint", String, nullable=True))
+    model_name: str = SQLField(sa_column=Column("modelName", String, nullable=False))
+    prompt_tokens: int = SQLField(default=0, sa_column=Column("promptTokens", SAInteger, nullable=False))
+    completion_tokens: int = SQLField(default=0, sa_column=Column("completionTokens", SAInteger, nullable=False))
+    live_authorized_at: Optional[datetime] = SQLField(default=None, sa_column=Column("liveAuthorizedAt", SADateTime, nullable=True))
+    live_authorized_by: Optional[str] = SQLField(default=None, sa_column=Column("liveAuthorizedBy", String, nullable=True))
+    created_at: datetime = SQLField(default_factory=_now, sa_column=Column("createdAt", SADateTime, nullable=False))
+    updated_at: datetime = SQLField(default_factory=_now, sa_column=Column("updatedAt", SADateTime, nullable=False))
+
+
+class ForecastCitation(SQLModel, table=True):
+    """Verbatim source span grounding one ForecastPrediction."""
+
+    __tablename__ = "ForecastCitation"
+    __table_args__ = (
+        Index("ForecastCitation_predictionId_idx", "predictionId"),
+        Index("ForecastCitation_sourceType_sourceId_idx", "sourceType", "sourceId"),
+    )
+
+    id: str = SQLField(default_factory=_new_cuid, primary_key=True)
+    prediction_id: str = SQLField(sa_column=Column("predictionId", String, nullable=False))
+    source_type: str = SQLField(sa_column=Column("sourceType", String, nullable=False))
+    source_id: str = SQLField(sa_column=Column("sourceId", String, nullable=False))
+    quoted_span: str = SQLField(sa_column=Column("quotedSpan", Text, nullable=False))
+    support_label: ForecastSupportLabel = SQLField(sa_column=Column("supportLabel", String, nullable=False))
+    retrieval_score: Optional[float] = SQLField(default=None, sa_column=Column("retrievalScore", SAFloat, nullable=True))
+    is_revoked: bool = SQLField(default=False, sa_column=Column("isRevoked", SABoolean, nullable=False))
+    revoked_reason: Optional[str] = SQLField(default=None, sa_column=Column("revokedReason", String, nullable=True))
+    created_at: datetime = SQLField(default_factory=_now, sa_column=Column("createdAt", SADateTime, nullable=False))
+
+
+class ForecastResolution(SQLModel, table=True):
+    """Terminal settlement and calibration score for one prediction."""
+
+    __tablename__ = "ForecastResolution"
+    __table_args__ = (
+        UniqueConstraint("predictionId", name="ForecastResolution_predictionId_key"),
+        Index("ForecastResolution_resolvedAt_idx", "resolvedAt"),
+        Index("ForecastResolution_calibrationBucket_idx", "calibrationBucket"),
+    )
+
+    id: str = SQLField(default_factory=_new_cuid, primary_key=True)
+    prediction_id: str = SQLField(sa_column=Column("predictionId", String, nullable=False))
+    market_outcome: ForecastOutcome = SQLField(sa_column=Column("marketOutcome", String, nullable=False))
+    brier_score: Optional[float] = SQLField(default=None, sa_column=Column("brierScore", SAFloat, nullable=True))
+    log_loss: Optional[float] = SQLField(default=None, sa_column=Column("logLoss", SAFloat, nullable=True))
+    calibration_bucket: Optional[Decimal] = SQLField(default=None, sa_column=Column("calibrationBucket", Numeric(3, 1), nullable=True))
+    resolved_at: datetime = SQLField(sa_column=Column("resolvedAt", SADateTime, nullable=False))
+    justification: str = SQLField(sa_column=Column("justification", Text, nullable=False))
+    raw_settlement: Optional[Any] = SQLField(default=None, sa_column=Column("rawSettlement", JSON, nullable=True))
+    created_at: datetime = SQLField(default_factory=_now, sa_column=Column("createdAt", SADateTime, nullable=False))
+
+
+class ForecastBet(SQLModel, table=True):
+    """Paper or gated-live bet linked to one ForecastPrediction."""
+
+    __tablename__ = "ForecastBet"
+    __table_args__ = (
+        CheckConstraint('"mode" != \'LIVE\' OR "liveAuthorizedAt" IS NOT NULL', name="ForecastBet_live_requires_authorizedAt_check"),
+        Index("ForecastBet_organizationId_mode_createdAt_idx", "organizationId", "mode", "createdAt"),
+        Index("ForecastBet_predictionId_status_idx", "predictionId", "status"),
+        Index("ForecastBet_externalOrderId_idx", "externalOrderId"),
+        Index("ForecastBet_clientOrderId_idx", "clientOrderId"),
+    )
+
+    id: str = SQLField(default_factory=_new_cuid, primary_key=True)
+    prediction_id: str = SQLField(sa_column=Column("predictionId", String, nullable=False))
+    organization_id: str = SQLField(sa_column=Column("organizationId", String, nullable=False))
+    mode: ForecastBetMode = SQLField(default=ForecastBetMode.PAPER, sa_column=Column("mode", String, nullable=False))
+    exchange: ForecastExchange = SQLField(sa_column=Column("exchange", String, nullable=False))
+    side: ForecastBetSide = SQLField(sa_column=Column("side", String, nullable=False))
+    stake_usd: Decimal = SQLField(sa_column=Column("stakeUsd", Numeric(12, 2), nullable=False))
+    entry_price: Decimal = SQLField(sa_column=Column("entryPrice", Numeric(8, 6), nullable=False))
+    exit_price: Optional[Decimal] = SQLField(default=None, sa_column=Column("exitPrice", Numeric(8, 6), nullable=True))
+    status: ForecastBetStatus = SQLField(sa_column=Column("status", String, nullable=False))
+    external_order_id: Optional[str] = SQLField(default=None, sa_column=Column("externalOrderId", String, nullable=True))
+    client_order_id: Optional[str] = SQLField(default=None, sa_column=Column("clientOrderId", String, nullable=True))
+    settlement_pnl_usd: Optional[Decimal] = SQLField(default=None, sa_column=Column("settlementPnlUsd", Numeric(12, 2), nullable=True))
+    live_authorized_at: Optional[datetime] = SQLField(default=None, sa_column=Column("liveAuthorizedAt", SADateTime, nullable=True))
+    confirmed_at: Optional[datetime] = SQLField(default=None, sa_column=Column("confirmedAt", SADateTime, nullable=True))
+    submitted_at: Optional[datetime] = SQLField(default=None, sa_column=Column("submittedAt", SADateTime, nullable=True))
+    created_at: datetime = SQLField(default_factory=_now, sa_column=Column("createdAt", SADateTime, nullable=False))
+    settled_at: Optional[datetime] = SQLField(default=None, sa_column=Column("settledAt", SADateTime, nullable=True))
+
+
+class ForecastPortfolioState(SQLModel, table=True):
+    """Singleton-per-organization bankroll, loss, and calibration state."""
+
+    __tablename__ = "ForecastPortfolioState"
+    __table_args__ = (
+        UniqueConstraint("organizationId", name="ForecastPortfolioState_organizationId_key"),
+    )
+
+    id: str = SQLField(default_factory=_new_cuid, primary_key=True)
+    organization_id: str = SQLField(sa_column=Column("organizationId", String, nullable=False))
+    paper_balance_usd: Decimal = SQLField(sa_column=Column("paperBalanceUsd", Numeric(12, 2), nullable=False))
+    live_balance_usd: Optional[Decimal] = SQLField(default=None, sa_column=Column("liveBalanceUsd", Numeric(12, 2), nullable=True))
+    daily_loss_usd: Decimal = SQLField(default=Decimal("0"), sa_column=Column("dailyLossUsd", Numeric(12, 2), nullable=False))
+    daily_loss_reset_at: datetime = SQLField(sa_column=Column("dailyLossResetAt", SADateTime, nullable=False))
+    kill_switch_engaged: bool = SQLField(default=False, sa_column=Column("killSwitchEngaged", SABoolean, nullable=False))
+    kill_switch_reason: Optional[str] = SQLField(default=None, sa_column=Column("killSwitchReason", String, nullable=True))
+    total_resolved: int = SQLField(default=0, sa_column=Column("totalResolved", SAInteger, nullable=False))
+    mean_brier_90d: Optional[float] = SQLField(default=None, sa_column=Column("meanBrier90d", SAFloat, nullable=True))
+    mean_log_loss_90d: Optional[float] = SQLField(default=None, sa_column=Column("meanLogLoss90d", SAFloat, nullable=True))
+    updated_at: datetime = SQLField(default_factory=_now, sa_column=Column("updatedAt", SADateTime, nullable=False))
+
+
+class ForecastFollowUpSession(SQLModel, table=True):
+    """Anonymous follow-up chat session scoped to one prediction."""
+
+    __tablename__ = "ForecastFollowUpSession"
+    __table_args__ = (
+        Index("ForecastFollowUpSession_predictionId_lastActivityAt_idx", "predictionId", "lastActivityAt"),
+        Index("ForecastFollowUpSession_clientFingerprint_createdAt_idx", "clientFingerprint", "createdAt"),
+    )
+
+    id: str = SQLField(default_factory=_new_cuid, primary_key=True)
+    prediction_id: str = SQLField(sa_column=Column("predictionId", String, nullable=False))
+    client_fingerprint: str = SQLField(sa_column=Column("clientFingerprint", String, nullable=False))
+    created_at: datetime = SQLField(default_factory=_now, sa_column=Column("createdAt", SADateTime, nullable=False))
+    last_activity_at: datetime = SQLField(default_factory=_now, sa_column=Column("lastActivityAt", SADateTime, nullable=False))
+
+
+class ForecastFollowUpMessage(SQLModel, table=True):
+    """One message in a Forecasts follow-up session."""
+
+    __tablename__ = "ForecastFollowUpMessage"
+    __table_args__ = (
+        Index("ForecastFollowUpMessage_sessionId_createdAt_idx", "sessionId", "createdAt"),
+    )
+
+    id: str = SQLField(default_factory=_new_cuid, primary_key=True)
+    session_id: str = SQLField(sa_column=Column("sessionId", String, nullable=False))
+    role: ForecastFollowUpRole = SQLField(sa_column=Column("role", String, nullable=False))
     content: str = SQLField(sa_column=Column("content", Text, nullable=False))
     citations: Optional[Any] = SQLField(default=None, sa_column=Column("citations", JSON, nullable=True))
     created_at: datetime = SQLField(default_factory=_now, sa_column=Column("createdAt", SADateTime, nullable=False))

@@ -15,6 +15,7 @@ const PROTECTED_PREFIXES = [
   "/publication",
   "/library",
   "/account",
+  "/forecasts/operator",
   "/q/",
 ];
 
@@ -56,6 +57,7 @@ export const config = {
     "/publication/:path*",
     "/library/:path*",
     "/account/:path*",
+    "/forecasts/operator/:path*",
     "/q/:path*",
   ],
 };

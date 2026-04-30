@@ -1,4 +1,6 @@
 import Link from "next/link";
+import { CurrentsNavPulse } from "./CurrentsNavPulse";
+import { ForecastsNavPulse } from "./ForecastsNavPulse";
 import ThemeToggle from "./ThemeToggle";
 
 /**
@@ -93,8 +95,13 @@ export default function PublicHeader({ authed }: { authed: boolean }) {
         <Link href="/methodology" style={{ color: "var(--amber-dim)", textDecoration: "none" }}>
           Methodology
         </Link>
+        <CurrentsNavPulse label="Currents" />
+        <ForecastsNavPulse label="Forecasts" />
         <Link href="/responses" style={{ color: "var(--amber-dim)", textDecoration: "none" }}>
           Responses
+        </Link>
+        <Link href="/#about" style={{ color: "var(--amber-dim)", textDecoration: "none" }}>
+          About
         </Link>
       </nav>
 

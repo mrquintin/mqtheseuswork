@@ -1,11 +1,12 @@
 import Link from "next/link";
 
+import DualPulseSection from "@/app/(home)/DualPulseSection";
+import TransparencyFooter from "@/app/(home)/TransparencyFooter";
 import PublicHeader from "@/components/PublicHeader";
 import SculptureBackdrop from "@/components/SculptureBackdrop";
 import { db } from "@/lib/db";
 import { getFounder } from "@/lib/auth";
-import { listCurrents } from "@/lib/currentsApi";
-import type { PublicOpinion } from "@/lib/currentsTypes";
+import { listPublishedArticles } from "@/lib/conclusionsRead";
 
 /**
  * Public blog index — the Codex's front door.
@@ -36,28 +37,18 @@ import type { PublicOpinion } from "@/lib/currentsTypes";
 export const dynamic = "force-dynamic";
 export const revalidate = 60; // still re-fetch every minute for freshness
 
-async function CurrentsTeaser() {
-  let items: PublicOpinion[] = [];
-
-  try {
-    const resp = await listCurrents({ limit: 3 });
-    items = Array.isArray(resp.items) ? resp.items : [];
-  } catch {
-    return null;
-  }
-
-  if (!items.length) return null;
+async function EssaysRail() {
+  const articles = await listPublishedArticles(4);
+  if (!articles.length) return null;
 
   return (
     <section
-      aria-label="Current events teaser"
+      aria-label="Essays"
       style={{
-        background: "rgba(28, 25, 22, 0.82)",
-        border: "1px solid var(--currents-border)",
-        borderRadius: "4px",
-        boxShadow: "0 16px 36px rgba(0, 0, 0, 0.18)",
+        borderBottom: "1px solid var(--stroke)",
+        borderTop: "1px solid var(--stroke)",
         marginBottom: "2rem",
-        padding: "1rem 1rem 0.85rem",
+        padding: "1rem 0",
       }}
     >
       <div
@@ -69,87 +60,57 @@ async function CurrentsTeaser() {
           marginBottom: "0.85rem",
         }}
       >
-        <p
+        <h2
           className="mono"
           style={{
-            color: "var(--currents-amber)",
-            fontSize: "0.62rem",
-            letterSpacing: "0.22em",
+            color: "var(--amber-dim)",
+            fontSize: "0.72rem",
+            letterSpacing: "0.3em",
             margin: 0,
             textTransform: "uppercase",
           }}
         >
-          Live · current events
-        </p>
+          Essays
+        </h2>
         <Link
-          href="/currents"
           className="mono"
+          href="/responses?tab=articles"
           style={{
-            color: "var(--currents-gold)",
-            fontSize: "0.64rem",
-            letterSpacing: "0.18em",
+            color: "var(--amber)",
+            fontSize: "0.62rem",
+            letterSpacing: "0.2em",
             textDecoration: "none",
             textTransform: "uppercase",
-            whiteSpace: "nowrap",
           }}
         >
-          See all →
+          Archive →
         </Link>
       </div>
-
-      <ul
-        style={{
-          display: "grid",
-          gap: "0.65rem",
-          listStyle: "none",
-          margin: 0,
-          padding: 0,
-        }}
-      >
-        {items.map((op) => {
-          const topic = op.topic_hint || op.event?.topic_hint || "untagged";
-
-          return (
-            <li key={op.id}>
-              <Link
-                href={`/currents/${encodeURIComponent(op.id)}`}
-                style={{
-                  borderTop: "1px solid rgba(232, 225, 211, 0.08)",
-                  color: "inherit",
-                  display: "block",
-                  paddingTop: "0.65rem",
-                  textDecoration: "none",
-                }}
-              >
-                <span
-                  style={{
-                    color: "var(--currents-parchment)",
-                    display: "block",
-                    fontFamily: "'EB Garamond', serif",
-                    fontSize: "1rem",
-                    lineHeight: 1.3,
-                  }}
-                >
-                  {op.headline}
-                </span>
-                <span
-                  className="mono"
-                  style={{
-                    color: "var(--currents-muted)",
-                    display: "block",
-                    fontSize: "0.58rem",
-                    letterSpacing: "0.16em",
-                    marginTop: "0.22rem",
-                    textTransform: "uppercase",
-                  }}
-                >
-                  {op.stance} · {topic}
-                </span>
-              </Link>
-            </li>
-          );
-        })}
-      </ul>
+      <div style={{ display: "grid", gap: "0.75rem", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))" }}>
+        {articles.map((article) => (
+          <Link
+            href={`/c/${encodeURIComponent(article.slug)}`}
+            key={article.id}
+            style={{
+              border: "1px solid rgba(205, 151, 67, 0.22)",
+              color: "inherit",
+              display: "block",
+              padding: "0.85rem",
+              textDecoration: "none",
+            }}
+          >
+            <span className="mono" style={{ color: "var(--parchment-dim)", display: "block", fontSize: "0.58rem", letterSpacing: "0.16em", marginBottom: "0.35rem", textTransform: "uppercase" }}>
+              {article.publishedAt.slice(0, 10)}
+            </span>
+            <strong style={{ color: "var(--amber)", display: "block", fontFamily: "'Cinzel', serif", lineHeight: 1.25 }}>
+              {article.payload.conclusionText}
+            </strong>
+            <span style={{ color: "var(--parchment-dim)", display: "block", fontSize: "0.9rem", lineHeight: 1.45, marginTop: "0.45rem" }}>
+              {deriveExcerpt(article.payload.evidenceSummary || article.payload.rationale).slice(0, 160)}
+            </span>
+          </Link>
+        ))}
+      </div>
     </section>
   );
 }
@@ -237,6 +198,7 @@ export default async function PublicBlogIndex() {
           render outside this section; z-index on the inner div keeps
           text above the figure. */}
       <section
+        id="about"
         style={{
           position: "relative",
           minHeight: "70vh",
@@ -316,90 +278,95 @@ export default async function PublicBlogIndex() {
         style={{
           position: "relative",
           zIndex: 1,
-          maxWidth: "800px",
+          maxWidth: "1120px",
           margin: "0 auto",
           padding: "1rem 2rem 6rem",
         }}
       >
-        <CurrentsTeaser />
+        <DualPulseSection />
+        <div style={{ maxWidth: "800px", margin: "0 auto" }}>
+          <EssaysRail />
 
-        <h2
-          className="mono"
-          style={{
-            fontSize: "0.72rem",
-            letterSpacing: "0.3em",
-            textTransform: "uppercase",
-            color: "var(--amber-dim)",
-            margin: "0 0 1.5rem",
-            borderBottom: "1px solid var(--stroke)",
-            paddingBottom: "0.65rem",
-          }}
-        >
-          Acta · Publications
-        </h2>
-
-        {posts.length === 0 ? (
-          <div
-            className="ascii-frame"
-            data-label="TABULA RASA"
-            style={{ padding: "2rem 1.5rem", textAlign: "center" }}
-          >
-            <p
-              style={{
-                fontFamily: "'EB Garamond', serif",
-                fontStyle: "italic",
-                color: "var(--parchment)",
-                fontSize: "1.1rem",
-                margin: "0 0 0.35rem",
-              }}
-            >
-              Adhuc nihil publicum.
-            </p>
-            <p
-              style={{
-                color: "var(--parchment-dim)",
-                fontSize: "0.9rem",
-                margin: 0,
-              }}
-            >
-              Nothing has been published yet. Founders, head to{" "}
-              <Link
-                href="/upload"
-                style={{
-                  color: "var(--amber)",
-                  textDecoration: "underline",
-                }}
-              >
-                /upload
-              </Link>{" "}
-              and tick <em>Publish as blog post</em>.
-            </p>
-          </div>
-        ) : (
-          <div
+          <h2
+            className="mono"
             style={{
-              display: "flex",
-              flexDirection: "column",
-              gap: "1.5rem",
+              fontSize: "0.72rem",
+              letterSpacing: "0.3em",
+              textTransform: "uppercase",
+              color: "var(--amber-dim)",
+              margin: "0 0 1.5rem",
+              borderBottom: "1px solid var(--stroke)",
+              paddingBottom: "0.65rem",
             }}
           >
-            {posts.map((p) => (
-              <PostCard
-                key={p.id}
-                slug={p.slug!}
-                title={p.title}
-                byline={p.authorBio || p.founder.name}
-                publishedAt={p.publishedAt!}
-                excerpt={
-                  p.blogExcerpt ||
-                  deriveExcerpt(p.description || p.textContent || "")
-                }
-                isAudio={Boolean(p.audioUrl)}
-                audioDurationSec={p.audioDurationSec || null}
-              />
-            ))}
-          </div>
-        )}
+            Acta · Publications
+          </h2>
+
+          {posts.length === 0 ? (
+            <div
+              className="ascii-frame"
+              data-label="TABULA RASA"
+              style={{ padding: "2rem 1.5rem", textAlign: "center" }}
+            >
+              <p
+                style={{
+                  fontFamily: "'EB Garamond', serif",
+                  fontStyle: "italic",
+                  color: "var(--parchment)",
+                  fontSize: "1.1rem",
+                  margin: "0 0 0.35rem",
+                }}
+              >
+                Adhuc nihil publicum.
+              </p>
+              <p
+                style={{
+                  color: "var(--parchment-dim)",
+                  fontSize: "0.9rem",
+                  margin: 0,
+                }}
+              >
+                Nothing has been published yet. Founders, head to{" "}
+                <Link
+                  href="/upload"
+                  style={{
+                    color: "var(--amber)",
+                    textDecoration: "underline",
+                  }}
+                >
+                  /upload
+                </Link>{" "}
+                and tick <em>Publish as blog post</em>.
+              </p>
+            </div>
+          ) : (
+            <div
+              style={{
+                display: "flex",
+                flexDirection: "column",
+                gap: "1.5rem",
+              }}
+            >
+              {posts.map((p) => (
+                <PostCard
+                  key={p.id}
+                  slug={p.slug!}
+                  title={p.title}
+                  byline={p.authorBio || p.founder.name}
+                  publishedAt={p.publishedAt!}
+                  excerpt={
+                    p.blogExcerpt ||
+                    deriveExcerpt(p.description || p.textContent || "")
+                  }
+                  isAudio={Boolean(p.audioUrl)}
+                  audioDurationSec={p.audioDurationSec || null}
+                />
+              ))}
+            </div>
+          )}
+
+          <TransparencyFooter />
+        </div>
       </section>
     </main>
   );

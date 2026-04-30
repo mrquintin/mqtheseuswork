@@ -1,0 +1,96 @@
+# Codex Prompt 4 of 18 — Kalshi market ingestor (read-only public market list)
+
+**Sequence:** prompt 4 of 18 (Round 10, Wave A). Depends on 03. Report back with: a sample serialized `ForecastMarket` row, the categories your ingestor accepts, and how the test fixture handles Kalshi's RSA-signed auth requirement.
+
+**Why this prompt exists.** Kalshi's *market metadata* endpoints (`/exchange/announcements`, `/markets`, `/series`) are technically public, but their API requires authenticated requests for everything beyond the announcements feed. We treat ingestion as auth-required-but-read-only: a service-account API key is needed, signed via RSA. The key is read from env; if absent, the ingestor is a no-op and logs a single line. Live trading happens later (prompt 09); this prompt only reads.
+
+**Before you start — read current state:**
+1. Read `noosphere/noosphere/forecasts/_polymarket_client.py` from prompt 03 — your Kalshi client mirrors that shape (httpx async, retry, no global state) but adds RSA request signing.
+2. Read `noosphere/noosphere/forecasts/polymarket_ingestor.py` — copy the `IngestResult` dataclass, the dedupe rules, and the change-detection threshold. The two ingestors expose the same interface; only the source-specific parsing differs.
+3. Read Kalshi API docs for the request-signing scheme: a `KALSHI-ACCESS-TIMESTAMP`, `KALSHI-ACCESS-KEY` (key id), and `KALSHI-ACCESS-SIGNATURE` (RSA-PSS-SHA256 over `timestamp + method + path`). Confirm the algorithm — if their docs disagree with this prompt, FOLLOW THE DOCS and note the deviation.
+
+## Your task
+
+### `noosphere/noosphere/forecasts/config.py` — extend
+
+Add a second config dataclass:
+
+```python
+@dataclass(frozen=True)
+class KalshiConfig:
+    api_base: str = "https://api.elections.kalshi.com/trade-api/v2"
+    api_key_id: str = ""
+    api_private_key_pem: str = ""    # entire PEM, including BEGIN/END
+    accepted_categories: list[str] = field(default_factory=list)
+    organization_id: str = ""
+    max_markets_per_cycle: int = 200
+    request_timeout_s: float = 15.0
+
+    @classmethod
+    def from_env(cls) -> "KalshiConfig": ...
+    @property
+    def is_configured(self) -> bool:
+        return bool(self.api_key_id and self.api_private_key_pem)
+```
+
+Env keys: `KALSHI_API_BASE`, `KALSHI_API_KEY_ID`, `KALSHI_API_PRIVATE_KEY` (the PEM blob; multi-line env via `\n` escape — document this), `FORECASTS_KALSHI_CATEGORIES` (csv), `FORECASTS_KALSHI_MAX_PER_CYCLE`.
+
+### `noosphere/noosphere/forecasts/_kalshi_client.py`
+
+```python
+class KalshiClient:
+    def __init__(self, *, base: str, key_id: str, private_key_pem: str,
+                  timeout_s: float = 15.0): ...
+
+    async def list_markets(self, *, status: str = "open",
+                            limit: int = 100, cursor: str | None = None,
+                            ) -> tuple[list[dict], str | None]:
+        """Returns (markets, next_cursor)."""
+
+    async def get_market(self, ticker: str) -> dict | None: ...
+    async def get_event(self, event_ticker: str) -> dict | None: ...
+```
+
+Implementation notes:
+- RSA private key parsing via `cryptography.hazmat.primitives.serialization.load_pem_private_key`.
+- Sign as: `signature_b64 = base64( RSA-PSS-SHA256(  f"{timestamp}{method.upper()}{path}".encode() ) )`. If their docs require a different format, follow the docs.
+- Compute timestamp as ms since epoch (per their spec).
+- Headers: `KALSHI-ACCESS-KEY`, `KALSHI-ACCESS-SIGNATURE`, `KALSHI-ACCESS-TIMESTAMP`, `Accept: application/json`.
+- Retry policy identical to Polymarket client.
+
+### `noosphere/noosphere/forecasts/kalshi_ingestor.py`
+
+Mirror `polymarket_ingestor.py`. Differences:
+
+- Dedupe key: `(source=KALSHI, externalId=ticker)`.
+- Field mapping: `title := title`, `description := subtitle`, `resolutionCriteria := rules_primary` (and `rules_secondary` appended if present), `currentYesPrice := yes_bid / 100` (Kalshi quotes in cents 1–99), `currentNoPrice := no_bid / 100`, `openTime := open_time`, `closeTime := close_time`, `category := category` (raw string), `volume := volume_24h`.
+- If `is_configured` is `False`, `ingest_once` returns an empty `IngestResult` with `errors=["KALSHI_NOT_CONFIGURED"]` and writes nothing. This is a feature, not a bug — operators can run the round on Polymarket alone without Kalshi credentials.
+
+### CLI
+
+Extend `noosphere/noosphere/cli.py` (or `cli_commands/`) with `forecasts ingest kalshi` and `forecasts ingest all` (runs Polymarket then Kalshi sequentially, aggregates the result).
+
+### Tests
+
+`noosphere/tests/test_kalshi_ingestor.py`:
+- Generate an RSA key inside the test fixture; sign a stub request and verify the signature against the public key (proves the signing math is right without hitting a real API).
+- `test_inserts_new_markets` — three fake markets via httpx-mock; correct field mapping including the `/100` price conversion.
+- `test_no_op_without_credentials` — empty key id ⇒ ingest returns `KALSHI_NOT_CONFIGURED` with no DB writes and **no** httpx call.
+- `test_paginates_with_cursor` — two-page response.
+- `test_retries_on_429` — same as Polymarket.
+- `test_filters_by_category`.
+
+## Definition of done
+
+- `pytest noosphere/tests/test_kalshi_ingestor.py` passes.
+- The signing math is verified against an RSA public key inside the test (not just smoke-tested).
+- `python -m noosphere.cli forecasts ingest all` is the documented operator entry point and runs both ingestors.
+- The "no credentials" path is silent (no traceback) and writes a single structured-log line.
+
+## SCOPE
+
+- `noosphere/noosphere/forecasts/config.py`                              MODIFY
+- `noosphere/noosphere/forecasts/_kalshi_client.py`                      CREATE
+- `noosphere/noosphere/forecasts/kalshi_ingestor.py`                     CREATE
+- `noosphere/noosphere/cli.py`                                           MODIFY
+- `noosphere/tests/test_kalshi_ingestor.py`                              CREATE

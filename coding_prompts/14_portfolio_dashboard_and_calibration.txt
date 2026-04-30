@@ -1,0 +1,81 @@
+# Codex Prompt 14 of 18 — /forecasts/portfolio: P&L curve, calibration plot, betting log, kill-switch indicator
+
+**Sequence:** prompt 14 of 18 (Round 10, Wave E). Depends on 11. Report back with: the calibration-chart visualization choice (reliability diagram), the P&L decomposition (paper vs. live), and where the kill-switch indicator surfaces.
+
+**Why this prompt exists.** The user can't trust a prediction system without seeing whether its predictions actually came true. The portfolio page is the public scoreboard: every resolved prediction's calibration is visible, the rolling P&L of paper trades is plotted, and (for live trading, only when enabled) a separate live tab is available. The kill-switch state is surfaced prominently because a user reviewing the system needs to know if it has paused itself.
+
+**Before you start — read current state:**
+1. Read `theseus-codex/src/lib/forecastsApi.ts` from prompt 11 for the portfolio fetchers.
+2. Identify the chart library available in the codex repo (`recharts` is most likely; confirm via `package.json`). If none exists, prefer `recharts` for consistency with the rest of theseus-codex.
+3. Read `current_events_api/current_events_api/routes/portfolio.py` from prompt 10 for the response shape.
+
+## Your task
+
+### 1. `theseus-codex/src/app/forecasts/portfolio/page.tsx`
+
+Server component. Fetches:
+- `/v1/portfolio` (summary).
+- `/v1/portfolio/calibration` (bucket-by-bucket data).
+- `/v1/portfolio/bets?limit=200&order=desc` (recent paper bets).
+
+Layout, top to bottom:
+1. **Header**: `Forecasts Portfolio` + a subtitle naming the time window ("Since first prediction · 312 resolved · 73 wins · 41% accuracy on bets").
+2. **Status strip**: live trading status (DISABLED | ENABLED-AWAITING-AUTH | ENABLED), kill-switch state (ENGAGED | clear), reason text if engaged. Color: amber on AWAITING-AUTH, red on ENGAGED.
+3. **Calibration plot** (reliability diagram): X = predicted probability bucket (0.0, 0.1, …, 1.0). Y = empirical YES rate. Diagonal reference line. Dot size proportional to bucket sample size. Title: "How often does <p>% confident → actually YES?". Source: `/v1/portfolio/calibration`.
+4. **Brier score over time**: a line chart of rolling 30-day mean Brier. Lower is better.
+5. **Paper P&L curve**: cumulative paper-bet P&L over time. Mark losing streaks of ≥3 with a soft red shade.
+6. **Bet log table**: 200 most recent paper bets — date, prediction headline (clickable), side, stakeUsd, entryPrice, exitPrice, P&L, status. Pagination via the `since` query param.
+7. **Distribution histogram**: how many predictions fell in each probability bucket. Tells the reader if the model overproduces 50/50 takes (a calibration smell test).
+
+### 2. Components
+
+```
+forecasts/portfolio/
+├── page.tsx
+├── StatusStrip.tsx            # live trading + kill switch
+├── CalibrationChart.tsx       # reliability diagram (recharts)
+├── BrierTimeChart.tsx         # rolling Brier
+├── PaperPnLChart.tsx          # cumulative P&L
+├── BetLogTable.tsx            # paginated table
+└── DistributionHistogram.tsx
+```
+
+### 3. Numerical correctness
+
+Calibration chart implementation must match the math in `noosphere/noosphere/forecasts/resolution_tracker.py`:
+- Buckets are *closed-left, open-right* on the upper edge except the final bucket [0.9, 1.0]. (i.e., 0.7 ∈ bucket [0.7, 0.8); 1.0 ∈ bucket [0.9, 1.0]).
+- Empirical YES rate per bucket = `count(resolved YES) / count(resolved non-cancelled)`.
+- Cancelled markets are excluded from both numerator and denominator.
+
+Verify by adding a prop-test (`fast-check` or hand-rolled) that round-trips a prediction set through both the Python aggregator and the TypeScript renderer; assert the JS rendering reads identical bucket values.
+
+### 4. Live tab — only present if env says so
+
+If the public summary endpoint returns `liveTradingEnabled: true`, render an additional `<LiveBetsTab>` that links to `/(authed)/forecasts/operator` (the operator-only page from prompt 16). Public users see the link but it requires founder login. If the flag is false, the tab is hidden entirely.
+
+### 5. Tests
+
+`theseus-codex/tests/pages/portfolio.test.tsx`:
+- Calibration chart computes the right empirical rate per bucket given a fixture of 30 resolutions.
+- Status strip shows ENGAGED with red palette when `killSwitchEngaged: true`.
+- Bet log table hides bets where `mode: "LIVE"` (those never appear on the public page).
+- Brier chart handles an empty resolution set with an empty-state message, not a crash.
+- Live tab is hidden when `liveTradingEnabled: false` AND visible when true.
+
+## Definition of done
+
+- `cd theseus-codex && npm run build` passes.
+- The portfolio page renders against a seeded fixture in dev.
+- The calibration chart's bucket math is identical to the Python aggregator (verified by the round-trip test).
+- The page degrades gracefully when there are zero resolved predictions.
+
+## SCOPE
+
+- `theseus-codex/src/app/forecasts/portfolio/page.tsx`                   CREATE
+- `theseus-codex/src/app/forecasts/portfolio/StatusStrip.tsx`            CREATE
+- `theseus-codex/src/app/forecasts/portfolio/CalibrationChart.tsx`       CREATE
+- `theseus-codex/src/app/forecasts/portfolio/BrierTimeChart.tsx`         CREATE
+- `theseus-codex/src/app/forecasts/portfolio/PaperPnLChart.tsx`          CREATE
+- `theseus-codex/src/app/forecasts/portfolio/BetLogTable.tsx`            CREATE
+- `theseus-codex/src/app/forecasts/portfolio/DistributionHistogram.tsx`  CREATE
+- `theseus-codex/tests/pages/portfolio.test.tsx`                         CREATE

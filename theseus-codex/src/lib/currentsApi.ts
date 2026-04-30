@@ -15,11 +15,12 @@ export interface ListCurrentsParams {
   topic?: string | null;
   stance?: string | null;
   limit?: number | null;
+  seeded?: boolean | null;
 }
 
 type StreamingRequestInit = RequestInit & { duplex?: "half" };
 
-function serializeParam(value: string | Date | number): string {
+function serializeParam(value: string | Date | number | boolean): string {
   if (value instanceof Date) return value.toISOString();
   return String(value);
 }

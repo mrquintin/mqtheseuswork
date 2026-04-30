@@ -4,6 +4,7 @@ Typer-based CLI (Phase 4) — structured logging, orchestrator-backed commands.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import sys
 from pathlib import Path
@@ -583,6 +584,122 @@ predictive_app = typer.Typer(
     help="Predictive claims (falsifiable), resolutions, calibration exports",
 )
 app.add_typer(predictive_app, name="predictive")
+
+forecasts_app = typer.Typer(
+    no_args_is_help=True,
+    help="Forecast markets, ingestion, and predictions",
+)
+app.add_typer(forecasts_app, name="forecasts")
+forecasts_ingest_app = typer.Typer(no_args_is_help=True, help="Forecast ingestors")
+forecasts_app.add_typer(forecasts_ingest_app, name="ingest")
+
+
+@forecasts_ingest_app.command("polymarket")
+def forecasts_ingest_polymarket_cmd(
+    dry_run: bool = typer.Option(
+        False,
+        "--dry-run",
+        help="Run against an in-memory store; no durable rows are written.",
+    ),
+) -> None:
+    """Ingest active open markets from Polymarket Gamma."""
+    from dataclasses import asdict
+
+    from noosphere.forecasts.config import PolymarketConfig
+    from noosphere.forecasts.polymarket_ingestor import ingest_once
+    from noosphere.store import Store
+
+    cfg = PolymarketConfig.from_env()
+    if not cfg.organization_id:
+        typer.echo(
+            json.dumps(
+                {
+                    "ok": False,
+                    "error": (
+                        "No token is required for Polymarket Gamma, but "
+                        "FORECASTS_INGEST_ORG_ID is not set."
+                    ),
+                },
+                indent=2,
+            ),
+            err=True,
+        )
+        raise typer.Exit(code=2)
+
+    store = (
+        Store.from_database_url("sqlite:///:memory:")
+        if dry_run
+        else Store.from_database_url(get_settings().database_url)
+    )
+    result = asyncio.run(ingest_once(store, config=cfg))
+    typer.echo(
+        json.dumps(
+            {
+                "ok": not result.errors,
+                "dry_run": dry_run,
+                "accepted_categories": cfg.accepted_categories or ["*"],
+                "result": asdict(result),
+            },
+            indent=2,
+            default=str,
+        )
+    )
+
+
+@forecasts_app.command("resolve")
+def forecasts_resolve_cmd(
+    market_id: Optional[str] = typer.Option(None, "--market", help="ForecastMarket id to poll."),
+    resolve_all: bool = typer.Option(False, "--all", help="Poll all OPEN forecast markets."),
+) -> None:
+    """Poll external settlement metadata and append ForecastResolution rows."""
+    configure_logging(json_format=True)
+    from dataclasses import asdict
+
+    from noosphere.forecasts.resolution_tracker import poll_all_open, poll_market
+    from noosphere.store import Store
+
+    if bool(market_id) == bool(resolve_all):
+        typer.echo(
+            json.dumps(
+                {"ok": False, "error": "Specify exactly one of --market or --all."},
+                indent=2,
+            ),
+            err=True,
+        )
+        raise typer.Exit(code=2)
+
+    store = Store.from_database_url(get_settings().database_url)
+    if resolve_all:
+        results = asyncio.run(poll_all_open(store))
+    else:
+        assert market_id is not None
+        results = [asyncio.run(poll_market(store, market_id))]
+
+    errors = [error for result in results for error in result.errors]
+    typer.echo(
+        json.dumps(
+            {
+                "ok": not errors,
+                "results": [asdict(result) for result in results],
+            },
+            indent=2,
+            default=str,
+        )
+    )
+
+
+@forecasts_app.command("run")
+def forecasts_run_cmd(
+    once: bool = typer.Option(
+        False,
+        "--once",
+        help="Run one tick per Forecasts scheduler sub-loop and exit.",
+    ),
+) -> None:
+    """Run the standing Forecasts scheduler loop."""
+    from noosphere.forecasts.scheduler import main as scheduler_main
+
+    raise typer.Exit(code=scheduler_main(["--once"] if once else ["run"]))
 
 
 @literature_app.command("index")

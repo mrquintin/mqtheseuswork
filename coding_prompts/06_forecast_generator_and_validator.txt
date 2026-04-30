@@ -1,0 +1,124 @@
+# Codex Prompt 6 of 18 — Haiku-grounded forecast generator + verbatim citation validator
+
+**Sequence:** prompt 6 of 18 (Round 10, Wave B). Depends on 02, 05. Report back with: the system-prompt final wording, the abstention rates from the test suite, and the JSON schema enforced on the model's output.
+
+**Why this prompt exists.** This is the heart of the Forecasts module. Given a market and retrieved sources, Haiku 4.5 produces a strict-JSON prediction with verbatim-anchored citations. The generator is paranoid in three directions: (a) it abstains when sources are thin, (b) every `quoted_span` is checked as a real substring of its cited source, (c) hour-bounded budget is reserved before each call so a runaway loop cannot exhaust the day's quota. We reuse Currents' budget guard, prompt-separator, and LLM client.
+
+**Before you start — read current state:**
+1. Read `noosphere/noosphere/currents/opinion_generator.py` end-to-end. Your `forecast_generator.py` is its sibling; copy the budget pattern, the JSON-extraction helper, the citation-validator, the abstention enum.
+2. Read `noosphere/noosphere/currents/_llm_client.py` — reuse `make_client()` and the `LLMResponse` dataclass.
+3. Read `noosphere/noosphere/currents/budget.py` — the same `HourlyBudgetGuard` is used here, but with its own persistence path (`forecasts_budget.json`) and its own env-configured ceilings.
+4. Read `noosphere/noosphere/currents/_prompts/opinion_system.md` — your forecast system prompt is structurally similar but says "predict" not "opine".
+5. Read `noosphere/noosphere/mitigations/prompt_separator.py` — wrap the source bundle inside `PromptSeparator` delimiters.
+
+## Your task
+
+### `noosphere/noosphere/forecasts/forecast_generator.py`
+
+```python
+class ForecastOutcome(str, Enum):
+    PUBLISHED = "PUBLISHED"
+    ABSTAINED_BUDGET = "ABSTAINED_BUDGET"
+    ABSTAINED_INSUFFICIENT_SOURCES = "ABSTAINED_INSUFFICIENT_SOURCES"
+    ABSTAINED_NEAR_DUPLICATE = "ABSTAINED_NEAR_DUPLICATE"
+    ABSTAINED_CITATION_FABRICATION = "ABSTAINED_CITATION_FABRICATION"
+    ABSTAINED_MARKET_EXPIRED = "ABSTAINED_MARKET_EXPIRED"
+
+async def generate_forecast(
+    store, market_id: str, *, budget,
+) -> ForecastOutcome:
+    """
+    Pipeline:
+      1. Load ForecastMarket. If status != OPEN or closeTime < now+1h → ABSTAINED_MARKET_EXPIRED.
+      2. retrieve_for_market(store, market, top_k=8). If <3 distinct sources → ABSTAINED_INSUFFICIENT_SOURCES.
+      3. Check near-duplicate against existing PUBLISHED predictions for this org by
+         cosine on the headline embedding; if cos > 0.92 with one in last 24h →
+         ABSTAINED_NEAR_DUPLICATE.
+      4. Authorize budget. If denied → ABSTAINED_BUDGET.
+      5. Compose system prompt + user payload. PromptSeparator-wrap the user payload
+         (delimits market metadata + sources block).
+      6. Call Haiku 4.5 with strict JSON schema (see below). Up to 2 retries on JSON
+         parse failure with corrective system message.
+      7. Validate every citation: quoted_span MUST be a verbatim substring of the cited
+         source.text. Up to 2 retries; persistent failure → ABSTAINED_CITATION_FABRICATION.
+      8. Persist ForecastPrediction + ForecastCitation rows. Charge the budget with the
+         actual prompt/completion tokens.
+
+    Returns the ForecastOutcome.
+    """
+```
+
+### Strict JSON schema enforced on the model
+
+```jsonc
+{
+  "probability_yes": 0.0–1.0,
+  "confidence_low": 0.0–1.0,
+  "confidence_high": 0.0–1.0,        // must be >= probability_yes >= confidence_low
+  "headline": "<= 140 chars",
+  "reasoning_markdown": "<= 1800 chars",
+  "uncertainty_notes": "<= 500 chars",
+  "topic_hint": "<= 40 chars (snake_case)",
+  "citations": [
+    {
+      "source_type": "CONCLUSION" | "CLAIM",
+      "source_id": "<id>",
+      "quoted_span": "exact substring of source.text, <= 240 chars",
+      "support_label": "DIRECT" | "INDIRECT" | "CONTRARY"
+    },
+    ...
+  ]
+}
+```
+
+A `probability_yes` outside `[confidence_low, confidence_high]` triggers a single corrective retry; persistent failure → ABSTAINED_CITATION_FABRICATION (reuse the enum; the failure mode is "model produced nonsense"). Reasoning_markdown must contain at least one of the source_ids cited; otherwise treat as fabrication.
+
+### `noosphere/noosphere/forecasts/_prompts/forecast_system.md`
+
+System prompt (NOT inlined). Required content:
+- "You are predicting the outcome of a public market. Predict ONLY from the retrieved Theseus sources below. If those sources do not adequately bear on the market question, return abstain by emitting `\"probability_yes\": null` and an `uncertainty_notes` explaining what evidence is missing."
+- "Every citation's `quoted_span` MUST be a verbatim substring of the cited source's text."
+- "Do not predict the market price; predict the underlying question."
+- "Confidence interval [`confidence_low`, `confidence_high`] reflects your uncertainty about your own probability estimate, not the market's volatility."
+- The schema, listed exactly.
+
+### Budget guard
+
+```python
+# noosphere/noosphere/forecasts/budget.py
+# Thin shim that re-uses HourlyBudgetGuard with forecast-specific defaults.
+
+DEFAULT_PROMPT_TOKENS_HOUR = int(os.getenv("FORECASTS_BUDGET_HOURLY_PROMPT_TOKENS", "1500000"))
+DEFAULT_COMPLETION_TOKENS_HOUR = int(os.getenv("FORECASTS_BUDGET_HOURLY_COMPLETION_TOKENS", "400000"))
+PER_FORECAST_RESERVE_PROMPT = 14_000
+PER_FORECAST_RESERVE_COMPLETION = 3_500
+DEFAULT_BUDGET_PATH = Path("/var/lib/theseus/forecasts_budget.json")
+```
+
+### Tests
+
+`noosphere/tests/test_forecast_generator.py`:
+- A fake LLM client that returns canned JSON.
+- `test_publishes_with_valid_citations` — three sources; happy path; ForecastPrediction + 2 ForecastCitation rows persisted; budget charged.
+- `test_abstains_on_insufficient_sources` — adapter returns 1 source; ABSTAINED_INSUFFICIENT_SOURCES; no LLM call (assert via the fake client's call counter).
+- `test_abstains_on_near_duplicate` — pre-seed a 30-min-old prediction with cos~0.95 headline; abstain.
+- `test_abstains_on_market_expired` — market closeTime in 30 min.
+- `test_abstains_on_citation_fabrication` — fake client emits `quoted_span` not in source text; one corrective retry; persistent failure → abstain.
+- `test_abstains_on_budget_exhausted` — budget pre-charged near ceiling; abstain; no LLM call.
+- `test_corrective_retry_on_invalid_probability` — first response has `probability_yes` > `confidence_high`; corrective retry succeeds.
+- `test_charges_budget_with_actual_token_counts` — LLMResponse has prompt/completion tokens; budget.charge() invoked with those exact counts.
+
+## Definition of done
+
+- `pytest noosphere/tests/test_forecast_generator.py` passes.
+- No real LLM call (the test suite uses the fake client only).
+- The system prompt lives in `_prompts/forecast_system.md`, not inlined.
+- The verbatim-citation validator is the same module as Currents' (extract a shared helper if needed; do not duplicate the substring check).
+- The abstention enum has 6 named cases, all of which appear in at least one test.
+
+## SCOPE
+
+- `noosphere/noosphere/forecasts/forecast_generator.py`                  CREATE
+- `noosphere/noosphere/forecasts/_prompts/forecast_system.md`            CREATE
+- `noosphere/noosphere/forecasts/budget.py`                              CREATE
+- `noosphere/tests/test_forecast_generator.py`                           CREATE

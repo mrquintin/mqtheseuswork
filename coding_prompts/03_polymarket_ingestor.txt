@@ -1,0 +1,118 @@
+# Codex Prompt 3 of 18 — Polymarket market ingestor (read-only Gamma API)
+
+**Sequence:** prompt 3 of 18 (Round 10, Wave A). Depends on 02. Report back with: a sample serialized `ForecastMarket` row, the dedupe-collision count from the test corpus, and the categories the ingestor accepts.
+
+**Why this prompt exists.** Polymarket exposes a public Gamma REST API (`https://gamma-api.polymarket.com/`) that returns market metadata and prices without authentication. We use that for ingestion. The CLOB / wallet-signed surface is reserved for the live-trading adapter (prompt 09); it is **not** touched here. This prompt is read-only.
+
+**Before you start — read current state:**
+1. Read `noosphere/noosphere/currents/x_ingestor.py` — your code follows that shape: a config dataclass, an `ingest_once()` async function, hash dedupe, structured log on each upsert.
+2. Read `noosphere/noosphere/currents/_x_client.py` — your `_polymarket_client.py` follows that pattern: thin httpx wrapper, retries on 429/5xx, no global state.
+3. Confirm Polymarket Gamma's market list endpoint and pagination shape from their docs (`/markets?limit=…&offset=…&active=true&closed=false`). The exact endpoint path may differ — verify with one curl to a sandbox or the live API if reachable.
+
+## Your task
+
+Create `noosphere/noosphere/forecasts/` (new package, mirrors `currents/`):
+
+```
+forecasts/
+├── __init__.py
+├── config.py
+├── _polymarket_client.py
+├── polymarket_ingestor.py
+└── _prompts/                     # used by later generator prompts; create empty dir for now
+```
+
+### `config.py`
+
+```python
+@dataclass(frozen=True)
+class PolymarketConfig:
+    gamma_base: str = "https://gamma-api.polymarket.com"
+    accepted_categories: list[str] = field(default_factory=list)  # empty == all
+    organization_id: str = ""
+    max_markets_per_cycle: int = 200
+    request_timeout_s: float = 15.0
+
+    @classmethod
+    def from_env(cls) -> "PolymarketConfig": ...
+```
+
+Env keys: `POLYMARKET_GAMMA_BASE`, `FORECASTS_POLYMARKET_CATEGORIES` (csv), `FORECASTS_INGEST_ORG_ID`, `FORECASTS_POLYMARKET_MAX_PER_CYCLE`.
+
+### `_polymarket_client.py`
+
+```python
+class PolymarketGammaClient:
+    def __init__(self, *, base: str, timeout_s: float = 15.0): ...
+    async def list_markets(self, *, active: bool = True, closed: bool = False,
+                            limit: int = 100, offset: int = 0) -> list[dict]: ...
+    async def get_market(self, condition_id: str) -> dict: ...
+```
+
+httpx async client. Retry policy: `tenacity` exponential 0.5s → 8s with 5 attempts on 429/5xx. Honor `Retry-After` if present. Never raise on 404 — return `None`.
+
+### `polymarket_ingestor.py`
+
+```python
+async def ingest_once(store: Store, *, config: PolymarketConfig,
+                      now: datetime | None = None) -> IngestResult:
+    """
+    Pull active+open markets in batches, upsert each into ForecastMarket.
+
+    Dedupe key: (source=POLYMARKET, externalId=conditionId).
+
+    For each row:
+      - parse title, description, resolutionCriteria from the Gamma payload
+      - extract currentYesPrice / currentNoPrice from outcome[*].price
+      - parse openTime + closeTime
+      - assign category from `tags[]` ∩ accepted_categories (or first tag if empty)
+      - serialize the entire raw payload into ForecastMarket.rawPayload
+      - upsert; bump updatedAt only when *price* changed by >= 0.005 OR
+        title/closeTime/status changed; otherwise skip the write to keep
+        downstream change-detection tight.
+    """
+
+@dataclass
+class IngestResult:
+    fetched: int
+    inserted: int
+    updated: int
+    skipped: int
+    errors: list[str]
+```
+
+Filter rules baked in:
+- skip markets where `closed == True`
+- skip markets where `closeTime < now` (already past resolution)
+- if `accepted_categories` is non-empty, drop markets whose tags do not intersect
+
+### `cli` integration
+
+Extend `noosphere/noosphere/cli.py` (or `cli_commands/`) with a `forecasts ingest polymarket` command that runs `ingest_once` and prints the IngestResult. Reuse the existing `app: Typer` instance.
+
+### Tests
+
+`noosphere/tests/test_polymarket_ingestor.py`:
+- A `responses_mock` (httpx-mock) covers the Gamma list endpoint with three fake markets across two pages.
+- `test_inserts_new_markets` — fresh DB, all three insert, IngestResult counts correct.
+- `test_dedupes_unchanged` — second run with identical payload yields zero updates.
+- `test_updates_on_price_change` — bump one price by 0.01; that row updates, others skip.
+- `test_filters_by_category` — config restricted to `["politics"]`, only matching markets ingest.
+- `test_drops_closed_markets` — closed=True markets are skipped.
+- `test_retries_on_429` — first response 429 with `Retry-After: 0`, second 200; ingest succeeds.
+
+## Definition of done
+
+- `pytest noosphere/tests/test_polymarket_ingestor.py` passes.
+- `cd noosphere && python -m noosphere.cli forecasts ingest polymarket --dry-run` runs (env vars unset → exits with a clear "no token" message; never crashes).
+- No real network call is made during tests (httpx-mock or `respx`).
+- `IngestResult.errors` is empty for the happy-path test.
+
+## SCOPE
+
+- `noosphere/noosphere/forecasts/__init__.py`                            CREATE
+- `noosphere/noosphere/forecasts/config.py`                              CREATE
+- `noosphere/noosphere/forecasts/_polymarket_client.py`                  CREATE
+- `noosphere/noosphere/forecasts/polymarket_ingestor.py`                 CREATE
+- `noosphere/noosphere/cli.py`                                           MODIFY
+- `noosphere/tests/test_polymarket_ingestor.py`                          CREATE

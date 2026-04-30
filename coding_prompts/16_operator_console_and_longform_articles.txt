@@ -1,0 +1,117 @@
+# Codex Prompt 16 of 18 — Founder-only operator console + longform article mode
+
+**Sequence:** prompt 16 of 18 (Round 10, Wave G — operator surface + commentary expansion). Depends on 09, 10, 11, 12. Report back with: the per-bet confirmation flow's screenshots/diagrams, the article-trigger heuristics, and where article slugs are reused with the existing `/c/[slug]` route.
+
+**Why this prompt exists.** Two distinct surfaces share this prompt because they are both "long-tail" UI: neither is on the daily critical path, but both are necessary for the platform to be complete. (1) The operator console — the *only* place a founder authorizes live bets, engages/disengages the kill switch, and reviews the live-bet ledger. (2) Longform article mode — the user's voice memo asks for "automatically generated articles, automatically generated blog posts" beyond the card-format `/currents` feed; this prompt builds the generator and the public reading surface for those articles.
+
+**Before you start — read current state:**
+1. Read `theseus-codex/src/app/(authed)/dashboard/...` for the existing founder-auth chrome and the layout pattern.
+2. Read `theseus-codex/src/app/c/[slug]/page.tsx` (the published-Conclusion page from Round 9 prompt 04). The article reading surface reuses this route family with a new `kind` discriminator.
+3. Read `noosphere/noosphere/synthesis.py` and `noosphere/noosphere/cli_commands/` for any existing longform generators. The article generator extends those if present rather than reinventing.
+
+## Your task
+
+### Part A — Operator console
+
+#### `theseus-codex/src/app/(authed)/forecasts/operator/page.tsx`
+
+Founder-only. Renders four panels:
+1. **Pending live authorizations**: predictions whose `live_authorized_at` is null but the operator could authorize. Each row has an "Authorize live betting on this prediction" button (calls `/api/forecasts/operator/[id]/authorize-live`). Shows the prediction's headline, model probability, market price, edge, Kelly-suggested stake.
+2. **Pending bet confirmations**: bets in status AUTHORIZED. Each row has a CONFIRM button (calls `/api/forecasts/operator/[id]/bets/[betId]/confirm`) and a CANCEL button. The CONFIRM button shows the gates that must pass; if any fails, the button is disabled with a tooltip naming the failing gate.
+3. **Live bet ledger**: every live bet ever, sortable by date / market / P&L. Includes external order ids and exchange status. This is the only public-from-codex surface where order ids appear, and it requires founder auth.
+4. **Kill switch**: a big amber button "Engage kill switch" (with a required reason field). If engaged, becomes a "Disengage" button that requires a 20-char note.
+
+#### Operator SSE feed
+
+`OperatorBetStream.tsx` — listens to `/api/forecasts/operator/stream` and pushes status updates into the live ledger row in place. Live SSE frames: `bet.submitted`, `bet.filled`, `bet.cancelled`, `bet.failed`, `kill_switch.engaged`, `kill_switch.disengaged`.
+
+#### Refusal behaviors (defense in depth)
+
+- The "Authorize live betting" button is hidden if `liveTradingEnabled` is false (read from a server-side env-derived prop).
+- The CONFIRM button is hidden if `prediction.live_authorized_at` is null.
+- All POSTs include the founder session's CSRF token and the founder id; the upstream HMAC is added server-side in the Next.js handler.
+
+### Part B — Longform article mode
+
+#### Generator
+
+`noosphere/noosphere/articles/generator.py` (new package; mirror `currents/`):
+
+```python
+class ArticleKind(str, Enum):
+    THEMATIC = "THEMATIC"          # cluster of ≥5 currents on one topic
+    POSTMORTEM = "POSTMORTEM"      # forecast resolved with significant calibration impact
+    CORRECTION = "CORRECTION"      # revoked source propagated to dependent opinions/predictions
+
+async def generate_article(
+    store, *, kind: ArticleKind, source_ids: list[str], budget,
+) -> Article | None:
+    """
+    Compose a 600–1200 word article from grounded sources. Same verbatim
+    citation discipline as the opinion/forecast generators; same hourly budget.
+    Persist as a PublishedConclusion (existing model) with kind metadata so
+    /c/[slug] renders it without a new page route.
+    """
+```
+
+System prompt: `noosphere/noosphere/articles/_prompts/article_system.md`. Says: "You write 600–1200 word essays grounded ONLY in the retrieved Theseus sources. Every direct quote is a verbatim substring of a cited source. POSTMORTEM articles must explicitly compare the model's prior probability to the realized outcome and propose what the calibration error implies about the underlying principles."
+
+#### Triggers
+
+`noosphere/noosphere/articles/triggers.py`:
+
+```python
+async def thematic_trigger_check(store) -> list[list[str]]:
+    """Return clusters of 5+ recent currents sharing topic+discipline within 7 days."""
+
+async def postmortem_trigger_check(store) -> list[str]:
+    """Return forecast prediction ids whose resolution Brier > 0.20 OR < 0.04
+    AND whose stake was non-trivial (paper or live). Significant either way."""
+
+async def correction_trigger_check(store) -> list[str]:
+    """Return opinion ids whose cited Conclusion was revoked in the last 24h."""
+```
+
+A scheduler tick (extend prompt 15's scheduler) calls each trigger every 60 minutes; new clusters/predictions/revocations dispatch one article each, capped at 4 articles per day to prevent runaway.
+
+#### Public reading surface
+
+Articles publish via the existing `PublishedConclusion` model with `kind=ARTICLE` (or whatever discriminator the schema already exposes; otherwise add a `kind` enum column in this prompt's migration). They render at `/c/[slug]` exactly like a published conclusion. The `/responses` page (Round 9) gains an "Articles" tab listing `kind=ARTICLE` rows; the homepage adds an "Essays" rail.
+
+### Tests
+
+`noosphere/tests/test_article_generator.py`:
+- THEMATIC happy path: 5 seeded currents share topic+discipline; article persists with verbatim citations from each.
+- POSTMORTEM: a high-Brier seeded resolution triggers; article references the prior probability AND the realized outcome.
+- CORRECTION: revoked conclusion → article cites the revocation and lists affected opinions/predictions.
+- Cap: more than 4 trigger candidates in one day → only 4 articles persist; the rest are deferred to next day.
+
+`theseus-codex/tests/pages/operator.test.tsx`:
+- The CONFIRM button is disabled with the right tooltip for each gate code.
+- Kill-switch toggle round-trips through the upstream operator API mock.
+- Operator stream updates a row in place when the SSE emits `bet.filled`.
+
+## Definition of done
+
+- `pytest noosphere/tests/test_article_generator.py` passes.
+- `cd theseus-codex && npm run build` passes.
+- The operator page is unreachable at `/forecasts/operator` without a founder session; verified by a test that hits the path with no cookie.
+- `/c/<seeded-article-slug>` renders an article identically to a published conclusion (same component tree).
+- `grep -n 'live_authorized_at' theseus-codex/src/app/(authed)/forecasts/operator/page.tsx` shows the gate is read.
+
+## SCOPE
+
+- `theseus-codex/src/app/(authed)/forecasts/operator/page.tsx`                  CREATE
+- `theseus-codex/src/app/(authed)/forecasts/operator/PendingAuthorizations.tsx` CREATE
+- `theseus-codex/src/app/(authed)/forecasts/operator/PendingConfirmations.tsx`  CREATE
+- `theseus-codex/src/app/(authed)/forecasts/operator/LiveBetLedger.tsx`         CREATE
+- `theseus-codex/src/app/(authed)/forecasts/operator/KillSwitchPanel.tsx`       CREATE
+- `theseus-codex/src/app/(authed)/forecasts/operator/OperatorBetStream.tsx`     CREATE
+- `noosphere/noosphere/articles/__init__.py`                                    CREATE
+- `noosphere/noosphere/articles/generator.py`                                   CREATE
+- `noosphere/noosphere/articles/triggers.py`                                    CREATE
+- `noosphere/noosphere/articles/_prompts/article_system.md`                     CREATE
+- `noosphere/noosphere/forecasts/scheduler.py`                                  MODIFY
+- `theseus-codex/src/app/responses/page.tsx`                                    MODIFY
+- `noosphere/tests/test_article_generator.py`                                   CREATE
+- `theseus-codex/tests/pages/operator.test.tsx`                                 CREATE

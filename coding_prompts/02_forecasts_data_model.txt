@@ -1,0 +1,81 @@
+# Codex Prompt 2 of 18 — Forecasts data model (Prisma + SQLAlchemy + migrations)
+
+**Sequence:** prompt 2 of 18 (Round 10, Wave A — data foundation). Depends on 01 (FORECASTS_DESIGN.md). Report back with: the Prisma migration filename, the Alembic revision id, and the ER summary printed by `prisma format`.
+
+**Why this prompt exists.** Forecasts owns its own tables; it does not piggyback on `CurrentEvent`/`EventOpinion`. The reason is semantic: a Currents *opinion* is reasoning about something that happened; a Forecasts *prediction* is reasoning about something that will happen, attached to a specific external market and resolved against that market's outcome. Conflating them in shared tables would either bloat columns or force NULLs on every row.
+
+**Before you start — read current state:**
+1. Read `coding_prompts/FORECASTS_DESIGN.md` §3 (Data model). It is your authoritative spec. If FORECASTS_DESIGN.md disagrees with this prompt, FOLLOW THE DESIGN DOC and document the deviation in your final report.
+2. Read `theseus-codex/prisma/schema.prisma` — copy the conventions used by `CurrentEvent`/`EventOpinion`/`OpinionCitation`: cuid PKs, `organizationId` on every row, `@@index([organizationId, createdAt])`, soft-delete via status enums.
+3. Read `noosphere/noosphere/models.py` and `noosphere/noosphere/store.py` — copy the SQLModel + payload_json pattern used by `StoredCurrentEvent` / `StoredEventOpinion`.
+4. Read `noosphere/alembic/versions/003_currents_data_model.py` so your new revision follows the existing chain.
+
+## Your task
+
+### 1. Prisma additions to `theseus-codex/prisma/schema.prisma`
+
+Add these enums and models (names match FORECASTS_DESIGN.md §3 exactly):
+
+```prisma
+enum ForecastSource          { POLYMARKET KALSHI }
+enum ForecastMarketStatus    { OPEN CLOSED RESOLVED CANCELLED }
+enum ForecastPredictionStatus { PUBLISHED ABSTAINED REVOKED }
+enum ForecastAbstentionReason { INSUFFICIENT_SOURCES MARKET_EXPIRED NEAR_DUPLICATE BUDGET CITATION_FABRICATION REVOKED_SOURCES }
+enum ForecastBetMode         { PAPER LIVE }
+enum ForecastBetSide         { YES NO }
+enum ForecastBetStatus       { PENDING AUTHORIZED CONFIRMED SUBMITTED FILLED CANCELLED SETTLED FAILED }
+
+model ForecastMarket { ... }
+model ForecastPrediction { ... }
+model ForecastCitation { ... }
+model ForecastResolution { ... }
+model ForecastBet { ... }
+model ForecastPortfolioState { ... }   // unique(organizationId)
+model ForecastFollowUpSession { ... }
+model ForecastFollowUpMessage { ... }
+```
+
+Mandatory columns:
+- Every model has `organizationId` + FK to `Organization`, `createdAt`, `updatedAt`.
+- `ForecastMarket.externalId` is unique per `(source, externalId)` (compound unique key).
+- `ForecastPrediction.marketId` FK to `ForecastMarket`; `@@index([organizationId, status, createdAt])`.
+- `ForecastCitation.predictionId` FK to `ForecastPrediction`; on cascade-delete the citation goes with it.
+- `ForecastResolution.predictionId` is unique (one resolution per prediction).
+- `ForecastBet.predictionId` FK; `mode` defaults to `PAPER`; `liveAuthorizedAt` is `DateTime?` (NULL means "never authorized for live").
+- `ForecastPortfolioState` is `@@unique([organizationId])`. Tracks `paperBalanceUsd`, `liveBalanceUsd`, `dailyLossUsd`, `dailyLossWindowResetAt`, `killSwitchEngaged Boolean @default(false)`, `killSwitchReason String?`.
+- Foreign keys to `Organization` add the new relation backrefs (mirror what was done for `currentEvents`).
+
+Run `npx prisma format` and then generate a migration named `<ts>_forecasts_data_model` via `npx prisma migrate dev --create-only` (do not auto-apply; the migration file is committed but applied by the operator).
+
+### 2. SQLAlchemy mirrors in `noosphere/noosphere/models.py` and `store.py`
+
+For each Prisma model add:
+- A pydantic domain model in `models.py` (`ForecastMarket`, `ForecastPrediction`, `ForecastCitation`, `ForecastResolution`, `ForecastBet`, `ForecastPortfolioState`, `ForecastFollowUpSession`, `ForecastFollowUpMessage`).
+- A `StoredForecast*` SQLModel in `store.py` with the `payload_json` pattern (binary blob via `Field(sa_column=Column(LargeBinary))` if precedent exists; otherwise a JSON column matching what `StoredCurrentEvent` uses).
+- Store helpers: `put_forecast_market`, `get_forecast_market`, `list_open_forecast_markets`, `put_forecast_prediction`, `get_forecast_prediction`, `list_recent_forecast_predictions(*, since, limit)`, `put_forecast_resolution`, `get_unresolved_predictions_for_market`, `put_forecast_bet`, `list_bets_for_prediction`, `get_portfolio_state`, `set_portfolio_state` (idempotent upsert).
+
+### 3. Alembic revision
+
+`noosphere/alembic/versions/004_forecasts_data_model.py`. Down-revision points at `003_currents_data_model`. Apply against a clean DB and against an in-place DB; write the migration so both work (use `op.create_table` not raw SQL where possible).
+
+### 4. Seeders (test fixtures only)
+
+`noosphere/tests/conftest.py` (or extend an existing one) gains a `forecasts_seed` fixture: one OPEN Polymarket market + one OPEN Kalshi market + a published prediction on each + a paper bet pair. No founder secrets, no real keys.
+
+## Definition of done
+
+- `npx prisma format` exits clean.
+- `npx prisma migrate dev --create-only --name forecasts_data_model` produces one new migration directory.
+- `cd noosphere && alembic upgrade head && alembic downgrade -1 && alembic upgrade head` succeeds against a throwaway Postgres.
+- `pytest noosphere/tests -k forecasts` passes (the seed fixture round-trips through every Store helper at least once).
+- No existing migrations are renamed or rewritten. No existing model is renamed. New models are additive.
+
+## SCOPE
+
+- `theseus-codex/prisma/schema.prisma`                                  MODIFY
+- `theseus-codex/prisma/migrations/<ts>_forecasts_data_model/migration.sql`  CREATE
+- `noosphere/noosphere/models.py`                                       MODIFY
+- `noosphere/noosphere/store.py`                                        MODIFY
+- `noosphere/alembic/versions/004_forecasts_data_model.py`              CREATE
+- `noosphere/tests/conftest.py`                                         MODIFY
+- `noosphere/tests/test_forecasts_store.py`                             CREATE

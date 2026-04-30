@@ -1,0 +1,122 @@
+# Codex Prompt 10 of 18 — Forecasts API routes (extend current_events_api with /v1/forecasts/*)
+
+**Sequence:** prompt 10 of 18 (Round 10, Wave D — API). Depends on 02–09. Report back with: the route table, the SSE frame schema, and the operator endpoint's auth scheme.
+
+**Why this prompt exists.** The Codex public UI needs an HTTP surface to read predictions, watch new ones stream in, ask follow-up questions, and (for an authenticated operator) authorize and confirm live bets. We extend `current_events_api/` rather than creating a sibling service so the two share Postgres connection pooling, the in-process bus, and CORS allowlist.
+
+**Before you start — read current state:**
+1. Read `current_events_api/current_events_api/main.py`, `routes/currents.py`, `routes/stream.py`, `routes/followup.py` end-to-end.
+2. Read `current_events_api/current_events_api/event_bus.py` — the in-process asyncio.Queue pattern used by SSE. Forecasts will use the SAME bus instance (you'll add a new topic), not a separate one.
+3. Read `current_events_api/current_events_api/rate_limit.py` — reuse the sliding window per IP+fingerprint for follow-up endpoints.
+4. Read `noosphere/noosphere/forecasts/forecast_generator.py` and `live_bet_engine.py` — the routes call these in-process.
+
+## Your task
+
+### 1. New routers under `current_events_api/current_events_api/routes/`
+
+```
+routes/
+├── currents.py        # existing (do not modify)
+├── stream.py          # MODIFY — add forecasts SSE topic
+├── followup.py        # existing (do not modify; forecasts gets its own)
+├── forecasts.py       # CREATE
+├── forecasts_stream.py# CREATE
+├── forecasts_followup.py # CREATE
+├── portfolio.py       # CREATE
+└── operator.py        # CREATE  (the only auth-required surface in v1)
+```
+
+### 2. Public read routes (`forecasts.py`)
+
+| Method | Path | Notes |
+|---|---|---|
+| GET | `/v1/forecasts` | List predictions, query: `since`, `topic`, `status` (PUBLISHED|RESOLVED), `limit ≤ 50` |
+| GET | `/v1/forecasts/{id}` | Single prediction + market summary + citations |
+| GET | `/v1/forecasts/{id}/sources` | Verbatim source text for each citation |
+| GET | `/v1/forecasts/{id}/resolution` | 200 with resolution body if resolved, 404 if open |
+| GET | `/v1/forecasts/{id}/bets` | Public-safe bet view (mode, side, stakeUsd, entry/exit price, P&L; never an external_order_id or wallet) |
+| GET | `/v1/markets/{id}` | Market metadata (mirror of the row Polymarket/Kalshi gave us) |
+| GET | `/v1/markets` | List with `source`, `category`, `status`, `since` filters |
+| GET | `/healthz` / `/readyz` | (extend existing — readyz now also confirms the resolution-poller liveness file is fresh) |
+
+### 3. SSE stream (`forecasts_stream.py`)
+
+`GET /v1/forecasts/stream`. Frames:
+
+```
+event: forecast.published
+data: { ...PublicForecast }
+
+event: forecast.resolved
+data: { id, marketOutcome, brierScore, logLoss }
+
+event: bet.placed
+data: { id, predictionId, mode, side, stakeUsd, entryPrice }   # PAPER mode only
+
+event: heartbeat
+data: { ts }
+```
+
+Live bets are NEVER announced on the public SSE bus. They appear only on the operator endpoint's stream.
+
+### 4. Follow-up Q&A on a prediction (`forecasts_followup.py`)
+
+Same pattern as `routes/followup.py`. POST `/v1/forecasts/{id}/follow-up` accepts `{question, session_id?}`, streams meta → tokens → citation chips → done. Re-retrieves fresh sources per question (do NOT answer from the prediction's saved citations alone). Same rate limits as Currents follow-up.
+
+### 5. Portfolio (`portfolio.py`)
+
+| Method | Path | Notes |
+|---|---|---|
+| GET | `/v1/portfolio` | Public read-only summary: paper P&L curve, calibration plot, mean Brier (90d), total bets, kill-switch status |
+| GET | `/v1/portfolio/calibration` | Bucket-by-bucket data for the calibration chart |
+| GET | `/v1/portfolio/bets` | Paper bets list (paginated) — never includes live bets |
+
+### 6. Operator surface (`operator.py`) — auth required
+
+Auth: shared-secret HMAC header (`X-Forecasts-Operator: <hmac>`) over `(timestamp, path, body_hash)`. The shared secret is `FORECASTS_OPERATOR_SECRET`. Reject if absent. CSRF token in body for state-changing routes. (We do not yet wire SSO; this is the smallest credible v1 fence.)
+
+| Method | Path | Notes |
+|---|---|---|
+| POST | `/v1/operator/forecasts/{id}/authorize-live` | Sets prediction.live_authorized_at; rejected if FORECASTS_LIVE_TRADING_ENABLED is false |
+| POST | `/v1/operator/forecasts/{id}/bets/{betId}/confirm` | Triggers `submit_live_bet`; gate failures returned as 4xx with the gate code |
+| POST | `/v1/operator/kill-switch/engage` | body: `{reason, note}`; engages immediately |
+| POST | `/v1/operator/kill-switch/disengage` | body: `{operator_id, note}` (note ≥ 20 chars per safety.py) |
+| GET | `/v1/operator/live-bets` | Live bet history including external_order_id |
+| GET | `/v1/operator/stream` | SSE of live-bet status changes (operator only) |
+
+### 7. Schemas
+
+`current_events_api/current_events_api/schemas.py` — extend with `PublicForecast`, `PublicForecastCitation`, `PublicMarket`, `PublicBet`, `PublicResolution`, `PortfolioSummary`. Strip every column that contains a wallet, an order id, or a token count from the public schemas; keep them on the operator-only schemas.
+
+### 8. Tests
+
+`current_events_api/tests/test_routes_forecasts.py`, `test_routes_portfolio.py`, `test_routes_operator.py`, `test_forecasts_stream.py`. At minimum:
+- Each public route returns 200 with the expected schema and 404 for unknown ids.
+- Operator routes return 401 without the header, 200 with valid HMAC.
+- Operator confirm endpoint returns 400 with each gate failure code from prompt 09.
+- SSE stream emits `forecast.published` after a synthetic `bus.publish(...)` from the test.
+- `forecasts/{id}/bets` never returns rows with `mode=LIVE`.
+- `operator/live-bets` returns live rows; `forecasts/{id}/bets` returns paper rows for the same prediction.
+
+## Definition of done
+
+- `pytest current_events_api/tests/` passes (existing tests still green; new tests pass).
+- `current_events_api/current_events_api/main.py` includes the new routers in startup.
+- Operator routes are unreachable without the secret; assert in tests by hitting them with no header AND with a wrong-secret HMAC.
+- Public schemas contain zero wallet/order-id fields; `grep -nE 'external_order_id|wallet|private_key' current_events_api/current_events_api/schemas.py` shows results only on the operator schemas.
+
+## SCOPE
+
+- `current_events_api/current_events_api/routes/forecasts.py`            CREATE
+- `current_events_api/current_events_api/routes/forecasts_stream.py`     CREATE
+- `current_events_api/current_events_api/routes/forecasts_followup.py`   CREATE
+- `current_events_api/current_events_api/routes/portfolio.py`            CREATE
+- `current_events_api/current_events_api/routes/operator.py`             CREATE
+- `current_events_api/current_events_api/routes/stream.py`               MODIFY
+- `current_events_api/current_events_api/schemas.py`                     MODIFY
+- `current_events_api/current_events_api/main.py`                        MODIFY
+- `current_events_api/current_events_api/event_bus.py`                   MODIFY
+- `current_events_api/tests/test_routes_forecasts.py`                    CREATE
+- `current_events_api/tests/test_routes_portfolio.py`                    CREATE
+- `current_events_api/tests/test_routes_operator.py`                     CREATE
+- `current_events_api/tests/test_forecasts_stream.py`                    CREATE
