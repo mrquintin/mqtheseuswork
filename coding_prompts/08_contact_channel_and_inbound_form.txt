@@ -1,0 +1,85 @@
+# Codex Prompt 8 of 22 — Contact channel: inbound form, mailto, and a minimal admin inbox
+
+**Round:** 12, Wave B. **Sequence:** 8 of 22. **Report back with:** the route table for `/api/contact`, the form's anti-abuse posture, and the admin inbox URL.
+
+## Why this prompt exists
+
+The founder asked for a way prospective guests, summit speakers, or interested readers can reach Theseus: *"Hello at theseuscodex.com domain. We get an email so we can manage support information."* The About page (prompt 06) places the form; this prompt wires the backend, anti-abuse, storage, and a place for admins to read submissions.
+
+We do NOT auto-send emails out of the firm in this prompt. Submissions go to a database table and surface in an admin-only inbox. Auto-emailing introduces deliverability risk and SMTP configuration; we ship the simpler shape now and the founder can add an email forwarder later.
+
+## Before you start — read current state
+
+1. `theseus-codex/src/app/about/page.tsx` (created in prompt 06) — the form's UI lives here.
+2. `theseus-codex/prisma/schema.prisma` — confirm there is no `ContactSubmission` table yet.
+3. `theseus-codex/src/lib/auth.ts` — for the admin-only inbox guard.
+4. `theseus-codex/src/lib/roles.ts` — `canManageFounders` is the closest existing admin gate; reuse it (or create `canReadContactInbox` aliased to admin) for the inbox route.
+
+## Your task
+
+### A. Schema
+
+Add `ContactSubmission` to Prisma:
+
+```prisma
+model ContactSubmission {
+  id              String   @id @default(cuid())
+  createdAt       DateTime @default(now())
+  fromName        String
+  fromEmail       String
+  subject         String?
+  body            String
+  organizationId  String?  // null until we figure out multi-tenancy for inbound
+  ipHash          String   // SHA-256(IP + per-day salt) for soft rate-limit
+  userAgent       String?
+  triagedAt       DateTime?
+  triagedBy       String?  // founderId
+  notes           String?
+}
+```
+
+Migrate.
+
+### B. `POST /api/contact` route
+
+`theseus-codex/src/app/api/contact/route.ts`:
+
+- Validates body: `fromName` 1–100 chars, `fromEmail` matches a basic regex AND parses with the `URL`/`mailto` constructor or a vetted regex, `subject` ≤ 200 chars optional, `body` 10–4000 chars required.
+- Soft rate limit: SHA-256 hash of `(client IP || "unknown") + DAILY_SALT` is the dedup key; reject after 5 submissions per ipHash per 24h with a 429.
+- Honeypot: include a hidden form field named `company_url`. If present + non-empty, return 200 silently and write nothing — bots will fill it; humans never see it.
+- Server-side strips HTML from `body` (no markdown rendering on this surface).
+- Writes a `ContactSubmission` row.
+- Returns `{ ok: true, id }` on success.
+
+### C. Form on `/about#contact`
+
+Update prompt 06's stub form to actually post to `/api/contact`. Inline success state: `"Received. The firm will read this within ~7 days."` Inline error states for each validation failure. Keep it accessible — labels on every input, an `aria-live="polite"` region for the success/error message, no JavaScript required to read the form (only to submit).
+
+### D. Admin inbox
+
+Create `theseus-codex/src/app/(authed)/admin/contact/page.tsx`:
+
+- Gated to admins only (`canManageFounders` or new `canReadContactInbox`).
+- Lists all `ContactSubmission` rows newest-first, paginated 50/page.
+- Each row: timestamp, name, email (clickable mailto), subject (or first 80 chars of body), expand-on-click for the full body.
+- A "Triaged" toggle that writes `triagedAt` + `triagedBy` so the inbox can be filtered to "untriaged only".
+- Internal note field (admin only) that updates `notes`.
+
+Add a top-nav link `Inbox` for admins only (parallels the `Manage` admin-only link).
+
+### E. mailto fallback
+
+In addition to the form, render a plain `mailto:` link below the form: `"or email us directly at hello@…"`. Use `getTheseusContactEmail()` (from prompt 07).
+
+### F. Tests
+
+- Vitest unit tests for the route: missing fields → 400; honeypot triggered → 200 with no DB row; over-length body → 400; valid submission → 200 + DB row written.
+- Playwright e2e: fill form on `/about`, submit, see success message, log in as admin, navigate to `/admin/contact`, see the row.
+
+## Definition of Done
+
+- A stranger can submit feedback without an account; their submission lands in the admin inbox; admins can triage.
+- Honeypot + per-IP rate limit prevent the simplest bot attacks.
+- No emails are sent (deferred — design note recorded in the route file's JSDoc).
+- Build clean, tests pass.
+- No secrets in any patch.

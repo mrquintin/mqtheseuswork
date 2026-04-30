@@ -1,0 +1,146 @@
+# Codex Prompt 4 of 5 — Operator rehearsal doc + first-trade smoke checklist
+
+**Sequence:** prompt 4 of 5 (Round 11, Wave B). Depends on 01, 02, 03. Report back with: the rehearsal doc's table of contents, the kill-switch test's expected outputs, and the structured-log lines an operator should expect at every step.
+
+**Why this prompt exists.** A prediction system without a rehearsed first-bet flow is a system that will get its first live bet wrong. The operator console (Round 10 prompt 16) has all the gates in place, but no one has walked through them under real conditions yet. This prompt produces a single load-bearing document — `OPERATOR_REHEARSAL.md` — that the operator follows literally, top to bottom, the first time live trading is enabled. Each step is concrete, observable, and reversible.
+
+**This prompt does not ship live-money trading.** It ships the procedure for the operator to enable it themselves, in a way that has a known failure mode at every step.
+
+**Before you start — read current state:**
+1. Read every file from Round 10 prompt 16 (the operator console + LiveBetLedger + KillSwitchPanel).
+2. Read `noosphere/noosphere/forecasts/safety.py` — the eight-gate sequence is the rehearsal's spine.
+3. Read `noosphere/noosphere/forecasts/live_bet_engine.py` — note every structured-log line emitted; the rehearsal references them by name.
+
+## Your task
+
+### `coding_prompts/OPERATOR_REHEARSAL.md`
+
+A single end-to-end procedure. Sections, in order:
+
+#### 1. Preconditions
+A bullet list. Every item must be true before starting:
+- `.env.live` populated and committed to operator's password manager (NOT git).
+- `validate_live_credentials.py` returns all-green.
+- `migrate_production.sh` has applied to production DB.
+- The demo integration suite has passed within the last 24h.
+- Operator has read sections 2–7 in advance (this is not the time to discover step 5 takes you by surprise).
+- Polymarket wallet funded with $50 USDC + ~$5 MATIC for gas.
+- Kalshi account funded with $50 USD.
+- A nearby phone or laptop is on the operator's *kill-switch console URL* — `/forecasts/operator` — with a pre-typed reason already in the input field (`MANUAL_REHEARSAL_KILL`). The kill-switch must be ≤ 1 click away at all times.
+
+#### 2. Stage 1 — paper-only confirmation (still PAPER mode)
+- Set `FORECASTS_LIVE_TRADING_ENABLED=false`.
+- Restart the scheduler.
+- Wait for one paper-bet cycle (≤ 10 minutes per scheduler interval).
+- In `/forecasts/portfolio`, confirm at least one paper bet appears with non-trivial stake.
+- This proves the system is producing predictions and the bet engine is staking them. If this stage fails, do NOT proceed — fix the underlying issue first.
+
+#### 3. Stage 2 — flip live, do not authorize anything yet
+- Set `FORECASTS_LIVE_TRADING_ENABLED=true`.
+- Set `FORECASTS_MAX_STAKE_USD=5`. (Yes, five dollars. This is not negotiable for the first run.)
+- Set `FORECASTS_MAX_DAILY_LOSS_USD=20`.
+- Set `FORECASTS_KILL_SWITCH_AUTO_THRESHOLD_USD=15`.
+- Restart the scheduler.
+- In `/forecasts/operator`, the live-status header should now read `LIVE_ENABLED_AWAITING_AUTHORIZATION` (or whatever Round 10 prompt 09's startup self-check emits).
+- Do NOT click anything yet.
+- Wait for one full predict + paper-bet cycle. Paper bets continue to be placed automatically. Live bets do NOT — every live bet now requires explicit operator authorization (gate 3) and confirmation (gate 4).
+
+#### 4. Stage 3 — the kill-switch dry run
+Before authorizing any real order, prove the kill switch works:
+- In the operator console, click "Engage kill switch" with reason `REHEARSAL_DRY_RUN`.
+- Confirm the status header flips to `KILL_SWITCH_ENGAGED`.
+- Confirm any subsequent action attempt (e.g. authorize-live on a paper-side prediction) is refused with the `KILL_SWITCH_ENGAGED` gate code.
+- Disengage with note `dry-run successful, lifting switch — operator: <name>`.
+- Confirm the status header reverts.
+
+If the kill switch does NOT engage cleanly — abort the rehearsal entirely and file an issue. The kill switch is the only thing standing between a calibration bug and an unbounded loss.
+
+#### 5. Stage 4 — the first authorized prediction
+- Browse `/forecasts` and find a prediction with:
+  - `|edge| ≥ 0.10` (the model is confident vs. market by at least 10pp)
+  - `confidence_high - confidence_low ≤ 0.20` (the model is *certain* about its uncertainty range)
+  - resolves within 7–30 days (not too soon, not too far)
+  - market volume ≥ $10k on Polymarket OR Kalshi (cancellation/fill liquidity)
+- Open the prediction's detail page. Read the reasoning and citations end-to-end.
+- If anything in the reasoning is shaky → SKIP this prediction. Find a different one. The first live bet must be one the operator personally agrees with after reading the model's case.
+- In the operator console, click "Authorize live betting" on this specific prediction. The system stamps `live_authorized_at`.
+
+#### 6. Stage 5 — the first confirmed bet
+- The bet engine, on its next tick, generates a `ForecastBet` with `mode=LIVE`, `status=AUTHORIZED`. It does NOT auto-submit.
+- The bet appears in the operator console's "Pending confirmations" panel with all eight gates' current status.
+- Inspect each gate. Each must show ✓.
+- Click CONFIRM. The system attempts submission via the live adapter.
+- Watch the operator SSE stream. Expected sequence within 10 seconds:
+  - `bet.submitted` (external_order_id present)
+  - `bet.filled` (or `bet.partially_filled`, or `bet.cancelled` if the order didn't fill within the slippage window)
+- If the order fails: status becomes `FAILED` with an exchange error code. Read the code, read the operator-only logs, decide whether to retry or investigate. Don't reflexively retry.
+
+#### 7. Stage 6 — the wait
+- The bet now sits open until market resolution.
+- During the wait: monitor `/forecasts/portfolio` once a day. Do not place additional live bets until this one resolves. Paper bets continue to run normally; observing whether live and paper diverge is itself diagnostic.
+
+#### 8. Stage 7 — settlement
+- When the market resolves, the resolution tracker writes a `ForecastResolution` row, computes Brier + log loss, and triggers `settle_live_bet_on_resolution`.
+- Operator-stream emits `bet.settled` with the realized P&L.
+- `liveBalanceUsd` updates.
+- Add the result to `LIVE_BET_LOG.md` (manual log — not in the database; this is the operator's running journal of what they learned).
+
+#### 9. Stop conditions
+After the first live bet settles, do NOT scale up immediately. Continue the same flow — one prediction at a time, $5 stake, manual confirm — for 10 settled live bets minimum. Compute mean Brier. If mean Brier > 0.20, stop, recalibrate, and consider whether the system is ready for live trading at all.
+
+If at any point any of the following happens, engage the kill switch and stop:
+- Two live bets in a row with `status=FAILED` from the exchange.
+- Daily loss within $5 of `FORECASTS_MAX_DAILY_LOSS_USD`.
+- A live bet's outcome diverges from its paper-side counterpart by more than 1¢ at fill (suggests slippage handling is wrong).
+- Anything you don't understand.
+
+### `coding_prompts/LIVE_BET_LOG.md` (operator's running journal — template)
+
+A markdown table the operator fills in by hand:
+
+| Date | Prediction id | Market | Side | Stake | Entry | Exit | P&L | Brier | Notes |
+|---|---|---|---|---|---|---|---|---|---|
+
+Plus a "10-bet milestone" section template the operator fills in after the 10th settled live bet.
+
+### `noosphere/scripts/rehearsal_status.py`
+
+A one-shot script the operator runs at any point during the rehearsal to print a status board:
+
+```
+Theseus Forecasts — rehearsal status
+
+  Stage 2 environment:
+    FORECASTS_LIVE_TRADING_ENABLED:  true
+    FORECASTS_MAX_STAKE_USD:         5
+    Stage 4 fitness check:           1 prediction matching criteria found
+
+  Live trading:
+    Pending authorizations:          1
+    Pending confirmations:           0
+    Submitted (awaiting fill):       0
+    Open (awaiting resolution):      0
+    Settled this week:               0
+
+  Kill switch:                       CLEAR
+  Daily loss tracker:                $0 / $20 ceiling
+
+  Calibration (last 30 paper):       Brier=0.18, n=12 (under threshold ✓)
+```
+
+The script reads from the same DB as the API; it does not require the API to be running.
+
+## Definition of done
+
+- `coding_prompts/OPERATOR_REHEARSAL.md` exists with all 9 sections.
+- `coding_prompts/LIVE_BET_LOG.md` exists as an empty journal template.
+- `noosphere/scripts/rehearsal_status.py` runs and produces the status board.
+- The doc explicitly forbids skipping any of: validate-credentials, migrate-production, demo-integration, paper-confirmation, kill-switch-dry-run.
+- A `grep -c '\bSTOP\b\|\babort\b\|\bdo NOT\b' coding_prompts/OPERATOR_REHEARSAL.md` returns ≥ 6 (the doc is liberally garnished with stop-words because the cost of forging ahead through ambiguity is real money).
+
+## SCOPE
+
+- `coding_prompts/OPERATOR_REHEARSAL.md`                                 CREATE
+- `coding_prompts/LIVE_BET_LOG.md`                                       CREATE
+- `noosphere/scripts/rehearsal_status.py`                                CREATE
+- `noosphere/noosphere/cli.py`                                           MODIFY

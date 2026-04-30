@@ -82,8 +82,12 @@ DRY_RUN=0
 SKIP_CHECKPOINTS=0
 
 # ----- Checkpoints (parallel arrays — bash 3.2 has no associative arrays) ---
-CHECKPOINT_AFTER=("01"        "02"      "09")
-CHECKPOINT_FN=(   "ck_design" "ck_data" "ck_safety")
+# Round 11 ships with no per-prompt checkpoints. Prompts produce ops scripts
+# and docs; their own Definition-of-Done assertions are sufficient. Earlier-
+# round checkpoint functions (ck_design, ck_data, ck_safety) are preserved in
+# git history under archive_round10/ for reference.
+CHECKPOINT_AFTER=()
+CHECKPOINT_FN=()
 
 # ----- Arg parsing -----------------------------------------------------------
 while [[ $# -gt 0 ]]; do
@@ -149,7 +153,7 @@ else
 fi
 
 # ----- Plan ------------------------------------------------------------------
-echo "${BOLD}Plan:${NC} $TOTAL prompts total (Codex CLI runner — Round 10 / Forecasts)"
+echo "${BOLD}Plan:${NC} $TOTAL prompts total (Codex CLI runner)"
 [ -n "$MODEL" ] && echo "${BOLD}Model:${NC} $MODEL"
 [ -z "$MODEL" ] && echo "${BOLD}Model:${NC} (codex default — pass --model to override)"
 if [ "$FROM" -gt 0 ] || [ "$TO" -gt 0 ] || [ -n "$ONLY" ]; then
@@ -174,218 +178,107 @@ if [ "$DRY_RUN" -eq 1 ]; then
   exit 0
 fi
 
-# ----- Checkpoint functions --------------------------------------------------
-# Each function returns 0 on pass, non-zero on fail. Output goes straight to
-# the terminal (the user is watching this).
+# ----- Round 11 — pre-flight, progress bar, heartbeat ------------------------
+# Round 11 has no per-prompt checkpoints. Instead it has:
+#   - A single .env.live preflight that runs ONCE before any codex call.
+#   - A progress bar header printed at the start of each prompt.
+#   - A heartbeat that prints elapsed time every 30s during long codex calls.
 
-ck_design() {
-  echo "${BOLD}Checkpoint:${NC} ck_design — verifying FORECASTS_DESIGN.md is complete"
-
-  if [ ! -f "$REPO_ROOT/coding_prompts/FORECASTS_DESIGN.md" ]; then
-    echo "${RED}  FAIL: coding_prompts/FORECASTS_DESIGN.md is missing${NC}"
-    echo "        Prompt 01 didn't produce its deliverable."
+# preflight_env_live — abort if .env.live is missing required fields.
+# Reads only key NAMES, never values. Specifically: greps for `KEY=<non-empty>`.
+preflight_env_live() {
+  local f="$REPO_ROOT/.env.live"
+  if [ ! -f "$f" ]; then
+    echo
+    echo "${RED}${BOLD}── .env.live not found at $f ──${NC}"
+    echo "${RED}Round 11 requires a populated .env.live before any codex call.${NC}"
+    echo
+    echo "Setup:"
+    echo "    cp .env.live.template .env.live"
+    echo "    \$EDITOR .env.live          # fill in real values"
+    echo
+    echo "Then re-run:  ./run_prompts.sh"
     return 1
   fi
-  echo "${GREEN}  ✓ FORECASTS_DESIGN.md exists${NC}"
 
-  if grep -q '\*\*DECISION REQUIRED\*\*' "$REPO_ROOT/coding_prompts/FORECASTS_DESIGN.md"; then
-    echo "${RED}  FAIL: FORECASTS_DESIGN.md has unresolved DECISION REQUIRED markers${NC}"
-    echo "        Resolve those before running prompt 02."
-    return 1
-  fi
-  echo "${GREEN}  ✓ no unresolved decision markers${NC}"
-
-  for section in "Goals and non-goals" "Data model" "Route table" \
-                 "Env-var matrix" "Trading-mode state machine" "Risk register"; do
-    if ! grep -q -- "$section" "$REPO_ROOT/coding_prompts/FORECASTS_DESIGN.md"; then
-      echo "${RED}  FAIL: missing required section: $section${NC}"
-      return 1
+  # Required for any operation (paper or live).
+  local required="DATABASE_URL ANTHROPIC_API_KEY FORECASTS_INGEST_ORG_ID FORECASTS_OPERATOR_SECRET"
+  local missing=""
+  local var
+  for var in $required; do
+    # Match VAR=<at least one non-quote, non-newline char>
+    if ! grep -qE "^${var}=[^[:space:]\"']+" "$f"; then
+      missing="$missing $var"
     fi
   done
-  echo "${GREEN}  ✓ all required sections present${NC}"
+
+  if [ -n "$missing" ]; then
+    echo
+    echo "${RED}${BOLD}── .env.live is present but missing required values ──${NC}"
+    echo "${RED}Missing or empty:${NC}"
+    for var in $missing; do echo "    - $var"; done
+    echo
+    echo "${YELLOW}This runner does not read or print the values themselves —${NC}"
+    echo "${YELLOW}only checks that each KEY=<non-empty-value> line exists.${NC}"
+    echo
+    return 1
+  fi
+
+  echo "${GREEN}✓ .env.live present with all required fields populated${NC}"
+
+  # Live-trading sanity: if the flag is true, check that the ceilings are non-zero.
+  if grep -qE "^FORECASTS_LIVE_TRADING_ENABLED=true" "$f"; then
+    local ceiling_problem=""
+    if grep -qE "^FORECASTS_MAX_STAKE_USD=0" "$f"; then
+      ceiling_problem="$ceiling_problem FORECASTS_MAX_STAKE_USD=0"
+    fi
+    if grep -qE "^FORECASTS_MAX_DAILY_LOSS_USD=0" "$f"; then
+      ceiling_problem="$ceiling_problem FORECASTS_MAX_DAILY_LOSS_USD=0"
+    fi
+    if [ -n "$ceiling_problem" ]; then
+      echo
+      echo "${RED}${BOLD}── Live trading flag is true but ceilings are zero ──${NC}"
+      echo "${RED}Misconfiguration:${ceiling_problem}${NC}"
+      echo "${RED}Either set realistic ceilings or set FORECASTS_LIVE_TRADING_ENABLED=false.${NC}"
+      return 1
+    fi
+    echo "${YELLOW}  ⚠  FORECASTS_LIVE_TRADING_ENABLED=true — operator rehearsal must be complete${NC}"
+  fi
 
   return 0
 }
 
-ck_data() {
-  echo "${BOLD}Checkpoint:${NC} ck_data — verifying the forecasts data layer migrates cleanly"
-
-  # 1. Prisma migration directory exists.
-  local mig_dir
-  mig_dir=$(find "$REPO_ROOT/theseus-codex/prisma/migrations" \
-              -maxdepth 1 -type d -name '*forecasts_data_model' 2>/dev/null | head -1)
-  if [ -z "$mig_dir" ]; then
-    echo "${RED}  FAIL: no prisma migration named *_forecasts_data_model found${NC}"
-    return 1
-  fi
-  echo "${GREEN}  ✓ Prisma migration present:${NC} $(basename "$mig_dir")"
-
-  # 2. Alembic revision exists.
-  if [ ! -f "$REPO_ROOT/noosphere/alembic/versions/004_forecasts_data_model.py" ]; then
-    echo "${RED}  FAIL: noosphere/alembic/versions/004_forecasts_data_model.py missing${NC}"
-    return 1
-  fi
-  echo "${GREEN}  ✓ Alembic revision 004 present${NC}"
-
-  # 3. Prisma schema parses + validates.
-  #
-  # SAFETY: `prisma format` and `prisma validate` are documented file-only
-  # operations — they read schema.prisma and exit, no socket opened. Prisma 7
-  # nevertheless requires DATABASE_URL to be SET at config-load time because
-  # prisma.config.ts and the datasource block call env("DATABASE_URL") eagerly.
-  #
-  # We supply a guaranteed-NON-ROUTABLE URL so even if a future maintainer
-  # mistakenly adds `prisma migrate` / `prisma db push` here, those commands
-  # will fail-closed (no DNS, refused connect) rather than silently mutating
-  # whatever Postgres happens to be on localhost:5432:
-  #
-  #   - `db.invalid` is a DNS-blackholed TLD per RFC 2606 §2.
-  #   - Port 1 is privileged; no real DB is going to be bound there.
-  #
-  # DO NOT change this URL to localhost or any reachable host without first
-  # auditing every command that runs under it.
-  local STUB_DB_URL='postgresql://stub:stub@db.invalid:1/stub'
-
-  if ! ( cd "$REPO_ROOT/theseus-codex" && \
-         DATABASE_URL="$STUB_DB_URL" \
-         npx --yes prisma format >/tmp/ck_data_prisma.log 2>&1 ); then
-    echo "${RED}  FAIL: 'prisma format' failed${NC}"
-    head -30 /tmp/ck_data_prisma.log | sed 's/^/    /'
-    return 1
-  fi
-  echo "${GREEN}  ✓ prisma schema formats cleanly${NC}"
-
-  # 3b. Prisma schema validates (catches relation/FK/index errors `format` misses).
-  if ! ( cd "$REPO_ROOT/theseus-codex" && \
-         DATABASE_URL="$STUB_DB_URL" \
-         npx --yes prisma validate >/tmp/ck_data_prisma_validate.log 2>&1 ); then
-    echo "${RED}  FAIL: 'prisma validate' failed${NC}"
-    head -30 /tmp/ck_data_prisma_validate.log | sed 's/^/    /'
-    return 1
-  fi
-  echo "${GREEN}  ✓ prisma schema validates cleanly${NC}"
-
-  # 4. Forecasts SQLModel symbols on the noosphere store.
-  for sym in StoredForecastMarket StoredForecastPrediction; do
-    if ! grep -q "class $sym" "$REPO_ROOT/noosphere/noosphere/store.py"; then
-      echo "${RED}  FAIL: $sym not present in noosphere/store.py${NC}"
-      return 1
-    fi
-  done
-  echo "${GREEN}  ✓ forecasts SQLModel classes present${NC}"
-
-  return 0
+# make_progress_bar <current> <total> [width=10]
+# Echoes a Unicode block bar. Used in the per-prompt header.
+make_progress_bar() {
+  local cur="$1" tot="$2" width="${3:-10}"
+  if [ "$tot" -le 0 ]; then echo ""; return; fi
+  local filled=$(( cur * width / tot ))
+  local empty=$(( width - filled ))
+  local bar="" i
+  for i in $(seq 1 "$filled" 2>/dev/null); do bar="${bar}▰"; done
+  for i in $(seq 1 "$empty"  2>/dev/null); do bar="${bar}▱"; done
+  echo "$bar"
 }
 
-ck_safety() {
-  echo "${BOLD}Checkpoint:${NC} ck_safety — verifying live trading is OFF by default and gates are wired"
-
-  local sf="$REPO_ROOT/noosphere/noosphere/forecasts/safety.py"
-  if [ ! -f "$sf" ]; then
-    echo "${RED}  FAIL: noosphere/noosphere/forecasts/safety.py missing${NC}"
-    return 1
-  fi
-  echo "${GREEN}  ✓ safety.py present${NC}"
-
-  # 1. Eight gate codes appear in safety.py.
-  local missing=0
-  for code in DISABLED NOT_CONFIGURED NOT_AUTHORIZED NOT_CONFIRMED \
-              STAKE_OVER_CEILING DAILY_LOSS_OVER_CEILING \
-              KILL_SWITCH_ENGAGED INSUFFICIENT_BALANCE; do
-    if ! grep -q "\"$code\"" "$sf"; then
-      echo "${RED}  FAIL: gate code '$code' not present in safety.py${NC}"
-      missing=$((missing + 1))
-    fi
+# heartbeat_loop <prompt-num> <prompt-name> <start-epoch>
+# Prints "still running (Nm Ns elapsed)" every 30s. Designed to be backgrounded
+# and killed when the foreground codex call finishes.
+heartbeat_loop() {
+  local prompt_num="$1" prompt_name="$2" start_ts="$3"
+  while sleep 30; do
+    local now=$(date +%s)
+    local elapsed=$((now - start_ts))
+    local mins=$((elapsed / 60))
+    local secs=$((elapsed % 60))
+    printf "${BLUE}  ⏱  [%s] still running (%dm %02ds elapsed)${NC}\n" \
+           "$prompt_num" "$mins" "$secs"
   done
-  [ "$missing" -gt 0 ] && return 1
-  echo "${GREEN}  ✓ all 8 gate codes present${NC}"
-
-  # 2. paper_bet_engine has zero live-client imports.
-  if grep -qE 'polymarket_live|kalshi_live|_polymarket_live_client|_kalshi_live_client' \
-       "$REPO_ROOT/noosphere/noosphere/forecasts/paper_bet_engine.py" 2>/dev/null; then
-    echo "${RED}  FAIL: paper_bet_engine.py imports a live exchange client${NC}"
-    return 1
-  fi
-  echo "${GREEN}  ✓ paper_bet_engine has no live client imports${NC}"
-
-  # 3. FORECASTS_LIVE_TRADING_ENABLED is read in safety.py.
-  if ! grep -q 'FORECASTS_LIVE_TRADING_ENABLED' "$sf"; then
-    echo "${RED}  FAIL: safety.py does not read FORECASTS_LIVE_TRADING_ENABLED${NC}"
-    return 1
-  fi
-  echo "${GREEN}  ✓ live-trading flag wired${NC}"
-
-  # 4. Default env produces a DISABLED gate failure.
-  #
-  # We try the strong check first (run the code), then a grep fallback if no
-  # Python with `noosphere` importable is on this machine. Both must agree
-  # that the DISABLED branch exists; the strong check additionally proves it
-  # actually fires under empty env.
-  #
-  # Probe order for the interpreter:
-  #   1. .venv/currents/bin/python  — the project venv Codex itself uses.
-  #   2. .venv/bin/python           — alternate venv name.
-  #   3. python3                    — system python3 (macOS default).
-  #   4. python                     — last resort (Linux distros, rare on macOS).
-  local PYTHON=""
-  for candidate in \
-      "$REPO_ROOT/.venv/currents/bin/python" \
-      "$REPO_ROOT/.venv/bin/python" \
-      "$REPO_ROOT/noosphere/.venv/bin/python" \
-      "$(command -v python3 2>/dev/null)" \
-      "$(command -v python  2>/dev/null)"; do
-    [ -z "$candidate" ] && continue
-    [ -x "$candidate" ] || continue
-    if ( cd "$REPO_ROOT/noosphere" && "$candidate" -c "import noosphere.forecasts.safety" ) >/dev/null 2>&1; then
-      PYTHON="$candidate"
-      break
-    fi
-  done
-
-  if [ -n "$PYTHON" ]; then
-    echo "  python: $PYTHON"
-    if ! ( cd "$REPO_ROOT/noosphere" && \
-           env -u FORECASTS_LIVE_TRADING_ENABLED \
-               -u POLYMARKET_PRIVATE_KEY \
-               -u KALSHI_API_KEY_ID \
-           "$PYTHON" - >/tmp/ck_safety_self.log 2>&1 <<'PYEOF'
-from noosphere.forecasts import safety as s
-ctx = s.GateContext(
-    live_trading_enabled=False,
-    polymarket_configured=False, kalshi_configured=False,
-    max_stake_usd=0.0, max_daily_loss_usd=0.0,
-    kill_switch_engaged=False, daily_loss_usd=0.0, live_balance_usd=0.0,
-)
-try:
-    s.check_all_gates(prediction=None, bet=None, ctx=ctx)
-except s.GateFailure as e:
-    if e.code != "DISABLED":
-        raise SystemExit(f"expected DISABLED, got {e.code}")
-    raise SystemExit(0)
-raise SystemExit("expected GateFailure, none raised")
-PYEOF
-    ); then
-      echo "${RED}  FAIL: default-env self-check did not refuse with DISABLED${NC}"
-      head -20 /tmp/ck_safety_self.log | sed 's/^/    /'
-      return 1
-    fi
-    echo "${GREEN}  ✓ default env refuses live trading (DISABLED) — strong check${NC}"
-  else
-    # Grep fallback: confirm safety.py contains the DISABLED branch with a
-    # check tied to the live-trading flag. Weaker (doesn't prove it executes)
-    # but never a false negative on a missing venv.
-    echo "${YELLOW}  no python with noosphere importable — using source-level fallback${NC}"
-    if ! grep -B2 -A6 'live_trading_enabled' "$sf" | grep -q '"DISABLED"'; then
-      echo "${RED}  FAIL: safety.py: no DISABLED branch tied to live_trading_enabled flag${NC}"
-      return 1
-    fi
-    echo "${GREEN}  ✓ DISABLED branch present and tied to live_trading_enabled — fallback check${NC}"
-  fi
-
-  return 0
 }
 
 # Look up the checkpoint function for a given prompt number, if any.
+# Round 11 has no checkpoints (CHECKPOINT_AFTER is empty), so this always
+# returns "". Kept for forward-compat with future rounds.
 checkpoint_for() {
   local n="$1"
   local i
@@ -397,6 +290,7 @@ checkpoint_for() {
   done
   echo ""
 }
+
 
 # ----- Codex invocation with retry -------------------------------------------
 # Failures fall into three classes:
@@ -519,9 +413,28 @@ run_codex_with_retry() {
   done
 }
 
+# ----- Pre-flight: .env.live populated --------------------------------------
+# Skip in dry-run mode (no codex calls happen so missing .env.live is fine).
+if [ "$DRY_RUN" -eq 0 ]; then
+  if ! preflight_env_live; then
+    exit 1
+  fi
+fi
+
 # ----- Run -------------------------------------------------------------------
 OVERALL_START=$(date +%s)
 RAN=0; OK=0; FAIL=0
+
+# Compute how many prompts will actually run (for the progress bar).
+PLAN_TOTAL=0
+for _f in ${PROMPTS[@]+"${PROMPTS[@]}"}; do
+  _n=$(basename "$_f" .txt); _num="${_n%%_*}"
+  if [ -n "$ONLY" ] && [ "$_num" != "$ONLY" ]; then continue; fi
+  if [ "$FROM" -gt 0 ] && [ "$((10#$_num))" -lt "$((10#$FROM))" ]; then continue; fi
+  if [ "$TO"   -gt 0 ] && [ "$((10#$_num))" -gt "$((10#$TO))"   ]; then continue; fi
+  PLAN_TOTAL=$((PLAN_TOTAL + 1))
+done
+PLAN_INDEX=0
 
 for f in ${PROMPTS[@]+"${PROMPTS[@]}"}; do
   name=$(basename "$f" .txt)
@@ -531,6 +444,7 @@ for f in ${PROMPTS[@]+"${PROMPTS[@]}"}; do
   if [ "$TO"   -gt 0 ] && [ "$((10#$num))" -gt "$((10#$TO))"   ]; then continue; fi
 
   RAN=$((RAN+1))
+  PLAN_INDEX=$((PLAN_INDEX+1))
   ts=$(date +%Y%m%d-%H%M%S)
   text_log="$LOG_DIR/${ts}_${name}.log"
 
@@ -538,14 +452,35 @@ for f in ${PROMPTS[@]+"${PROMPTS[@]}"}; do
   CURRENT_PROMPT_NUM="$num"
   CURRENT_PROMPT_NAME="$name"
 
+  # Progress bar header.
+  bar=$(make_progress_bar "$((PLAN_INDEX-1))" "$PLAN_TOTAL" 12)
+  pct=$(( (PLAN_INDEX - 1) * 100 / (PLAN_TOTAL == 0 ? 1 : PLAN_TOTAL) ))
+  total_elapsed=$(( $(date +%s) - OVERALL_START ))
+  total_mins=$((total_elapsed / 60))
+
   echo
   echo "${BLUE}──────────────────────────────────────────────────────────────${NC}"
-  echo "${BOLD}${BLUE}▶ ${name}${NC}   ${BLUE}log: ${text_log}${NC}"
+  printf "${BOLD}${BLUE}[%d/%d]${NC} ${BLUE}%s${NC}  ${BOLD}${BLUE}%3d%%${NC}   ${BLUE}round so far: %dm${NC}\n" \
+         "$PLAN_INDEX" "$PLAN_TOTAL" "$bar" "$pct" "$total_mins"
+  printf "${BOLD}${BLUE}▶ %s${NC}   ${BLUE}log: %s${NC}\n" "$name" "$text_log"
   echo "${BLUE}──────────────────────────────────────────────────────────────${NC}"
 
   prompt_start=$(date +%s)
+
+  # Start the heartbeat in the background. Kill it when codex finishes.
+  heartbeat_loop "$num" "$name" "$prompt_start" &
+  HB_PID=$!
+  # Disown so the heartbeat doesn't keep us alive past EXIT.
+  disown "$HB_PID" 2>/dev/null || true
+
   run_codex_with_retry "$f" "$text_log" "$num"
   rc=$?
+
+  # Tear down the heartbeat. Use kill+wait so a stray "Terminated" message
+  # is suppressed (it's noise; the user doesn't need to see it).
+  kill "$HB_PID" 2>/dev/null
+  wait "$HB_PID" 2>/dev/null
+
   prompt_end=$(date +%s)
   elapsed=$((prompt_end - prompt_start))
 
@@ -587,8 +522,26 @@ CURRENT_PROMPT_NAME=""
 
 OVERALL_END=$(date +%s)
 OVERALL_ELAPSED=$((OVERALL_END - OVERALL_START))
+total_mins=$((OVERALL_ELAPSED / 60))
+total_secs=$((OVERALL_ELAPSED % 60))
+
+# Final progress bar reflects what actually ran (OK out of plan total).
+final_bar=""
+if [ "$PLAN_TOTAL" -gt 0 ]; then
+  final_bar=$(make_progress_bar "$OK" "$PLAN_TOTAL" 12)
+fi
 echo
-echo "${BOLD}Summary:${NC} ran $RAN, ok $OK, fail $FAIL, total ${OVERALL_ELAPSED}s"
-echo "Logs in ${LOG_DIR}"
+echo "${BLUE}──────────────────────────────────────────────────────────────${NC}"
+if [ "$FAIL" -eq 0 ] && [ "$RAN" -gt 0 ]; then
+  printf "${GREEN}${BOLD}✓ Round complete${NC}   %s   ${GREEN}%d/%d ok${NC}   ${BLUE}%dm %02ds${NC}\n" \
+         "$final_bar" "$OK" "$PLAN_TOTAL" "$total_mins" "$total_secs"
+elif [ "$RAN" -eq 0 ]; then
+  echo "${YELLOW}No prompts matched the filter — nothing executed.${NC}"
+else
+  printf "${RED}${BOLD}✗ Round halted${NC}     %s   ${RED}%d/%d ran, %d fail${NC}   ${BLUE}%dm %02ds${NC}\n" \
+         "$final_bar" "$RAN" "$PLAN_TOTAL" "$FAIL" "$total_mins" "$total_secs"
+fi
+echo "${BLUE}Logs:${NC} $LOG_DIR"
+echo "${BLUE}──────────────────────────────────────────────────────────────${NC}"
 
 [ "$FAIL" -eq 0 ] && exit 0 || exit 1

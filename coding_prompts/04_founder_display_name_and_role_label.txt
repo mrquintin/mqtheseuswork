@@ -1,0 +1,72 @@
+# Codex Prompt 4 of 22 — Replace placeholder "Founder Alpha" labels and let founders set their own display name
+
+**Round:** 12, Wave A. **Sequence:** 4 of 22. **Report back with:** the migration path for existing rows and the new founder-account form.
+
+## Why this prompt exists
+
+Quote: *"I don't know why I'm called Founder Alpha. I don't know. I didn't do this — I don't know why I didn't set this. I don't know why. Quinton was like, okay."*
+
+Two distinct issues:
+
+1. The founder profile page displays the role/seat label `Founder Alpha`, `Founder Beta`, etc. — placeholder slots assigned at organisation seed time. There is no UI to set a real display name, so the founder is stuck with a label that is meaningless to outside readers (and embarrassing inside the firm).
+2. There is no account-settings page where a founder can edit their own `name`, `username`, or short bio — the value displayed is whatever the seed migration wrote.
+
+## Before you start — read current state
+
+1. `theseus-codex/prisma/schema.prisma` — the `Founder` model. Note current fields: `name`, `username`, `email`, `role`, possibly `bio` and `displayName`. If `displayName` does not exist, add it.
+2. `theseus-codex/src/app/(authed)/founders/page.tsx` — the gallery that currently surfaces "Founder Alpha".
+3. `theseus-codex/src/app/(authed)/account/` — confirm whether an account settings page already exists. If yes, extend it; if no, create one.
+4. `theseus-codex/src/lib/auth.ts` — what does `getFounder()` return? The session's name field is what the dashboard greets you with.
+
+## Your task
+
+### A. Schema (additive — never destructive)
+
+If `Founder.displayName` is missing, add it as nullable `String?`. Generate a Prisma migration. The existing `name` field stays as the canonical (legal/long) name; `displayName` is what the UI shows when set, falling back to `name`.
+
+If a `seatLabel` field exists (the source of "Founder Alpha"), keep it for internal/audit use — but never render it on user-facing surfaces.
+
+### B. Account settings page
+
+Create or extend `theseus-codex/src/app/(authed)/account/page.tsx` with a small form:
+
+- Display name (text input)
+- Bio (textarea, capped at 500 chars)
+- Email — read-only; show only, do not edit (email change is a sensitive flow we are not building here)
+- Submit button posts to a new `PATCH /api/account` route that updates the calling founder's row.
+
+Validation: `displayName` 2–60 chars, no leading/trailing whitespace. Server-side enforcement, not just client-side.
+
+### C. Replace every render of `seatLabel`/"Founder Alpha"
+
+Audit every `.tsx` under `theseus-codex/src/` for renders of role/seat labels in user-visible contexts. The right precedence is:
+
+```
+displayName ?? name ?? username
+```
+
+Surfaces to fix at minimum:
+
+- Top nav greeting ("Welcome back, …").
+- `/founders` gallery cards.
+- Conclusion provenance / "claimed by" lines.
+- Upload list "uploaded by" lines.
+- Dashboard hearth.
+
+The internal `role` field (admin / founder / viewer) is a permission gate, NOT a public title. It must never appear next to a name.
+
+### D. Backfill nudge
+
+On first dashboard load after this migration, if `founder.displayName` is null, render a one-line dismissable banner: `"Set your display name on /account so your peers see something meaningful."` Dismissal stored in a small `accountNudgeDismissedAt` field on `Founder` so it doesn't reappear after one click.
+
+### E. Tests
+
+- Vitest unit test for the `PATCH /api/account` validation (rejects empty, rejects 1-char, rejects 61-char, accepts 2–60).
+- Playwright e2e test: log in as a fixture founder with no `displayName`, see the nudge, navigate to `/account`, set a name, return to dashboard, see the new name in the greeting, see the nudge gone.
+
+## Definition of Done
+
+- Migration applied locally (`npx prisma migrate dev`).
+- No rendered "Founder Alpha" / "Founder Beta" / role-string anywhere a non-admin can see.
+- Tests pass.
+- No prompt or patch contains any secret.

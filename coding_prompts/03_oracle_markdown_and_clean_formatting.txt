@@ -1,0 +1,57 @@
+# Codex Prompt 3 of 22 — Render the Oracle's answer with proper formatting (no raw asterisks)
+
+**Round:** 12, Wave A. **Sequence:** 3 of 22. **Report back with:** before/after screenshot paths of an answer that contains bold, lists, and inline citations.
+
+## Why this prompt exists
+
+The founder's complaint: *"Answers from the codex have text formatting that should not be there. I don't want asterisks, which are subbing in for bolded text in the actual oracle response."*
+
+Source: the LLM emits markdown (the system prompt does not forbid it, and modern Claude models default to markdown). The frontend currently renders the answer with `whiteSpace: "pre-wrap"` and no markdown parser, so `**bold**` shows as literal asterisks. The fix is to render the answer as proper markdown — bold renders bold, lists render lists, paragraphs render paragraphs, headings render at a small visual weight — while preserving the inline `[C:xxxxx]` and `[U:xxxxx]` citation tokens (those become clickable in prompt 13; for now just keep them as visible tokens).
+
+## Before you start — read current state
+
+1. `theseus-codex/src/app/(authed)/ask/AskForm.tsx` — the `<p style={{ whiteSpace: "pre-wrap" }}>{result.answer}</p>` block is the regression site.
+2. `theseus-codex/src/app/api/ask/route.ts` — the system prompt sent to Claude. Note whether it instructs the model to use markdown or not. Do NOT remove markdown; render it.
+3. `theseus-codex/package.json` — pick a small, safe markdown renderer with sanitization. `react-markdown` + `remark-gfm` is the canonical choice; alternatively `marked` + DOMPurify. Either is fine; prefer whichever is already a transitive dependency to avoid bundle bloat.
+
+## Your task
+
+### A. Add a sanitised markdown renderer
+
+Create `theseus-codex/src/components/AnswerMarkdown.tsx`:
+
+- Client component.
+- Props: `{ children: string }` plus an optional `citationsResolver?: (token: string) => string | null` (to be wired in prompt 13 for citation linking; default no-op for now).
+- Internally uses `react-markdown` with `remark-gfm`.
+- Whitelisted node types: paragraph, strong, em, list, listItem, code (inline + block), blockquote, heading (capped at h3 visually so the answer doesn't compete with page headings).
+- All other HTML stripped via `rehype-sanitize`.
+- Inline citation tokens (`[C:abc]`, `[U:xyz]`) are preserved as `<code>` spans so they stand out and can later be replaced by anchor links.
+
+Visual style: inherit `font-family: 'EB Garamond', serif`, `font-size: 1.08rem`, `line-height: 1.65`, `color: var(--parchment)`. Bold uses `color: var(--amber)` to reinforce the firm's accent palette. Lists use modest indent and tight spacing.
+
+### B. Replace the raw `<p whiteSpace="pre-wrap">` in AskForm
+
+Swap the block in `AskForm.tsx` for `<AnswerMarkdown>{result.answer}</AnswerMarkdown>`. Keep everything else (sources panel, grounding meta-line) intact.
+
+### C. Tighten the Oracle's system prompt
+
+In `theseus-codex/src/app/api/ask/route.ts`, append to the system prompt:
+
+> "Format your answer with light markdown: bold for the most load-bearing claims, paragraphs separated by blank lines, lists only when the structure is genuinely a list. Do not include headings or code blocks. Always preserve inline citation tokens of the form [C:<id>] and [U:<id>] exactly as you receive them."
+
+This makes the markdown intentional and consistent across answers.
+
+### D. Ensure citation tokens survive sanitisation
+
+Write a Vitest unit test for `AnswerMarkdown` that feeds in: `"The firm holds **two** competing positions [C:abc123] and [C:def456]."` — assert the rendered HTML contains a `<strong>two</strong>` and two `<code>[C:abc123]</code>`-shaped spans (or whatever DOM your impl uses). Tokens must NOT be reflowed or split by paragraph parsing.
+
+### E. Negative test
+
+Feed in a malicious string: `"<script>alert(1)</script>**bold**"`. Assert the script tag is removed, the bold survives.
+
+## Definition of Done
+
+- `npm run lint`, `npm run build`, and the new tests pass.
+- Manual smoke: ask the Oracle a question that produces bold and a list. Bold renders bold. List renders list. Asterisks never appear as raw characters.
+- The `[C:...]` and `[U:...]` tokens are visually distinct (mono font, faint background) so the next prompt can wire them to links.
+- No prompt or patch contains any secret.

@@ -1,0 +1,93 @@
+# Codex Prompt 2 of 5 — Production database migration runner (idempotent + interactive confirm)
+
+**Sequence:** prompt 2 of 5 (Round 11, Wave A). Depends on 01. Report back with: the migration plan output, the Postgres connection's hostname (no credentials), and the post-migration row count of every Forecasts table.
+
+**Why this prompt exists.** The schema produced by Round 10 prompt 02 is committed in version control (a Prisma migration directory + an Alembic revision file), but it has never been applied against a production database. Running `prisma migrate deploy` and `alembic upgrade head` against the wrong DATABASE_URL — say, the operator's local dev DB by accident — would silently propagate Forecasts tables into the wrong tenant. We require an explicit interactive confirmation that names the host before any DDL executes.
+
+**Before you start — read current state:**
+1. Read every migration file under `theseus-codex/prisma/migrations/` — confirm the Forecasts migration is the latest one and depends on no missing predecessor.
+2. Read every revision file under `noosphere/alembic/versions/` — confirm the chain `001 → 002 → 003_currents_data_model → 004_forecasts_data_model` is intact.
+3. Read `theseus-codex/prisma/schema.prisma` — note that `prisma migrate deploy` requires `DATABASE_URL` to be set; deploy mode does NOT generate new migrations, only applies pending ones.
+
+## Your task
+
+### `scripts/migrate_production.sh`
+
+```bash
+#!/bin/bash
+# Apply all pending Prisma + Alembic migrations against $DATABASE_URL.
+# Refuses to run unless:
+#   1. DATABASE_URL is set and parses to a Postgres URL.
+#   2. The hostname is NOT 'localhost', '127.0.0.1', or '0.0.0.0' UNLESS
+#      --allow-localhost is passed (for the rehearsal-on-local-postgres path).
+#   3. The operator types the database hostname back at an interactive prompt
+#      (Y/n is not enough — typo-protection).
+#
+# Exit codes:
+#   0 — both migrators applied cleanly (or nothing was pending).
+#   1 — pre-flight failure (URL malformed, hostname mismatch, etc.).
+#   2 — Prisma migrate failed; Alembic NOT attempted.
+#   3 — Alembic failed; Prisma had already applied.
+#
+# Usage: scripts/migrate_production.sh [--allow-localhost] [--dry-run]
+```
+
+Behavior detail:
+
+1. Parse `$DATABASE_URL`. Refuse to run if:
+   - URL is missing, malformed, or scheme is not `postgresql://` / `postgres://`.
+   - Hostname is local (per above), without `--allow-localhost`.
+2. Print the connection target — host:port + db name only, NEVER username/password — and prompt:
+   ```
+   You are about to apply migrations against:
+     host: db.foo.supabase.co
+     port: 5432
+     db:   postgres
+   Type the host exactly to confirm: _
+   ```
+   If the typed string ≠ host, abort.
+3. Print the pending migration list:
+   - Prisma: `npx prisma migrate status` (or equivalent), parse the "X migrations not applied" output. Show each migration's directory name.
+   - Alembic: `alembic current` + `alembic history --indicate-current` to show what would be applied.
+4. Final confirm prompt: `apply N pending migrations? (yes/no) ` — anything other than literal `yes` aborts.
+5. Run `npx prisma migrate deploy` from `theseus-codex/`.
+6. Run `alembic upgrade head` from `noosphere/`.
+7. Re-query `prisma migrate status` and `alembic current` to confirm both report up-to-date.
+8. Print a post-migration summary with row counts from every Forecasts table — `SELECT count(*) FROM "ForecastMarket"`, etc. — sourced via `psql $DATABASE_URL -t -c …` or a tiny Python helper.
+
+### `scripts/migrate_production_dry_run.sh`
+
+A second, lighter wrapper that prints the migration plan WITHOUT executing. Used in CI to verify there are no pending migrations on `main`.
+
+### Tests
+
+`noosphere/tests/test_migrate_production_script.py` — script unit tests that:
+- Mock `DATABASE_URL` parsing; assert the localhost-refusal logic fires for `localhost`, `127.0.0.1`, and `0.0.0.0`.
+- Mock the interactive confirm; assert wrong-host typing aborts.
+- Mock `npx prisma migrate deploy` to fail; assert exit code 2 and Alembic is NOT invoked.
+- Mock Alembic to fail; assert exit code 3.
+
+(These tests run the bash script via `subprocess`, mocking `npx`/`alembic` via wrappers in PATH.)
+
+### Documentation
+
+`docs/operator/PRODUCTION_MIGRATION.md`:
+- When to run this script.
+- What to do if Prisma succeeds but Alembic fails (manual steps to recover).
+- Why we use `migrate deploy` not `migrate dev` (deploy is idempotent and never generates new files).
+- Backup recommendation: take a Postgres snapshot before running migrate deploy on a non-empty production DB.
+
+## Definition of done
+
+- `scripts/migrate_production.sh` is executable (`chmod +x` baked into the prompt's deliverable).
+- A dry-run against a fresh Supabase DB prints the full pending-migration list and the row-count plan.
+- A real run applies the Forecasts migration, then `prisma migrate status` reports zero pending and `alembic current` reports `004_forecasts_data_model`.
+- The script refuses to run against a localhost URL without the explicit flag.
+- The host-confirmation prompt rejects mistyped hostnames (verified by a unit test).
+
+## SCOPE
+
+- `scripts/migrate_production.sh`                                        CREATE
+- `scripts/migrate_production_dry_run.sh`                                CREATE
+- `docs/operator/PRODUCTION_MIGRATION.md`                                CREATE
+- `noosphere/tests/test_migrate_production_script.py`                    CREATE

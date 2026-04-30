@@ -1,0 +1,85 @@
+# Codex Prompt 9 of 22 — Make the Currents feed actually pull live X events and comment on them
+
+**Round:** 12, Wave C (Currents as a real news engine). **Sequence:** 9 of 22. **Report back with:** the documented end-to-end path from an X post → a Currents card with firm commentary, plus the kill-switch path.
+
+## Why this prompt exists
+
+Direct quote from the recording: *"With the public-facing opinions platform, I definitely think it's in a good state, but it doesn't feel like it's actually commenting on current events. It's commenting more on just regurgitating the opinions of the codebase. The goal is to pull from current events from X — some big headlines, something recent that happens — and then to comment on it, pulling from the knowledge."*
+
+The infrastructure is built (`noosphere/noosphere/currents/_x_client.py`, `x_ingestor.py`, `opinion_generator.py`). What is missing — or fragile — is one or more of:
+
+1. The X bearer token is unset in production (`X_BEARER_TOKEN`), so the ingestor falls back to fakes/empties.
+2. The curated-account and search-query lists (`CURRENTS_X_CURATED_ACCOUNTS`, `CURRENTS_X_SEARCH_QUERIES`) are empty.
+3. The opinion generator runs but its prompt does not actually retrieve from the firm's Conclusions when commenting, so commentary feels generic.
+
+This prompt diagnoses, fixes, and re-grounds the pipeline.
+
+## Before you start — read current state
+
+1. `noosphere/noosphere/currents/_x_client.py` — the live X v2 client.
+2. `noosphere/noosphere/currents/x_ingestor.py` — the orchestrator that calls the client and writes events.
+3. `noosphere/noosphere/currents/config.py` — env-driven config; note `bearer_token`, `curated_accounts`, `search_queries`.
+4. `noosphere/noosphere/currents/opinion_generator.py` — the LLM call that produces the firm's commentary on each event.
+5. `noosphere/noosphere/currents/scheduler.py` — the cycle loop.
+6. `current_events_api/current_events_api/routes/currents.py` — the HTTP surface the frontend reads.
+7. `noosphere/noosphere/currents/retrieval_adapter.py` — the bridge that pulls firm Conclusions into the commentary prompt.
+8. `theseus-codex/src/app/currents/FeedClient.tsx` — the rendered feed.
+
+## Your task
+
+### A. Diagnose first; fix second
+
+Add `noosphere/scripts/diagnose_currents_pipeline.py`:
+
+- Prints whether `X_BEARER_TOKEN` is set (boolean only — never print the token).
+- Lists the count of `curated_accounts` and `search_queries` (and warns if either is 0).
+- Calls `XClient.search_recent` with the configured queries, prints the count returned (no tweet bodies).
+- Calls the relevance scorer and reports how many of the returned posts cleared the threshold.
+- Calls the opinion generator on the first cleared post with `dry_run=True` (no DB writes); reports the number of Conclusion citations the prompt actually included.
+- Outputs a one-screen table summarising every link in the chain and where it broke.
+
+This script is the operator's "is the pipeline alive?" tool. It must never call out with secrets and must never write production rows.
+
+### B. Make commentary actually ground in firm Conclusions
+
+In `opinion_generator.py`, audit the prompt template under `_prompts/`. The prompt should:
+
+- Inject **at most 12** firm Conclusions (the most semantically relevant to the X post body, scored via the existing retrieval adapter — embeddings if available, BM25 fallback otherwise).
+- Be explicit in the system prompt: *"You are commenting on a current event using ONLY the firm's recorded reasoning. Quote firm Conclusions inline using `[C:<id>]` tokens. If the firm has nothing applicable to say, return the empty string and the system will skip publication."*
+- Refuse to generate commentary if fewer than 3 Conclusions cleared the relevance threshold (returns empty; the event is recorded as "no firm position" and not surfaced as an opinion).
+
+Add a vitest/pytest unit test feeding a mock event and a fixture corpus, asserting that ≥3 Conclusion ids appear inline in the generated text.
+
+### C. Empty-config guardrails
+
+In `config.py`, when `bearer_token` is empty OR both `curated_accounts` and `search_queries` are empty, the ingestor logs `currents.x_ingestion.disabled reason=...` once per cycle and returns `[]` instead of erroring. The Currents page already handles an empty feed; the operator sees a `Currents disabled — set X_BEARER_TOKEN and at least one of CURRENTS_X_CURATED_ACCOUNTS / CURRENTS_X_SEARCH_QUERIES.` banner on `/currents` (server-side check via a lightweight `GET /api/currents/health` endpoint).
+
+### D. Operator visibility
+
+Add `/api/currents/health` (App Router route) that returns:
+
+```json
+{
+  "x_bearer_present": true,
+  "curated_count": 5,
+  "search_count": 2,
+  "last_cycle_at": "2026-04-30T12:34:56Z",
+  "events_last_24h": 13,
+  "opinions_last_24h": 8,
+  "disabled_reasons": []
+}
+```
+
+Surface this in a small `OperatorPulse` card on the founder `/dashboard` so it is impossible to miss when Currents is silently dead.
+
+### E. Documentation
+
+Append a section to `docs/operator/CURRENTS.md` (create if missing) titled "Bringing Currents to life". Steps: how to set `X_BEARER_TOKEN` (point to wherever the secret is stored — DO NOT hard-code), how to seed curated accounts and search queries, how to read the diagnose script's output, how to interpret the operator-pulse card.
+
+## Definition of Done
+
+- The diagnose script runs end-to-end on a freshly-cloned repo, surfaces the gaps cleanly, and never prints secrets.
+- With a populated `.env` (token + accounts + queries), a single scheduler tick produces at least one Currents card whose body cites ≥3 firm Conclusion ids.
+- The dashboard pulse card flips green when the pipeline is healthy and red with a precise reason when it is not.
+- All new tests pass.
+- No prompt or patch contains a token or any other secret.

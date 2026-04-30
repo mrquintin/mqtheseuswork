@@ -1,0 +1,66 @@
+# Codex Prompt 6 of 22 — About page with manifesto, three axioms, and members
+
+**Round:** 12, Wave B. **Sequence:** 6 of 22. **Report back with:** the new route tree under `/about` and how the page reads to a first-time visitor.
+
+## Why this prompt exists
+
+The founder dictated, almost verbatim, the content the About page should carry. From the recording:
+
+> "We're a group of, like, highly ambitious, like, future-oriented thinkers from the University of Chicago. We are united by this commonality to pursue a noble ideal. Here are our organizational axioms — progress focus, always striving for a better tomorrow, and intellectual camaraderie: a community of individuals that challenge assumptions and think in very fundamental ways. Theseus is trying to be a destination for intellectual capital — using frontier technology to access new levels of intelligence, to inform investment decisions, to challenge assumptions, to enact meaningful, different impact on society. We're literally putting our money where our mouth is — quite literally where our mind is — to quantify the validity of our ideas under the test of capital markets."
+
+Plus the IA asks:
+
+- "Maybe we have a profile on us, like a company about website."
+- "Where a group of Chicago students, blah, blah, blah."
+- "Maybe we keep it anonymous. I don't know. But say we want to reach out to a guest, to have them on a Theseus conversation… how would they understand what we're doing?"
+- "A manifesto would be really interesting."
+- "Hello at theseuscodex.com domain."
+
+## Before you start — read current state
+
+1. `theseus-codex/src/app/(home)/` — existing layout chrome (PublicHeader, sculpture backdrops).
+2. `theseus-codex/src/app/methodology/page.tsx` — already exists; we'll cross-link to it but NOT duplicate its content on About.
+3. `theseus-codex/src/components/PublicHeader.tsx` — must include an `About` link in the public nav.
+4. `prisma/schema.prisma` — `Founder` model: name, displayName (added in prompt 04), bio. About-page member cards read this.
+5. The repo-root files `METHODOLOGICAL_REORIENTATION.md` and `THE_META_METHOD.md` — these are existing internal docs that already articulate the firm's method. Do NOT copy them onto the About page wholesale; cite them as "further reading" links.
+
+## Your task
+
+### A. Route + page
+
+Create `theseus-codex/src/app/about/page.tsx` (server component, statically rendered with `revalidate = 3600`).
+
+Sections, in order, each anchored for deep-linking:
+
+1. **`#what` — What is Theseus?** Two paragraphs. Pulls strings from `theseusIdentity.whatIsTheseus` (created in prompt 07). Defines the firm in plain language: a small group of University-of-Chicago–trained thinkers running a structured deliberation engine ("the Codex") whose recorded reasoning seeds capital allocation in prediction markets and (eventually) public equities. Explicitly defines the term "intellectual capital" — the firm's working definition — once, near the top.
+2. **`#axioms` — The three axioms.** Renders a numbered list:
+   1. **Progress.** A bias toward a better tomorrow over a comfortable today.
+   2. **Rigor.** First-principles reasoning; assumptions made explicit and challenged.
+   3. **Camaraderie.** Intellectual companionship — the dialectic, not the echo.
+   Each axiom gets a one-sentence elaboration. Strings sourced from `theseusIdentity.axioms`.
+3. **`#manifesto` — Manifesto.** A 350–500-word piece written in the firm's voice. The placeholder text below is the *seed* — generate the final manifesto from the founder's voice-memo description. Title the section "Manifesto" with no extra ornament. Include the load-bearing phrase: *"We put our money where our mind is."*
+4. **`#members` — Members.** A grid of cards, one per `Founder` whose `role` is `admin` or `founder` AND whose `bio` is non-null. Card content: `displayName ?? name`, role title (the founder fills this in via `/account`; if absent show nothing — never show internal role strings like "admin" / "founder"), bio, and (optional) a single hand-picked link (LinkedIn / personal site) — extend the schema only if a `publicUrl` field is missing. If the firm wants to remain anonymous: a single env flag `NEXT_PUBLIC_ABOUT_HIDE_MEMBERS=true` collapses this section to a one-liner: *"The firm currently maintains member anonymity. Reach out via the contact below."*
+5. **`#contact` — Contact.** Renders the contact line + a small reach-out form (which will be wired in prompt 08; for now, the form posts to a stub `/api/contact` route that 200s and writes to a `ContactSubmission` table — schema migration included). Disclose: "We read every message. Replies depend on bandwidth; high-signal pitches get priority."
+
+### B. Public navigation
+
+Update `theseus-codex/src/components/PublicHeader.tsx` to include `About` as a top-level public-nav link (between the home logo and the `Login` link).
+
+### C. Markup discipline
+
+- All copy lives in `@/content/theseusIdentity.ts` (prompt 07). This page is a thin renderer.
+- Member rendering: server-side Prisma query, no client component.
+- Anchored sections so the homepage's `Read the full manifesto →` link to `/about#manifesto` works.
+
+### D. Tests
+
+- Vitest snapshot of the page rendered against a fixture with: 3 founders (one with `bio=null`, who must be omitted), `NEXT_PUBLIC_ABOUT_HIDE_MEMBERS` unset.
+- A second snapshot with `NEXT_PUBLIC_ABOUT_HIDE_MEMBERS=true` confirming members section collapses.
+- Playwright e2e: navigate from `/` → click `About →` → assert URL is `/about` and the `#manifesto` section is reachable via in-page anchor.
+
+## Definition of Done
+
+- A non-technical reader who lands on `/about` understands within 60 seconds what Theseus is, what intellectual capital means, what the firm is trying to do, and how to contact it.
+- Page builds, tests pass.
+- Build flag for member anonymity works either way.
+- No secrets in any patch.

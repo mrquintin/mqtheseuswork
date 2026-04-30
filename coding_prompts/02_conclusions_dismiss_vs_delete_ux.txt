@@ -1,0 +1,53 @@
+# Codex Prompt 2 of 22 — Make the dashboard "X" on a conclusion unambiguous (Dismiss, not Delete)
+
+**Round:** 12, Wave A. **Sequence:** 2 of 22. **Report back with:** the new label/iconography choices and a screenshot path of the rendered card.
+
+## Why this prompt exists
+
+Quote from the founder: *"I struggle to understand kind of what's going on here. I can't really tell on the conclusions tab in the homepage if when I click an X, it's like deleting the conclusion or if it's just removing it from my view."*
+
+Reading `theseus-codex/src/app/(authed)/dashboard/page.tsx`, the X currently calls `dismissConclusion`, which writes to the `dashboardDismissal` table — i.e. it hides the conclusion from THIS founder's dashboard only. It does NOT delete. The visual affordance is identical to a destructive close button, so the user assumes the worst.
+
+There is a real delete flow elsewhere (`conclusionDeletionRequest` table, `/library` peer-request UI). Conflating these is a trust hazard: a founder who fears the X is destructive will stop using it, and the dashboard will degrade into a noisy permanent list.
+
+## Before you start — read current state
+
+1. `theseus-codex/src/app/(authed)/dashboard/page.tsx` — the conclusions list + `dismissConclusion` server action.
+2. `theseus-codex/src/components/ConfidenceTierSigil.tsx` — visual style of the surrounding card.
+3. `theseus-codex/src/app/(authed)/library` (whatever filenames exist there) — the existing peer-deletion-request UI; we will link to it as the path for the destructive flow.
+4. `prisma/schema.prisma` — confirm `DashboardDismissal` is a per-founder-per-conclusion join, not a soft-delete on `Conclusion`.
+
+## Your task
+
+### A. Replace the X with an explicit, labelled control
+
+The card's top-right control becomes a small dropdown / split-button with two clearly distinct actions:
+
+- **"Dismiss from my view"** — the existing `dismissConclusion` action. Tooltip and aria-label both read "Hide this conclusion from MY dashboard. Other founders' dashboards are unaffected."
+- **"Request deletion…"** — links to `/library?request=<conclusionId>` (or the actual peer-deletion entry point). Tooltip: "Open the peer-review delete flow in /library."
+
+If a single icon button is preferred for layout reasons, use an "eye-off" icon (👁⁄ — semantic: hide) rather than an "X" (semantic: destroy). Add a hover affordance that reveals the verbose tooltip.
+
+### B. Add a one-click undo
+
+After dismissing, render an inline toast at the bottom of the conclusions section: `"Hidden from your dashboard. [Undo]"` for ~8 seconds. The undo deletes the `dashboardDismissal` row. Use `revalidatePath("/dashboard")` after both dismiss and undo.
+
+### C. Subtle status row at the top of the conclusions section
+
+Above the list, add one line of mono micro-copy: `"N hidden from your view · [Show all again]"`. Clicking "Show all again" deletes every `dashboardDismissal` row for the calling founder (org-scoped). This makes the dismissal state legible — a founder can never end up with a silently empty list and not know why.
+
+### D. Backend cleanup — explicit naming
+
+Rename the server action variable name from `dismissConclusion` to `dismissConclusionFromMyDashboard` for clarity at the call site. Add a JSDoc block explaining: this writes to `DashboardDismissal`, which is per-founder, hide-only, and reversible. Distinct from `ConclusionDeletionRequest`, which is org-wide and goes through peer review.
+
+### E. Tests
+
+- Vitest unit test for the server action confirming it writes a `DashboardDismissal` row and never touches `Conclusion` itself.
+- Playwright e2e test asserting the labelled dropdown is keyboard-accessible (tab-focus → enter expands → arrow keys navigate items → enter triggers).
+
+## Definition of Done
+
+- Visual: hovering the control makes it unambiguous to a first-time visitor.
+- Functional: dismiss works, undo works, "show all again" works, request-deletion link routes correctly.
+- Tests above pass.
+- No prompt or patch contains any secret.

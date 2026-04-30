@@ -1,0 +1,67 @@
+# Codex Prompt 5 of 22 — Reorganize the public homepage as a real institutional front door
+
+**Round:** 12, Wave B (Public site as a real homepage). **Sequence:** 5 of 22. **Report back with:** the new IA, the routes touched, and a Lighthouse score for the rendered page.
+
+## Why this prompt exists
+
+The founder summarized the deficit precisely: *"To anybody, they would not know what this is. This requires a lot of tacit knowledge."* Today the public root (`theseus-codex/src/app/page.tsx`) renders a Codex-internal blog feed — useful to insiders but illegible to a first-time visitor. The asks were specific:
+
+- "Make the public side a lot more approachable."
+- "Move the current events so that it's more presented immediately. The publications presented immediately."
+- "Maybe some kind of about us button."
+- The site should communicate, in a sentence or two, **what intellectual capital is** and **what Theseus is doing**.
+
+The companion prompts in this wave (06 About page, 07 identity copy library, 08 Contact channel) deliver the supporting pieces. This prompt is the homepage shell.
+
+## Before you start — read current state
+
+1. `theseus-codex/src/app/page.tsx` — the current home; note its imports (`DualPulseSection`, `TransparencyFooter`, `EssaysRail`, etc.).
+2. `theseus-codex/src/app/(home)/` — the home-page partials: pulse section, footer, etc.
+3. `theseus-codex/src/app/currents/page.tsx` and `theseus-codex/src/app/currents/FeedClient.tsx` — Currents are the "current events" feed; pull a tight 3-card preview of the most-recent items into the home.
+4. `theseus-codex/src/lib/conclusionsRead.ts` (or wherever `listPublishedArticles` lives) — already provides essays. Use it for a Publications rail.
+5. The Sculpture/ASCII components — keep the cinematic but make it secondary, not the primary affordance.
+
+## Your task
+
+### A. New information architecture for `/`
+
+The public root becomes, top to bottom:
+
+1. **Identity strip (above the fold).** Two short lines:
+   - `THESEUS · INTELLECTUAL CAPITAL`
+   - One-sentence positioning statement (read from the `theseusIdentity` constants created in prompt 07; if that file does not yet exist, hard-code the placeholder string `"A research firm that puts its money where its mind is — translating recorded reasoning into capital decisions."`).
+   - A subdued, smaller third line describing the site itself: `"This is the firm's public commons. The private workspace lives behind /login."`
+   - One primary CTA button: `About →` (links to `/about`, created in prompt 06).
+   - One secondary link: `Founder login →` (existing `/login`).
+2. **Currents preview rail (publications-immediate).** Heading: `LATEST FROM THE FIRM · CURRENTS`. Renders the 3 most-recent published Currents opinions inline (title, 1-line summary, timestamp) plus a `View all currents →` link to `/currents`.
+3. **Publications rail.** Heading: `PUBLICATIONS · ESSAYS & MEMOS`. Renders the 4 most-recent published articles (already shipped as `EssaysRail`). Keep the existing styling.
+4. **Manifesto preview block.** A 60–80-word excerpt of the firm's manifesto (sourced from `theseusIdentity.manifestoExcerpt` — placeholder until prompt 06/07 ship). Trailing `Read the full manifesto →` link to `/about#manifesto`.
+5. **Contact / outbound.** Single line: `Reach the firm at hello@theseuscodex.com`. Mailto link. (Domain placeholder; the founder will replace with their real domain in env. Use `NEXT_PUBLIC_THESEUS_CONTACT_EMAIL` with a default.)
+6. **TransparencyFooter** — keep as-is.
+
+The existing `DualPulseSection` (the spinning sculpture / ASCII pulse) does NOT lead. Move it into a smaller, secondary band BETWEEN sections 3 and 4, so the cinematic is preserved as ambience but never blocks the user from understanding what the site is.
+
+### B. Implementation
+
+- Refactor `theseus-codex/src/app/page.tsx` accordingly. Keep RSC-direct DB calls; do not introduce client-side data fetching.
+- Pull strings from `@/content/theseusIdentity.ts` (created in prompt 07; if that import is missing at this prompt's run-time, the file should still build — define a local fallback constants object inside the page and a `// TODO replace once prompt 07 ships theseusIdentity.ts` comment).
+- Ensure the page renders correctly when the database has zero published articles and zero currents — empty-state copy: `"The firm has not yet published anything publicly. Reach out: hello@…"`.
+
+### C. Accessibility + performance
+
+- All new headings are `<h2>` under one `<h1>` (the identity line). No skipped levels.
+- Every link has discernible text — no bare `→` without surrounding label.
+- The hero must render server-side (no client component above the fold).
+- `npm run build` must succeed; first-load JS for `/` must not regress beyond +20 KB vs. the current build.
+
+### D. Tests
+
+- Vitest snapshot of the new page rendered against an empty DB and a populated DB.
+- Playwright e2e: visit `/`, assert the identity strip is visible, the `About →` link routes to `/about` (it'll 404 until prompt 06 — assert the navigation attempt happens, not the destination), and the Currents preview surfaces 0–3 cards depending on fixtures.
+
+## Definition of Done
+
+- The new homepage matches the IA above.
+- A first-time visitor with zero context can read the identity line and understand the site is a research firm with public output and a private workspace.
+- Build clean, tests pass.
+- No secrets in any patch.

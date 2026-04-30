@@ -1,0 +1,86 @@
+# Codex Prompt 7 of 22 — Single source of truth for Theseus's institutional copy
+
+**Round:** 12, Wave B. **Sequence:** 7 of 22. **Report back with:** the file path, the keys exported, and the first three places they are now used.
+
+## Why this prompt exists
+
+The voice memo asks for the homepage, the About page, the manifesto preview, and (later) outbound social posts to all describe Theseus in the same words. Today every surface improvises its own description, which is how the founder reports the public face feels incoherent.
+
+We solve this by writing the firm's institutional copy ONCE, in a typed module, and importing it everywhere. When the founder edits a sentence in this module, every public surface updates.
+
+## Before you start — read current state
+
+1. The voice memo's institutional language (recorded in prompt 06) — this is the substrate.
+2. `METHODOLOGICAL_REORIENTATION.md` and `THE_META_METHOD.md` at the repo root — sanity-check that the new copy does not contradict the firm's recorded reorientation.
+3. `theseus-codex/src/lib/` — pick a directory; create `theseus-codex/src/content/` if it doesn't exist (content is conceptually distinct from runtime libs).
+
+## Your task
+
+### A. Create `theseus-codex/src/content/theseusIdentity.ts`
+
+A typed TypeScript module exporting:
+
+```ts
+export const theseusIdentity = {
+  oneLine: "...",                       // ≤ 16 words. The pull-quote that leads /.
+  whatIsTheseus: { p1: "...", p2: "..." },  // Two paragraphs for /about#what.
+  intellectualCapitalDefinition: "...", // 1–2 sentences. Defines the term.
+  axioms: [
+    { name: "Progress", elaboration: "..." },
+    { name: "Rigor",    elaboration: "..." },
+    { name: "Camaraderie", elaboration: "..." },
+  ] as const,
+  manifesto: { title: "...", body: "..." }, // 350–500 words.
+  manifestoExcerpt: "...",              // ~70 words. Used on /.
+  signatureClaim: "We put our money where our mind is.", // Reused in social.
+  contactEmailEnvVar: "NEXT_PUBLIC_THESEUS_CONTACT_EMAIL",
+  contactEmailDefault: "hello@theseuscodex.com",
+} as const;
+```
+
+Write the actual prose using the founder's voice from the voice memo:
+
+- "A group of highly ambitious, future-oriented thinkers from the University of Chicago."
+- "United by a commitment to a noble ideal — a better tomorrow."
+- "Three organizational axioms: progress, rigor, intellectual camaraderie."
+- "A destination for intellectual capital. A vehicle for thoughtful, intentional progress."
+- "Frontier technology applied as an intellectual instrument — to inform investment decisions, to challenge assumptions, to enact meaningful impact."
+- "We put our money where our mind is. Capital markets are the test our ideas endure."
+- Manifesto closing should land on the firm's stake: capital outcomes are the falsifiability mechanism for the firm's recorded reasoning.
+
+The manifesto can be ambitious and a bit declarative — it is a manifesto, not a prospectus. Avoid clichés ("disrupting", "ecosystem"); avoid academic hedging ("perhaps", "arguably") in this file; the firm should sound certain on its own page.
+
+### B. Helper accessor
+
+Export a small helper:
+
+```ts
+export function getTheseusContactEmail(): string {
+  return process.env[theseusIdentity.contactEmailEnvVar] ?? theseusIdentity.contactEmailDefault;
+}
+```
+
+So that the email is configurable per-environment without editing copy.
+
+### C. Adopt the module on three surfaces
+
+Replace the inline placeholder strings in:
+
+1. `theseus-codex/src/app/page.tsx` (homepage identity strip and manifesto preview block — added in prompt 05).
+2. `theseus-codex/src/app/about/page.tsx` (every prose section — added in prompt 06).
+3. `theseus-codex/src/components/PublicHeader.tsx` — the small tagline / `aria-label` next to the logo, if any.
+
+If a surface is reading hard-coded copy that ought to live here too, migrate it (audit at minimum: the public layout's `<title>` and `<meta name="description">`).
+
+### D. Tests
+
+- Vitest unit test that imports `theseusIdentity` and asserts: `oneLine.length <= 120`, all axioms have non-empty elaborations, manifesto body word count is 300–600, no axiom name is empty.
+- A small "no-magic-strings" lint guard: a Vitest test that greps `theseus-codex/src/app/page.tsx` and `theseus-codex/src/app/about/page.tsx` and asserts neither file contains the literal string `"intellectual capital"` outside of an import (cheap heuristic — copy must come from the module).
+
+## Definition of Done
+
+- The module exists and exports the documented shape.
+- Three (or more) surfaces consume it.
+- Tests pass.
+- A founder editing a single string in `theseusIdentity.ts` updates the homepage, the About page, and any subsequent surface that was migrated.
+- No secrets.

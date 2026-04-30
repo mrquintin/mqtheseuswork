@@ -1,0 +1,58 @@
+# Codex Prompt 1 of 22 — Smooth the login → dashboard transition
+
+**Round:** 12 (Voice-memo product polish), Wave A — quick wins.
+**Sequence:** 1 of 22.
+**Report back with:** a 1-paragraph note describing the new transition, the file paths you touched, and a manual verification checklist (sign out, sign in, observe).
+
+## Why this prompt exists
+
+The founder reports the current sign-in → dashboard hop is "clunky and not actually correctly done." Two failure modes are likely:
+
+1. The `Gate` component on `/login` runs the Armillary Ignition animation, then the page hard-redirects to `/dashboard`. Because `/dashboard` is a server-rendered React Server Component with several DB queries, there is a visible white-flash + slow-paint between the cinematic and the dashboard frame. This breaks the ritual.
+2. The post-login redirect logic (cookie set → `redirect("/dashboard")`) does not preserve the animation phase, so the user sees the gate dissolve, then a blank screen, then the dashboard pop in.
+
+## Before you start — read current state
+
+1. Read `theseus-codex/src/app/login/page.tsx` — server component that delegates to `Gate`.
+2. Read `theseus-codex/src/components/Gate.tsx` — the labyrinth + form. Find where the animation completes and where the form submits.
+3. Read `theseus-codex/src/app/api/auth/login/route.ts` (or wherever the cookie is set on submit) and confirm the response path that the client uses to navigate after a successful POST.
+4. Read `theseus-codex/src/app/(authed)/layout.tsx` and `theseus-codex/src/app/(authed)/dashboard/page.tsx` — note which queries currently run on the dashboard's first paint, and whether any of them are waterfall-blocking.
+
+## Your task
+
+### A. Prefetch the dashboard while the gate animates
+
+In `Gate.tsx`, kick off `router.prefetch("/dashboard")` (Next.js `useRouter`) the moment the labyrinth animation begins, NOT when the form submits. By the time the founder hits enter, the dashboard's RSC payload should already be resolving in the background.
+
+### B. Replace `redirect()` with a client-side `router.push`
+
+The login route currently performs a server `redirect()` after the cookie is written. This forces a full document navigation. Switch to:
+
+- API route returns `{ ok: true, next: "/dashboard" }` JSON.
+- `Gate.tsx` on submit does `await fetch(...)` → `router.push(next)`. Combined with the prefetch, this becomes a soft client-side navigation with no white flash.
+
+### C. Fade out the gate, fade in the dashboard
+
+Add a brief CSS opacity transition (200–300 ms) on the gate container so it dissolves rather than blinks. The dashboard layout already has the SculptureBackdrop; ensure the very first paint is not a white background — set `<body>` background-color in `globals.css` to the parchment/dark theme so React hydration can't reveal a flash of white between gate and dashboard.
+
+### D. Move the heaviest dashboard queries below-the-fold
+
+Open `theseus-codex/src/app/(authed)/dashboard/page.tsx`. Identify the queries that block first paint (`db.upload.findMany`, the contradictions count, the deletion-request count, decay records). Wrap the optional ones (drifts, decaying, pendingConclusionDeletions) in `<Suspense fallback={...}>` boundaries so the page shell renders immediately and these widgets stream in. The first-fold "Welcome back, {name}" + the conclusions list should remain in the synchronous render so the founder sees something familiar within ~200 ms.
+
+### E. Verification
+
+Add a Playwright e2e test under `theseus-codex/e2e/login-transition.spec.ts` that:
+
+1. Visits `/login`.
+2. Fills in the test credentials (use the existing fixture).
+3. Asserts that after submit, the URL becomes `/dashboard` AND the body's background-color never becomes pure white at any sampled frame (use `page.screenshot` + a pixel-color check, or measure first-contentful-paint via the performance API).
+4. Asserts that the "Welcome back" greeting is visible within 1500 ms of submit.
+
+## Definition of Done
+
+- `npm run lint` and `npm run build` clean inside `theseus-codex/`.
+- The new e2e test passes locally (`npx playwright test e2e/login-transition.spec.ts`).
+- Manual smoke: sign out, sign in — there is no white flash, the gate dissolves into the dashboard, and the dashboard's hearth is visible immediately.
+- No prompt in this file or in the patch contains any credential, API key, or secret value.
+
+Report back with the touched file list and the new test's name.

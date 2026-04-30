@@ -20,9 +20,29 @@ build/
 node_modules/
 .next/
 out/
+
+# Environment files — NEVER commit anything that could hold a secret.
+# Templates (.env.*.template) ARE intentionally committed — they're
+# blank scaffolds the operator fills in locally.
+#
+# CRITICAL: sync.sh runs `git add -A`, so anything not matched here gets
+# pushed to the remote. Polymarket private keys / Kalshi PEMs / DB URLs
+# in any of these files would constitute a leak event.
 .env
 .env.local
 .env.*.local
+.env.live
+.env.production
+.env.staging
+.env.development
+.env.local.*
+# Belt-and-braces: any future variant
+.env.*
+# … except templates, which are blank-by-design and commit-safe.
+!.env.example
+!.env.*.example
+!.env.template
+!.env.*.template
 
 # IDE
 .vscode/

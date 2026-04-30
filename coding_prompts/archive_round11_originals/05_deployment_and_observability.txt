@@ -1,0 +1,133 @@
+# Codex Prompt 5 of 5 — Deployment scripts + minimal observability for live trading
+
+**Sequence:** prompt 5 of 5 (Round 11, Wave C — operations). Depends on 01–04. Report back with: the deployment manifest, the metrics endpoints exposed, and the alerting rules wired.
+
+**Why this prompt exists.** Live trading is unattended for most hours of the day. The system needs to fail visibly: an operator must learn within minutes — not the next morning — when the scheduler is down, the kill switch has auto-engaged, the budget is exhausted, or a live bet has failed. This prompt ships the deployment glue (Vercel for the frontend, a single VM via systemd or docker-compose for the API + scheduler) and a minimum-viable observability layer that is loud enough to be useful and quiet enough to not alarm-fatigue.
+
+**Before you start — read current state:**
+1. Read `Dockerfile.api`, `Dockerfile.scheduler`, `docker-compose.yml` — Round 10 prompt 20 already ships container glue. Extend it; do not replace.
+2. Read `current_events_api/current_events_api/metrics.py` — Prometheus text endpoint already exists for Currents. Extend with Forecasts metrics.
+3. Read `noosphere/noosphere/forecasts/status.py` — the status JSON written every scheduler tick. The healthcheck reads from this.
+
+## Your task
+
+### 1. Vercel deployment for the codex frontend
+
+`theseus-codex/vercel.json` — extend (or create) with:
+- The env-var allowlist: `DATABASE_URL`, `ANTHROPIC_API_KEY`, `FORECASTS_OPERATOR_SECRET`, every `FORECASTS_*` ceiling/budget var. Polymarket / Kalshi credentials do NOT belong on Vercel; they live on the scheduler VM only.
+- Region pinning to a single region (East-coast US is fine — the goal is not latency, it's predictable latency for SSE).
+- A 60s build timeout for the `npm run build`.
+
+`docs/operator/VERCEL_DEPLOY.md`:
+- Step-by-step first deploy: vercel CLI install, link project, set env, deploy.
+- How to roll back (Vercel keeps prior deployments; the rollback command is one click in their UI).
+- The DNS cutover: theseuscodex.com → the new Vercel deployment.
+
+### 2. Scheduler / API VM via docker-compose (canonical) OR systemd (fallback)
+
+`deploy/docker-compose.production.yml` — production overlay on top of the existing `docker-compose.yml`:
+- Mounts `.env.live` (read-only) into the scheduler container.
+- Mounts a persistent volume at `/var/lib/theseus/` for `forecasts_status.json`, `forecasts_budget.json`, `currents_budget.json`.
+- Logs to stdout in JSON format (already the existing default).
+- `restart: unless-stopped` on both services.
+- Healthcheck on the API: `curl -f http://localhost:8000/readyz` every 30s.
+
+`deploy/systemd/theseus-api.service` and `theseus-scheduler.service`:
+- Two unit files for VMs without Docker.
+- `EnvironmentFile=/etc/theseus/forecasts.env` — the operator copies `.env.live` there with mode 600.
+- `ExecStart=` invokes the appropriate Python module via the project venv.
+- Restart=on-failure, RestartSec=10s.
+
+`docs/operator/PRODUCTION_DEPLOY.md`:
+- Choose: docker-compose (recommended) or systemd (fallback).
+- The first-boot sequence: clone, install deps, populate `.env.live`, run migrate_production.sh, run validate_live_credentials, start the scheduler in PAPER mode for 24h, then proceed to OPERATOR_REHEARSAL.
+
+### 3. Minimum-viable observability
+
+`current_events_api/current_events_api/metrics.py` — extend with these Forecasts counters (Prometheus text format):
+
+```
+# HELP theseus_forecasts_predictions_total Number of forecast predictions, by outcome.
+# TYPE theseus_forecasts_predictions_total counter
+theseus_forecasts_predictions_total{outcome="PUBLISHED"} N
+theseus_forecasts_predictions_total{outcome="ABSTAINED_INSUFFICIENT_SOURCES"} N
+… (one line per ForecastOutcome enum value)
+
+# HELP theseus_forecasts_resolutions_total Number of forecast resolutions.
+# TYPE theseus_forecasts_resolutions_total counter
+theseus_forecasts_resolutions_total{outcome="YES"} N
+theseus_forecasts_resolutions_total{outcome="NO"} N
+theseus_forecasts_resolutions_total{outcome="CANCELLED"} N
+
+# HELP theseus_forecasts_brier_mean_30d Mean Brier score over last 30 days of resolutions.
+# TYPE theseus_forecasts_brier_mean_30d gauge
+theseus_forecasts_brier_mean_30d N
+
+# HELP theseus_forecasts_kill_switch_engaged 1 if the kill switch is engaged.
+# TYPE theseus_forecasts_kill_switch_engaged gauge
+theseus_forecasts_kill_switch_engaged 0
+
+# HELP theseus_forecasts_live_bet_status_total Live bet outcomes by status.
+# TYPE theseus_forecasts_live_bet_status_total counter
+theseus_forecasts_live_bet_status_total{status="FILLED"} N
+theseus_forecasts_live_bet_status_total{status="FAILED"} N
+… etc.
+
+# HELP theseus_forecasts_paper_balance_usd Current paper bankroll.
+# TYPE theseus_forecasts_paper_balance_usd gauge
+theseus_forecasts_paper_balance_usd N
+
+# HELP theseus_forecasts_live_balance_usd Current live bankroll (NEVER include the wallet address as a label).
+# TYPE theseus_forecasts_live_balance_usd gauge
+theseus_forecasts_live_balance_usd N
+```
+
+### 4. Alerting rules
+
+`deploy/alerts/forecasts.alerts.yml` — Prometheus alerting rules. (The user wires this to Alertmanager + Slack/email themselves; the file documents the alert intent.)
+
+Rules at minimum:
+- **kill_switch_engaged**: `theseus_forecasts_kill_switch_engaged == 1` for 1m → page operator. Severity: critical.
+- **scheduler_stale**: `time() - theseus_forecasts_last_tick_ts > 1800` for 5m → page operator. The scheduler hasn't ticked in 30 min.
+- **brier_drift**: `theseus_forecasts_brier_mean_30d > 0.30` for 24h → email operator (not page; this is a slow-developing problem). Calibration has degraded.
+- **live_bet_failed_streak**: `increase(theseus_forecasts_live_bet_status_total{status="FAILED"}[15m]) >= 3` → page operator. Three live failures in 15 min — likely an exchange or signing issue.
+- **budget_exhausted**: `theseus_forecasts_budget_charged_pct > 0.95` for 5m → email operator.
+
+### 5. Tiny ops dashboard (optional but cheap)
+
+`deploy/grafana/forecasts-dashboard.json`:
+- A Grafana dashboard JSON with three rows: scheduler health, calibration, live trading status.
+- Operator imports this manually after wiring Prometheus.
+- Not load-bearing; the Prometheus + alert rules are the load-bearing observability surface.
+
+### 6. Tests
+
+`current_events_api/tests/test_metrics.py` — extend with:
+- Each new metric appears in the `/metrics` response when the relevant table has rows.
+- Wallet addresses, order ids, and tokens never appear as label values.
+
+`noosphere/tests/test_alerts_render.py`:
+- The alert rules YAML parses with `yaml.safe_load`.
+- Each alert has a non-empty `expr`, `for`, `severity` field.
+
+## Definition of done
+
+- `vercel.json` validates against Vercel's schema (CI lint or manual `vercel inspect`).
+- `docker-compose -f docker-compose.yml -f deploy/docker-compose.production.yml config` exits 0 (the merged config is valid).
+- `curl http://localhost:8000/metrics` returns the new Forecasts metric lines.
+- The alerts YAML parses cleanly under Prometheus' rules-format checker (or, if not available, Python's yaml.safe_load).
+- `grep -E 'wallet|private_key|order_id' deploy/alerts/forecasts.alerts.yml current_events_api/current_events_api/metrics.py` returns ZERO matches outside of comments — these never appear as metric labels or alert text.
+
+## SCOPE
+
+- `theseus-codex/vercel.json`                                            CREATE-OR-MODIFY (file may already exist from earlier setup; preserve any existing fields, only add the env-allowlist + region + build-timeout sections)
+- `deploy/docker-compose.production.yml`                                 CREATE
+- `deploy/systemd/theseus-api.service`                                   CREATE
+- `deploy/systemd/theseus-scheduler.service`                             CREATE
+- `deploy/alerts/forecasts.alerts.yml`                                   CREATE
+- `deploy/grafana/forecasts-dashboard.json`                              CREATE
+- `current_events_api/current_events_api/metrics.py`                     MODIFY
+- `current_events_api/tests/test_metrics.py`                             CREATE-OR-MODIFY (extend if exists from Round 9 prompt 10; otherwise create new)
+- `noosphere/tests/test_alerts_render.py`                                CREATE
+- `docs/operator/VERCEL_DEPLOY.md`                                       CREATE
+- `docs/operator/PRODUCTION_DEPLOY.md`                                   CREATE

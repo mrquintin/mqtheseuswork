@@ -1,0 +1,98 @@
+# Codex Prompt 3 of 5 — Demo / testnet integration test (real signing, real APIs, no real money)
+
+**Sequence:** prompt 3 of 5 (Round 11, Wave B). Depends on 01, 02. Report back with: which environments were reachable, the test order's lifecycle (placed → cancelled), and any observed differences between demo and live API surfaces that the live adapters will need to handle.
+
+**Why this prompt exists.** Round 10's Polymarket and Kalshi live adapters were built against the published API surface but exercised only with mocks. Before any real-money order is placed, the operator needs proof that the credential plumbing, the request signing, and the order-lifecycle code work against the *actual* API endpoints — just safely, against demo / testnet environments where dollars are not at stake. This prompt builds that integration test, runs it once, and produces a status note for each finding.
+
+**Important reality check before you start.** The Polymarket testnet (Mumbai) was deprecated at some point in 2024-2025 in favor of Amoy testnet, and the Polymarket team has been ambiguous about whether their CLOB even supports testnet trading any more. **You must verify against current docs before writing the test.** If Polymarket has no usable test environment, document that and substitute a "dry-run" mode: build a real signed order payload and verify the signature locally without sending it. Do NOT make a small real-money order to "test" — that violates the no-autonomous-trading rule.
+
+Kalshi has had a stable demo environment historically (`demo-api.kalshi.co` or similar). Confirm the current URL and endpoints in their docs.
+
+**Before you start — read current state:**
+1. Read `noosphere/noosphere/forecasts/_polymarket_live_client.py` and `_kalshi_live_client.py` from Round 10. Note the order-placement methods and their return shapes.
+2. Read `noosphere/noosphere/forecasts/safety.py` — the eight-gate `check_all_gates`. The integration test does NOT bypass these; it constructs a `GateContext` that genuinely passes them under demo-mode env vars.
+
+## Your task
+
+### `noosphere/tests/test_live_demo_integration.py`
+
+Pytest module. Marked `@pytest.mark.live_demo` so it does NOT run by default — only via `pytest -m live_demo`. The default test suite must remain green even on a machine without demo credentials.
+
+Test cases:
+
+#### `test_polymarket_signature_round_trip`
+
+If `POLYMARKET_PRIVATE_KEY` is set:
+- Build a CLOB order payload for a real, currently-open Polymarket market (fetched via Gamma).
+- Compute the EIP-712 signature.
+- Recover the signer address from the signature and assert it matches the wallet derived from the private key.
+- Do NOT submit the order. The check is purely cryptographic.
+
+If `POLYMARKET_PRIVATE_KEY` is unset: skip with reason `"Polymarket private key not configured"`.
+
+#### `test_kalshi_demo_market_list`
+
+If `KALSHI_DEMO_API_KEY_ID` is set:
+- Sign a request to the demo `/markets?status=open&limit=5` endpoint.
+- Assert 200 + a non-empty market list.
+- Assert at least one market has the expected fields (`ticker`, `yes_bid`, `no_bid`, `close_time`).
+
+If unset: skip.
+
+#### `test_kalshi_demo_order_lifecycle`
+
+If demo configured:
+- Pick a market with at least 24h to resolution, low yes_bid (≤ 5¢), so a far-out-of-the-money YES order at 1¢ is unlikely to fill.
+- Submit a small (1 contract @ 1¢) limit order via the demo client.
+- Assert the order is accepted with status `RESTING` (or whatever Kalshi's "alive but not filled" state is — verify in docs).
+- Wait 3 seconds.
+- Cancel the order. Assert cancellation success.
+- Confirm via `get_order(order_id)` that final status is `CANCELLED`.
+- Confirm via `get_balance()` (or the demo equivalent) that the demo bankroll is unchanged.
+
+This test exercises the FULL signing + place + cancel path against the real Kalshi demo API.
+
+#### `test_eight_gates_against_demo`
+
+Construct a `GateContext` from the demo config and verify each gate behaves correctly:
+- With `live_trading_enabled=False` → `DISABLED`.
+- With everything except `kill_switch_engaged=True` → `KILL_SWITCH_ENGAGED`.
+- With everything passing → `check_all_gates` returns without raising.
+
+This proves the safety layer works AT runtime against the same code path that would be used in production, modulo only the env-var values.
+
+#### `test_no_real_exchange_called`
+
+A defense-in-depth test: monkeypatch `httpx.AsyncClient.request` to count any URL not under the demo or Gamma base. Run the entire `live_demo` suite. Assert the count is zero.
+
+### `scripts/run_demo_integration.sh`
+
+```bash
+#!/bin/bash
+# Run the demo integration suite. Requires .env.live populated.
+# Loads .env.live into the environment, runs `pytest -m live_demo -q -p no:pytest-qt`,
+# prints a status summary at the end.
+```
+
+### Documentation
+
+`docs/operator/DEMO_INTEGRATION.md`:
+- Why we test against demo (and not testnet — explain Polymarket's situation).
+- How to populate the demo Kalshi credentials.
+- What to do if `test_polymarket_signature_round_trip` fails (the live adapter's signing scheme has drifted from the docs; needs investigation before any real order).
+- What to do if `test_kalshi_demo_order_lifecycle` fails (network / demo env down / demo key revoked).
+
+## Definition of done
+
+- `pytest -m live_demo` against a fully-populated `.env.live` produces all tests passing or skipped with clear reasons (no failures).
+- `pytest` (default, no marker) runs as before with no live tests collected.
+- The demo order-lifecycle test actually places, observes, and cancels an order against Kalshi demo (verified by inspecting the order id's lifecycle in their dashboard if possible, or by the test's own `get_order` call).
+- The `test_no_real_exchange_called` defense passes — zero requests to non-demo URLs.
+
+## SCOPE
+
+- `noosphere/tests/test_live_demo_integration.py`                        CREATE
+- `noosphere/tests/conftest.py`                                          MODIFY
+- `noosphere/pytest.ini`                                                 CREATE-OR-MODIFY (register the `live_demo` mark, plus `-p no:pytest-qt` if not already present in pyproject.toml's [tool.pytest.ini_options])
+- `scripts/run_demo_integration.sh`                                      CREATE
+- `docs/operator/DEMO_INTEGRATION.md`                                    CREATE
