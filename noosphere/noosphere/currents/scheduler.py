@@ -22,6 +22,7 @@ from noosphere.currents.budget import BudgetExhausted, PersistentHourlyBudgetGua
 from noosphere.currents.config import IngestorConfig
 from noosphere.currents.opinion_generator import OpinionOutcome, generate_opinion
 from noosphere.currents.status import write_status
+from noosphere.models import CurrentEventStatus
 from noosphere.currents.x_ingestor import ingest_once
 from noosphere.store import Store
 
@@ -37,6 +38,7 @@ LOGGER = logging.getLogger(__name__)
 RELEVANCE_OPINE = "OPINE"
 RELEVANCE_ABSTAIN_INSUFFICIENT = "ABSTAIN_INSUFFICIENT_SOURCES"
 RELEVANCE_ABSTAIN_NEAR_DUPLICATE = "ABSTAIN_NEAR_DUPLICATE"
+BACKLOG_STATUSES = [CurrentEventStatus.OBSERVED, CurrentEventStatus.ENRICHED]
 
 
 @dataclass
@@ -106,6 +108,18 @@ def check_relevance(store, event_id: str):
     return _check_relevance(store, event_id)
 
 
+def _event_ids_for_cycle(store: Store, new_event_ids: list[str]) -> list[str]:
+    """Include restartable Currents backlog after newly ingested ids."""
+    backlog_limit = max(0, MAX_EVENTS_PER_CYCLE - len(new_event_ids))
+    backlog_ids = (
+        store.list_current_event_ids_by_status(BACKLOG_STATUSES, limit=backlog_limit)
+        if backlog_limit
+        else []
+    )
+    ordered = list(dict.fromkeys([*new_event_ids, *backlog_ids]))
+    return ordered[:MAX_EVENTS_PER_CYCLE]
+
+
 async def run_cycle(store, ingestor_cfg, budget) -> CycleReport:
     """Run one ingest -> enrich -> relevance -> opinion pass."""
     monotonic_start = time.monotonic()
@@ -135,7 +149,7 @@ async def run_cycle(store, ingestor_cfg, budget) -> CycleReport:
     except Exception as exc:
         errors.append(f"ingest:{type(exc).__name__}: {exc}")
 
-    for event_id in new_event_ids:
+    for event_id in _event_ids_for_cycle(store, new_event_ids):
         if opinion_attempts >= MAX_OPINIONS_PER_CYCLE:
             errors.append(
                 f"event:{event_id}:opinion_cap_reached:{MAX_OPINIONS_PER_CYCLE}"

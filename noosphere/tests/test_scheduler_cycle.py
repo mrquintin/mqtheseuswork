@@ -11,7 +11,7 @@ from noosphere.currents.budget import HourlyBudgetGuard
 from noosphere.currents.config import IngestorConfig
 from noosphere.currents.opinion_generator import OpinionOutcome
 from noosphere.currents.x_ingestor import IngestReport
-from noosphere.models import CurrentEvent, CurrentEventSource
+from noosphere.models import CurrentEvent, CurrentEventSource, CurrentEventStatus
 from noosphere.store import Store
 
 
@@ -95,3 +95,63 @@ def test_run_cycle_happy_path_ingests_enriches_and_opines(monkeypatch) -> None:
     assert report.errors == []
     assert report.remaining_prompt_tokens == 1000
     assert report.remaining_completion_tokens == 500
+
+
+def test_run_cycle_resumes_observed_backlog(monkeypatch) -> None:
+    st = _store()
+    st.add_current_event(
+        CurrentEvent(
+            id=EVENT_ID,
+            organization_id=ORG_ID,
+            source=CurrentEventSource.MANUAL,
+            external_id="external_scheduler_backlog",
+            text="A fake event survived a prior scheduler failure.",
+            observed_at=datetime(2026, 4, 29, 12, 0, 0),
+            dedupe_hash="scheduler_backlog_hash",
+            status=CurrentEventStatus.OBSERVED,
+        )
+    )
+
+    async def fake_ingest_once(store, cfg):
+        return IngestReport(
+            cycle_id="cycle_backlog_test",
+            fetched=0,
+            new_event_ids=[],
+            duplicates=0,
+            errors=[],
+        )
+
+    async def fake_generate_opinion(store, event_id, *, budget):
+        assert event_id == EVENT_ID
+        return OpinionOutcome.PUBLISHED
+
+    monkeypatch.setattr(scheduler, "ingest_once", fake_ingest_once)
+    monkeypatch.setattr(
+        scheduler,
+        "enrich_event",
+        lambda _store, event_id: SimpleNamespace(
+            event_id=event_id,
+            embedding_set=True,
+            is_near_duplicate=False,
+            topic_id=None,
+        ),
+    )
+    monkeypatch.setattr(
+        scheduler,
+        "check_relevance",
+        lambda _store, event_id: "OPINE",
+    )
+    monkeypatch.setattr(scheduler, "generate_opinion", fake_generate_opinion)
+
+    report = asyncio.run(
+        scheduler.run_cycle(
+            st,
+            _cfg(),
+            HourlyBudgetGuard(max_prompt_tokens=1000, max_completion_tokens=500),
+        )
+    )
+
+    assert report.cycle_id == "cycle_backlog_test"
+    assert report.ingested == 0
+    assert report.enriched == 1
+    assert report.opined == 1

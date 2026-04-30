@@ -39,6 +39,7 @@ from noosphere.models import (
     Claim,
     CoherenceEvaluationPayload,
     CoherenceVerdict,
+    ConfidenceTier,
     Conclusion,
     ContextMeta,
     CorpusBundle,
@@ -890,14 +891,107 @@ class Store:
     def get_conclusion(self, conclusion_id: str) -> Optional[Conclusion]:
         with self.session() as s:
             r = s.get(StoredConclusion, conclusion_id)
-            if r is None:
-                return None
-            return Conclusion.model_validate_json(r.payload_json)
+            if r is not None:
+                return Conclusion.model_validate_json(r.payload_json)
+        return self._get_prisma_conclusion(conclusion_id)
 
     def list_conclusions(self) -> list[Conclusion]:
         with self.session() as s:
             rows = s.exec(select(StoredConclusion)).all()
-            return [Conclusion.model_validate_json(r.payload_json) for r in rows]
+            stored = [Conclusion.model_validate_json(r.payload_json) for r in rows]
+        seen = {conclusion.id for conclusion in stored}
+        return [
+            *stored,
+            *[
+                conclusion
+                for conclusion in self._list_prisma_conclusions()
+                if conclusion.id not in seen
+            ],
+        ]
+
+    @staticmethod
+    def _json_string_list(value: Any | None) -> list[str]:
+        if not value:
+            return []
+        if isinstance(value, list):
+            return [str(item) for item in value if isinstance(item, str)]
+        if not isinstance(value, str):
+            return []
+        try:
+            parsed = json.loads(value)
+        except json.JSONDecodeError:
+            return []
+        if not isinstance(parsed, list):
+            return []
+        return [str(item) for item in parsed if isinstance(item, str)]
+
+    @staticmethod
+    def _confidence_tier(value: str | None) -> ConfidenceTier:
+        raw = (value or "").strip().lower()
+        if raw in {tier.value for tier in ConfidenceTier}:
+            return ConfidenceTier(raw)
+        if raw == "firm":
+            return ConfidenceTier.HIGH
+        if raw == "open":
+            return ConfidenceTier.LOW
+        return ConfidenceTier.MODERATE
+
+    def _has_prisma_conclusion_table(self) -> bool:
+        inspector = inspect(self.engine)
+        if not inspector.has_table("Conclusion"):
+            return False
+        columns = {column["name"] for column in inspector.get_columns("Conclusion")}
+        return {
+            "id",
+            "text",
+            "confidenceTier",
+            "rationale",
+            "supportingPrincipleIds",
+            "evidenceChainClaimIds",
+            "confidence",
+            "createdAt",
+        }.issubset(columns)
+
+    def _prisma_conclusion_row_to_model(self, row: Any) -> Conclusion:
+        data = row._mapping if hasattr(row, "_mapping") else row
+        created_at = data.get("createdAt") or _utcnow()
+        return Conclusion(
+            id=str(data["id"]),
+            text=str(data["text"]),
+            reasoning=str(data.get("rationale") or ""),
+            confidence_tier=self._confidence_tier(data.get("confidenceTier")),
+            principles_used=self._json_string_list(data.get("supportingPrincipleIds")),
+            claims_used=self._json_string_list(data.get("evidenceChainClaimIds")),
+            confidence=float(data.get("confidence") or 0.0),
+            created_at=created_at,
+            updated_at=created_at,
+        )
+
+    def _list_prisma_conclusions(self) -> list[Conclusion]:
+        if not self._has_prisma_conclusion_table():
+            return []
+        sql = text(
+            'SELECT id, text, "confidenceTier", rationale, '
+            '"supportingPrincipleIds", "evidenceChainClaimIds", confidence, "createdAt" '
+            'FROM "Conclusion" ORDER BY "createdAt" DESC'
+        )
+        with self.engine.connect() as conn:
+            rows = conn.execute(sql).fetchall()
+        return [self._prisma_conclusion_row_to_model(row) for row in rows]
+
+    def _get_prisma_conclusion(self, conclusion_id: str) -> Optional[Conclusion]:
+        if not self._has_prisma_conclusion_table():
+            return None
+        sql = text(
+            'SELECT id, text, "confidenceTier", rationale, '
+            '"supportingPrincipleIds", "evidenceChainClaimIds", confidence, "createdAt" '
+            'FROM "Conclusion" WHERE id = :id LIMIT 1'
+        )
+        with self.engine.connect() as conn:
+            row = conn.execute(sql, {"id": conclusion_id}).first()
+        if row is None:
+            return None
+        return self._prisma_conclusion_row_to_model(row)
 
     # --- Research suggestion ---
     def put_research_suggestion(self, r: ResearchSuggestion) -> None:
@@ -960,6 +1054,28 @@ class Store:
     def get_current_event(self, event_id: str) -> Optional[CurrentEvent]:
         with self.session() as s:
             return s.get(CurrentEvent, event_id)
+
+    def list_current_event_ids_by_status(
+        self,
+        statuses: list[CurrentEventStatus | str],
+        *,
+        limit: int = 40,
+    ) -> list[str]:
+        """Return oldest CurrentEvent ids in any of the supplied statuses."""
+        if limit <= 0:
+            return []
+        status_values = [
+            status.value if isinstance(status, CurrentEventStatus) else str(status)
+            for status in statuses
+        ]
+        with self.session() as s:
+            rows = s.exec(
+                select(CurrentEvent.id)
+                .where(CurrentEvent.status.in_(status_values))
+                .order_by(asc(CurrentEvent.observed_at))
+                .limit(limit)
+            ).all()
+        return [str(row) for row in rows]
 
     def set_event_embedding(self, event_id: str, vector: Any) -> None:
         """Persist a CurrentEvent embedding as float32 little-endian bytes."""
@@ -1120,9 +1236,12 @@ class Store:
             if not citation.conclusion_id:
                 raise ValueError("conclusion citation requires conclusion_id")
             row = s.get(StoredConclusion, citation.conclusion_id)
-            if row is None:
-                raise ValueError(f"unknown conclusion citation source: {citation.conclusion_id}")
-            return Conclusion.model_validate_json(row.payload_json).text
+            if row is not None:
+                return Conclusion.model_validate_json(row.payload_json).text
+            prisma = self._get_prisma_conclusion(citation.conclusion_id)
+            if prisma is not None:
+                return prisma.text
+            raise ValueError(f"unknown conclusion citation source: {citation.conclusion_id}")
         if source_kind == "claim":
             if not citation.claim_id:
                 raise ValueError("claim citation requires claim_id")

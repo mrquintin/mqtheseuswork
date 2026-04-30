@@ -168,3 +168,70 @@ def test_event_retrieval_filters_claim_subsumed_by_conclusion(monkeypatch) -> No
     assert [(hit.source_kind, hit.source_id) for hit in hits] == [
         ("conclusion", "conclusion_inquiry_not_credentialing")
     ]
+
+
+def test_store_ignores_non_prisma_conclusion_table() -> None:
+    st = _store()
+
+    assert st._has_prisma_conclusion_table() is False
+    assert st._list_prisma_conclusions() == []
+    assert st._get_prisma_conclusion("missing") is None
+
+
+def test_prisma_conclusion_rows_are_normalized_for_currents() -> None:
+    st = _store()
+
+    conclusion = st._prisma_conclusion_row_to_model(
+        {
+            "id": "prisma_conclusion_currents",
+            "text": "Consulting markets reward legible uncertainty.",
+            "confidenceTier": "firm",
+            "rationale": "Imported from Prisma.",
+            "supportingPrincipleIds": '["p1"]',
+            "evidenceChainClaimIds": '["c1"]',
+            "confidence": 0.82,
+            "createdAt": datetime(2026, 4, 29, 12, 0, 0),
+        }
+    )
+
+    assert conclusion.id == "prisma_conclusion_currents"
+    assert conclusion.text == "Consulting markets reward legible uncertainty."
+    assert conclusion.reasoning == "Imported from Prisma."
+    assert conclusion.confidence_tier.value == "high"
+    assert conclusion.principles_used == ["p1"]
+    assert conclusion.claims_used == ["c1"]
+    assert conclusion.confidence == 0.82
+
+
+def test_store_prisma_conclusions_participate_in_currents_retrieval(monkeypatch) -> None:
+    st = _store()
+    prisma_conclusion = st._prisma_conclusion_row_to_model(
+        {
+            "id": "prisma_conclusion_currents",
+            "text": "Consulting markets reward legible uncertainty.",
+            "confidenceTier": "firm",
+            "rationale": "Imported from Prisma.",
+            "supportingPrincipleIds": "[]",
+            "evidenceChainClaimIds": "[]",
+            "confidence": 0.82,
+            "createdAt": datetime(2026, 4, 29, 12, 0, 0),
+        }
+    )
+    monkeypatch.setattr(st, "_list_prisma_conclusions", lambda: [prisma_conclusion])
+    event = _event(
+        "event_prisma_conclusion",
+        "Consulting uncertainty is becoming legible.",
+    )
+    _patch_embeddings(
+        monkeypatch,
+        {
+            event.text: [1.0, 0.0],
+            "Consulting markets reward legible uncertainty.": [1.0, 0.0],
+        },
+    )
+
+    hits = retrieve_for_event(st, event, top_k=4)
+
+    assert [(hit.source_kind, hit.source_id) for hit in hits] == [
+        ("conclusion", "prisma_conclusion_currents")
+    ]

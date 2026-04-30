@@ -35,3 +35,13 @@ def test_hybrid_retriever_rebuild_and_bm25() -> None:
     hits = r.search(st, query_text="liberalism political philosophy", query_embedding=None, top_k=5)
     ids = {h.claim_id for h in hits}
     assert "r1" in ids or "r2" in ids
+
+
+def test_hybrid_retriever_skips_fts_for_non_sqlite(monkeypatch) -> None:
+    st = Store.from_database_url("sqlite:///:memory:")
+    monkeypatch.setattr(st.engine.dialect, "name", "postgresql")
+
+    r = HybridRetriever()
+
+    assert r.rebuild(st) == 0
+    assert r.bm25_hits(st, "liberalism") == []

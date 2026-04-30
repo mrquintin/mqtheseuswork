@@ -70,8 +70,18 @@ class HybridRetriever:
 
     fts_table = "retrieval_claim_fts"
 
+    def _supports_fts5(self, store: Store) -> bool:
+        return store.engine.dialect.name == "sqlite"
+
     def rebuild(self, store: Store, *, origins: Optional[set[ClaimOrigin]] = None) -> int:
         """Drop/recreate FTS index and populate from claims (optional origin filter)."""
+        if not self._supports_fts5(store):
+            logger.info(
+                "retrieval_fts_skipped",
+                dialect=store.engine.dialect.name,
+            )
+            return 0
+
         origins = origins or {
             ClaimOrigin.FOUNDER,
             ClaimOrigin.VOICE,
@@ -102,6 +112,9 @@ class HybridRetriever:
         return n
 
     def bm25_hits(self, store: Store, query_text: str, *, limit: int = 25) -> list[tuple[str, float]]:
+        if not self._supports_fts5(store):
+            return []
+
         q = _fts_safe_query(query_text)
         if q == "empty":
             return []
