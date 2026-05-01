@@ -1,10 +1,15 @@
 import { db } from "@/lib/db";
+import { founderDisplayName } from "@/lib/founderDisplay";
 
 export default async function ResearchPage() {
   const rows = await db.researchSuggestion.findMany({
     orderBy: { createdAt: "desc" },
     take: 40,
-    include: { suggestedForFounder: { select: { name: true } } },
+    include: {
+      suggestedForFounder: {
+        select: { displayName: true, name: true, username: true },
+      },
+    },
   });
 
   return (
@@ -30,7 +35,7 @@ export default async function ResearchPage() {
               <p style={{ fontSize: "0.75rem", marginTop: "0.5rem", color: "var(--parchment)" }}>{r.rationale}</p>
               {r.suggestedForFounder && (
                 <p style={{ fontSize: "0.65rem", marginTop: "0.35rem", color: "var(--gold-dim)" }}>
-                  For: {r.suggestedForFounder.name}
+                  For: {founderDisplayName(r.suggestedForFounder)}
                 </p>
               )}
               {uris.length > 0 && (

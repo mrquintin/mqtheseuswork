@@ -2,6 +2,7 @@ import { Prisma } from "@prisma/client";
 import { NextResponse } from "next/server";
 import { getFounder } from "@/lib/auth";
 import { db } from "@/lib/db";
+import { founderDisplayName } from "@/lib/founderDisplay";
 import { canWrite, WRITE_FORBIDDEN_RESPONSE } from "@/lib/roles";
 
 type AdvRow = { payload_json: string; conclusion_id: string };
@@ -51,7 +52,7 @@ export async function POST(
     kind: body.kind,
     pointer: body.pointer || "",
     notes: body.notes || "",
-    founder_label: founder.name,
+    founder_label: founderDisplayName(founder),
   };
   payload.status = body.kind === "addressed" ? "addressed" : "fatal";
 

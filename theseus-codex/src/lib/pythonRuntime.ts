@@ -69,6 +69,7 @@ export function runNoospherePython(
     cwd?: string;
     envExtra?: Record<string, string>;
     onChunk?: (s: string) => void | Promise<void>;
+    stdin?: string;
   } = {},
 ): Promise<NoosphereRunResult> {
   const python = process.env.NOOSPHERE_PYTHON || "python3";
@@ -139,6 +140,7 @@ export function runNoospherePython(
         reason: enoent ? "no-python" : "ok",
       });
     });
+    proc.stdin?.end(opts.stdin ?? "");
   });
 }
 

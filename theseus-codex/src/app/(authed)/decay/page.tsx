@@ -9,6 +9,7 @@ import {
 import DownloadButton from "@/components/DownloadButton";
 import { decayStatusColor } from "@/lib/colors";
 import { callNoosphereJson } from "@/lib/pythonRuntime";
+import { founderDisplayName } from "@/lib/founderDisplay";
 import { requireTenantContext } from "@/lib/tenant";
 
 export default async function DecayPage({
@@ -143,7 +144,7 @@ function RevalidateRow({
     const founder = await getFounder();
     if (!founder) redirect("/login");
 
-    const gate = await submitToRigorGate("decay.revalidate", founder.name);
+    const gate = await submitToRigorGate("decay.revalidate", founderDisplayName(founder));
     if (!gate.approved) {
       redirect(
         `/decay?ledger=${encodeURIComponent(

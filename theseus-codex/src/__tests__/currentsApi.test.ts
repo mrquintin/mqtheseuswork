@@ -44,6 +44,49 @@ describe("currents API proxy helpers", () => {
     expect(init).toMatchObject({ method: "GET", cache: "no-store" });
   });
 
+  it("getCurrentsHealth reads the backend health contract", async () => {
+    fetchMock.mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          x_bearer_present: true,
+          curated_count: 5,
+          search_count: 2,
+          last_cycle_at: "2026-04-30T12:34:56Z",
+          events_last_24h: 13,
+          opinions_last_24h: 8,
+          disabled_reasons: [],
+        }),
+        {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        },
+      ),
+    );
+
+    const { getCurrentsHealth } = await import("@/lib/currentsApi");
+    const health = await getCurrentsHealth();
+
+    const [url] = fetchMock.mock.calls[0];
+    expect(String(url)).toBe("http://backend.test/v1/currents/health");
+    expect(health.opinions_last_24h).toBe(8);
+    expect(health.disabled_reasons).toEqual([]);
+  });
+
+  it("the health route proxies to the backend health endpoint", async () => {
+    fetchMock.mockResolvedValueOnce(
+      new Response(JSON.stringify({ disabled_reasons: [] }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      }),
+    );
+
+    const { GET } = await import("@/app/api/currents/health/route");
+    await GET(new Request("http://localhost:3000/api/currents/health") as never);
+
+    const [url] = fetchMock.mock.calls[0];
+    expect(String(url)).toBe("http://backend.test/v1/currents/health");
+  });
+
   it("the follow-up route strips cookie and authorization before forwarding", async () => {
     fetchMock.mockResolvedValueOnce(
       new Response("event: done\ndata: {}\n\n", {

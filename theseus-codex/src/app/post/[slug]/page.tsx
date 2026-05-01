@@ -5,6 +5,7 @@ import type { Metadata } from "next";
 import PublicHeader from "@/components/PublicHeader";
 import { db } from "@/lib/db";
 import { getFounder } from "@/lib/auth";
+import { founderDisplayName } from "@/lib/founderDisplay";
 
 /**
  * Public blog post — individual article page.
@@ -91,7 +92,7 @@ export default async function PostPage({ params }: PageProps) {
       // the card/byline line with the episode duration.
       audioUrl: true,
       audioDurationSec: true,
-      founder: { select: { name: true } },
+      founder: { select: { displayName: true, name: true, username: true } },
     },
   });
 
@@ -107,6 +108,7 @@ export default async function PostPage({ params }: PageProps) {
 
   const body = post.textContent || "";
   const paragraphs = splitParagraphs(body);
+  const byline = post.authorBio || founderDisplayName(post.founder);
 
   return (
     <main style={{ minHeight: "100vh" }}>
@@ -146,7 +148,7 @@ export default async function PostPage({ params }: PageProps) {
               margin: "0 0 0.8rem",
             }}
           >
-            {date} · {post.authorBio || post.founder.name}
+            {date} · {byline}
             {post.sourceType && post.sourceType !== "written"
               ? ` · ${post.sourceType}`
               : ""}
@@ -300,7 +302,7 @@ export default async function PostPage({ params }: PageProps) {
               margin: 0,
             }}
           >
-            {post.authorBio || post.founder.name}
+            {byline}
             <span style={{ opacity: 0.5 }}> · Theseus Codex</span>
           </p>
           <Link

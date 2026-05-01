@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
 import dynamic from "next/dynamic";
 import { useRouter, useSearchParams } from "next/navigation";
 
@@ -35,9 +35,9 @@ const AsciiHero = dynamic(() => import("./AsciiHero"), {
  *                on auth failure we return to idle and surface the error.
  *   entering   — auth succeeded. The form + wordmark + labyrinth gently
  *                fade out and drift down a hair while a single thin amber
- *                hairline sweeps across the horizon. ~700ms, no flash, no
+ *                hairline sweeps across the horizon. ~300ms, no flash, no
  *                scale explosion — just a quiet, precise threshold crossing.
- *                Reduced-motion mode skips to a flat 200ms fade.
+ *                Reduced-motion mode skips to a flat 120ms fade.
  *
  * Prior revisions of this file included a three-layer "ignition" — a
  * rotating sunburst, a radial amber shockwave that filled the viewport in
@@ -67,6 +67,20 @@ type Phase = "idle" | "submitting" | "entering";
  */
 type Mode = "login" | "rotate";
 
+function safeNextPath(value: string | null | undefined): string {
+  if (!value) return "/dashboard";
+  const trimmed = value.trim();
+  if (!trimmed.startsWith("/") || trimmed.startsWith("//")) return "/dashboard";
+  try {
+    const parsed = new URL(trimmed, "https://theseus.local");
+    if (parsed.origin !== "https://theseus.local") return "/dashboard";
+    if (parsed.pathname === "/login") return "/dashboard";
+    return `${parsed.pathname}${parsed.search}${parsed.hash}`;
+  } catch {
+    return "/dashboard";
+  }
+}
+
 function GateInner() {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -80,6 +94,14 @@ function GateInner() {
   const [confirmPassword, setConfirmPassword] = useState("");
   const [error, setError] = useState("");
   const [phase, setPhase] = useState<Phase>("idle");
+  const nextPath = safeNextPath(searchParams.get("next"));
+
+  useEffect(() => {
+    router.prefetch("/dashboard");
+    if (nextPath !== "/dashboard") {
+      router.prefetch(nextPath);
+    }
+  }, [nextPath, router]);
 
   function toggleMode() {
     if (phase !== "idle") return;
@@ -88,13 +110,18 @@ function GateInner() {
   }
 
   /**
-   * Shared post-success choreography: play the ignition animation
-   * for ~720ms, then push to the resolved next URL. Used by BOTH
+   * Shared post-success choreography: play the threshold dissolve
+   * for ~260ms, then push to the resolved next URL. Used by BOTH
    * the login submit and the rotate submit so the two paths share
    * the same cinematic arrival.
    */
-  function enterCodex() {
+  function enterCodex(nextOverride?: string) {
+    const next = safeNextPath(nextOverride || nextPath);
     setPhase("entering");
+    router.prefetch("/dashboard");
+    if (next !== "/dashboard") {
+      router.prefetch(next);
+    }
     try {
       window.sessionStorage.setItem("codex:just-entered", "1");
     } catch {
@@ -103,12 +130,10 @@ function GateInner() {
     const holdMs =
       typeof window !== "undefined" &&
       window.matchMedia("(prefers-reduced-motion: reduce)").matches
-        ? 200
-        : 720;
+        ? 120
+        : 260;
     window.setTimeout(() => {
-      const next = searchParams.get("next") || "/dashboard";
-      router.push(next.startsWith("/") ? next : "/dashboard");
-      router.refresh();
+      router.push(next);
     }, holdMs);
   }
 
@@ -121,17 +146,17 @@ function GateInner() {
       const res = await fetch("/api/auth/login", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email, password, organizationSlug }),
+        body: JSON.stringify({ email, password, organizationSlug, next: nextPath }),
       });
+      const data = await res.json().catch(() => ({}));
 
       if (!res.ok) {
-        const data = await res.json().catch(() => ({}));
         setError(data.error || "Login failed");
         setPhase("idle");
         return;
       }
 
-      enterCodex();
+      enterCodex(typeof data.next === "string" ? data.next : nextPath);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Network error");
       setPhase("idle");
@@ -179,7 +204,7 @@ function GateInner() {
       // The rotate-password route mints a session on success, so the
       // caller is logged in with the new credential — we can play the
       // same ignition animation and drop them into /dashboard.
-      enterCodex();
+      enterCodex(nextPath);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Network error");
       setPhase("idle");

@@ -1,6 +1,11 @@
 "use client";
 
+import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
+import {
+  founderDisplayName,
+  type FounderDisplayFields,
+} from "@/lib/founderDisplay";
 
 /**
  * /library client component.
@@ -39,7 +44,7 @@ interface LibraryRow {
   visibility: string;
   createdAt: string;
   founderId: string;
-  founder: { id: string; name: string };
+  founder: FounderDisplayFields & { id: string };
   youOwn: boolean;
   yourPendingRequestId: string | null;
   deletionRequests: Array<{
@@ -48,7 +53,7 @@ interface LibraryRow {
     reason: string | null;
     createdAt: string;
     requesterId: string;
-    requester: { id: string; name: string };
+    requester: FounderDisplayFields & { id: string };
   }>;
 }
 
@@ -56,7 +61,7 @@ interface IncomingRequest {
   id: string;
   reason: string | null;
   createdAt: string;
-  requester: { id: string; name: string };
+  requester: FounderDisplayFields & { id: string };
   upload: {
     id: string;
     title: string;
@@ -75,7 +80,7 @@ interface OutgoingRequest {
   upload: {
     id: string;
     title: string;
-    founder: { id: string; name: string };
+    founder: FounderDisplayFields & { id: string };
     deletedAt: string | null;
   };
 }
@@ -286,7 +291,7 @@ export default function LibraryBrowser() {
                         fontSize: "1.05rem",
                       }}
                     >
-                      <strong>{r.requester.name}</strong>
+                      <strong>{founderDisplayName(r.requester)}</strong>
                       <span style={{ color: "var(--parchment-dim)" }}>
                         {" "}
                         asks to delete{" "}
@@ -436,18 +441,20 @@ export default function LibraryBrowser() {
                       overflow: "hidden",
                     }}
                   >
-                    <span
+                    <Link
+                      href={`/upload/${row.id}`}
                       style={{
                         fontFamily: "'EB Garamond', serif",
                         fontSize: "1.12rem",
                         color: "var(--parchment)",
                         overflow: "hidden",
                         textOverflow: "ellipsis",
+                        textDecoration: "none",
                         whiteSpace: "nowrap",
                       }}
                     >
                       {row.title}
-                    </span>
+                    </Link>
                     {row.visibility === "private" ? (
                       <span
                         className="mono"
@@ -501,7 +508,7 @@ export default function LibraryBrowser() {
                       marginTop: "0.25rem",
                     }}
                   >
-                    {row.founder.name}
+                    {founderDisplayName(row.founder)}
                     {row.youOwn ? (
                       <span style={{ color: "var(--amber)" }}> (you)</span>
                     ) : null}
@@ -566,10 +573,10 @@ export default function LibraryBrowser() {
                       type="button"
                       className="mono"
                       onClick={() =>
-                        doRequest(row.id, row.title, row.founder.name)
+                        doRequest(row.id, row.title, founderDisplayName(row.founder))
                       }
                       style={ghostBtn("amber")}
-                      title={`Ask ${row.founder.name} to delete this.`}
+                      title={`Ask ${founderDisplayName(row.founder)} to delete this.`}
                     >
                       Request deletion
                     </button>

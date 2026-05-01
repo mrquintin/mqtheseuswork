@@ -985,6 +985,53 @@ class FollowUpMessage(SQLModel, table=True):
     created_at: datetime = SQLField(default_factory=_now, sa_column=Column("createdAt", SADateTime, nullable=False))
 
 
+class SocialPost(SQLModel, table=True):
+    """Held outbound social post requiring explicit operator approval."""
+
+    __tablename__ = "SocialPost"
+    __table_args__ = (
+        Index("SocialPost_organizationId_status_createdAt_idx", "organizationId", "status", "createdAt"),
+        Index("SocialPost_platform_status_postedAt_idx", "platform", "status", "postedAt"),
+        Index("SocialPost_source_sourceId_idx", "source", "sourceId"),
+        Index("SocialPost_bundleId_idx", "bundleId"),
+    )
+
+    id: str = SQLField(default_factory=_new_cuid, primary_key=True)
+    organization_id: str = SQLField(sa_column=Column("organizationId", String, nullable=False))
+    created_at: datetime = SQLField(default_factory=_now, sa_column=Column("createdAt", SADateTime, nullable=False))
+    source: str = SQLField(sa_column=Column("source", String, nullable=False))
+    source_id: Optional[str] = SQLField(default=None, sa_column=Column("sourceId", String, nullable=True))
+    platform: str = SQLField(sa_column=Column("platform", String, nullable=False))
+    bundle_id: Optional[str] = SQLField(default=None, sa_column=Column("bundleId", String, nullable=True))
+    body: str = SQLField(sa_column=Column("body", Text, nullable=False))
+    markdown_body: Optional[str] = SQLField(default=None, sa_column=Column("markdownBody", Text, nullable=True))
+    subject: Optional[str] = SQLField(default=None, sa_column=Column("subject", String, nullable=True))
+    media: Optional[Any] = SQLField(default=None, sa_column=Column("media", JSON, nullable=True))
+    status: str = SQLField(sa_column=Column("status", String, nullable=False))
+    approved_by: Optional[str] = SQLField(default=None, sa_column=Column("approvedBy", String, nullable=True))
+    approved_at: Optional[datetime] = SQLField(default=None, sa_column=Column("approvedAt", SADateTime, nullable=True))
+    posted_at: Optional[datetime] = SQLField(default=None, sa_column=Column("postedAt", SADateTime, nullable=True))
+    external_id: Optional[str] = SQLField(default=None, sa_column=Column("externalId", String, nullable=True))
+    failure_reason: Optional[str] = SQLField(default=None, sa_column=Column("failureReason", String, nullable=True))
+
+
+class OperatorState(SQLModel, table=True):
+    """Small operator-controlled key/value state for kill flags and overrides."""
+
+    __tablename__ = "OperatorState"
+    __table_args__ = (
+        UniqueConstraint("organizationId", "key", name="OperatorState_organizationId_key_key"),
+        Index("OperatorState_key_idx", "key"),
+    )
+
+    id: str = SQLField(default_factory=_new_cuid, primary_key=True)
+    organization_id: str = SQLField(sa_column=Column("organizationId", String, nullable=False))
+    key: str = SQLField(sa_column=Column("key", String, nullable=False))
+    value: Any = SQLField(default_factory=dict, sa_column=Column("value", JSON, nullable=False))
+    created_at: datetime = SQLField(default_factory=_now, sa_column=Column("createdAt", SADateTime, nullable=False))
+    updated_at: datetime = SQLField(default_factory=_now, sa_column=Column("updatedAt", SADateTime, nullable=False))
+
+
 class ForecastMarket(SQLModel, table=True):
     """External prediction-market mirror owned by the Forecasts pipeline."""
 
@@ -1020,6 +1067,28 @@ class ForecastMarket(SQLModel, table=True):
     updated_at: datetime = SQLField(default_factory=_now, sa_column=Column("updatedAt", SADateTime, nullable=False))
 
 
+class WatchedMarket(SQLModel, table=True):
+    """Operator-added market URL queued for the next Forecasts discovery cycle."""
+
+    __tablename__ = "WatchedMarket"
+    __table_args__ = (
+        UniqueConstraint("organizationId", "url", name="WatchedMarket_organizationId_url_key"),
+        Index("WatchedMarket_organizationId_status_createdAt_idx", "organizationId", "status", "createdAt"),
+        Index("WatchedMarket_source_status_idx", "source", "status"),
+    )
+
+    id: str = SQLField(default_factory=_new_cuid, primary_key=True)
+    organization_id: str = SQLField(sa_column=Column("organizationId", String, nullable=False))
+    source: ForecastSource = SQLField(sa_column=Column("source", String, nullable=False))
+    url: str = SQLField(sa_column=Column("url", Text, nullable=False))
+    external_id: Optional[str] = SQLField(default=None, sa_column=Column("externalId", String, nullable=True))
+    status: str = SQLField(default="ACTIVE", sa_column=Column("status", String, nullable=False))
+    notes: Optional[str] = SQLField(default=None, sa_column=Column("notes", Text, nullable=True))
+    last_considered_at: Optional[datetime] = SQLField(default=None, sa_column=Column("lastConsideredAt", SADateTime, nullable=True))
+    created_at: datetime = SQLField(default_factory=_now, sa_column=Column("createdAt", SADateTime, nullable=False))
+    updated_at: datetime = SQLField(default_factory=_now, sa_column=Column("updatedAt", SADateTime, nullable=False))
+
+
 class ForecastPrediction(SQLModel, table=True):
     """Source-grounded probability forecast for one external market."""
 
@@ -1046,6 +1115,28 @@ class ForecastPrediction(SQLModel, table=True):
     completion_tokens: int = SQLField(default=0, sa_column=Column("completionTokens", SAInteger, nullable=False))
     live_authorized_at: Optional[datetime] = SQLField(default=None, sa_column=Column("liveAuthorizedAt", SADateTime, nullable=True))
     live_authorized_by: Optional[str] = SQLField(default=None, sa_column=Column("liveAuthorizedBy", String, nullable=True))
+    created_at: datetime = SQLField(default_factory=_now, sa_column=Column("createdAt", SADateTime, nullable=False))
+    updated_at: datetime = SQLField(default_factory=_now, sa_column=Column("updatedAt", SADateTime, nullable=False))
+
+
+class ForecastTrace(SQLModel, table=True):
+    """Structured principles -> model output -> gates trace for a prediction."""
+
+    __tablename__ = "ForecastTrace"
+    __table_args__ = (
+        UniqueConstraint("predictionId", name="ForecastTrace_predictionId_key"),
+        Index("ForecastTrace_marketId_idx", "marketId"),
+        Index("ForecastTrace_organizationId_createdAt_idx", "organizationId", "createdAt"),
+    )
+
+    id: str = SQLField(default_factory=_new_cuid, primary_key=True)
+    prediction_id: str = SQLField(sa_column=Column("predictionId", String, nullable=False))
+    market_id: str = SQLField(sa_column=Column("marketId", String, nullable=False))
+    organization_id: str = SQLField(sa_column=Column("organizationId", String, nullable=False))
+    market_title: str = SQLField(sa_column=Column("marketTitle", String(280), nullable=False))
+    principles_used: list[dict[str, Any]] = SQLField(default_factory=list, sa_column=Column("principlesUsed", JSON, nullable=False))
+    model_output: dict[str, Any] = SQLField(default_factory=dict, sa_column=Column("modelOutput", JSON, nullable=False))
+    gate_results: list[dict[str, Any]] = SQLField(default_factory=list, sa_column=Column("gateResults", JSON, nullable=False))
     created_at: datetime = SQLField(default_factory=_now, sa_column=Column("createdAt", SADateTime, nullable=False))
     updated_at: datetime = SQLField(default_factory=_now, sa_column=Column("updatedAt", SADateTime, nullable=False))
 

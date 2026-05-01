@@ -36,6 +36,7 @@ import { NextResponse } from "next/server";
 import bcrypt from "bcryptjs";
 import { db } from "@/lib/db";
 import { generateApiKeyPlaintext } from "@/lib/apiKeyAuth";
+import { founderDisplayName } from "@/lib/founderDisplay";
 import { checkLoginRateLimit, resetLoginRateLimit } from "@/lib/rateLimit";
 import { sanitizeText, sanitizeAndCap } from "@/lib/sanitizeText";
 
@@ -157,6 +158,8 @@ export async function POST(req: Request) {
       founder: {
         id: founder.id,
         name: founder.name,
+        displayName: founder.displayName,
+        publicName: founderDisplayName(founder),
         username: founder.username,
         email: founder.email,
         role: founder.role,

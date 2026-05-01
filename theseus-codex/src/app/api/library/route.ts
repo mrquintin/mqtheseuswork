@@ -19,6 +19,7 @@
 import { NextResponse } from "next/server";
 import { getFounderFromAuth } from "@/lib/apiKeyAuth";
 import { db } from "@/lib/db";
+import { founderDisplayName } from "@/lib/founderDisplay";
 
 export async function GET(req: Request) {
   const founder = await getFounderFromAuth(req);
@@ -81,7 +82,7 @@ export async function GET(req: Request) {
       visibility: true,
       createdAt: true,
       founderId: true,
-      founder: { select: { id: true, name: true } },
+      founder: { select: { id: true, displayName: true, name: true, username: true } },
       deletionRequests: {
         where: { status: "pending" },
         select: {
@@ -90,7 +91,7 @@ export async function GET(req: Request) {
           reason: true,
           createdAt: true,
           requesterId: true,
-          requester: { select: { id: true, name: true } },
+          requester: { select: { id: true, displayName: true, name: true, username: true } },
         },
       },
     },
@@ -106,7 +107,7 @@ export async function GET(req: Request) {
   }));
 
   return NextResponse.json({
-    you: { id: founder.id, name: founder.name },
+    you: { id: founder.id, name: founderDisplayName(founder) },
     count: rows.length,
     rows,
   });

@@ -784,6 +784,7 @@ def ingest_from_codex(
         written = 0  # NEW conclusions inserted
         deduped = 0  # claims that matched an existing conclusion
         claim_idx_to_conclusion_id: list[str | None] = [None] * len(claims)
+        conclusions_to_embed: dict[str, str] = {}
         # Pre-compute a sanitized source label we'll reuse in every row's
         # rationale/sessionLabel. Cap at 300 so a giant filename can't blow
         # the text column.
@@ -821,6 +822,7 @@ def ingest_from_codex(
                     (cid, upload_id, now),
                 )
                 claim_idx_to_conclusion_id[idx] = cid
+                conclusions_to_embed[cid] = claim_text
                 deduped += 1
                 continue
 
@@ -853,6 +855,7 @@ def ingest_from_codex(
             if cur.rowcount == 1:
                 written += 1
                 claim_idx_to_conclusion_id[idx] = cid
+                conclusions_to_embed[cid] = claim_text
                 cur.execute(
                     '''INSERT INTO "ConclusionSource"
                        ("conclusionId", "uploadId", "createdAt")
@@ -1141,6 +1144,46 @@ def ingest_from_codex(
         )
 
         conn.commit()
+        try:
+            from noosphere.embedding_pipeline import embed_conclusion_with_store
+            from noosphere.models import Conclusion, ConfidenceTier
+            from noosphere.store import Store
+
+            embedding_store = Store.from_database_url(url)
+            embedded_count = 0
+            for conclusion_id, conclusion_text in conclusions_to_embed.items():
+                embedded = embed_conclusion_with_store(
+                    embedding_store,
+                    Conclusion(
+                        id=conclusion_id,
+                        text=conclusion_text,
+                        confidence_tier=ConfidenceTier.LOW,
+                        confidence=0.5,
+                        created_at=now,
+                        updated_at=now,
+                    ),
+                )
+                if embedded:
+                    embedded_count += 1
+            print(
+                "conclusion_embeddings "
+                f"attempted={len(conclusions_to_embed)} "
+                f"embedded={embedded_count}"
+            )
+        except Exception as embed_exc:
+            print(f"conclusion_embedding_followup_failed: {type(embed_exc).__name__}: {embed_exc}")
+        try:
+            from noosphere.articles.transcript_enrichment import enrich_upload_transcript
+
+            enrichment = enrich_upload_transcript(upload_id, codex_db_url=url)
+            print(
+                "transcript_enrichment "
+                f"enriched={enrichment.enriched} "
+                f"chunks={enrichment.chunk_count} "
+                f"reason={enrichment.skipped_reason or ''}"
+            )
+        except Exception as enrich_exc:
+            print(f"transcript_enrichment_failed: {type(enrich_exc).__name__}: {enrich_exc}")
         return IngestFromCodexResult(
             upload_id=upload_id,
             title=row["title"] or row["originalName"] or upload_id,

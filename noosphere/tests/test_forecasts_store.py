@@ -20,7 +20,10 @@ from noosphere.models import (
     ForecastPortfolioState,
     ForecastResolution,
     ForecastOutcome,
+    ForecastSource,
     ForecastSupportLabel,
+    ForecastTrace,
+    WatchedMarket,
 )
 
 
@@ -47,6 +50,36 @@ def test_forecasts_seed_round_trips_every_store_helper(forecasts_seed) -> None:
     assert open_market_ids == {poly_market.id, kalshi_market.id}
 
     assert st.get_forecast_prediction(poly_prediction.id).market_id == poly_market.id  # type: ignore[union-attr]
+    placeholder_trace = st.get_forecast_trace(poly_prediction.id)
+    assert placeholder_trace is not None
+    assert placeholder_trace.market_title == poly_market.title
+    assert placeholder_trace.model_output["rationale"] == poly_prediction.headline
+
+    trace = ForecastTrace(
+        id="forecast_trace_poly",
+        prediction_id=poly_prediction.id,
+        market_id=poly_market.id,
+        organization_id=org_id,
+        market_title=poly_market.title,
+        principles_used=[
+            {
+                "conclusionId": "conclusion_1",
+                "weight": 0.91,
+                "snippet": "passage is more likely",
+            }
+        ],
+        model_output={
+            "side": "YES",
+            "edge": 0.07,
+            "confidence": 0.81,
+            "rationale": poly_prediction.headline,
+        },
+        gate_results=[
+            {"gateName": "paper_edge_threshold", "passed": True, "reason": "paper fill recorded"}
+        ],
+    )
+    assert st.put_forecast_trace(trace) == placeholder_trace.id
+    assert st.get_forecast_trace(poly_prediction.id).principles_used[0]["conclusionId"] == "conclusion_1"  # type: ignore[union-attr]
     assert [
         p.id for p in st.list_recent_forecast_predictions(since=now - timedelta(days=1), limit=10)
     ] == [kalshi_prediction.id, poly_prediction.id]
@@ -116,6 +149,20 @@ def test_forecasts_seed_round_trips_every_store_helper(forecasts_seed) -> None:
     )
     assert st.set_portfolio_state(updated_portfolio) == portfolio.id
     assert st.get_portfolio_state(org_id).paper_balance_usd == Decimal("10125.50")  # type: ignore[union-attr]
+
+    watched = WatchedMarket(
+        id="watched_poly",
+        organization_id=org_id,
+        source=ForecastSource.POLYMARKET,
+        url="https://polymarket.com/event/policy-bill",
+        external_id="policy-bill",
+    )
+    assert st.put_watched_market(watched) == watched.id
+    duplicate_watched = watched.model_copy(
+        update={"id": "watched_poly_duplicate", "status": "PAUSED"}
+    )
+    assert st.put_watched_market(duplicate_watched) == watched.id
+    assert st.list_watched_markets(organization_id=org_id, active_only=False)[0].status == "PAUSED"
 
     session = ForecastFollowUpSession(
         id="forecast_followup_session",

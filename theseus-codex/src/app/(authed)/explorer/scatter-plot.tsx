@@ -21,7 +21,10 @@ type SemanticAxis = {
 type Projection = {
   conclusions: ProjectedConclusion[];
   axes: SemanticAxis[];
-  error?: string;
+  error: string | null;
+  status?: "ready" | "warming-up";
+  embeddedCount?: number;
+  totalCount?: number;
 };
 
 const TIER_COLORS: Record<string, string> = {
@@ -31,6 +34,19 @@ const TIER_COLORS: Record<string, string> = {
   speculative: "#8a7e6b",
   retired: "#6b6b6b",
 };
+
+const PLACEHOLDER_POINTS = [
+  [108, 418],
+  [171, 332],
+  [233, 455],
+  [299, 246],
+  [367, 389],
+  [442, 205],
+  [514, 326],
+  [586, 438],
+  [655, 260],
+  [704, 372],
+] as const;
 
 export default function ExplorerScatterPlot() {
   const router = useRouter();
@@ -42,7 +58,7 @@ export default function ExplorerScatterPlot() {
 
   useEffect(() => {
     let cancelled = false;
-    (async () => {
+    async function load() {
       try {
         const res = await fetch("/api/conclusions/embeddings");
         if (!res.ok) {
@@ -50,17 +66,37 @@ export default function ExplorerScatterPlot() {
           throw new Error(body.error || `HTTP ${res.status}`);
         }
         const json = (await res.json()) as Projection;
-        if (!cancelled) setData(json);
+        if (!cancelled) {
+          setLoadError(null);
+          setData(json);
+        }
       } catch (e) {
         if (!cancelled) setLoadError((e as Error).message);
       } finally {
         if (!cancelled) setLoading(false);
       }
-    })();
+    }
+    void load();
     return () => {
       cancelled = true;
     };
   }, []);
+
+  useEffect(() => {
+    if (data?.status !== "warming-up") return;
+    const interval = window.setInterval(async () => {
+      try {
+        const res = await fetch("/api/conclusions/embeddings", { cache: "no-store" });
+        if (!res.ok) return;
+        const json = (await res.json()) as Projection;
+        setData(json);
+        setLoadError(null);
+      } catch {
+        // Keep the current warming state visible; the next poll will retry.
+      }
+    }, 30_000);
+    return () => window.clearInterval(interval);
+  }, [data?.status]);
 
   const plotBounds = useMemo(() => {
     if (!data || data.conclusions.length === 0) return null;
@@ -88,11 +124,69 @@ export default function ExplorerScatterPlot() {
       </p>
     );
   }
+  if (data?.status === "warming-up") {
+    const embeddedCount = data.embeddedCount ?? 0;
+    const totalCount = data.totalCount ?? 0;
+    return (
+      <div style={{ position: "relative" }}>
+        <svg
+          viewBox="0 0 800 600"
+          width="100%"
+          aria-hidden="true"
+          style={{
+            background: "var(--stone-light)",
+            border: "1px solid var(--border)",
+            borderRadius: 2,
+            opacity: 0.65,
+          }}
+        >
+          <line x1={60} y1={300} x2={740} y2={300} stroke="var(--border)" />
+          <line x1={400} y1={60} x2={400} y2={540} stroke="var(--border)" />
+          {PLACEHOLDER_POINTS.map(([x, y], index) => (
+            <circle
+              key={`${x}-${y}`}
+              cx={x}
+              cy={y}
+              r={index % 3 === 0 ? 6 : 4}
+              fill="#9a958c"
+              opacity={0.28 + (index % 4) * 0.05}
+            />
+          ))}
+        </svg>
+        <div
+          style={{
+            position: "absolute",
+            inset: 0,
+            display: "grid",
+            placeItems: "center",
+            padding: "1.25rem",
+            textAlign: "center",
+            pointerEvents: "none",
+          }}
+        >
+          <p
+            style={{
+              maxWidth: "34rem",
+              color: "var(--parchment)",
+              background: "rgba(18, 14, 10, 0.72)",
+              border: "1px solid var(--border)",
+              borderRadius: 2,
+              padding: "0.85rem 1rem",
+              fontSize: "0.9rem",
+              lineHeight: 1.45,
+            }}
+          >
+            The semantic explorer activates after the firm has 3 embedded conclusions. Currently:{" "}
+            {embeddedCount}/{totalCount}. Embeddings auto-populate as conclusions are created.
+          </p>
+        </div>
+      </div>
+    );
+  }
   if (!data || data.error || data.conclusions.length < 3 || !plotBounds) {
     return (
       <p style={{ color: "var(--parchment-dim)", fontSize: "0.85rem" }}>
-        {data?.error ||
-          "Not enough embedded conclusions yet — run the ingestion pipeline to populate embeddings."}
+        {data?.error || "The semantic explorer is waiting for embedded conclusions."}
       </p>
     );
   }

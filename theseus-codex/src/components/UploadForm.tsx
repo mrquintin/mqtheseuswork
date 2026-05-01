@@ -1403,7 +1403,7 @@ export default function UploadForm() {
             </span>
             Noosphere keeps processing in the cloud whether or not this
             tab stays open. Track progress on the{" "}
-            <Link href="/library" style={{ color: "var(--gold)" }}>
+            <Link href="/knowledge?tab=library" style={{ color: "var(--gold)" }}>
               library
             </Link>{" "}
             or{" "}

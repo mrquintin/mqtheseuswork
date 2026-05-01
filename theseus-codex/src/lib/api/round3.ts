@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { Prisma } from "@prisma/client";
 import { getFounder } from "@/lib/auth";
 import { db } from "@/lib/db";
+import { founderDisplayName } from "@/lib/founderDisplay";
 import {
   runNoospherePython,
   isNoosphereLikelyUnavailable,
@@ -229,7 +230,7 @@ export function withGated(kind: string, handler: RouteHandler): RouteHandler {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const gate = await submitToRigorGate(kind, founder.name);
+    const gate = await submitToRigorGate(kind, founderDisplayName(founder));
     if (!gate.approved) {
       return NextResponse.json(
         { ok: false, error: "Rigor gate rejected", reason: gate.reason },

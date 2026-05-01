@@ -27,6 +27,7 @@ from noosphere.models import (
     ForecastPrediction,
     ForecastPredictionStatus,
     ForecastSupportLabel,
+    ForecastTrace,
 )
 
 
@@ -500,6 +501,105 @@ def _citation_rows(citations: list[dict[str, Any]]) -> list[ForecastCitation]:
     ]
 
 
+def _trace_principles(citations: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    principles: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for citation in citations:
+        if str(citation.get("source_type", "")).upper() != "CONCLUSION":
+            continue
+        conclusion_id = str(citation.get("source_id", ""))
+        if not conclusion_id or conclusion_id in seen:
+            continue
+        seen.add(conclusion_id)
+        principles.append(
+            {
+                "conclusionId": conclusion_id,
+                "weight": round(float(citation.get("retrieval_score") or 0.0), 6),
+                "snippet": str(citation.get("quoted_span") or ""),
+            }
+        )
+    return principles
+
+
+def _trace_model_output(market: Any, payload: dict[str, Any]) -> dict[str, Any]:
+    probability = float(payload["probability_yes"])
+    market_yes = getattr(market, "current_yes_price", None)
+    market_price = float(market_yes) if market_yes is not None else None
+    edge = round(probability - market_price, 6) if market_price is not None else None
+    interval_width = float(payload["confidence_high"]) - float(payload["confidence_low"])
+    return {
+        "side": "YES" if edge is None or edge >= 0 else "NO",
+        "edge": edge,
+        "confidence": round(max(0.0, min(1.0, 1.0 - interval_width)), 6),
+        "rationale": str(payload.get("headline") or "").strip(),
+    }
+
+
+def _trace_gate_results(paper_bet: Any | None) -> list[dict[str, Any]]:
+    paper_edge_passed = paper_bet is not None
+    return [
+        {
+            "gateName": "market_open",
+            "passed": True,
+            "reason": "market was open beyond the forecast close buffer",
+        },
+        {
+            "gateName": "distinct_source_floor",
+            "passed": True,
+            "reason": f"at least {MIN_DISTINCT_SOURCES} distinct retrieved sources were validated",
+        },
+        {
+            "gateName": "near_duplicate_suppression",
+            "passed": True,
+            "reason": "no near-duplicate published forecast was found in the recent window",
+        },
+        {
+            "gateName": "citation_integrity",
+            "passed": True,
+            "reason": "verbatim cited spans matched retrieved source text",
+        },
+        {
+            "gateName": "paper_edge_threshold",
+            "passed": paper_edge_passed,
+            "reason": (
+                "paper fill was recorded"
+                if paper_edge_passed
+                else "paper fill was skipped because edge or stake threshold did not clear"
+            ),
+        },
+        {
+            "gateName": "live_trading_activation",
+            "passed": False,
+            "reason": "live trading is not activated by the forecast generator path in this round",
+        },
+    ]
+
+
+def _write_forecast_trace(
+    store: Any,
+    *,
+    market: Any,
+    prediction_id: str,
+    payload: dict[str, Any],
+    citations: list[dict[str, Any]],
+    paper_bet: Any | None,
+) -> None:
+    writer = getattr(store, "put_forecast_trace", None)
+    if not callable(writer):
+        return
+    writer(
+        ForecastTrace(
+            prediction_id=prediction_id,
+            market_id=str(getattr(market, "id", "")),
+            organization_id=str(getattr(market, "organization_id", "")),
+            market_title=str(getattr(market, "title", ""))[:280],
+            principles_used=_trace_principles(citations),
+            model_output=_trace_model_output(market, payload),
+            gate_results=_trace_gate_results(paper_bet),
+        )
+    )
+
+
 def _decimal_probability(value: Any) -> Decimal:
     return Decimal(str(round(float(value), 6))).quantize(Decimal("0.000001"))
 
@@ -622,11 +722,20 @@ async def generate_forecast(
         for row in _citation_rows(citations):
             row.prediction_id = prediction_id
             store.put_forecast_citation(row)
+        paper_bet = None
         if not is_live_authorized(prediction):
-            await evaluate_and_stake(
+            paper_bet = await evaluate_and_stake(
                 store,
                 prediction_id,
                 config=PaperBetConfig.from_env(),
                 now=now,
             )
+        _write_forecast_trace(
+            store,
+            market=market,
+            prediction_id=prediction_id,
+            payload=payload,
+            citations=citations,
+            paper_bet=paper_bet,
+        )
         return ForecastOutcome.PUBLISHED

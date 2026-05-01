@@ -1,4 +1,5 @@
 import { redirect } from "next/navigation";
+import Link from "next/link";
 import { db } from "@/lib/db";
 import { canManageFounders } from "@/lib/roles";
 import { requireTenantContext } from "@/lib/tenant";
@@ -104,6 +105,16 @@ export default async function ManageFoundersPage() {
           first.
         </p>
       </header>
+
+      <nav style={{ display: "flex", gap: "0.75rem", flexWrap: "wrap", marginBottom: "1.25rem" }}>
+        <Link
+          href="/admin/contact"
+          className="btn"
+          style={{ fontSize: "0.65rem", textDecoration: "none" }}
+        >
+          Contact inbox
+        </Link>
+      </nav>
 
       <ManageFoundersClient
         currentFounderId={tenant.founderId}

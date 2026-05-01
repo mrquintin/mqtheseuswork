@@ -1,0 +1,78 @@
+# Codex Prompt 15 of 22 — Make the Semantic Explorer always-on: auto-embed every conclusion + nightly backfill
+
+**Round:** 12, Wave D. **Sequence:** 15 of 22. **Report back with:** the new pipeline graph, the time-to-explorability for a freshly-uploaded essay, and the failure-recovery behaviour.
+
+## Why this prompt exists
+
+Voice memo: *"The semantic explorer should be working, but it's not. It says it needs at least 3 conclusions with embedding for a projection, but I have to run the ingestion pipeline with embedding-rich enabled. I don't even know what that means. Shouldn't it run automatically? I want this to be completely autonomous."*
+
+Reading the source, the Explorer reads `/api/conclusions/embeddings`, which queries `StoredEmbedding`. Embeddings are only written when the ingestion pipeline is run with the embedding flag set, which is not the default. The user-facing fix: every conclusion gets an embedding automatically, written within seconds of the conclusion being created, and a nightly job repairs any gaps.
+
+## Before you start — read current state
+
+1. `noosphere/noosphere/store.py` — the `put_embedding` / `get_embedding_vector` API and `StoredEmbedding` model.
+2. `theseus-codex/src/app/api/conclusions/embeddings/route.ts` — the API the Explorer reads.
+3. `theseus-codex/src/app/(authed)/explorer/scatter-plot.tsx` — the `< 3 conclusions` empty state we want to make rare.
+4. The conclusion-creation path: when does Noosphere create a `Conclusion`? Find the call site (likely in `noosphere/noosphere/inference/` or a methods adapter). Embeddings should fire as a follow-up step.
+5. `noosphere/noosphere/__main__.py` and the scheduler — the nightly cron entrypoint.
+
+## Your task
+
+### A. Synchronous embed on conclusion creation (best-effort)
+
+At every site where a `Conclusion` row is created (or upserted) in Noosphere:
+
+- After the row commits, call `embed_and_store(conclusion)` in the same async context.
+- The embedder uses the firm's configured embedding model (already set in `noosphere/noosphere/store.py`'s `_seed_embedding_model_versions`).
+- The function is wrapped in try/except: failure logs and queues a follow-up but never blocks conclusion creation. The conclusion exists either way.
+
+Add the helper:
+
+```python
+def embed_and_store(conclusion: Conclusion, *, force: bool = False) -> None:
+    """Idempotent. Skips if a current-version embedding already exists unless force=True."""
+```
+
+### B. Nightly backfill cron
+
+`noosphere/noosphere/cli_commands/embed_backfill.py`:
+
+- Finds every `Conclusion` whose `id` is NOT in `StoredEmbedding` for the active embedding model version.
+- Embeds in batches of 32 with backoff on API errors.
+- Bounded budget: stops after 1000 embeddings per run (configurable via `EMBED_BACKFILL_MAX_PER_RUN`) so a runaway corpus does not blow up costs.
+- Logs `embed_backfill.complete count=<n> elapsed=<ms> remaining=<m>`.
+
+Wire it into the existing scheduler under a nightly tick (or as a standalone cron in `docker-compose.yml`).
+
+### C. Upload-completion trigger for transcript chunks
+
+For uploads (transcripts/essays) with chunk text — embed each chunk too, so prompt 14's "What the firm thinks about this" right-rail can do real semantic retrieval. Same idempotent pattern.
+
+### D. API + UI: graceful pre-state, not a blocker
+
+`theseus-codex/src/app/api/conclusions/embeddings/route.ts`:
+
+- If fewer than 3 embedded conclusions, the response returns `{ conclusions: [], axes: [], error: null, status: "warming-up", embeddedCount, totalCount }`.
+- The Explorer surface (`scatter-plot.tsx`) renders, when `status === "warming-up"`:
+  - A faint placeholder scatter (greyed-out random points) with the overlay text: `"The semantic explorer activates after the firm has 3 embedded conclusions. Currently: <embeddedCount>/<totalCount>. Embeddings auto-populate as conclusions are created."`
+  - The page polls every 30s for state changes; once `embeddedCount ≥ 3`, the real scatter loads without a manual refresh.
+- The user is NEVER instructed to "run the ingestion pipeline with embedding-rich enabled". That language is removed.
+
+### E. Operator visibility
+
+Add an `embeddingsHealthy` field to the dashboard pulse card from prompt 9: `embeddedCount / totalCount` and a green/amber/red dot. Amber if backlog > 50, red if last backfill run failed.
+
+### F. Tests
+
+- Unit test for `embed_and_store`: idempotent on repeated calls; tolerates a 503 from the embedding provider (returns False, logs, does not raise).
+- Integration test (no network — embeds mocked): create a conclusion → assert an embedding row exists.
+- Backfill test: seed a corpus with 100 unembedded conclusions, run the cron, assert all 100 are embedded.
+- Playwright e2e: open `/explorer` against a corpus with 0 embedded conclusions, see the warming-up state; insert two embeddings; see the warming-up persist; insert a third; reload; see the full scatter.
+
+## Definition of Done
+
+- A founder uploading a fresh essay sees the Explorer come to life within minutes — no manual flags, no shell commands.
+- The Explorer never tells a user to "run the ingestion pipeline" again.
+- Backfill repairs gaps overnight; bounded cost.
+- Tests pass.
+- No prompt or patch contains a secret. Embedding API keys are referenced by env-var name only.

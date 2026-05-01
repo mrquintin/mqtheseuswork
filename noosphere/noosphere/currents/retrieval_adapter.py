@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+import math
+import re
 import struct
+from collections import Counter
 from dataclasses import dataclass
 from typing import Any, Literal
 
@@ -29,12 +32,13 @@ class EventRetrievalHit:
 DEFAULT_TOP_K = 8
 SUBSUMPTION_COSINE = 0.85
 ALLOWED_CLAIM_ORIGINS = ("FOUNDER", "INTERNAL", "VOICE", "LITERATURE")
+_TOKEN_RE = re.compile(r"[A-Za-z0-9]{3,}")
 
 _ALLOWED_CLAIM_ORIGIN_NAMES = set(ALLOWED_CLAIM_ORIGINS)
 
 
 def _float_vector(value: Any) -> list[float]:
-    if isinstance(value, (bytes, bytearray, memoryview)):
+    if isinstance(value, bytes | bytearray | memoryview):
         raw = bytes(value)
         if len(raw) % 4 != 0:
             return []
@@ -132,17 +136,98 @@ def _rank_hits(hits: list[EventRetrievalHit]) -> list[EventRetrievalHit]:
     )
 
 
+def _tokens(text: str) -> list[str]:
+    return [match.group(0).lower() for match in _TOKEN_RE.finditer(text)]
+
+
+def _bm25_conclusion_hits(
+    conclusions: list[Any],
+    event: Any,
+    *,
+    limit: int,
+) -> list[tuple[EventRetrievalHit, None]]:
+    query_terms = _tokens(getattr(event, "text", ""))
+    if not query_terms:
+        return []
+
+    docs: list[tuple[Any, list[str]]] = [
+        (conclusion, _tokens(getattr(conclusion, "text", "")))
+        for conclusion in conclusions
+        if getattr(conclusion, "text", "").strip()
+    ]
+    if not docs:
+        return []
+
+    doc_freq: Counter[str] = Counter()
+    for _, terms in docs:
+        doc_freq.update(set(terms))
+
+    avg_doc_len = sum(len(terms) for _, terms in docs) / max(1, len(docs))
+    k1 = 1.5
+    b = 0.75
+    raw_scores: list[tuple[Any, float]] = []
+    for conclusion, terms in docs:
+        counts = Counter(terms)
+        doc_len = max(1, len(terms))
+        score = 0.0
+        for term in set(query_terms):
+            freq = counts.get(term, 0)
+            if freq <= 0:
+                continue
+            df = doc_freq.get(term, 0)
+            idf = math.log(1 + (len(docs) - df + 0.5) / (df + 0.5))
+            denom = freq + k1 * (1 - b + b * doc_len / max(1.0, avg_doc_len))
+            score += idf * (freq * (k1 + 1)) / denom
+        if score > 0.0:
+            raw_scores.append((conclusion, score))
+
+    if not raw_scores:
+        return []
+
+    max_score = max(score for _, score in raw_scores)
+    topic_hint = getattr(event, "topic_hint", None)
+    hits = [
+        (
+            EventRetrievalHit(
+                source_kind="conclusion",
+                source_id=str(conclusion.id),
+                text=conclusion.text,
+                score=max(0.0, min(1.0, score / max_score)),
+                topic_hint=topic_hint,
+                origin=None,
+            ),
+            None,
+        )
+        for conclusion, score in raw_scores
+    ]
+    hits.sort(
+        key=lambda item: (
+            -item[0].score,
+            0 if item[0].source_kind == "conclusion" else 1,
+            item[0].source_id,
+        )
+    )
+    return hits[:limit]
+
+
 def _conclusion_hits(
     store: Any,
     event: Any,
-    query_embedding: Any,
+    query_embedding: Any | None,
     *,
     limit: int,
-) -> list[tuple[EventRetrievalHit, np.ndarray]]:
-    scored: list[tuple[EventRetrievalHit, np.ndarray]] = []
+) -> list[tuple[EventRetrievalHit, Any | None]]:
+    conclusions = list(store.list_conclusions())
+    if query_embedding is None:
+        return _bm25_conclusion_hits(conclusions, event, limit=limit)
+
+    scored: list[tuple[EventRetrievalHit, Any | None]] = []
     topic_hint = getattr(event, "topic_hint", None)
-    for conclusion in store.list_conclusions():
-        embedding = _source_embedding(conclusion.text)
+    for conclusion in conclusions:
+        try:
+            embedding = _source_embedding(conclusion.text)
+        except Exception:
+            continue
         cosine = _cosine(query_embedding, embedding)
         if cosine is None:
             continue
@@ -166,6 +251,8 @@ def _conclusion_hits(
             item[0].source_id,
         )
     )
+    if not scored:
+        return _bm25_conclusion_hits(conclusions, event, limit=limit)
     return scored[:limit]
 
 
@@ -193,7 +280,10 @@ def retrieve_for_event(
     if top_k <= 0:
         return []
 
-    query_embedding = _event_embedding(event)
+    try:
+        query_embedding = _event_embedding(event)
+    except Exception:
+        query_embedding = None
     conclusion_pairs = _conclusion_hits(
         store,
         event,
@@ -203,8 +293,12 @@ def retrieve_for_event(
     hits = [hit for hit, _ in conclusion_pairs]
     if len(hits) >= top_k:
         return _rank_hits(hits)[:top_k]
+    if query_embedding is None:
+        return _rank_hits(hits)[:top_k]
 
-    conclusion_embeddings = [embedding for _, embedding in conclusion_pairs]
+    conclusion_embeddings = [
+        embedding for _, embedding in conclusion_pairs if embedding is not None
+    ]
     seen = {(hit.source_kind, hit.source_id) for hit in hits}
     allowed_origins = _allowed_claim_origin_enums()
 
@@ -255,3 +349,24 @@ def retrieve_for_event(
         seen.add(key)
 
     return _rank_hits(hits)[:top_k]
+
+
+def retrieve_conclusions_for_event(
+    store: Any,
+    event: Any,
+    top_k: int = 12,
+) -> list[EventRetrievalHit]:
+    """Return conclusion-only event hits, using dense scoring or BM25 fallback."""
+    if top_k <= 0:
+        return []
+    try:
+        query_embedding = _event_embedding(event)
+    except Exception:
+        query_embedding = None
+    conclusion_pairs = _conclusion_hits(
+        store,
+        event,
+        query_embedding,
+        limit=top_k,
+    )
+    return _rank_hits([hit for hit, _ in conclusion_pairs])[:top_k]

@@ -4,15 +4,16 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import OperatorPage from "@/app/(authed)/forecasts/operator/page";
+import PortfolioPage from "@/app/(authed)/forecasts/portfolio/page";
 import ForecastDetailPage from "@/app/forecasts/[id]/page";
 import ForecastsPage from "@/app/forecasts/page";
-import PortfolioPage from "@/app/forecasts/portfolio/page";
 import PublicBlogIndex from "@/app/page";
 import { middleware } from "@/middleware";
 import { getFounder } from "@/lib/auth";
 import { listCurrents } from "@/lib/currentsApi";
 import type { PublicOpinion } from "@/lib/currentsTypes";
 import { db } from "@/lib/db";
+import { getForecastPortfolioSurface } from "@/lib/forecastPortfolioData";
 import {
   getForecast,
   getForecastBets,
@@ -34,6 +35,7 @@ import type {
   PublicMarket,
 } from "@/lib/forecastsTypes";
 import { listPublishedArticles } from "@/lib/conclusionsRead";
+import { requireTenantContext } from "@/lib/tenant";
 
 vi.mock("@/lib/auth", () => ({
   getFounder: vi.fn(),
@@ -53,6 +55,10 @@ vi.mock("@/lib/db", () => ({
       findMany: vi.fn(),
     },
   },
+}));
+
+vi.mock("@/lib/forecastPortfolioData", () => ({
+  getForecastPortfolioSurface: vi.fn(),
 }));
 
 vi.mock("@/lib/forecastsApi", () => ({
@@ -77,6 +83,10 @@ vi.mock("@/lib/useLiveForecasts", () => ({
     forecasts: seed,
     resolutions: {},
   }),
+}));
+
+vi.mock("@/lib/tenant", () => ({
+  requireTenantContext: vi.fn(),
 }));
 
 vi.mock("next/navigation", () => ({
@@ -326,6 +336,14 @@ describe("forecasts smoke fallback", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     vi.mocked(getFounder).mockResolvedValue(null);
+    vi.mocked(requireTenantContext).mockResolvedValue({
+      founderId: "founder-smoke",
+      founderName: "Smoke Founder",
+      founderUsername: "smoke",
+      organizationId: "org-smoke",
+      organizationSlug: "smoke",
+      role: "founder",
+    });
     vi.mocked(db.upload.findMany).mockResolvedValue([]);
     vi.mocked(listPublishedArticles).mockResolvedValue([]);
     vi.mocked(listCurrents).mockResolvedValue({
@@ -353,6 +371,80 @@ describe("forecasts smoke fallback", () => {
     vi.mocked(listOperatorLiveBets).mockResolvedValue({
       items: [liveBet()],
       next_offset: null,
+    });
+    vi.mocked(getForecastPortfolioSurface).mockResolvedValue({
+      kpis: {
+        hitRate: 1,
+        openPositions: 1,
+        realizedPaperPnl: 0,
+        runningBrier: 0.18,
+        unrealizedPaperPnl: 0,
+      },
+      mode: {
+        failedGates: [],
+        liveTradingEnabled: false,
+        mode: "PAPER",
+      },
+      openPositions: [
+        {
+          avgPrice: 0.57,
+          betId: "paper-bet-smoke",
+          currentImpliedProb: 0.57,
+          drivingPrinciples: [
+            {
+              conclusionId: "smoke-one",
+              snippet: "supports the prediction",
+              weight: 0.94,
+            },
+          ],
+          gateResults: [
+            {
+              gateName: "paper_edge_threshold",
+              passed: true,
+              reason: "paper fill recorded",
+            },
+          ],
+          lastUpdated: new Date(NOW),
+          marketTitle: "Will the smoke market resolve YES?",
+          marketUrl: "https://polymarket.com/event/poly-smoke",
+          mode: "PAPER",
+          predictionId: "forecast-smoke",
+          side: "YES",
+          sizeUsd: 25,
+        },
+      ],
+      pipeline: [
+        {
+          category: "policy",
+          drivingPrinciples: [
+            {
+              conclusionId: "smoke-one",
+              snippet: "supports the prediction",
+              weight: 0.94,
+            },
+          ],
+          gateResults: [
+            {
+              gateName: "paper_edge_threshold",
+              passed: true,
+              reason: "paper fill recorded",
+            },
+          ],
+          gateState: "paper-ready",
+          lastUpdated: new Date(NOW),
+          marketId: "market-smoke",
+          marketTitle: "Will the smoke market resolve YES?",
+          marketUrl: "https://polymarket.com/event/poly-smoke",
+          source: "POLYMARKET",
+        },
+      ],
+      recentlyResolved: [],
+      watching: {
+        kalshiCategories: ["policy"],
+        polymarketCategories: ["policy"],
+        scannedThisWeek: 1,
+        watchedMarkets: [],
+      },
     });
   });
 
@@ -389,12 +481,11 @@ describe("forecasts smoke fallback", () => {
       await PortfolioPage({ searchParams: Promise.resolve({}) }),
     );
 
-    expect(html).toContain("Forecasts Portfolio");
-    expect(html).toContain("Calibration");
-    expect(html).toContain("Brier");
-    expect(html).toContain('data-kill-switch="clear"');
-    expect(html).toContain('data-kill-switch-palette="green"');
-    expect(html).toContain("clear");
+    expect(html).toContain("PAPER");
+    expect(html).toContain("Open positions");
+    expect(html).toContain("Brier score");
+    expect(html).toContain("[C:smoke-on]");
+    expect(html).toContain("paper-ready");
   });
 
   it("requires auth for operator and renders disabled confirms for a founder when live trading is off", async () => {

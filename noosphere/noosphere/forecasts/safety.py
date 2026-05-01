@@ -55,6 +55,14 @@ class GateContext:
     live_balance_usd: float
 
 
+@dataclass(frozen=True)
+class GateResult:
+    gate_name: str
+    passed: bool
+    reason: str
+    code: GateFailureCode | None = None
+
+
 class GateFailure(Exception):
     code: GateFailureCode
     detail: str
@@ -112,69 +120,146 @@ def check_all_gates(*, prediction: Any, bet: Any, ctx: GateContext) -> None:
     changing the contract and tests at the same time.
     """
 
-    try:
-        if not ctx.live_trading_enabled:
-            raise GateFailure("DISABLED", "live trading env flag is not true")
-
-        exchange = _enum_value(getattr(bet, "exchange", ""))
-        if exchange == "POLYMARKET":
-            configured = ctx.polymarket_configured
-        elif exchange == "KALSHI":
-            configured = ctx.kalshi_configured
-        else:
-            configured = False
-        if not configured:
-            raise GateFailure(
-                "NOT_CONFIGURED",
-                "live credentials are not configured for "
-                f"exchange={exchange or '<unset>'}",
-            )
-
-        if getattr(prediction, "live_authorized_at", None) is None:
-            raise GateFailure(
-                "NOT_AUTHORIZED",
-                "parent prediction has no live_authorized_at timestamp",
-            )
-
-        if _enum_value(getattr(bet, "status", "")) != "CONFIRMED" or getattr(
-            bet,
-            "confirmed_at",
-            None,
-        ) is None:
-            raise GateFailure(
-                "NOT_CONFIRMED",
-                "bet has not completed the per-bet operator confirmation",
-            )
-
-        stake = _decimal(getattr(bet, "stake_usd", Decimal("0.00")))
-        max_stake = _decimal(ctx.max_stake_usd)
-        if stake > max_stake:
-            raise GateFailure(
-                "STAKE_OVER_CEILING",
-                f"stake_usd={stake} exceeds max_stake_usd={max_stake}",
-            )
-
-        daily_loss = _decimal(ctx.daily_loss_usd)
-        max_daily_loss = _decimal(ctx.max_daily_loss_usd)
-        if daily_loss > max_daily_loss:
-            raise GateFailure(
-                "DAILY_LOSS_OVER_CEILING",
-                f"daily_loss_usd={daily_loss} exceeds "
-                f"max_daily_loss_usd={max_daily_loss}",
-            )
-
-        if ctx.kill_switch_engaged:
-            raise GateFailure("KILL_SWITCH_ENGAGED", "portfolio kill switch is engaged")
-
-        live_balance = _decimal(ctx.live_balance_usd)
-        if live_balance < stake:
-            raise GateFailure(
-                "INSUFFICIENT_BALANCE",
-                f"live_balance_usd={live_balance} is below stake_usd={stake}",
-            )
-    except GateFailure as exc:
+    for result in evaluate_gate_results(prediction=prediction, bet=bet, ctx=ctx):
+        if result.passed:
+            continue
+        exc = GateFailure(result.code or "NOT_CONFIGURED", result.reason)
         _log_gate_failure(exc, prediction=prediction, bet=bet)
-        raise
+        raise exc
+
+
+def evaluate_gate_results(*, prediction: Any, bet: Any, ctx: GateContext) -> list[GateResult]:
+    """Return all eight live-trading gate results in the check_all_gates order."""
+
+    results: list[GateResult] = []
+
+    results.append(
+        GateResult(
+            gate_name="live_trading_enabled",
+            passed=ctx.live_trading_enabled,
+            reason=(
+                "FORECASTS_LIVE_TRADING_ENABLED=true"
+                if ctx.live_trading_enabled
+                else "live trading env flag is not true"
+            ),
+            code=None if ctx.live_trading_enabled else "DISABLED",
+        )
+    )
+
+    exchange = _enum_value(getattr(bet, "exchange", ""))
+    if exchange == "POLYMARKET":
+        configured = ctx.polymarket_configured
+    elif exchange == "KALSHI":
+        configured = ctx.kalshi_configured
+    else:
+        configured = False
+    results.append(
+        GateResult(
+            gate_name="exchange_credentials_configured",
+            passed=configured,
+            reason=(
+                f"live credentials are configured for exchange={exchange}"
+                if configured
+                else "live credentials are not configured for "
+                f"exchange={exchange or '<unset>'}"
+            ),
+            code=None if configured else "NOT_CONFIGURED",
+        )
+    )
+
+    authorized = getattr(prediction, "live_authorized_at", None) is not None
+    results.append(
+        GateResult(
+            gate_name="prediction_live_authorized",
+            passed=authorized,
+            reason=(
+                "parent prediction has live_authorized_at"
+                if authorized
+                else "parent prediction has no live_authorized_at timestamp"
+            ),
+            code=None if authorized else "NOT_AUTHORIZED",
+        )
+    )
+
+    confirmed = _enum_value(getattr(bet, "status", "")) == "CONFIRMED" and getattr(
+        bet,
+        "confirmed_at",
+        None,
+    ) is not None
+    results.append(
+        GateResult(
+            gate_name="operator_confirmation",
+            passed=confirmed,
+            reason=(
+                "bet completed per-bet operator confirmation"
+                if confirmed
+                else "bet has not completed the per-bet operator confirmation"
+            ),
+            code=None if confirmed else "NOT_CONFIRMED",
+        )
+    )
+
+    stake = _decimal(getattr(bet, "stake_usd", Decimal("0.00")))
+    max_stake = _decimal(ctx.max_stake_usd)
+    stake_ok = stake <= max_stake
+    results.append(
+        GateResult(
+            gate_name="stake_ceiling",
+            passed=stake_ok,
+            reason=(
+                f"stake_usd={stake} is within max_stake_usd={max_stake}"
+                if stake_ok
+                else f"stake_usd={stake} exceeds max_stake_usd={max_stake}"
+            ),
+            code=None if stake_ok else "STAKE_OVER_CEILING",
+        )
+    )
+
+    daily_loss = _decimal(ctx.daily_loss_usd)
+    max_daily_loss = _decimal(ctx.max_daily_loss_usd)
+    daily_loss_ok = daily_loss <= max_daily_loss
+    results.append(
+        GateResult(
+            gate_name="daily_loss_ceiling",
+            passed=daily_loss_ok,
+            reason=(
+                f"daily_loss_usd={daily_loss} is within max_daily_loss_usd={max_daily_loss}"
+                if daily_loss_ok
+                else f"daily_loss_usd={daily_loss} exceeds max_daily_loss_usd={max_daily_loss}"
+            ),
+            code=None if daily_loss_ok else "DAILY_LOSS_OVER_CEILING",
+        )
+    )
+
+    results.append(
+        GateResult(
+            gate_name="kill_switch_clear",
+            passed=not ctx.kill_switch_engaged,
+            reason=(
+                "portfolio kill switch is clear"
+                if not ctx.kill_switch_engaged
+                else "portfolio kill switch is engaged"
+            ),
+            code=None if not ctx.kill_switch_engaged else "KILL_SWITCH_ENGAGED",
+        )
+    )
+
+    live_balance = _decimal(ctx.live_balance_usd)
+    balance_ok = live_balance >= stake
+    results.append(
+        GateResult(
+            gate_name="sufficient_live_balance",
+            passed=balance_ok,
+            reason=(
+                f"live_balance_usd={live_balance} covers stake_usd={stake}"
+                if balance_ok
+                else f"live_balance_usd={live_balance} is below stake_usd={stake}"
+            ),
+            code=None if balance_ok else "INSUFFICIENT_BALANCE",
+        )
+    )
+
+    return results
 
 
 def engage_kill_switch(

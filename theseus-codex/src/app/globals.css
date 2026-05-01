@@ -28,6 +28,7 @@
 /* ── Theseus Design Tokens — Amber Oracle ────────────────────────────────── */
 
 :root {
+  color-scheme: dark;
   --stone:        #08070a;   /* codex-origin: void background */
   --stone-light:  #120f0b;   /* codex-origin: card surfaces */
   --stone-mid:    #1b1612;   /* codex-origin: raised/input surfaces */
@@ -49,6 +50,7 @@
 }
 
 [data-theme="light"] {
+  color-scheme: light;
   --stone:        #f2e8d9;   /* codex-origin light: parchment background */
   --stone-light:  #ede0cc;   /* codex-origin light: card surfaces */
   --stone-mid:    #e4d4ba;   /* codex-origin light: raised/input surfaces */
@@ -79,12 +81,12 @@ html { transition: background 0.25s, color 0.25s; }
 * { box-sizing: border-box; }
 
 html, html[data-theme] {
-  background: var(--stone);
+  background-color: var(--stone);
   color: var(--parchment);
 }
 
 body {
-  background: var(--stone);
+  background-color: var(--stone);
   color: var(--parchment);
   font-family: 'EB Garamond', Georgia, serif;
   font-size: 17px;
@@ -346,6 +348,30 @@ input::placeholder, textarea::placeholder {
   display: block;
   width: 100%;
   margin-top: 0.35rem;
+}
+
+.public-field-error {
+  color: var(--ember);
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 0.72rem;
+  line-height: 1.45;
+  margin: -0.35rem 0 0;
+}
+
+.public-form-status {
+  color: var(--amber);
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 0.76rem;
+  min-height: 1.4rem;
+}
+
+.btn:disabled,
+.btn:disabled:hover {
+  background: transparent;
+  border-color: var(--amber-deep);
+  box-shadow: none;
+  color: var(--parchment-dim);
+  cursor: wait;
 }
 
 .public-checkbox {
@@ -623,22 +649,22 @@ input::placeholder, textarea::placeholder {
 /*
  * TRANSITION ANIMATION (login → dashboard) — minimalist rewrite
  * ─────────────────────────────────────────────────────────────
- * Two effects, no flash. Total ~700 ms:
+ * Two effects, no flash. Total ~300 ms:
  *
  *   1. `.gate-leave` on the form + wordmark + labyrinth:
- *        a 600 ms opacity + small translateY fade. The whole idle
+ *        a 260 ms opacity + small translateY fade. The whole idle
  *        composition drifts down a hair and dims to zero. Ease-out so
  *        the motion settles rather than ending abruptly.
  *
  *   2. `.gate-hairline` (a thin amber line centred in the viewport via
  *      a flex wrapper in Gate.tsx):
  *        materialises at zero width, expands horizontally from the
- *        centre to full viewport width over ~320 ms, holds a beat,
+ *        centre to full viewport width over ~180 ms, holds a beat,
  *        fades out. The sweep itself is the transition's only active
  *        visual element — no colour flashes, no screen fill.
  *
  * Both start together when `phase` flips to `entering`, run in parallel
- * for ~700 ms, and leave the viewport empty at the moment the router
+ * for ~300 ms, and leave the viewport empty at the moment the router
  * navigates. The dashboard side (`.codex-arrival` +
  * `.codex-arrival-hairline`) mirrors the effect in reverse: the
  * hairline contracts back to centre while content fades up.
@@ -663,7 +689,7 @@ input::placeholder, textarea::placeholder {
    whole composition settles away together rather than each piece
    falling independently. */
 .gate-leave {
-  animation: gate-leave 0.6s cubic-bezier(0.33, 0, 0.67, 1) forwards;
+  animation: gate-leave 0.26s cubic-bezier(0.33, 0, 0.67, 1) forwards;
 }
 
 @keyframes gate-leave {
@@ -683,7 +709,7 @@ input::placeholder, textarea::placeholder {
   box-shadow:
     0 0 6px var(--amber),
     0 0 18px var(--amber-glow);
-  animation: gate-hairline 0.68s cubic-bezier(0.22, 0.61, 0.36, 1) forwards;
+  animation: gate-hairline 0.3s cubic-bezier(0.22, 0.61, 0.36, 1) forwards;
 }
 
 @keyframes gate-hairline {
@@ -696,14 +722,14 @@ input::placeholder, textarea::placeholder {
 /* ── Arrival animation (dashboard side of the entrance) ─────────────────
  * The EntranceWelcome client component picks up the `codex:just-entered`
  * sessionStorage flag set by the Gate and, if present, mounts
- * `.codex-arrival` on the page wrapper for ~550 ms plus a mirrored
+ * `.codex-arrival` on the page wrapper for ~280 ms plus a mirrored
  * `.codex-arrival-hairline` that contracts back to the centre.
  *
  * Content fades up from a small downward offset — a quiet reveal,
  * no blur, no scale, no brightness pump. The whole page is visible
- * and fully interactive within 500 ms of navigation. */
+ * and fully interactive within 300 ms of navigation. */
 .codex-arrival {
-  animation: codex-arrival-fade 0.5s cubic-bezier(0.22, 0.61, 0.36, 1) forwards;
+  animation: codex-arrival-fade 0.28s cubic-bezier(0.22, 0.61, 0.36, 1) forwards;
 }
 
 @keyframes codex-arrival-fade {
@@ -722,7 +748,7 @@ input::placeholder, textarea::placeholder {
   box-shadow:
     0 0 6px var(--amber),
     0 0 18px var(--amber-glow);
-  animation: codex-arrival-hairline 0.65s cubic-bezier(0.33, 0, 0.67, 1) forwards;
+  animation: codex-arrival-hairline 0.32s cubic-bezier(0.33, 0, 0.67, 1) forwards;
 }
 
 @keyframes codex-arrival-hairline {
@@ -813,4 +839,250 @@ input::placeholder, textarea::placeholder {
   height: 100%;
   background: var(--forecasts-prob-yes);
   transition: width 600ms ease-out;
+}
+
+/* Transcript explorer */
+.transcript-shell {
+  display: grid;
+  gap: 1rem;
+  margin: 0 auto;
+  max-width: 1220px;
+  padding: 1.5rem 1rem 4rem;
+}
+
+.transcript-header {
+  align-items: flex-start;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem;
+  justify-content: space-between;
+}
+
+.transcript-header h1 {
+  color: var(--amber);
+  font-family: "Cinzel Decorative", "Cinzel", serif;
+  line-height: 1.08;
+  margin: 0.25rem 0 0;
+}
+
+.transcript-backlink {
+  color: var(--amber-dim);
+  font-size: 0.65rem;
+  text-decoration: none;
+}
+
+.transcript-meta {
+  color: var(--parchment-dim);
+  font-size: 0.65rem;
+  margin: 0.45rem 0 0;
+}
+
+.transcript-toolbar {
+  align-items: flex-end;
+  display: grid;
+  gap: 0.6rem;
+  justify-items: end;
+}
+
+.transcript-public-toggle {
+  align-items: center;
+  color: var(--parchment-dim);
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+  justify-content: flex-end;
+}
+
+.transcript-public-toggle > .mono {
+  border: 1px solid rgba(232, 225, 211, 0.14);
+  color: var(--parchment-dim);
+  font-size: 0.58rem;
+  letter-spacing: 0.18em;
+  padding: 0.24rem 0.45rem;
+  text-transform: uppercase;
+}
+
+.transcript-blurb-card {
+  display: grid;
+  gap: 0.75rem;
+  padding: 1rem;
+}
+
+.transcript-blurb-card h2,
+.transcript-related-panel h2 {
+  color: var(--amber-dim);
+  font-size: 0.64rem;
+  letter-spacing: 0.2em;
+  margin: 0;
+  text-transform: uppercase;
+}
+
+.transcript-blurb-card p {
+  color: var(--parchment);
+  font-family: "EB Garamond", Georgia, serif;
+  font-size: 1.14rem;
+  font-style: italic;
+  line-height: 1.55;
+  margin: 0;
+  max-width: 76ch;
+}
+
+.transcript-chip-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+}
+
+.transcript-chip {
+  border: 1px solid rgba(205, 151, 67, 0.35);
+  color: var(--amber);
+  font-size: 0.78rem;
+  line-height: 1.2;
+  padding: 0.38rem 0.55rem;
+  text-decoration: none;
+}
+
+.transcript-grid {
+  align-items: start;
+  display: grid;
+  gap: 1rem;
+  grid-template-columns: minmax(0, 1fr) 290px;
+}
+
+.transcript-main {
+  display: grid;
+  gap: 0.55rem;
+  min-width: 0;
+}
+
+.transcript-chunk {
+  border: 1px solid transparent;
+  border-radius: 6px;
+  padding: 0.35rem 0.45rem;
+  scroll-margin-top: 6rem;
+  transition: background 180ms ease, border-color 180ms ease, box-shadow 180ms ease;
+}
+
+.transcript-chunk.chunk-highlight {
+  background: rgba(205, 151, 67, 0.14);
+  border-color: rgba(205, 151, 67, 0.55);
+  box-shadow: 0 0 0 1px rgba(205, 151, 67, 0.16);
+}
+
+.transcript-chunk-grid {
+  display: grid;
+  gap: 0.75rem;
+  grid-template-columns: 4.9rem minmax(0, 1fr);
+}
+
+.transcript-time-slot {
+  padding-top: 0.25rem;
+}
+
+.transcript-time {
+  color: var(--amber-dim);
+  font-size: 0.63rem;
+  text-decoration: none;
+}
+
+.transcript-body {
+  color: var(--parchment);
+  font-family: "EB Garamond", Georgia, serif;
+  font-size: 1.06rem;
+  line-height: 1.62;
+  margin: 0;
+}
+
+.transcript-speaker {
+  color: var(--amber);
+  font-family: var(--font-sans, inherit);
+  font-size: 0.9rem;
+  letter-spacing: 0.02em;
+}
+
+.transcript-related-rail {
+  padding: 0.85rem;
+  position: sticky;
+  top: 5.25rem;
+}
+
+.transcript-related-drawer {
+  display: none;
+  padding: 0.85rem;
+}
+
+.transcript-related-drawer > summary {
+  color: var(--amber);
+  cursor: pointer;
+  font-size: 0.65rem;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+}
+
+.transcript-related-panel {
+  display: grid;
+  gap: 0.7rem;
+}
+
+.transcript-related-list {
+  display: grid;
+  gap: 0.55rem;
+}
+
+.transcript-related-card {
+  border: 1px solid rgba(232, 225, 211, 0.12);
+  color: inherit;
+  display: grid;
+  gap: 0.35rem;
+  padding: 0.7rem;
+  text-decoration: none;
+}
+
+.transcript-related-card span {
+  color: var(--amber-dim);
+  font-size: 0.56rem;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.transcript-related-card strong {
+  color: var(--parchment);
+  font-size: 0.88rem;
+  line-height: 1.35;
+}
+
+.transcript-related-card em,
+.transcript-related-empty {
+  color: var(--parchment-dim);
+  font-size: 0.78rem;
+  line-height: 1.45;
+}
+
+.transcript-empty {
+  color: var(--parchment-dim);
+  padding: 1rem;
+}
+
+@media (max-width: 860px) {
+  .transcript-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .transcript-related-rail {
+    display: none;
+  }
+
+  .transcript-related-drawer {
+    display: block;
+  }
+
+  .transcript-chunk-grid {
+    grid-template-columns: 1fr;
+    gap: 0.2rem;
+  }
+
+  .transcript-time-slot {
+    min-height: 0;
+    padding-top: 0;
+  }
 }

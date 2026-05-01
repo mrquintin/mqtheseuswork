@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import uuid
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -11,6 +12,8 @@ from noosphere.currents._x_client import MissingCredentials, XClient, XPost
 from noosphere.currents.config import IngestorConfig
 from noosphere.currents.dedupe import dedupe_hash
 from noosphere.models import CurrentEvent, CurrentEventSource, CurrentEventStatus
+
+LOGGER = logging.getLogger(__name__)
 
 
 @dataclass
@@ -39,6 +42,20 @@ def make_client(cfg: IngestorConfig) -> XClient:
 
 
 async def ingest_once(store: Any, cfg: IngestorConfig) -> IngestReport:
+    disabled_reasons = cfg.disabled_reasons
+    if disabled_reasons:
+        LOGGER.warning(
+            "currents.x_ingestion.disabled reason=%s",
+            ",".join(disabled_reasons),
+        )
+        return IngestReport(
+            cycle_id=uuid.uuid4().hex,
+            fetched=0,
+            new_event_ids=[],
+            duplicates=0,
+            errors=[],
+        )
+
     client = make_client(cfg)
     new_ids: list[str] = []
     errors: list[str] = []

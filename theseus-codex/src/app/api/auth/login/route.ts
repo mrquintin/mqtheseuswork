@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import bcrypt from "bcryptjs";
 import { db } from "@/lib/db";
 import { createSession } from "@/lib/auth";
+import { founderDisplayName } from "@/lib/founderDisplay";
 import { checkLoginRateLimit, resetLoginRateLimit } from "@/lib/rateLimit";
 
 function clientIp(req: Request): string {
@@ -10,13 +11,31 @@ function clientIp(req: Request): string {
   return req.headers.get("x-real-ip") || "unknown";
 }
 
+function safeNext(value: unknown): string {
+  if (typeof value !== "string") return "/dashboard";
+  const trimmed = value.trim();
+  if (!trimmed || !trimmed.startsWith("/") || trimmed.startsWith("//")) {
+    return "/dashboard";
+  }
+  try {
+    const parsed = new URL(trimmed, "https://theseus.local");
+    if (parsed.origin !== "https://theseus.local") return "/dashboard";
+    if (parsed.pathname === "/login") return "/dashboard";
+    return `${parsed.pathname}${parsed.search}${parsed.hash}`;
+  } catch {
+    return "/dashboard";
+  }
+}
+
 export async function POST(req: Request) {
   try {
-    const { email, password, organizationSlug } = (await req.json()) as {
+    const { email, password, organizationSlug, next } = (await req.json()) as {
       email?: string;
       password?: string;
       organizationSlug?: string;
+      next?: string;
     };
+    const nextPath = safeNext(next);
     const ip = clientIp(req);
     const rateKey = `${ip}::${(email || "").toLowerCase()}`;
 
@@ -67,9 +86,15 @@ export async function POST(req: Request) {
     });
 
     return NextResponse.json({
-      id: founder.id,
-      name: founder.name,
-      username: founder.username,
+      ok: true,
+      next: nextPath,
+      founder: {
+        id: founder.id,
+        name: founder.name,
+        displayName: founder.displayName,
+        publicName: founderDisplayName(founder),
+        username: founder.username,
+      },
     });
   } catch (error) {
     console.error("Login error:", error);

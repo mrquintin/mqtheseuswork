@@ -3,11 +3,11 @@
 from __future__ import annotations
 
 import os
-from datetime import datetime
+from datetime import UTC, datetime, timedelta
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from sqlalchemy import desc
+from sqlalchemy import desc, func
 from sqlmodel import select
 
 from current_events_api.deps import enforce_read_rate_limit, get_metrics, get_store
@@ -18,8 +18,9 @@ from current_events_api.schemas import (
     public_opinion_from_store,
     public_source_from_citation,
 )
-
-from noosphere.models import EventOpinion, OpinionStance
+from noosphere.currents.config import IngestorConfig
+from noosphere.currents.status import read_status
+from noosphere.models import CurrentEvent, EventOpinion, OpinionStance
 from noosphere.store import Store
 
 router = APIRouter(prefix="/v1/currents", tags=["currents"])
@@ -27,6 +28,47 @@ router = APIRouter(prefix="/v1/currents", tags=["currents"])
 
 def _org_filter() -> str | None:
     return os.environ.get("CURRENTS_ORG_ID") or None
+
+
+def _last_cycle_at() -> str | None:
+    try:
+        payload = read_status()
+    except (FileNotFoundError, OSError, ValueError):
+        return None
+    last_cycle = payload.get("last_cycle")
+    if not isinstance(last_cycle, dict):
+        return None
+    started_at = last_cycle.get("started_at")
+    return str(started_at) if started_at else None
+
+
+def _count_recent(store: Store, model: object, timestamp_field: object) -> int:
+    cutoff = datetime.now(UTC) - timedelta(hours=24)
+    stmt = select(func.count()).select_from(model).where(timestamp_field >= cutoff)
+    org_id = _org_filter()
+    organization_field = getattr(model, "organization_id", None)
+    if org_id and organization_field is not None:
+        stmt = stmt.where(organization_field == org_id)
+    with store.session() as db:
+        return int(db.exec(stmt).one())
+
+
+@router.get("/health")
+def currents_health(store: Annotated[Store, Depends(get_store)]) -> dict[str, object]:
+    cfg = IngestorConfig.from_env()
+    return {
+        "x_bearer_present": bool(cfg.bearer_token),
+        "curated_count": len(cfg.curated_accounts),
+        "search_count": len(cfg.search_queries),
+        "last_cycle_at": _last_cycle_at(),
+        "events_last_24h": _count_recent(store, CurrentEvent, CurrentEvent.created_at),
+        "opinions_last_24h": _count_recent(
+            store,
+            EventOpinion,
+            EventOpinion.generated_at,
+        ),
+        "disabled_reasons": cfg.disabled_reasons,
+    }
 
 
 @router.get("", dependencies=[Depends(enforce_read_rate_limit)])
@@ -53,7 +95,10 @@ def list_currents(
         try:
             parsed = OpinionStance(stance.upper())
         except ValueError as exc:
-            raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "invalid_stance") from exc
+            raise HTTPException(
+                status.HTTP_422_UNPROCESSABLE_ENTITY,
+                "invalid_stance",
+            ) from exc
         stmt = stmt.where(EventOpinion.stance == parsed)
     with store.session() as db:
         rows = list(

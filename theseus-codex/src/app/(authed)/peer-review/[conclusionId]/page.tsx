@@ -10,6 +10,7 @@ import {
 import DownloadButton from "@/components/DownloadButton";
 import { peerVerdictColor, severityColor } from "@/lib/colors";
 import { callNoosphereJson } from "@/lib/pythonRuntime";
+import { founderDisplayName } from "@/lib/founderDisplay";
 import { requireTenantContext } from "@/lib/tenant";
 
 export default async function PeerReviewPage({
@@ -52,7 +53,7 @@ export default async function PeerReviewPage({
     const founder = await getFounder();
     if (!founder) redirect("/login");
 
-    const gate = await submitToRigorGate("peer_review.run", founder.name);
+    const gate = await submitToRigorGate("peer_review.run", founderDisplayName(founder));
     if (!gate.approved) {
       redirect(
         `/peer-review/${conclusionId}?ledger=${encodeURIComponent(

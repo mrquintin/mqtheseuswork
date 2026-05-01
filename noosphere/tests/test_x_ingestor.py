@@ -147,3 +147,51 @@ def test_make_client_raises_missing_credentials_for_empty_token() -> None:
 
     with pytest.raises(MissingCredentials, match="X_BEARER_TOKEN not set"):
         x_ingestor.make_client(cfg)
+
+
+def test_ingest_once_disabled_without_token_returns_empty_report(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    store = _store()
+    cfg = IngestorConfig(
+        bearer_token="",
+        curated_accounts=["111"],
+        search_queries=["theseus -is:retweet"],
+        organization_id=ORG_ID,
+    )
+
+    def fail_make_client(config: IngestorConfig) -> None:
+        raise AssertionError("disabled ingestion must not construct an X client")
+
+    monkeypatch.setattr(x_ingestor, "make_client", fail_make_client)
+
+    report = asyncio.run(x_ingestor.ingest_once(store, cfg))
+
+    assert report.fetched == 0
+    assert report.new_event_ids == []
+    assert report.duplicates == 0
+    assert report.errors == []
+
+
+def test_ingest_once_disabled_without_sources_returns_empty_report(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    store = _store()
+    cfg = IngestorConfig(
+        bearer_token="test-token",
+        curated_accounts=[],
+        search_queries=[],
+        organization_id=ORG_ID,
+    )
+
+    def fail_make_client(config: IngestorConfig) -> None:
+        raise AssertionError("disabled ingestion must not construct an X client")
+
+    monkeypatch.setattr(x_ingestor, "make_client", fail_make_client)
+
+    report = asyncio.run(x_ingestor.ingest_once(store, cfg))
+
+    assert report.fetched == 0
+    assert report.new_event_ids == []
+    assert report.duplicates == 0
+    assert report.errors == []

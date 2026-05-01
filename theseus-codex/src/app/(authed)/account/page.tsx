@@ -1,15 +1,13 @@
 import Link from "next/link";
+import AccountProfileForm from "./AccountProfileForm";
 import ChangePasswordForm from "./ChangePasswordForm";
 import { requireTenantContext } from "@/lib/tenant";
 import { db } from "@/lib/db";
 
 /**
- * /account — per-founder settings. v1 exposes passphrase rotation +
- * a read-only summary of the current identity (who you're signed in
- * as, which org, when the account was created). Future additions —
- * display name, bio, avatar upload, email change — slot in as
- * additional framed panels below the passphrase panel without
- * touching the shell.
+ * /account — per-founder settings. Public profile fields live here
+ * alongside passphrase rotation. Email is deliberately read-only:
+ * changing it is a sensitive ownership flow, not a profile edit.
  */
 export default async function AccountPage() {
   const tenant = await requireTenantContext();
@@ -19,10 +17,12 @@ export default async function AccountPage() {
     where: { id: tenant.founderId },
     select: {
       id: true,
-      name: true,
       username: true,
       email: true,
-      role: true,
+      displayName: true,
+      roleTitle: true,
+      publicUrl: true,
+      bio: true,
       createdAt: true,
       updatedAt: true,
       organization: { select: { slug: true, name: true } },
@@ -76,10 +76,18 @@ export default async function AccountPage() {
           }}
         >
           Your sign-in identity for the Codex and the desk apps. Changing
-          your passphrase signs out every other device — you stay signed
-          in here.
+          your profile changes what peers see; changing your passphrase
+          signs out every other device — you stay signed in here.
         </p>
       </header>
+
+      <AccountProfileForm
+        initialDisplayName={founder.displayName ?? ""}
+        initialRoleTitle={founder.roleTitle ?? ""}
+        initialPublicUrl={founder.publicUrl ?? ""}
+        initialBio={founder.bio ?? ""}
+        email={founder.email}
+      />
 
       {/* ── Identity summary ────────────────────────────────────── */}
       <section
@@ -95,19 +103,6 @@ export default async function AccountPage() {
           fontSize: "0.92rem",
         }}
       >
-        <span
-          className="mono"
-          style={{
-            color: "var(--amber-dim)",
-            fontSize: "0.6rem",
-            letterSpacing: "0.22em",
-            textTransform: "uppercase",
-          }}
-        >
-          Name
-        </span>
-        <span style={{ color: "var(--parchment)" }}>{founder.name}</span>
-
         <span
           className="mono"
           style={{
@@ -149,19 +144,6 @@ export default async function AccountPage() {
         >
           {founder.username}
         </span>
-
-        <span
-          className="mono"
-          style={{
-            color: "var(--amber-dim)",
-            fontSize: "0.6rem",
-            letterSpacing: "0.22em",
-            textTransform: "uppercase",
-          }}
-        >
-          Role
-        </span>
-        <span style={{ color: "var(--parchment)" }}>{founder.role}</span>
 
         <span
           className="mono"

@@ -11,7 +11,7 @@ import SculptureBackdrop from "@/components/SculptureBackdrop";
  *     previous uploads (cited as [C:<id-prefix>]).
  *   - Upload excerpts: paragraph-sized chunks retrieved from raw
  *     transcripts, essays, and session text by keyword-overlap
- *     scoring (cited as [U:<title>]).
+ *     scoring (cited as [U:<upload-id-prefix>]).
  *
  * The oracle ALWAYS answers. If nothing in the corpus applies, it
  * answers from general knowledge with a clear "not found in the

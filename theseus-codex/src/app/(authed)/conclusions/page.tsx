@@ -4,6 +4,7 @@ import TemporalReplayBar from "@/components/TemporalReplayBar";
 import ConfidenceTierSigil from "@/components/ConfidenceTierSigil";
 import SculptureBackdrop from "@/components/SculptureBackdrop";
 import { db } from "@/lib/db";
+import { founderDisplayName } from "@/lib/founderDisplay";
 import { fetchReplayConclusions } from "@/lib/noosphereReplayBridge";
 import { AS_OF_ISO } from "@/lib/replayDate";
 import { requireTenantContext } from "@/lib/tenant";
@@ -20,16 +21,27 @@ import { requireTenantContext } from "@/lib/tenant";
 const TIERS = ["firm", "founder", "open", "retired"] as const;
 const PAGE_SIZE = 40;
 
-export default async function ConclusionsPage({
+type ConclusionsSearchParams = {
+  tier?: string;
+  topic?: string;
+  asOf?: string;
+  q?: string;
+  page?: string;
+  tab?: string;
+};
+
+function urlFor(basePath: string, tab: string, params: URLSearchParams) {
+  if (basePath === "/knowledge") params.set("tab", tab);
+  const qs = params.toString();
+  return `${basePath}${qs ? `?${qs}` : ""}`;
+}
+
+async function ConclusionsContent({
   searchParams,
+  basePath = "/conclusions",
 }: {
-  searchParams: Promise<{
-    tier?: string;
-    topic?: string;
-    asOf?: string;
-    q?: string;
-    page?: string;
-  }>;
+  searchParams: Promise<ConclusionsSearchParams>;
+  basePath?: string;
 }) {
   const sp = await searchParams;
   const asOf = sp.asOf;
@@ -169,7 +181,11 @@ export default async function ConclusionsPage({
       orderBy: { createdAt: "desc" },
       take: PAGE_SIZE + 1,
       skip: (page - 1) * PAGE_SIZE,
-      include: { attributedFounder: { select: { name: true } } },
+      include: {
+        attributedFounder: {
+          select: { displayName: true, name: true, username: true },
+        },
+      },
     }),
     db.conclusion.count({ where }),
   ]);
@@ -184,24 +200,28 @@ export default async function ConclusionsPage({
     if (sp.topic) params.set("topic", sp.topic);
     if (q) params.set("q", q);
     if (p > 1) params.set("page", String(p));
-    const qs = params.toString();
-    return `/conclusions${qs ? `?${qs}` : ""}`;
+    return urlFor(basePath, "conclusions", params);
   }
 
   function buildTierUrl(tier: string | null): string {
     const params = new URLSearchParams();
     if (tier) params.set("tier", tier);
     if (q) params.set("q", q);
-    const qs = params.toString();
-    return `/conclusions${qs ? `?${qs}` : ""}`;
+    return urlFor(basePath, "conclusions", params);
   }
 
   function buildClearUrl(): string {
     const params = new URLSearchParams();
     if (sp.tier) params.set("tier", sp.tier);
     if (sp.topic) params.set("topic", sp.topic);
-    const qs = params.toString();
-    return `/conclusions${qs ? `?${qs}` : ""}`;
+    return urlFor(basePath, "conclusions", params);
+  }
+
+  function buildTopicUrl(topic: string): string {
+    const params = new URLSearchParams();
+    params.set("topic", topic);
+    if (q) params.set("q", q);
+    return urlFor(basePath, "conclusions", params);
   }
 
   return (
@@ -269,10 +289,13 @@ export default async function ConclusionsPage({
         </header>
 
         <form
-          action="/conclusions"
+          action={basePath}
           method="get"
           style={{ display: "flex", gap: "0.5rem", marginBottom: "1rem", flexWrap: "wrap" }}
         >
+          {basePath === "/knowledge" ? (
+            <input type="hidden" name="tab" value="conclusions" />
+          ) : null}
           <input
             type="text"
             name="q"
@@ -371,7 +394,7 @@ export default async function ConclusionsPage({
             </Link>
           ))}
           <Link
-            href="/conclusions?topic=method"
+            href={buildTopicUrl("method")}
             className="btn"
             style={{ fontSize: "0.7rem", textDecoration: "none" }}
           >
@@ -448,7 +471,7 @@ export default async function ConclusionsPage({
                       {c.confidenceTier}
                       {c.topicHint ? ` · ${c.topicHint}` : ""}
                       {c.attributedFounder
-                        ? ` · ${c.attributedFounder.name}`
+                        ? ` · ${founderDisplayName(c.attributedFounder)}`
                         : ""}
                     </div>
                     <p
@@ -516,4 +539,12 @@ export default async function ConclusionsPage({
       </main>
     </div>
   );
+}
+
+export default async function ConclusionsPage({
+  searchParams,
+}: {
+  searchParams: Promise<ConclusionsSearchParams>;
+}) {
+  return ConclusionsContent({ searchParams });
 }

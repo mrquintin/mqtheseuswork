@@ -47,7 +47,7 @@ export default async function RigorGateDetailPage({
 
   return (
     <main style={{ maxWidth: "960px", margin: "0 auto", padding: "3rem 2rem" }}>
-      <Link href="/rigor-gate" style={{ color: "var(--gold-dim)", fontSize: "0.75rem", textDecoration: "none" }}>
+      <Link href="/ops?panel=rigor-gate" style={{ color: "var(--gold-dim)", fontSize: "0.75rem", textDecoration: "none" }}>
         ← Back to gate submissions
       </Link>
       <h1

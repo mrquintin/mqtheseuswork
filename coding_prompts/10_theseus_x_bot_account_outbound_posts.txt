@@ -1,0 +1,98 @@
+# Codex Prompt 10 of 22 — Theseus X bot account: post commentary outward (with a hard human gate)
+
+**Round:** 12, Wave C. **Sequence:** 10 of 22. **Report back with:** the dry-run output of the post-formatter on three sample Currents opinions, plus the consent-gate behavior.
+
+## Why this prompt exists
+
+The voice memo: *"We could even create an X account for Theseus. A body account. Yes, and we can host it using those. That's brilliant. Like an open call kind of thing where your Claude can go out and post on. As long as you don't say anything crazy. It will be fantastic."*
+
+We build the outbound publishing pipe but we DO NOT enable autonomous posting. Every outbound post requires human confirmation in the founder console. The infrastructure is identical to live trading: the system can produce a candidate post and hold it, never send it, until an operator clicks Publish.
+
+## Before you start — read current state
+
+1. `noosphere/noosphere/currents/opinion_generator.py` — the source of opinions to syndicate.
+2. `theseus-codex/prisma/schema.prisma` — we'll add a `SocialPost` table.
+3. `noosphere/noosphere/forecasts/safety.py` — the eight-gate pattern is the model for outbound-publish gates (we'll build a small parallel for posts).
+4. `theseus-codex/src/app/(authed)/forecasts/` — the operator console layout is the template for the new posts queue.
+5. The X v2 API "POST /2/tweets" endpoint — note the OAuth 2 user-context requirement; bearer (app-only) tokens cannot post on behalf of a user. The bot account therefore needs OAuth 2.0 PKCE credentials, not the read-only bearer token used for ingestion.
+
+## Your task
+
+### A. Schema
+
+```prisma
+model SocialPost {
+  id              String   @id @default(cuid())
+  organizationId  String
+  createdAt       DateTime @default(now())
+  source          String   // "currents.opinion" | "manual" | future
+  sourceId        String?  // Currents opinion id, etc.
+  platform        String   // "x" | "substack"
+  body            String
+  media           Json?    // [] for now; reserved for future image attachments
+  status          String   // "draft" | "approved" | "posted" | "rejected" | "failed"
+  approvedBy      String?
+  approvedAt      DateTime?
+  postedAt        DateTime?
+  externalId      String?  // X tweet id once posted
+  failureReason   String?
+}
+```
+
+Migrate.
+
+### B. Post-formatter (no network)
+
+`noosphere/noosphere/social/x_formatter.py`:
+
+- Pure function: takes a Currents opinion (the LLM-generated commentary) and the source X post URL, returns a `{ body, source_url }` payload that fits in 280 characters.
+- The body MUST cite the source X post (link at the end) and MUST NOT exceed 280 chars including the link's t.co budget (treat any URL as 23 chars).
+- If the opinion is too long, the formatter rewrites it in a second LLM pass to fit, preserving the load-bearing claim. If the rewrite still does not fit, the formatter returns `None` and the row is recorded as `status="rejected"` with a reason.
+- Unit tests: 280-char boundary, multibyte chars (emoji), URL-budget accounting.
+
+### C. Live client (write-side)
+
+`noosphere/noosphere/social/x_live_client.py`:
+
+- Wraps the X API v2 `POST /2/tweets` endpoint.
+- OAuth 2.0 user-context credentials read from `X_BOT_OAUTH_CLIENT_ID` and `X_BOT_OAUTH_REFRESH_TOKEN` env vars (NEVER printed, NEVER logged).
+- Refresh-on-401 logic.
+- A single method `post_tweet(body: str) -> dict` that returns `{tweet_id, posted_at}` or raises a typed error.
+- A `--dry-run` mode that constructs the request payload and prints the redacted curl-equivalent without sending.
+
+### D. Outbound gates
+
+`noosphere/noosphere/social/post_safety.py` — six gates that every post must pass:
+
+1. **Identity gate.** `X_BOT_OAUTH_REFRESH_TOKEN` is set.
+2. **Mode gate.** `THESEUS_X_POSTING_ENABLED=true` in the env. Default false.
+3. **Daily budget gate.** No more than `X_POSTS_PER_DAY_MAX` posts in the last 24h (default 3).
+4. **Content gate.** Body length ≤ 280 chars; body does not contain any token in `X_FORBIDDEN_PHRASES` (env, comma-separated). Refuses any body containing the substrings `password`, `apikey`, `api_key`, `bearer ` (case-insensitive); never log the offending body.
+5. **Citation gate.** Body contains an https link to either the source X post or a firm publication URL. Pure assertion text without a source is rejected.
+6. **Human gate.** `SocialPost.status == "approved"` AND `approvedBy` non-null. The system NEVER advances a post from `draft` to `posted` without a founder click.
+
+### E. Operator console
+
+Add `theseus-codex/src/app/(authed)/social/page.tsx`:
+
+- Lists `SocialPost` rows in two tabs: "Drafts" and "Posted".
+- Each draft row: source link, formatted body preview, character count, "Edit" inline (textarea — keeps gates' guardrails enforced server-side on save), "Approve & post" button, "Reject" button.
+- Approve & post triggers a server action that re-runs all six gates server-side, calls the live client only if every gate is green, updates `status` to `posted` (or `failed` with reason), refreshes the page.
+- A red-bordered "KILL — disable all outbound" button that flips `THESEUS_X_POSTING_ENABLED` to false at the env-var override level for the running scheduler (write to `theseus.social_kill` flag in `OperatorState` table; the runtime gate function reads this AND the env, and a true on either disables posting).
+
+### F. Wire Currents → drafts
+
+In the Currents scheduler (or a new small follow-up cron), after a new Currents opinion is generated, call `x_formatter.format_for_x(opinion)` and write the result to `SocialPost` with `status="draft"`. Default behavior: nothing else happens until a human approves.
+
+### G. Tests
+
+- Unit tests for each gate (all 6).
+- Integration test (no network): a fixture opinion → formatter → SocialPost draft is created → server action with gates passes only after a fixture admin "approves" → live client method is called with the expected body (network mocked).
+- Playwright e2e: log in as admin, see the drafts queue, approve one, see it move to posted (against a mocked X client).
+
+## Definition of Done
+
+- A founder can see candidate tweets in `/social`, edit them, approve them, see them posted (when the live client is wired), and KILL the outbound channel in one click.
+- The default state is "posting disabled". No tweet ever leaves the system without an explicit founder click.
+- All tests pass.
+- The patch does not contain any X credential. Env vars are referenced by name only.

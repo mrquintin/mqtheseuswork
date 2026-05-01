@@ -29,6 +29,7 @@ CREATE TABLE "Upload" (
   "filePath" TEXT,
   "fileSize" INTEGER NOT NULL DEFAULT 0,
   "textContent" TEXT,
+  "blurb" TEXT,
   "status" TEXT NOT NULL DEFAULT 'pending',
   "processLog" TEXT NOT NULL DEFAULT '',
   "claimsCount" INTEGER,
@@ -36,6 +37,20 @@ CREATE TABLE "Upload" (
   "extractionMethod" TEXT,
   "createdAt" TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
   "updatedAt" TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE "UploadChunk" (
+  "id" TEXT PRIMARY KEY,
+  "uploadId" TEXT NOT NULL,
+  "index" INTEGER NOT NULL,
+  "text" TEXT NOT NULL,
+  "startMs" INTEGER,
+  "endMs" INTEGER,
+  "speakerLabel" TEXT,
+  "headingHint" TEXT,
+  "createdAt" TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  "updatedAt" TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  UNIQUE ("uploadId", "index")
 );
 
 CREATE TABLE "Conclusion" (

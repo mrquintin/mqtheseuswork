@@ -4,28 +4,21 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 
 import LabyrinthIcon from "./LabyrinthIcon";
-import { SUB_NAV_GROUPS, findGroupForPath } from "./SubNav";
+import { findGroupForPath } from "./SubNav";
 import ThemeToggle from "./ThemeToggle";
-import { canWrite, canManageFounders } from "@/lib/roles";
+import { canManageFounders, canWrite } from "@/lib/roles";
 
 /**
  * Top-level navigation.
  *
- * Before consolidation: 14 peers at the top level. Information overload.
+ * After the Wave E consolidation the top nav is intentionally flat and
+ * short:
  *
- * After: 7 destinations. The 4 thematic groups (Conclusions, Review,
- * Library, Ops) each have a single top-nav entry; the siblings inside
- * each group live in the sub-nav (`<SubNav />`, one row below).
- *
- *    Dashboard · Upload · Conclusions · Review · Library · Publication · Ops
- *
- * Clicking a group label (e.g. "Review") takes you to the group's default
- * tab ("/contradictions"), from which the sub-nav lets you jump to peers.
+ *    Dashboard · Upload · Knowledge · Ask · Currents · Forecasts · Social · Ops
  *
  * Each entry can declare a `requires` predicate; if present, the link
- * is omitted for callers whose role doesn't satisfy it. Today the only
- * gated link is `/upload` (write-only) and `/founders/manage` (admin-
- * only). The rest are read-accessible to every signed-in role.
+ * is omitted for callers whose role doesn't satisfy it. Today the gated
+ * links are `/upload` (write-only) and `/founders/manage` (admin-only).
  */
 type RoleGate = (role: string) => boolean;
 
@@ -33,34 +26,40 @@ const TOP_NAV_LINKS: ReadonlyArray<{
   href: string;
   label: string;
   requires?: RoleGate;
+  active?: (pathname: string) => boolean;
 }> = [
   { href: "/dashboard", label: "Dashboard" },
   // Hidden for viewers — the upload page itself also rejects them, but
   // hiding the link keeps the nav honest about what they can do.
   { href: "/upload", label: "Upload", requires: canWrite },
-  // "Library" is the org-wide transparency surface: everyone sees every
-  // upload + who put it there, with owner-only delete + peer-request
-  // delete flows. It sits next to Upload because the two are a pair
-  // ("what goes in" + "what is already in").
-  { href: "/library", label: "Library" },
+  {
+    href: "/knowledge",
+    label: "Knowledge",
+    active: (pathname) =>
+      pathname === "/knowledge" ||
+      pathname.startsWith("/knowledge/") ||
+      pathname === "/conclusions" ||
+      pathname.startsWith("/conclusions/") ||
+      pathname === "/explorer" ||
+      pathname.startsWith("/explorer/") ||
+      pathname === "/library" ||
+      pathname.startsWith("/library/") ||
+      pathname.startsWith("/transcripts/"),
+  },
   // `/ask` is the LLM-grounded query surface — the central value
   // proposition of the Codex (ask the oracle a question, get an answer
   // grounded in the firm's recorded conclusions).
   { href: "/ask", label: "Ask" },
-  { href: "/conclusions", label: "Conclusions" },
-  // Semantic explorer — interactive 2D projection of the conclusion
-  // embedding space. Sits next to Conclusions because it's the visual
-  // complement to the conclusion list.
-  { href: "/explorer", label: "Explorer" },
-  // The three group entries below follow the SUB_NAV_GROUPS order;
-  // clicking them lands on that group's default tab.
-  { href: SUB_NAV_GROUPS[0].defaultHref, label: SUB_NAV_GROUPS[0].topLabel },
-  { href: SUB_NAV_GROUPS[1].defaultHref, label: SUB_NAV_GROUPS[1].topLabel },
-  { href: "/publication", label: "Publication" },
-  { href: SUB_NAV_GROUPS[2].defaultHref, label: SUB_NAV_GROUPS[2].topLabel },
-  // Admin-only: the founder-role management page. Slotted at the
-  // end so non-admins (the common case) see no shift in the bar's
-  // layout when the link is absent.
+  { href: "/currents", label: "Currents" },
+  {
+    href: "/forecasts/portfolio",
+    label: "Forecasts",
+    active: (pathname) => pathname === "/forecasts" || pathname.startsWith("/forecasts/"),
+  },
+  { href: "/social", label: "Social" },
+  { href: "/ops", label: "Ops" },
+  // Admin-only surfaces. Slotted at the end so non-admins (the common
+  // case) see no shift in the bar's layout when the links are absent.
   { href: "/founders/manage", label: "Manage", requires: canManageFounders },
 ];
 
@@ -80,6 +79,8 @@ export default function Nav({
   const activeGroup = findGroupForPath(pathname);
 
   function isActive(href: string): boolean {
+    const link = TOP_NAV_LINKS.find((entry) => entry.href === href);
+    if (link?.active?.(pathname)) return true;
     // A top-nav entry is "active" either because the URL matches it directly
     // or — for group entries — because we're on one of its sibling pages.
     if (pathname === href || pathname.startsWith(href + "/")) return true;

@@ -1,0 +1,99 @@
+# Codex Prompt 11 of 22 — One-button publish to Substack from a Codex transcript or essay
+
+**Round:** 12, Wave C. **Sequence:** 11 of 22. **Report back with:** the path from a podcast transcript → a formatted Substack draft → published post (in dry-run), and the human-gate state diagram.
+
+## Why this prompt exists
+
+The voice memo, on the Dorkesh-style publishing model: *"You can do a Substack integration and click one button and the agent can format this information into a Substack post and post it. We could do that. We can absolutely add that. So you can have X with articles and posts, and you can have Substack with articles. And you can do one button and the agent overlaid into the API takes this information from the source, formats it into a Substack post, formats it into an X post, and pushes it to the X API or the Substack API."*
+
+We build the Substack pipe with the same human-gate posture as prompt 10: the system produces a polished draft and stops. The founder reviews, may edit, and clicks Publish.
+
+## Before you start — read current state
+
+1. Substack does not publish a stable, official, individual-author publishing API as of mid-2026. The two practical options are:
+   - **Authenticated session token + their internal endpoints** — undocumented, can break without notice.
+   - **Email-to-post.** Substack supports posting via a signed email to a per-publication address. This is fragile but stable.
+   Favor the **email-to-post** path. It is what serious users (and Dorkesh-style independent publishers) typically lean on.
+2. `theseus-codex/prisma/schema.prisma` — extend the `SocialPost` table introduced in prompt 10 with a `markdownBody` column for long-form (Substack) — Twitter posts use `body`, Substack posts use both (`body` is the email subject, `markdownBody` is the post body).
+3. `theseus-codex/src/app/(authed)/sessions/[id]/page.tsx` — the per-session page. The Publish button lives here.
+4. `theseus-codex/src/app/(authed)/upload/` — the upload-detail surface. Articles uploaded as essays should also be publishable.
+
+## Your task
+
+### A. Schema extension
+
+Add to `SocialPost`:
+
+- `markdownBody String?` — the long-form body when `platform="substack"`.
+- `subject String?` — email subject line (= post title for Substack).
+
+Migrate.
+
+### B. Substack formatter
+
+`noosphere/noosphere/social/substack_formatter.py`:
+
+Given a session transcript or an upload (essay), produce:
+
+- `subject` — title-case, ≤ 100 chars.
+- `body` — short subtitle, ≤ 240 chars.
+- `markdownBody` — full post in markdown:
+  - Opens with a 60–100-word blurb summarising the piece (Dorkesh-style).
+  - Then a "Highlights" bullet list of 3–6 timestamps + lines (only if the source is a session with timestamps; otherwise this section is skipped).
+  - Then the full transcript or essay body, lightly cleaned.
+  - Closes with a "Why this matters" paragraph in the firm's voice.
+- The blurb, highlights, and "why this matters" are LLM-generated; the transcript body is verbatim.
+
+Unit tests: feeds a fixture transcript, asserts the markdownBody opens with the blurb, contains a `## Highlights` heading, and contains the full transcript body.
+
+### C. Email-to-post live client
+
+`noosphere/noosphere/social/substack_live_client.py`:
+
+- Sends mail to `SUBSTACK_PUBLISH_EMAIL` (env-var name only) from `SUBSTACK_FROM_EMAIL` via SMTP.
+- SMTP credentials come from `SUBSTACK_SMTP_HOST`, `SUBSTACK_SMTP_PORT`, `SUBSTACK_SMTP_USER`, `SUBSTACK_SMTP_PASS` (referenced by name, not embedded).
+- The email body is the markdownBody (Substack's email-to-post understands markdown).
+- The subject line is the post's subject.
+- A `--dry-run` flag prints the rendered email envelope and body to stdout without sending.
+
+### D. Substack outbound gates
+
+`noosphere/noosphere/social/substack_safety.py` — five gates:
+
+1. **Identity gate.** All four `SUBSTACK_SMTP_*` env vars and `SUBSTACK_PUBLISH_EMAIL` and `SUBSTACK_FROM_EMAIL` set.
+2. **Mode gate.** `THESEUS_SUBSTACK_POSTING_ENABLED=true`. Default false.
+3. **Content gate.** `markdownBody` ≥ 400 chars, `subject` 5–100 chars, `body` ≤ 240 chars.
+4. **Source gate.** Source row has been authored by a founder (`SocialPost.source` is `manual` AND `approvedBy` is set, OR `source` is `session` AND the session is owned by a real founder).
+5. **Human gate.** Same as prompt 10: `status="approved"` + `approvedBy` non-null.
+
+### E. UI: "Publish to…" button on the source artifact
+
+On `theseus-codex/src/app/(authed)/sessions/[id]/page.tsx`:
+
+- Add a "Publish to…" dropdown with options "Substack" and "X" (X uses prompt 10's path).
+- "Substack" calls a server action that runs the `substack_formatter` on the session, writes a `SocialPost` row with `platform="substack"`, `status="draft"`, and redirects to `/social/[id]` for review/edit/approve.
+
+On `theseus-codex/src/app/(authed)/upload/[id]/page.tsx` (essays / articles): same dropdown.
+
+### F. Per-post review/edit page
+
+`theseus-codex/src/app/(authed)/social/[id]/page.tsx`:
+
+- Renders the draft (subject, body/subtitle, markdownBody) with a markdown preview side-by-side.
+- "Edit" enters an inline text editor for any field; saves write-through.
+- "Approve & publish" runs all five gates server-side and calls the live client; on success updates `status="posted"` and stores the response (Substack returns nothing structured for email-to-post; we simply mark sent and timestamp).
+- "Reject" sets `status="rejected"`.
+- Same red KILL button as prompt 10's `/social` index, scoped to Substack.
+
+### G. Tests
+
+- Unit tests for the formatter and each gate.
+- Integration test: fixture session → formatter → draft row → approve via server action → mock SMTP receives the email with the expected subject, from, and markdown body. Assert no SMTP send happens until approval.
+- Playwright e2e: open a session, click "Publish to → Substack", land on the draft review page, approve, see "posted" state.
+
+## Definition of Done
+
+- A founder can take a recorded session and turn it into a polished Substack post with one click → review → one more click. Total founder time ≤ 30 seconds for a clean draft.
+- Default state is OFF: no email leaves the firm without explicit human approval.
+- All tests pass.
+- No SMTP credentials, Substack tokens, or emails are embedded in the patch.

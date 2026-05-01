@@ -18,6 +18,16 @@ export interface ListCurrentsParams {
   seeded?: boolean | null;
 }
 
+export interface CurrentsHealth {
+  x_bearer_present: boolean;
+  curated_count: number;
+  search_count: number;
+  last_cycle_at: string | null;
+  events_last_24h: number;
+  opinions_last_24h: number;
+  disabled_reasons: string[];
+}
+
 type StreamingRequestInit = RequestInit & { duplex?: "half" };
 
 function serializeParam(value: string | Date | number | boolean): string {
@@ -60,6 +70,10 @@ async function fetchJson<T>(path: string, search?: URLSearchParams): Promise<T> 
 
 export async function listCurrents(params: ListCurrentsParams): Promise<{ items: PublicOpinion[] }> {
   return fetchJson<{ items: PublicOpinion[] }>("/v1/currents", searchParamsFor(params));
+}
+
+export async function getCurrentsHealth(): Promise<CurrentsHealth> {
+  return fetchJson<CurrentsHealth>("/v1/currents/health");
 }
 
 export async function getCurrent(id: string): Promise<PublicOpinion> {

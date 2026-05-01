@@ -4,11 +4,10 @@ from __future__ import annotations
 
 import asyncio
 import json
+import re
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Any
-
-import pytest
 
 from noosphere.currents import opinion_generator as subject
 from noosphere.currents._llm_client import LLMResponse
@@ -23,9 +22,20 @@ from noosphere.models import (
 )
 from noosphere.store import Store
 
-
 ORG_ID = "org_opinion_generator"
-SOURCE_TEXT = "Theseus says durable compounding depends on disciplined evidence."
+SOURCE_TEXTS = {
+    "conclusion_opinion_1": (
+        "Theseus says durable compounding depends on disciplined evidence."
+    ),
+    "conclusion_opinion_2": (
+        "Theseus says public claims should be constrained by the firm's actual "
+        "memory."
+    ),
+    "conclusion_opinion_3": (
+        "Theseus says current events deserve comment only when recorded "
+        "reasoning applies."
+    ),
+}
 
 
 @dataclass(frozen=True)
@@ -86,9 +96,9 @@ def _store() -> Store:
     return Store.from_database_url("sqlite:///:memory:")
 
 
-def _seed(st: Store) -> tuple[str, Hit]:
-    conclusion = Conclusion(id="conclusion_opinion", text=SOURCE_TEXT)
-    st.put_conclusion(conclusion)
+def _seed(st: Store) -> tuple[str, list[Hit]]:
+    for conclusion_id, text in SOURCE_TEXTS.items():
+        st.put_conclusion(Conclusion(id=conclusion_id, text=text))
     event = CurrentEvent(
         id="event_opinion",
         organization_id=ORG_ID,
@@ -100,15 +110,18 @@ def _seed(st: Store) -> tuple[str, Hit]:
         dedupe_hash="event_opinion_hash",
     )
     event_id = st.add_current_event(event)
-    hit = Hit(
-        source_kind="conclusion",
-        source_id=conclusion.id,
-        text=SOURCE_TEXT,
-        score=0.92,
-        topic_hint="markets",
-        origin=None,
-    )
-    return event_id, hit
+    hits = [
+        Hit(
+            source_kind="conclusion",
+            source_id=conclusion_id,
+            text=text,
+            score=0.92,
+            topic_hint="markets",
+            origin=None,
+        )
+        for conclusion_id, text in SOURCE_TEXTS.items()
+    ]
+    return event_id, hits
 
 
 def _payload(**overrides: Any) -> str:
@@ -116,14 +129,29 @@ def _payload(**overrides: Any) -> str:
         "stance": "COMPLICATES",
         "confidence": 0.73,
         "headline": "The event complicates a compounding thesis",
-        "body_markdown": "The source supports a narrower view of the event.",
+        "body_markdown": (
+            "The firm can comment only within durable evidence "
+            "[C:conclusion_opinion_1], "
+            "actual memory [C:conclusion_opinion_2], and applicable recorded reasoning "
+            "[C:conclusion_opinion_3]."
+        ),
         "uncertainty_notes": ["single retrieved source"],
         "citations": [
             {
                 "source_kind": "conclusion",
-                "source_id": "conclusion_opinion",
+                "source_id": "conclusion_opinion_1",
                 "quoted_span": "durable compounding depends on disciplined evidence",
-            }
+            },
+            {
+                "source_kind": "conclusion",
+                "source_id": "conclusion_opinion_2",
+                "quoted_span": "constrained by the firm's actual memory",
+            },
+            {
+                "source_kind": "conclusion",
+                "source_id": "conclusion_opinion_3",
+                "quoted_span": "recorded reasoning applies",
+            },
         ],
         "topic_hint": "markets",
     }
@@ -133,7 +161,7 @@ def _payload(**overrides: Any) -> str:
 
 def test_generate_opinion_happy_path_writes_opinion_and_citations(monkeypatch) -> None:
     st = _store()
-    event_id, hit = _seed(st)
+    event_id, hits = _seed(st)
     budget = RecordingBudget()
     client = ScriptedClient(
         [
@@ -145,7 +173,7 @@ def test_generate_opinion_happy_path_writes_opinion_and_citations(monkeypatch) -
             )
         ]
     )
-    monkeypatch.setattr(subject, "retrieve_for_event", lambda *_args, **_kwargs: [hit])
+    monkeypatch.setattr(subject, "retrieve_for_event", lambda *_args, **_kwargs: hits)
     monkeypatch.setattr(subject, "make_client", lambda: client)
 
     outcome = asyncio.run(subject.generate_opinion(st, event_id, budget=budget))
@@ -158,23 +186,41 @@ def test_generate_opinion_happy_path_writes_opinion_and_citations(monkeypatch) -
     assert opinion.prompt_tokens == 321
     assert opinion.completion_tokens == 123
     citations = st.list_opinion_citations(opinion.id)
-    assert len(citations) == 1
-    assert citations[0].quoted_span == "durable compounding depends on disciplined evidence"
+    assert len(citations) == 3
+    inline_ids = set(re.findall(r"\[C:([^\]\s]+)\]", opinion.body_markdown))
+    assert len(inline_ids) >= 3
+    assert {
+        "conclusion_opinion_1",
+        "conclusion_opinion_2",
+        "conclusion_opinion_3",
+    }.issubset(inline_ids)
     assert st.get_current_event(event_id).status == CurrentEventStatus.OPINED  # type: ignore[union-attr]
     assert budget.charges == [(321, 123)]
 
 
-def test_generate_opinion_retries_then_abstains_on_citation_fabrication(monkeypatch) -> None:
+def test_generate_opinion_retries_then_abstains_on_citation_fabrication(
+    monkeypatch,
+) -> None:
     st = _store()
-    event_id, hit = _seed(st)
+    event_id, hits = _seed(st)
     budget = RecordingBudget()
     invalid = _payload(
         citations=[
             {
                 "source_kind": "conclusion",
-                "source_id": "conclusion_opinion",
+                "source_id": "conclusion_opinion_1",
                 "quoted_span": "this span is not in the source",
-            }
+            },
+            {
+                "source_kind": "conclusion",
+                "source_id": "conclusion_opinion_2",
+                "quoted_span": "constrained by the firm's actual memory",
+            },
+            {
+                "source_kind": "conclusion",
+                "source_id": "conclusion_opinion_3",
+                "quoted_span": "recorded reasoning applies",
+            },
         ]
     )
     client = ScriptedClient(
@@ -183,7 +229,7 @@ def test_generate_opinion_retries_then_abstains_on_citation_fabrication(monkeypa
             LLMResponse(text=invalid, prompt_tokens=110, completion_tokens=21),
         ]
     )
-    monkeypatch.setattr(subject, "retrieve_for_event", lambda *_args, **_kwargs: [hit])
+    monkeypatch.setattr(subject, "retrieve_for_event", lambda *_args, **_kwargs: hits)
     monkeypatch.setattr(subject, "make_client", lambda: client)
 
     outcome = asyncio.run(subject.generate_opinion(st, event_id, budget=budget))
@@ -197,11 +243,13 @@ def test_generate_opinion_retries_then_abstains_on_citation_fabrication(monkeypa
 
 def test_generate_opinion_budget_exhausted_makes_no_anthropic_call(monkeypatch) -> None:
     st = _store()
-    event_id, hit = _seed(st)
-    monkeypatch.setattr(subject, "retrieve_for_event", lambda *_args, **_kwargs: [hit])
+    event_id, hits = _seed(st)
+    monkeypatch.setattr(subject, "retrieve_for_event", lambda *_args, **_kwargs: hits)
 
     def fail_make_client() -> None:
-        raise AssertionError("LLM client must not be constructed when budget is exhausted")
+        raise AssertionError(
+            "LLM client must not be constructed when budget is exhausted"
+        )
 
     monkeypatch.setattr(subject, "make_client", fail_make_client)
 
@@ -216,7 +264,7 @@ def test_generate_opinion_budget_exhausted_makes_no_anthropic_call(monkeypatch) 
 
 def test_generate_opinion_llm_abstained_writes_no_opinion(monkeypatch) -> None:
     st = _store()
-    event_id, hit = _seed(st)
+    event_id, hits = _seed(st)
     client = ScriptedClient(
         [
             LLMResponse(
@@ -231,8 +279,33 @@ def test_generate_opinion_llm_abstained_writes_no_opinion(monkeypatch) -> None:
             )
         ]
     )
-    monkeypatch.setattr(subject, "retrieve_for_event", lambda *_args, **_kwargs: [hit])
+    monkeypatch.setattr(subject, "retrieve_for_event", lambda *_args, **_kwargs: hits)
     monkeypatch.setattr(subject, "make_client", lambda: client)
+
+    outcome = asyncio.run(
+        subject.generate_opinion(st, event_id, budget=RecordingBudget())
+    )
+
+    assert outcome == OpinionOutcome.ABSTAINED_INSUFFICIENT_SOURCES
+    assert st.list_recent_opinions(ORG_ID, datetime(2026, 1, 1), 10) == []
+    assert st.get_current_event(event_id).status == CurrentEventStatus.ABSTAINED  # type: ignore[union-attr]
+
+
+def test_generate_opinion_refuses_fewer_than_three_relevant_conclusions(
+    monkeypatch,
+) -> None:
+    st = _store()
+    event_id, hits = _seed(st)
+    monkeypatch.setattr(
+        subject,
+        "retrieve_for_event",
+        lambda *_args, **_kwargs: hits[:2],
+    )
+
+    def fail_make_client() -> None:
+        raise AssertionError("LLM client must not be constructed without 3 Conclusions")
+
+    monkeypatch.setattr(subject, "make_client", fail_make_client)
 
     outcome = asyncio.run(
         subject.generate_opinion(st, event_id, budget=RecordingBudget())

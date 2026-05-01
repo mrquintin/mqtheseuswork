@@ -81,7 +81,7 @@ export async function GET() {
     take: 100,
     include: {
       conclusion: { select: { id: true, text: true, attributedFounderId: true } },
-      requester: { select: { id: true, name: true } },
+      requester: { select: { id: true, displayName: true, name: true, username: true } },
     },
   });
   return NextResponse.json({ requests: rows });

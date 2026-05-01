@@ -7,9 +7,58 @@ from current_events_api_tests_support import (
     seed_opinion,
 )
 
+from noosphere.currents.status import write_status
+
 
 def test_healthz_returns_ok(client) -> None:
     assert client.get("/healthz").json() == {"ok": True}
+
+
+def test_currents_health_reports_config_status_and_recent_counts(
+    client,
+    monkeypatch,
+) -> None:
+    monkeypatch.setenv("X_BEARER_TOKEN", "test-secret")
+    monkeypatch.setenv("CURRENTS_X_CURATED_ACCOUNTS", "111,222")
+    monkeypatch.setenv("CURRENTS_X_SEARCH_QUERIES", "education,truth")
+    write_status(
+        {
+            "cycle_id": "cycle_health_test",
+            "started_at": "2026-04-30T12:34:56Z",
+            "errors": [],
+        }
+    )
+    seed_opinion(client.app.state.store)
+
+    response = client.get("/v1/currents/health")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["x_bearer_present"] is True
+    assert payload["curated_count"] == 2
+    assert payload["search_count"] == 2
+    assert payload["last_cycle_at"] == "2026-04-30T12:34:56Z"
+    assert payload["events_last_24h"] == 1
+    assert payload["opinions_last_24h"] == 1
+    assert payload["disabled_reasons"] == []
+
+
+def test_currents_health_reports_disabled_reasons(client, monkeypatch) -> None:
+    monkeypatch.delenv("X_BEARER_TOKEN", raising=False)
+    monkeypatch.delenv("CURRENTS_X_CURATED_ACCOUNTS", raising=False)
+    monkeypatch.delenv("CURRENTS_X_SEARCH_QUERIES", raising=False)
+
+    response = client.get("/v1/currents/health")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["x_bearer_present"] is False
+    assert payload["curated_count"] == 0
+    assert payload["search_count"] == 0
+    assert payload["disabled_reasons"] == [
+        "missing_x_bearer_token",
+        "missing_x_sources",
+    ]
 
 
 def test_list_currents_strips_internal_fields_and_keeps_revoked_count(client) -> None:

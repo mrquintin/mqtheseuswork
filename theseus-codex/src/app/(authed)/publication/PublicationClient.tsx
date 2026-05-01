@@ -1,6 +1,10 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import {
+  founderDisplayName,
+  type FounderDisplayFields,
+} from "@/lib/founderDisplay";
 
 type ReviewRow = {
   id: string;
@@ -20,7 +24,7 @@ type ReviewRow = {
     confidence: number;
     createdAt: string;
   };
-  reviewer: { id: string; name: string; username: string } | null;
+  reviewer: (FounderDisplayFields & { id: string; username: string }) | null;
 };
 
 type FirmRow = { id: string; text: string; topicHint: string; createdAt: string };
@@ -152,7 +156,9 @@ export default function PublicationClient({
                 <div style={{ flex: "1 1 420px" }}>
                   <div style={{ fontSize: "0.65rem", color: "var(--gold-dim)", textTransform: "uppercase" }}>
                     {r.status} · updated {r.updatedAt.slice(0, 10)}
-                    {r.reviewer ? ` · reviewer ${r.reviewer.name}` : ""}
+                    {r.reviewer
+                      ? ` · reviewer ${founderDisplayName(r.reviewer)}`
+                      : ""}
                   </div>
                   <p style={{ marginTop: "0.5rem", color: "var(--parchment)" }}>{r.target.text}</p>
                   {r.revisionAsk ? (

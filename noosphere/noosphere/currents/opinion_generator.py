@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import re
+from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
 from typing import Any
@@ -29,12 +30,28 @@ class OpinionOutcome(str, Enum):
 OPINION_MAX_TOKENS = 1_400
 MAX_JSON_FAILURES = 3
 MAX_CITATION_FAILURES = 2
-DEFAULT_TOP_K = 8
+DEFAULT_TOP_K = 12
+MIN_CONCLUSIONS_FOR_OPINION = 3
+MIN_CONCLUSION_SCORE = 0.55
+CONCLUSION_TOKEN_RE = re.compile(r"\[C:([^\]\s]+)\]")
+
+
+@dataclass(frozen=True)
+class OpinionDryRun:
+    event_id: str
+    eligible: bool
+    reason: str | None
+    retrieved_conclusions: int
+    prompt_conclusion_citations: int
+    system_prompt_chars: int
+    user_prompt_chars: int
 
 
 def retrieve_for_event(store: Any, event: Any, top_k: int = DEFAULT_TOP_K) -> list[Any]:
     """Lazy wrapper so tests that mock retrieval do not import NumPy eagerly."""
-    from noosphere.currents.retrieval_adapter import retrieve_for_event as _retrieve_for_event
+    from noosphere.currents.retrieval_adapter import (
+        retrieve_conclusions_for_event as _retrieve_for_event,
+    )
 
     return _retrieve_for_event(store, event, top_k=top_k)
 
@@ -91,10 +108,17 @@ def _extract_json_object(raw: str) -> dict[str, Any]:
 def _source_blocks(hits: list[Any]) -> str:
     blocks: list[str] = []
     for idx, hit in enumerate(hits, start=1):
+        label = "FIRM CONCLUSION" if hit.source_kind == "conclusion" else "SOURCE"
+        citation_token = (
+            [f"citation_token: [C:{hit.source_id}]"]
+            if hit.source_kind == "conclusion"
+            else []
+        )
         blocks.append(
             "\n".join(
                 [
-                    f"[SOURCE {idx}]",
+                    f"[{label} {idx}]",
+                    *citation_token,
                     f"source_kind: {hit.source_kind}",
                     f"source_id: {hit.source_id}",
                     f"retrieval_score: {hit.score:.6f}",
@@ -102,7 +126,7 @@ def _source_blocks(hits: list[Any]) -> str:
                     f"origin: {hit.origin or ''}",
                     "text:",
                     hit.text,
-                    f"[/SOURCE {idx}]",
+                    f"[/{label} {idx}]",
                 ]
             )
         )
@@ -222,7 +246,64 @@ def _confidence(value: Any) -> float:
     return max(0.0, min(1.0, parsed))
 
 
-async def generate_opinion(store: Any, event_id: str, *, budget: Any) -> OpinionOutcome:
+def _eligible_conclusion_hits(hits: list[Any]) -> list[Any]:
+    return [
+        hit
+        for hit in hits[:DEFAULT_TOP_K]
+        if hit.source_kind == "conclusion" and hit.score >= MIN_CONCLUSION_SCORE
+    ]
+
+
+def _opinion_dry_run(event: Any, hits: list[Any]) -> OpinionDryRun:
+    base_system = _read_system_prompt("opinion_system.md")
+    user_prompt = _opinion_user_prompt(event, hits)
+    inline_ids = set(CONCLUSION_TOKEN_RE.findall(user_prompt))
+    reason = None
+    if len(hits) < MIN_CONCLUSIONS_FOR_OPINION:
+        reason = "fewer_than_3_relevant_conclusions"
+    return OpinionDryRun(
+        event_id=str(getattr(event, "id", "")),
+        eligible=reason is None,
+        reason=reason,
+        retrieved_conclusions=len(hits),
+        prompt_conclusion_citations=len(inline_ids),
+        system_prompt_chars=len(base_system),
+        user_prompt_chars=len(user_prompt),
+    )
+
+
+def _inline_conclusion_errors(
+    body_markdown: str,
+    citations: list[dict[str, Any]],
+) -> list[str]:
+    conclusion_ids = {
+        citation["source_id"]
+        for citation in citations
+        if citation["source_kind"] == "conclusion"
+    }
+    errors: list[str] = []
+    if len(conclusion_ids) < MIN_CONCLUSIONS_FOR_OPINION:
+        errors.append(
+            "published opinions require at least 3 valid Conclusion citations"
+        )
+
+    inline_ids = set(CONCLUSION_TOKEN_RE.findall(body_markdown))
+    supported_inline_ids = inline_ids.intersection(conclusion_ids)
+    if len(supported_inline_ids) < MIN_CONCLUSIONS_FOR_OPINION:
+        errors.append(
+            "body_markdown must cite at least 3 firm Conclusions inline with "
+            "[C:<id>] tokens"
+        )
+    return errors
+
+
+async def generate_opinion(
+    store: Any,
+    event_id: str,
+    *,
+    budget: Any,
+    dry_run: bool = False,
+) -> OpinionOutcome | OpinionDryRun:
     """
     Run retrieve_for_event -> Haiku strict JSON -> verbatim citation checks ->
     write EventOpinion + OpinionCitations, or abstain with a precise outcome.
@@ -235,8 +316,12 @@ async def generate_opinion(store: Any, event_id: str, *, budget: Any) -> Opinion
         _set_event_status(store, event_id, CurrentEventStatus.ABSTAINED)
         return OpinionOutcome.ABSTAINED_NEAR_DUPLICATE
 
-    hits = retrieve_for_event(store, event, top_k=DEFAULT_TOP_K)
-    if not hits:
+    retrieved_hits = retrieve_for_event(store, event, top_k=DEFAULT_TOP_K)
+    hits = _eligible_conclusion_hits(retrieved_hits)
+    if dry_run:
+        return _opinion_dry_run(event, hits)
+
+    if len(hits) < MIN_CONCLUSIONS_FOR_OPINION:
         _set_event_status(store, event_id, CurrentEventStatus.ABSTAINED)
         return OpinionOutcome.ABSTAINED_INSUFFICIENT_SOURCES
 
@@ -250,7 +335,10 @@ async def generate_opinion(store: Any, event_id: str, *, budget: Any) -> Opinion
     model_name = ""
     client = None
 
-    while json_failures < MAX_JSON_FAILURES and citation_failures < MAX_CITATION_FAILURES:
+    while (
+        json_failures < MAX_JSON_FAILURES
+        and citation_failures < MAX_CITATION_FAILURES
+    ):
         system_prompt = base_system + corrective
         try:
             _authorize_budget(
@@ -276,8 +364,13 @@ async def generate_opinion(store: Any, event_id: str, *, budget: Any) -> Opinion
         total_completion_tokens += response.completion_tokens
         model_name = response.model or model_name
 
+        raw_text = response.text.strip()
+        if raw_text == "":
+            _set_event_status(store, event_id, CurrentEventStatus.ABSTAINED)
+            return OpinionOutcome.ABSTAINED_INSUFFICIENT_SOURCES
+
         try:
-            payload = _extract_json_object(response.text)
+            payload = _extract_json_object(raw_text)
         except (json.JSONDecodeError, ValueError):
             json_failures += 1
             corrective = (
@@ -305,15 +398,23 @@ async def generate_opinion(store: Any, event_id: str, *, budget: Any) -> Opinion
             hits,
             require_any=True,
         )
+        citation_errors.extend(
+            _inline_conclusion_errors(
+                str(payload.get("body_markdown") or ""),
+                citations,
+            )
+        )
         if citation_errors:
             citation_failures += 1
             if citation_failures >= MAX_CITATION_FAILURES:
                 _set_event_status(store, event_id, CurrentEventStatus.ABSTAINED)
                 return OpinionOutcome.ABSTAINED_CITATION_FABRICATION
             corrective = (
-                "\n\nCorrection: the previous response failed exact citation validation: "
+                "\n\nCorrection: the previous response failed exact citation "
+                "validation: "
                 + "; ".join(citation_errors[:3])
-                + ". Every citation quoted_span must be copied exactly from the cited source text."
+                + ". Every citation quoted_span must be copied exactly from the "
+                "cited source text."
             )
             continue
 

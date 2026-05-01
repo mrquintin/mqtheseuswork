@@ -115,6 +115,11 @@ export function canManageFounders(role: string): boolean {
   return role === "admin";
 }
 
+/** Admin-only contact inbox access. Kept separate so policy can diverge later. */
+export function canReadContactInbox(role: string): boolean {
+  return canManageFounders(role);
+}
+
 /**
  * Human-readable description for the role ladder. Surfaced in the
  * /founders/manage UI dropdown so the admin doesn't have to remember

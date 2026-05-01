@@ -1,24 +1,14 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useSearchParams } from "next/navigation";
 
 /**
  * Context-sensitive sub-navigation.
  *
- * The Codex has ~20 feature pages that naturally cluster into 4 thematic
- * groups: Coherence review, External library, Operations, and the
- * Conclusion lineage trio. The TOP nav shows those 4 groups as single
- * entries. This SUB nav, rendered one row below, shows the siblings of
- * whatever page you're currently on — so once you click "Review" in the
- * top nav and land on /contradictions, you can see and jump between
- * /open-questions, /adversarial, /q/review, and /scoreboard without
- * returning to the top nav.
- *
- * The component reads `usePathname()` and matches against `GROUPS`. If the
- * current path doesn't belong to any group (e.g. /dashboard, /upload,
- * /publication), the sub-nav renders nothing — those pages don't have
- * peers.
+ * Wave E removes Review and Library as secondary groups. The only
+ * remaining secondary row is Ops, and it appears exclusively on `/ops`
+ * where advanced tooling panels are selected by `?panel=...`.
  */
 
 type SubNavGroup = {
@@ -27,42 +17,27 @@ type SubNavGroup = {
   /** Default landing URL when the user clicks the top-nav label. */
   defaultHref: string;
   /** Siblings that appear in the sub-nav when any of them is active. */
-  tabs: ReadonlyArray<{ href: string; label: string }>;
+  tabs: ReadonlyArray<{ href: string; label: string; panel: string }>;
 };
 
 export const SUB_NAV_GROUPS: ReadonlyArray<SubNavGroup> = [
   {
-    topLabel: "Review",
-    defaultHref: "/contradictions",
-    tabs: [
-      { href: "/contradictions", label: "Contradictions" },
-      { href: "/open-questions", label: "Open questions" },
-      { href: "/adversarial", label: "Adversarial" },
-      { href: "/q/review", label: "Layer review" },
-      { href: "/scoreboard", label: "Calibration" },
-    ],
-  },
-  {
-    topLabel: "Library",
-    defaultHref: "/voices",
-    tabs: [
-      { href: "/voices", label: "Voices" },
-      { href: "/literature", label: "Literature" },
-      { href: "/reading-queue", label: "Reading queue" },
-      { href: "/research", label: "Research" },
-    ],
-  },
-  {
     topLabel: "Ops",
-    defaultHref: "/provenance",
+    defaultHref: "/ops",
     tabs: [
-      { href: "/provenance", label: "Provenance" },
-      { href: "/eval", label: "Eval runs" },
-      { href: "/post-mortem", label: "Post-mortem" },
-      { href: "/decay", label: "Decay" },
-      { href: "/rigor-gate", label: "Rigor gate" },
-      { href: "/methods", label: "Methods" },
-      { href: "/founders", label: "Founders" },
+      { href: "/ops?panel=provenance", label: "Provenance", panel: "provenance" },
+      { href: "/ops?panel=eval", label: "Eval runs", panel: "eval" },
+      { href: "/ops?panel=contradictions", label: "Contradictions", panel: "contradictions" },
+      { href: "/ops?panel=peer-review", label: "Peer review", panel: "peer-review" },
+      { href: "/ops?panel=open-questions", label: "Open questions", panel: "open-questions" },
+      { href: "/ops?panel=adversarial", label: "Adversarial", panel: "adversarial" },
+      { href: "/ops?panel=layer-review", label: "Layer review", panel: "layer-review" },
+      { href: "/ops?panel=calibration", label: "Calibration", panel: "calibration" },
+      { href: "/ops?panel=post-mortem", label: "Post-mortem", panel: "post-mortem" },
+      { href: "/ops?panel=decay", label: "Decay", panel: "decay" },
+      { href: "/ops?panel=rigor-gate", label: "Rigor gate", panel: "rigor-gate" },
+      { href: "/ops?panel=methods", label: "Methods", panel: "methods" },
+      { href: "/ops?panel=founders", label: "Founders", panel: "founders" },
     ],
   },
 ];
@@ -71,10 +46,8 @@ export const SUB_NAV_GROUPS: ReadonlyArray<SubNavGroup> = [
  * correct group as active for detail-page URLs like `/voices/abc123`. */
 export function findGroupForPath(pathname: string): SubNavGroup | null {
   for (const group of SUB_NAV_GROUPS) {
-    for (const tab of group.tabs) {
-      if (pathname === tab.href || pathname.startsWith(tab.href + "/")) {
-        return group;
-      }
+    if (pathname === group.defaultHref || pathname.startsWith(group.defaultHref + "/")) {
+      return group;
     }
   }
   return null;
@@ -82,8 +55,10 @@ export function findGroupForPath(pathname: string): SubNavGroup | null {
 
 export default function SubNav() {
   const pathname = usePathname();
+  const searchParams = useSearchParams();
   const group = findGroupForPath(pathname);
   if (!group) return null;
+  const activePanel = searchParams.get("panel") || "overview";
 
   return (
     <nav
@@ -104,8 +79,7 @@ export default function SubNav() {
         }}
       >
         {group.tabs.map((tab) => {
-          const active =
-            pathname === tab.href || pathname.startsWith(tab.href + "/");
+          const active = activePanel === tab.panel;
           return (
             <Link
               key={tab.href}

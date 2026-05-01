@@ -2,6 +2,12 @@
 
 import Link from "next/link";
 import { useState } from "react";
+import AnswerMarkdown from "@/components/AnswerMarkdown";
+import {
+  citationHref,
+  type ResolvedCitation,
+  type ResolvedCitationMap,
+} from "@/lib/oracleCitations";
 
 /**
  * Ask the Codex — client-side form. Posts to /api/ask, renders the
@@ -9,11 +15,11 @@ import { useState } from "react";
  * citations + Upload citations).
  *
  * Visual contract:
- *   - The answer's text is rendered verbatim, preserving any
+ *   - The answer text is rendered as sanitised Markdown, preserving
  *     inline citation markers [C:xxxxx] / [U:xxxxx] the oracle added.
  *   - The source panel groups Conclusions (tier-coloured chips) above
- *     Upload excerpts (clickable titles that link to /post/<slug>
- *     when the upload is publicly published).
+ *     Upload excerpts, and each cited row links to the same destination
+ *     as its inline citation token.
  */
 
 interface SourceConclusion {
@@ -23,6 +29,8 @@ interface SourceConclusion {
   tier: string;
   topic: string;
   text: string;
+  url: string | null;
+  anchor?: string | null;
 }
 
 interface SourceUpload {
@@ -31,6 +39,7 @@ interface SourceUpload {
   label: string;
   text: string;
   url: string | null;
+  anchor?: string | null;
 }
 
 type Source = SourceConclusion | SourceUpload;
@@ -45,6 +54,33 @@ interface AskResult {
   inputTokens: number;
   outputTokens: number;
   sources: Source[];
+  citations: ResolvedCitationMap;
+  citationsResolved: number;
+  citationsUnresolved: number;
+}
+
+function citationForSource(
+  source: Source,
+  citations: ResolvedCitationMap,
+): ResolvedCitation | null {
+  return (
+    Object.values(citations).find(
+      (citation) => citation.type === source.type && citation.id === source.id,
+    ) ?? null
+  );
+}
+
+function sourceHref(source: Source, citations: ResolvedCitationMap): string | null {
+  const citation = citationForSource(source, citations);
+  const resolvedHref = citation ? citationHref(citation) : null;
+  if (resolvedHref) return resolvedHref;
+  if (!source.url) return null;
+  if (source.anchor) return `${source.url}?anchor=${encodeURIComponent(source.anchor)}`;
+  return source.url;
+}
+
+function sourcePreview(source: Source, citations: ResolvedCitationMap): string {
+  return citationForSource(source, citations)?.preview || source.text;
 }
 
 export default function AskForm() {
@@ -85,6 +121,7 @@ export default function AskForm() {
   const uploadSources = (result?.sources ?? []).filter(
     (s): s is SourceUpload => s.type === "upload",
   );
+  const citations = result?.citations ?? {};
 
   return (
     <div>
@@ -155,19 +192,7 @@ export default function AskForm() {
             Responsum · Answer from the Codex
           </p>
 
-          <p
-            style={{
-              fontFamily: "'EB Garamond', serif",
-              fontSize: "1.08rem",
-              color: "var(--parchment)",
-              marginTop: "0.7rem",
-              marginBottom: 0,
-              lineHeight: 1.65,
-              whiteSpace: "pre-wrap",
-            }}
-          >
-            {result.answer}
-          </p>
+          <AnswerMarkdown citations={citations}>{result.answer}</AnswerMarkdown>
 
           <div
             className="mono"
@@ -194,6 +219,16 @@ export default function AskForm() {
               <span title={`${result.inputTokens} in / ${result.outputTokens} out tokens`}>
                 model {result.model}
               </span>
+            </span>
+            <span
+              title={
+                result.citationsUnresolved > 0
+                  ? "Unverified citation tokens were not found in the retrieved corpus."
+                  : "All emitted citation tokens resolved to corpus material."
+              }
+            >
+              {result.citationsResolved} sources linked ·{" "}
+              {result.citationsUnresolved} unverified.
             </span>
             {result.sources.length > 0 && (
               <button
@@ -245,47 +280,54 @@ export default function AskForm() {
                       gap: "0.7rem",
                     }}
                   >
-                    {uploadSources.map((s) => (
-                      <li
-                        key={s.id}
-                        style={{
-                          display: "flex",
-                          flexDirection: "column",
-                          gap: "0.3rem",
-                          fontSize: "0.82rem",
-                          lineHeight: 1.5,
-                          color: "var(--parchment-dim)",
-                          paddingLeft: "0.75rem",
-                          borderLeft: "2px solid var(--amber-deep)",
-                        }}
-                      >
-                        <div
-                          className="mono"
+                    {uploadSources.map((s) => {
+                      const href = sourceHref(s, citations);
+                      const preview = sourcePreview(s, citations);
+                      return (
+                        <li
+                          key={s.id}
                           style={{
-                            fontSize: "0.62rem",
-                            letterSpacing: "0.12em",
-                            color: "var(--amber)",
+                            display: "flex",
+                            flexDirection: "column",
+                            gap: "0.3rem",
+                            fontSize: "0.82rem",
+                            lineHeight: 1.5,
+                            color: "var(--parchment-dim)",
+                            paddingLeft: "0.75rem",
+                            borderLeft: "2px solid var(--amber-deep)",
                           }}
                         >
-                          {s.url ? (
-                            <Link
-                              href={s.url}
-                              style={{
-                                color: "var(--amber)",
-                                textDecoration: "underline",
-                                textDecorationStyle: "dotted",
-                                textUnderlineOffset: "3px",
-                              }}
-                            >
-                              {s.label}
-                            </Link>
-                          ) : (
-                            <span>{s.label}</span>
-                          )}
-                        </div>
-                        <span style={{ whiteSpace: "pre-wrap" }}>{s.text}</span>
-                      </li>
-                    ))}
+                          <div
+                            className="mono"
+                            style={{
+                              fontSize: "0.62rem",
+                              letterSpacing: "0.12em",
+                              color: "var(--amber)",
+                            }}
+                          >
+                            {href ? (
+                              <Link
+                                href={href}
+                                rel="noopener"
+                                style={{
+                                  color: "var(--amber)",
+                                  textDecoration: "underline",
+                                  textDecorationStyle: "dotted",
+                                  textUnderlineOffset: "3px",
+                                }}
+                                target="_blank"
+                                title={preview}
+                              >
+                                {s.label}
+                              </Link>
+                            ) : (
+                              <span>{s.label}</span>
+                            )}
+                          </div>
+                          <span style={{ whiteSpace: "pre-wrap" }}>{preview}</span>
+                        </li>
+                      );
+                    })}
                   </ul>
                 </section>
               )}
@@ -315,30 +357,11 @@ export default function AskForm() {
                       gap: "0.5rem",
                     }}
                   >
-                    {conclusionSources.map((s, i) => (
-                      <li
-                        key={s.id}
-                        style={{
-                          display: "flex",
-                          gap: "0.9rem",
-                          fontSize: "0.82rem",
-                          lineHeight: 1.5,
-                          color: "var(--parchment-dim)",
-                        }}
-                      >
-                        <span
-                          className="mono"
-                          style={{
-                            fontSize: "0.58rem",
-                            letterSpacing: "0.1em",
-                            color: "var(--amber-dim)",
-                            flexShrink: 0,
-                            width: "5.5rem",
-                          }}
-                        >
-                          [{String(i + 1).padStart(2, "0")}] {s.tier}
-                        </span>
-                        <span>
+                    {conclusionSources.map((s, i) => {
+                      const href = sourceHref(s, citations);
+                      const preview = sourcePreview(s, citations);
+                      const body = (
+                        <>
                           <code
                             className="mono"
                             style={{
@@ -349,10 +372,51 @@ export default function AskForm() {
                           >
                             {s.id.slice(0, 10)}
                           </code>
-                          {s.text}
-                        </span>
-                      </li>
-                    ))}
+                          {preview}
+                        </>
+                      );
+                      return (
+                        <li
+                          key={s.id}
+                          style={{
+                            display: "flex",
+                            gap: "0.9rem",
+                            fontSize: "0.82rem",
+                            lineHeight: 1.5,
+                            color: "var(--parchment-dim)",
+                          }}
+                        >
+                          <span
+                            className="mono"
+                            style={{
+                              fontSize: "0.58rem",
+                              letterSpacing: "0.1em",
+                              color: "var(--amber-dim)",
+                              flexShrink: 0,
+                              width: "5.5rem",
+                            }}
+                          >
+                            [{String(i + 1).padStart(2, "0")}] {s.tier}
+                          </span>
+                          {href ? (
+                            <Link
+                              href={href}
+                              rel="noopener"
+                              style={{
+                                color: "var(--parchment-dim)",
+                                textDecoration: "none",
+                              }}
+                              target="_blank"
+                              title={preview}
+                            >
+                              {body}
+                            </Link>
+                          ) : (
+                            <span>{body}</span>
+                          )}
+                        </li>
+                      );
+                    })}
                   </ul>
                 </section>
               )}

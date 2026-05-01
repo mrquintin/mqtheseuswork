@@ -145,10 +145,14 @@ model Organization {
   apiKeys              ApiKey[]
   currentEvents        CurrentEvent[]
   eventOpinions        EventOpinion[]
+  socialPosts          SocialPost[]
+  operatorStates       OperatorState[]
   forecastMarkets      ForecastMarket[]
   forecastPredictions  ForecastPrediction[]
+  forecastTraces       ForecastTrace[]
   forecastBets         ForecastBet[]
   forecastPortfolios   ForecastPortfolioState[]
+  watchedMarkets       WatchedMarket[]
 }
 
 // ── Founders (portal users) — maps to FounderProfile in noosphere/models.py ─
@@ -158,10 +162,10 @@ model Founder {
   organizationId String
   organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
 
-  name         String
-  username     String
-  email        String
-  passwordHash String
+  name                    String
+  username                String
+  email                   String
+  passwordHash            String
   // Role ladder — see src/lib/roles.ts for the predicate helpers and
   // the full description of each tier:
   //   admin   → full read + write + can change other founders' roles
@@ -173,9 +177,13 @@ model Founder {
   // with ADD_FOUNDER_ROLE=viewer or =admin. Validation lives at the
   // application layer; the column stays TEXT so adding a future tier
   // is a docstring + helper change, not a migration.
-  role         String  @default("founder") // admin | founder | viewer
-  bio          String?
-  avatar       String?
+  role                    String    @default("founder") // admin | founder | viewer
+  bio                     String?
+  displayName             String?
+  roleTitle               String?
+  publicUrl               String?
+  avatar                  String?
+  accountNudgeDismissedAt DateTime?
 
   /// Maps to FounderProfile.id in Noosphere
   noosphereId String?
@@ -232,6 +240,7 @@ model Upload {
   filePath         String
   fileSize         Int
   textContent      String?
+  blurb            String?
   // Status ladder (see src/lib/uploadStatus.ts for the canonical
   // vocabulary + UI labels). `pending | processing | ingested | failed`
   // are load-bearing strings from the init migration; `extracting` and
@@ -331,6 +340,7 @@ model Upload {
 
   founder             Founder              @relation(fields: [founderId], references: [id])
   organization        Organization         @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  chunks              UploadChunk[]
   auditEvents         AuditEvent[]
   deletionRequests    DeletionRequest[]
   // ── Provenance back-refs ─────────────────────────────────────────
@@ -358,6 +368,24 @@ model Upload {
   // panel, failed/pending counts on the banner). A plain btree index
   // is enough — the org-scope is already covered by organizationId.
   @@index([status])
+}
+
+model UploadChunk {
+  id           String  @id @default(cuid())
+  uploadId     String
+  index        Int
+  text         String
+  startMs      Int?
+  endMs        Int?
+  speakerLabel String?
+  headingHint  String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  upload Upload @relation(fields: [uploadId], references: [id], onDelete: Cascade)
+
+  @@unique([uploadId, index])
+  @@index([uploadId])
 }
 
 // ── DeletionRequest ───────────────────────────────────────────────────
@@ -599,14 +627,14 @@ model EventOpinion {
 }
 
 model OpinionCitation {
-  id             String  @id @default(cuid())
+  id             String    @id @default(cuid())
   opinionId      String
   sourceKind     String
   conclusionId   String?
   claimId        String?
-  quotedSpan     String  @db.Text
+  quotedSpan     String    @db.Text
   retrievalScore Float
-  isRevoked      Boolean @default(false)
+  isRevoked      Boolean   @default(false)
   revokedAt      DateTime?
   revokedReason  String?
 
@@ -644,6 +672,49 @@ model FollowUpMessage {
   @@index([sessionId, createdAt])
 }
 
+// ── Social publishing — held outbound posts with a hard human gate ─────────
+
+model SocialPost {
+  id             String   @id @default(cuid())
+  organizationId String
+  createdAt      DateTime @default(now())
+  source         String
+  sourceId       String?
+  platform       String
+  bundleId       String?  @db.Uuid
+  body           String   @db.Text
+  markdownBody   String?  @db.Text
+  subject        String?
+  media          Json?
+  status         String
+  approvedBy     String?
+  approvedAt     DateTime?
+  postedAt       DateTime?
+  externalId     String?
+  failureReason  String?
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+
+  @@index([organizationId, status, createdAt])
+  @@index([platform, status, postedAt])
+  @@index([source, sourceId])
+  @@index([bundleId])
+}
+
+model OperatorState {
+  id             String   @id @default(cuid())
+  organizationId String
+  key            String
+  value          Json
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+
+  @@unique([organizationId, key])
+  @@index([key])
+}
+
 // ── Forecasts — external prediction markets + source-grounded predictions ───
 
 model ForecastMarket {
@@ -669,11 +740,31 @@ model ForecastMarket {
 
   organization Organization         @relation(fields: [organizationId], references: [id], onDelete: Restrict)
   predictions  ForecastPrediction[]
+  traces       ForecastTrace[]
 
   @@unique([source, externalId])
   @@index([organizationId, status, closeTime])
   @@index([source, category])
   @@index([updatedAt])
+}
+
+model WatchedMarket {
+  id                 String         @id @default(cuid())
+  organizationId     String
+  source             ForecastSource
+  url                String         @db.Text
+  externalId         String?
+  status             String         @default("ACTIVE")
+  notes              String?        @db.Text
+  lastConsideredAt   DateTime?
+  createdAt          DateTime       @default(now())
+  updatedAt          DateTime       @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+
+  @@unique([organizationId, url])
+  @@index([organizationId, status, createdAt])
+  @@index([source, status])
 }
 
 model ForecastPrediction {
@@ -701,11 +792,32 @@ model ForecastPrediction {
   citations        ForecastCitation[]
   resolution       ForecastResolution?
   bets             ForecastBet[]
+  trace            ForecastTrace?
   followUpSessions ForecastFollowUpSession[]
 
   @@index([organizationId, status, createdAt])
   @@index([marketId, createdAt])
   @@index([liveAuthorizedAt])
+}
+
+model ForecastTrace {
+  id              String   @id @default(cuid())
+  predictionId    String   @unique
+  marketId        String
+  organizationId  String
+  marketTitle     String   @db.VarChar(280)
+  principlesUsed  Json
+  modelOutput     Json
+  gateResults     Json
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  prediction   ForecastPrediction @relation(fields: [predictionId], references: [id], onDelete: Cascade)
+  market       ForecastMarket     @relation(fields: [marketId], references: [id], onDelete: Cascade)
+  organization Organization       @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+
+  @@index([marketId])
+  @@index([organizationId, createdAt])
 }
 
 model ForecastCitation {
@@ -846,6 +958,26 @@ model PublicResponse {
   @@index([organizationId])
   @@index([publishedConclusionId])
   @@index([status])
+}
+
+model ContactSubmission {
+  id             String    @id @default(cuid())
+  createdAt      DateTime  @default(now())
+  fromName       String
+  fromEmail      String
+  subject        String?
+  body           String
+  organizationId String?
+  ipHash         String
+  userAgent      String?
+  triagedAt      DateTime?
+  triagedBy      String?
+  notes          String?
+
+  @@index([createdAt])
+  @@index([fromEmail])
+  @@index([ipHash, createdAt])
+  @@index([triagedAt, createdAt])
 }
 
 // ── ContradictionFinding + scores — mirrors pipeline outputs ────────────────

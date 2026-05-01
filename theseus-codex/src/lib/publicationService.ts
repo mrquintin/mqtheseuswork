@@ -108,7 +108,9 @@ export async function listPublicationQueue(organizationId: string) {
     take: 200,
     include: {
       target: true,
-      reviewer: { select: { id: true, name: true, username: true } },
+      reviewer: {
+        select: { id: true, displayName: true, name: true, username: true },
+      },
     },
   });
 }

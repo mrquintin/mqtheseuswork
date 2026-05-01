@@ -9,6 +9,7 @@ from noosphere.models import (
     ForecastBetSide,
     ForecastBetStatus,
     ForecastExchange,
+    ForecastCitation,
     ForecastMarket,
     ForecastPortfolioState,
     ForecastPrediction,
@@ -16,6 +17,9 @@ from noosphere.models import (
     ForecastResolution,
     ForecastOutcome,
     ForecastSource,
+    ForecastSupportLabel,
+    ForecastTrace,
+    WatchedMarket,
 )
 
 ORG_ID = "org_portfolio_api"
@@ -50,6 +54,42 @@ def seed_portfolio(store) -> None:
         created_at=NOW,
     )
     store.put_forecast_prediction(prediction)
+    store.put_forecast_citation(
+        ForecastCitation(
+            id="portfolio_citation",
+            prediction_id=prediction.id,
+            source_type="CONCLUSION",
+            source_id="portfolio_conclusion_1",
+            quoted_span="market resolve yes",
+            support_label=ForecastSupportLabel.DIRECT,
+            retrieval_score=0.88,
+        )
+    )
+    store.put_forecast_trace(
+        ForecastTrace(
+            id="portfolio_trace",
+            prediction_id=prediction.id,
+            market_id=market.id,
+            organization_id=ORG_ID,
+            market_title=market.title,
+            principles_used=[
+                {
+                    "conclusionId": "portfolio_conclusion_1",
+                    "weight": 0.88,
+                    "snippet": "market resolve yes",
+                }
+            ],
+            model_output={
+                "side": "YES",
+                "edge": 0.1,
+                "confidence": 0.8,
+                "rationale": prediction.headline,
+            },
+            gate_results=[
+                {"gateName": "paper_edge_threshold", "passed": True, "reason": "paper fill recorded"}
+            ],
+        )
+    )
     store.put_forecast_resolution(
         ForecastResolution(
             id="portfolio_resolution",
@@ -111,6 +151,15 @@ def seed_portfolio(store) -> None:
             updated_at=NOW + timedelta(days=1),
         )
     )
+    store.put_watched_market(
+        WatchedMarket(
+            id="portfolio_watch",
+            organization_id=ORG_ID,
+            source=ForecastSource.POLYMARKET,
+            url="https://polymarket.com/event/portfolio-fixture",
+            external_id="portfolio-fixture",
+        )
+    )
 
 
 def test_portfolio_summary_and_calibration_are_public_safe(client) -> None:
@@ -145,3 +194,18 @@ def test_portfolio_bets_returns_only_paper_bets(client) -> None:
     assert [item["id"] for item in items] == ["portfolio_paper_bet"]
     assert "portfolio_live_bet" not in str(items)
     assert "external_order_id" not in str(items)
+
+
+def test_portfolio_surface_exposes_trace_and_watching_without_order_ids(client) -> None:
+    seed_portfolio(client.app.state.store)
+
+    response = client.get("/v1/portfolio/surface")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["gate_banner"]["mode"] == "PAPER"
+    assert body["open_positions"][0]["market_title"] == "Will the market resolve yes?"
+    assert body["open_positions"][0]["driving_principles"][0]["conclusion_id"] == "portfolio_conclusion_1"
+    assert body["pipeline"][0]["gate_state"] == "paper-ready"
+    assert body["watching"]["watched_markets"][0]["url"] == "https://polymarket.com/event/portfolio-fixture"
+    assert "external_order_id" not in str(body)

@@ -62,6 +62,7 @@ from noosphere.models import (
     ForecastPrediction,
     ForecastPredictionStatus,
     ForecastResolution,
+    ForecastTrace,
     FounderOverride,
     FollowUpMessage,
     FollowUpSession,
@@ -74,6 +75,7 @@ from noosphere.models import (
     Outcome,
     OutcomeKind,
     OpinionCitation,
+    OperatorState,
     PredictionResolution,
     PredictiveClaim,
     ReadingQueueEntry,
@@ -86,11 +88,13 @@ from noosphere.models import (
     RigorSubmission,
     RigorVerdict,
     SixLayerScore,
+    SocialPost,
     TemporalCut,
     Topic,
     TransferStudy,
     VoicePhaseRecord,
     VoiceProfile,
+    WatchedMarket,
     voice_canonical_key,
 )
 
@@ -197,6 +201,19 @@ class StoredEmbedding(SQLModel, table=True):
     dimension: int = 0
     vector: bytes = Field(sa_column=Column(LargeBinary))
     ref_claim_id: str = Field(default="", index=True)
+
+
+class StoredEmbeddingRetry(SQLModel, table=True):
+    __tablename__ = "embedding_retry"
+
+    id: str = Field(primary_key=True)
+    source_kind: str = Field(index=True)
+    source_id: str = Field(index=True)
+    model_name: str = Field(index=True)
+    text_sha256: str = Field(index=True)
+    attempts: int = 0
+    last_error: str = ""
+    updated_at: datetime = Field(default_factory=_utcnow)
 
 
 class StoredCoherencePair(SQLModel, table=True):
@@ -860,6 +877,140 @@ class Store:
             arr = np.frombuffer(r.vector, dtype=np.float32)
             return arr.astype(float).tolist()
 
+    def active_embedding_model_name(self, *, as_of: datetime | None = None) -> str:
+        """Return the embedding model version active at ``as_of``."""
+        from noosphere.config import get_settings
+
+        cutoff = as_of or _utcnow()
+        with self.session() as s:
+            rows = s.exec(
+                select(StoredEmbeddingModelVersion)
+                .where(StoredEmbeddingModelVersion.effective_from <= cutoff)
+                .order_by(desc(StoredEmbeddingModelVersion.effective_from))
+            ).all()
+        if rows:
+            return rows[0].model_name
+        return get_settings().embedding_model_name
+
+    def has_current_embedding(
+        self,
+        *,
+        source_id: str,
+        model_name: str,
+        text_sha256: str,
+    ) -> bool:
+        with self.session() as s:
+            row = s.exec(
+                select(StoredEmbedding)
+                .where(StoredEmbedding.ref_claim_id == source_id)
+                .where(StoredEmbedding.model_name == model_name)
+                .where(StoredEmbedding.text_sha256 == text_sha256)
+            ).first()
+            return row is not None
+
+    def queue_embedding_retry(
+        self,
+        *,
+        source_kind: str,
+        source_id: str,
+        model_name: str,
+        text_sha256: str,
+        error: str,
+    ) -> None:
+        retry_id = f"retry_{source_kind}_{source_id}_{model_name}"
+        with self.session() as s:
+            row = s.get(StoredEmbeddingRetry, retry_id)
+            now = _utcnow()
+            if row is None:
+                row = StoredEmbeddingRetry(
+                    id=retry_id,
+                    source_kind=source_kind,
+                    source_id=source_id,
+                    model_name=model_name,
+                    text_sha256=text_sha256,
+                    attempts=1,
+                    last_error=error[:1000],
+                    updated_at=now,
+                )
+            else:
+                row.text_sha256 = text_sha256
+                row.attempts += 1
+                row.last_error = error[:1000]
+                row.updated_at = now
+            s.add(row)
+            s.commit()
+
+    def clear_embedding_retry(
+        self,
+        *,
+        source_kind: str,
+        source_id: str,
+        model_name: str,
+    ) -> None:
+        retry_id = f"retry_{source_kind}_{source_id}_{model_name}"
+        with self.session() as s:
+            row = s.get(StoredEmbeddingRetry, retry_id)
+            if row is not None:
+                s.delete(row)
+                s.commit()
+
+    def list_conclusions_missing_embeddings(
+        self,
+        *,
+        model_name: str,
+        limit: int = 1000,
+    ) -> list[Conclusion]:
+        """Return stored/Prisma conclusions lacking a current-model embedding."""
+        import hashlib
+
+        missing: list[Conclusion] = []
+        for conclusion in self.list_conclusions():
+            text_sha256 = hashlib.sha256(conclusion.text.encode("utf-8")).hexdigest()
+            if self.has_current_embedding(
+                source_id=conclusion.id,
+                model_name=model_name,
+                text_sha256=text_sha256,
+            ):
+                continue
+            missing.append(conclusion)
+            if len(missing) >= limit:
+                break
+        return missing
+
+    def count_conclusions_total(self) -> int:
+        return len(self.list_conclusions())
+
+    def count_conclusions_missing_embeddings(self, *, model_name: str) -> int:
+        import hashlib
+
+        n = 0
+        for conclusion in self.list_conclusions():
+            text_sha256 = hashlib.sha256(conclusion.text.encode("utf-8")).hexdigest()
+            if not self.has_current_embedding(
+                source_id=conclusion.id,
+                model_name=model_name,
+                text_sha256=text_sha256,
+            ):
+                n += 1
+        return n
+
+    def update_prisma_conclusion_embedding_json(
+        self,
+        conclusion_id: str,
+        vector: list[float],
+    ) -> None:
+        """Mirror the canonical StoredEmbedding vector onto Prisma Conclusion if present."""
+        inspector = inspect(self.engine)
+        if not inspector.has_table("Conclusion"):
+            return
+        columns = {column["name"] for column in inspector.get_columns("Conclusion")}
+        if "embeddingJson" not in columns:
+            return
+        payload = json.dumps([float(v) for v in vector], separators=(",", ":"))
+        sql = text('UPDATE "Conclusion" SET "embeddingJson" = :payload WHERE id = :id')
+        with self.engine.begin() as conn:
+            conn.execute(sql, {"payload": payload, "id": conclusion_id})
+
     # --- Coherence pair ---
     def put_coherence_pair(
         self,
@@ -946,6 +1097,14 @@ class Store:
             else:
                 s.add(row)
             s.commit()
+        try:
+            from noosphere.embedding_pipeline import embed_conclusion_with_store
+
+            embed_conclusion_with_store(self, c)
+        except Exception:
+            # Embedding is best-effort; the nightly backfill treats a missing
+            # current-model embedding as the durable retry queue.
+            pass
 
     def get_conclusion(self, conclusion_id: str) -> Optional[Conclusion]:
         with self.session() as s:
@@ -1331,6 +1490,16 @@ class Store:
         with self.session() as s:
             return s.get(EventOpinion, opinion_id)
 
+    def latest_event_opinion_for_event(self, event_id: str) -> Optional[EventOpinion]:
+        with self.session() as s:
+            return s.exec(
+                select(EventOpinion)
+                .where(EventOpinion.event_id == event_id)
+                .where(EventOpinion.revoked_at.is_(None))
+                .order_by(desc(EventOpinion.generated_at))
+                .limit(1)
+            ).first()
+
     def list_opinion_citations(self, opinion_id: str) -> list[OpinionCitation]:
         with self.session() as s:
             return list(
@@ -1437,6 +1606,97 @@ class Store:
         with self.session() as s:
             return s.get(FollowUpMessage, message_id)
 
+    # --- Social publishing ---
+    def find_social_post_by_source(
+        self,
+        *,
+        platform: str,
+        source: str,
+        source_id: str | None,
+    ) -> Optional[SocialPost]:
+        with self.session() as s:
+            query = (
+                select(SocialPost)
+                .where(SocialPost.platform == platform)
+                .where(SocialPost.source == source)
+            )
+            if source_id is None:
+                query = query.where(SocialPost.source_id.is_(None))
+            else:
+                query = query.where(SocialPost.source_id == source_id)
+            return s.exec(query.order_by(desc(SocialPost.created_at)).limit(1)).first()
+
+    def add_social_post(self, post: SocialPost) -> str:
+        with self.session() as s:
+            s.add(post)
+            s.commit()
+            return post.id
+
+    def get_social_post(self, post_id: str) -> Optional[SocialPost]:
+        with self.session() as s:
+            return s.get(SocialPost, post_id)
+
+    def count_social_posts_since(
+        self,
+        *,
+        organization_id: str,
+        platform: str,
+        status: str,
+        since: datetime,
+    ) -> int:
+        with self.session() as s:
+            return len(
+                s.exec(
+                    select(SocialPost.id)
+                    .where(SocialPost.organization_id == organization_id)
+                    .where(SocialPost.platform == platform)
+                    .where(SocialPost.status == status)
+                    .where(SocialPost.posted_at.is_not(None))
+                    .where(SocialPost.posted_at >= since)
+                ).all()
+            )
+
+    def get_operator_state(
+        self,
+        organization_id: str,
+        key: str,
+    ) -> Optional[OperatorState]:
+        with self.session() as s:
+            return s.exec(
+                select(OperatorState)
+                .where(OperatorState.organization_id == organization_id)
+                .where(OperatorState.key == key)
+            ).first()
+
+    def set_operator_state(
+        self,
+        organization_id: str,
+        key: str,
+        value: Any,
+    ) -> OperatorState:
+        with self.session() as s:
+            row = s.exec(
+                select(OperatorState)
+                .where(OperatorState.organization_id == organization_id)
+                .where(OperatorState.key == key)
+            ).first()
+            now = _utcnow()
+            if row is None:
+                row = OperatorState(
+                    organization_id=organization_id,
+                    key=key,
+                    value=value,
+                    created_at=now,
+                    updated_at=now,
+                )
+            else:
+                row.value = value
+                row.updated_at = now
+            s.add(row)
+            s.commit()
+            s.refresh(row)
+            return row
+
     # --- Forecasts ---
     def put_forecast_market(self, market: ForecastMarket) -> str:
         """Upsert a ForecastMarket by id, falling back to source/external_id."""
@@ -1489,8 +1749,60 @@ class Store:
                 s.add(existing)
             else:
                 s.add(prediction)
+            self._ensure_forecast_trace_placeholder(s, existing or prediction)
             s.commit()
             return prediction.id if existing is None else existing.id
+
+    def _ensure_forecast_trace_placeholder(
+        self,
+        s: Session,
+        prediction: ForecastPrediction,
+    ) -> None:
+        """Guarantee every ForecastPrediction has a trace row, even for fixture/manual inserts."""
+
+        existing = s.exec(
+            select(ForecastTrace).where(ForecastTrace.prediction_id == prediction.id)
+        ).first()
+        if existing is not None:
+            return
+        market = s.get(ForecastMarket, prediction.market_id)
+        probability = (
+            float(prediction.probability_yes)
+            if prediction.probability_yes is not None
+            else None
+        )
+        market_price = (
+            float(market.current_yes_price)
+            if market is not None and market.current_yes_price is not None
+            else None
+        )
+        side = None
+        edge = None
+        if probability is not None and market_price is not None:
+            edge = round(probability - market_price, 6)
+            side = "YES" if edge >= 0 else "NO"
+        s.add(
+            ForecastTrace(
+                prediction_id=prediction.id,
+                market_id=prediction.market_id,
+                organization_id=prediction.organization_id,
+                market_title=market.title if market is not None else "",
+                principles_used=[],
+                model_output={
+                    "side": side,
+                    "edge": edge,
+                    "confidence": None,
+                    "rationale": prediction.headline,
+                },
+                gate_results=[
+                    {
+                        "gateName": "trace_writer",
+                        "passed": True,
+                        "reason": "placeholder created when ForecastPrediction was persisted",
+                    }
+                ],
+            )
+        )
 
     def get_forecast_prediction(self, prediction_id: str) -> Optional[ForecastPrediction]:
         with self.session() as s:
@@ -1530,6 +1842,47 @@ class Store:
                     select(ForecastCitation)
                     .where(ForecastCitation.prediction_id == prediction_id)
                     .order_by(asc(ForecastCitation.created_at))
+                ).all()
+            )
+
+    def put_forecast_trace(self, trace: ForecastTrace) -> str:
+        trace.updated_at = _utcnow()
+        with self.session() as s:
+            existing = s.exec(
+                select(ForecastTrace).where(
+                    ForecastTrace.prediction_id == trace.prediction_id
+                )
+            ).first()
+            if existing is not None:
+                _copy_sqlmodel_fields(existing, trace, exclude={"id", "created_at"})
+                s.add(existing)
+                s.commit()
+                return existing.id
+            s.add(trace)
+            s.commit()
+            return trace.id
+
+    def get_forecast_trace(self, prediction_id: str) -> Optional[ForecastTrace]:
+        with self.session() as s:
+            return s.exec(
+                select(ForecastTrace).where(
+                    ForecastTrace.prediction_id == prediction_id
+                )
+            ).first()
+
+    def list_forecast_traces(
+        self,
+        *,
+        organization_id: str | None = None,
+        limit: int = 100,
+    ) -> list[ForecastTrace]:
+        with self.session() as s:
+            stmt = select(ForecastTrace)
+            if organization_id is not None:
+                stmt = stmt.where(ForecastTrace.organization_id == organization_id)
+            return list(
+                s.exec(
+                    stmt.order_by(desc(ForecastTrace.created_at)).limit(limit)
                 ).all()
             )
 
@@ -1614,6 +1967,42 @@ class Store:
             s.add(state)
             s.commit()
             return state.id
+
+    def put_watched_market(self, watched: WatchedMarket) -> str:
+        watched.updated_at = _utcnow()
+        with self.session() as s:
+            existing = s.exec(
+                select(WatchedMarket)
+                .where(WatchedMarket.organization_id == watched.organization_id)
+                .where(WatchedMarket.url == watched.url)
+            ).first()
+            if existing is not None:
+                _copy_sqlmodel_fields(existing, watched, exclude={"id", "created_at"})
+                s.add(existing)
+                s.commit()
+                return existing.id
+            s.add(watched)
+            s.commit()
+            return watched.id
+
+    def list_watched_markets(
+        self,
+        *,
+        organization_id: str,
+        active_only: bool = True,
+        limit: int = 100,
+    ) -> list[WatchedMarket]:
+        with self.session() as s:
+            stmt = select(WatchedMarket).where(
+                WatchedMarket.organization_id == organization_id
+            )
+            if active_only:
+                stmt = stmt.where(WatchedMarket.status == "ACTIVE")
+            return list(
+                s.exec(
+                    stmt.order_by(desc(WatchedMarket.created_at)).limit(limit)
+                ).all()
+            )
 
     def add_forecast_followup_session(self, session: ForecastFollowUpSession) -> str:
         with self.session() as s:

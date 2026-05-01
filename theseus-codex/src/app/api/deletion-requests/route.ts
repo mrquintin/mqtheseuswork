@@ -44,7 +44,7 @@ export async function GET(req: Request) {
       id: true,
       reason: true,
       createdAt: true,
-      requester: { select: { id: true, name: true } },
+      requester: { select: { id: true, displayName: true, name: true, username: true } },
       upload: {
         select: {
           id: true,
@@ -73,7 +73,7 @@ export async function GET(req: Request) {
         select: {
           id: true,
           title: true,
-          founder: { select: { id: true, name: true } },
+          founder: { select: { id: true, displayName: true, name: true, username: true } },
           deletedAt: true,
         },
       },

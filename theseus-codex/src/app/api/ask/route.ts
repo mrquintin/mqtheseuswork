@@ -1,6 +1,15 @@
 import { NextResponse } from "next/server";
+import { randomUUID } from "crypto";
 import { getFounderFromAuth } from "@/lib/apiKeyAuth";
 import { db } from "@/lib/db";
+import {
+  conclusionCitationPath,
+  maskCitationToken,
+  resolveOracleCitations,
+  uploadCitationPath,
+  type OracleCitationSource,
+  type OracleUploadChunk,
+} from "@/lib/oracleCitations";
 import { sanitizeAndCap } from "@/lib/sanitizeText";
 
 /**
@@ -148,6 +157,7 @@ interface ChunkRecord {
   uploadId: string;
   uploadTitle: string;
   uploadSlug: string | null;
+  chunkId: string | null;
   chunkIndex: number;
   text: string;
   score: number;
@@ -241,8 +251,8 @@ Your job: answer the founder's question. You have two kinds of source material t
 Citation protocol (IMPORTANT):
 
   When you make a claim grounded in a firm Conclusion, cite it inline using [C:<first-8-chars-of-id>]. Example: "Position sizing is bounded by conviction half-life [C:cmo4sd12]."
-  When you make a claim grounded in an Upload excerpt, cite it using [U:<short-title>]. Example: "[U:Q3 retro] suggests the opposite."
-  Multiple citations on the same sentence are fine: "... [C:cmo4sd12] [U:Q3 retro]."
+  When you make a claim grounded in an Upload excerpt, cite it using [U:<first-8-chars-of-upload-id>]. Example: "[U:cmo4up91] suggests the opposite."
+  Multiple citations on the same sentence are fine: "... [C:cmo4sd12] [U:cmo4up91]."
 
 Answering rules:
 
@@ -258,7 +268,9 @@ Answering rules:
 
   Weight firm and founder tiers heavily; treat open as unresolved.
 
-  Prefer concision. One to three sentences is ideal. Longer only when the question genuinely demands it.`;
+  Prefer concision. One to three sentences is ideal. Longer only when the question genuinely demands it.
+
+  Format your answer with light markdown: bold for the most load-bearing claims, paragraphs separated by blank lines, lists only when the structure is genuinely a list. Do not include headings or code blocks. Always preserve inline citation tokens of the form [C:<id>] and [U:<id>] exactly as you receive them.`;
 
 interface ConclusionContext {
   id: string;
@@ -299,7 +311,9 @@ function buildUserMessage(
     const rendered = chunks
       .map(
         (c) =>
-          `— [U:${c.uploadTitle.slice(0, 40)}]${c.uploadSlug ? ` (/post/${c.uploadSlug})` : ""}\n${c.text}`,
+          `— [U:${c.uploadId.slice(0, 8)}] title=${c.uploadTitle}${
+            c.uploadSlug ? ` (/post/${c.uploadSlug})` : ""
+          }\n${c.text}`,
       )
       .join("\n\n");
     parts.push(
@@ -412,6 +426,7 @@ export async function POST(req: Request) {
         { status: 400 },
       );
     }
+    const questionId = randomUUID();
 
     const apiKey = process.env.ANTHROPIC_API_KEY;
     if (!apiKey) {
@@ -467,6 +482,14 @@ export async function POST(req: Request) {
         title: true,
         slug: true,
         textContent: true,
+        chunks: {
+          orderBy: { index: "asc" },
+          select: {
+            id: true,
+            index: true,
+            text: true,
+          },
+        },
       },
     });
 
@@ -477,16 +500,28 @@ export async function POST(req: Request) {
     for (const up of uploadRows) {
       if (!up.textContent) continue;
       uploadMeta.push({ id: up.id, title: up.title, slug: up.slug });
-      const chunks = chunkText(up.textContent);
-      for (let i = 0; i < chunks.length; i++) {
-        const score = scoreChunk(chunks[i]!, questionTokens);
+      const chunks =
+        up.chunks.length > 0
+          ? up.chunks.map((chunk) => ({
+              id: chunk.id,
+              index: chunk.index,
+              text: chunk.text,
+            }))
+          : chunkText(up.textContent).map((text, index) => ({
+              id: null,
+              index,
+              text,
+            }));
+      for (const chunk of chunks) {
+        const score = scoreChunk(chunk.text, questionTokens);
         if (score <= 0) continue;
         scoredChunks.push({
           uploadId: up.id,
           uploadTitle: up.title,
           uploadSlug: up.slug,
-          chunkIndex: i,
-          text: chunks[i]!,
+          chunkId: chunk.id,
+          chunkIndex: chunk.index,
+          text: chunk.text,
           score,
         });
       }
@@ -527,7 +562,7 @@ export async function POST(req: Request) {
           action: "ask",
           detail: sanitizeAndCap(
             `Q: ${question.slice(0, 180)}${question.length > 180 ? "…" : ""} | ` +
-              `model=${model} C=${conclusions.length} U=${topChunks.length} ` +
+              `question_id=${questionId} model=${model} C=${conclusions.length} U=${topChunks.length} ` +
               `in=${inputTokens} out=${outputTokens}`,
             2_000,
           ),
@@ -540,17 +575,8 @@ export async function POST(req: Request) {
     // ── Response ───────────────────────────────────────────────────
     // `sources` is a heterogeneous list — a `type` discriminator lets
     // the client render each kind with the right affordances
-    // (conclusion → tier pill; upload → clickable title, link to
-    // /post/<slug> when public).
-    interface SourceEntry {
-      type: "conclusion" | "upload";
-      id: string;
-      label: string;
-      tier?: string;
-      topic?: string;
-      text: string;
-      url?: string | null;
-    }
+    // (conclusion -> tier pill; upload -> centralized deep-link target).
+    type SourceEntry = OracleCitationSource;
 
     // Deduplicate upload sources by id — a single upload can
     // contribute multiple top chunks; we surface just one source
@@ -569,7 +595,7 @@ export async function POST(req: Request) {
           id: c.uploadId,
           label: c.uploadTitle,
           text: c.text,
-          url: c.uploadSlug ? `/post/${c.uploadSlug}` : null,
+          url: uploadCitationPath(c.uploadId),
         });
       }
     }
@@ -582,9 +608,31 @@ export async function POST(req: Request) {
         tier: c.confidenceTier,
         topic: c.topicHint,
         text: c.text,
+        url: conclusionCitationPath(c.id),
       })),
       ...uploadSources.values(),
     ];
+
+    const uploadChunks: OracleUploadChunk[] = topChunks.map((chunk) => ({
+      uploadId: chunk.uploadId,
+      chunkId: chunk.chunkId,
+      chunkIndex: chunk.chunkIndex,
+      text: chunk.text,
+    }));
+    const { citations, citationsResolved, citationsUnresolved } =
+      resolveOracleCitations({
+        answer,
+        sources,
+        uploadChunks,
+      });
+
+    for (const [token, citation] of Object.entries(citations)) {
+      if (!citation.url) {
+        console.warn(
+          `oracle.citation.unresolved token=${maskCitationToken(token)} question_id=${questionId}`,
+        );
+      }
+    }
 
     return NextResponse.json({
       question,
@@ -596,6 +644,9 @@ export async function POST(req: Request) {
       inputTokens,
       outputTokens,
       sources,
+      citations,
+      citationsResolved,
+      citationsUnresolved,
     });
   } catch (error) {
     console.error("/api/ask error:", error);

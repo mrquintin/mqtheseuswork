@@ -21,6 +21,7 @@ import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 import { getFounderFromAuth } from "@/lib/apiKeyAuth";
 import { db } from "@/lib/db";
+import { founderDisplayName } from "@/lib/founderDisplay";
 import { canWrite, WRITE_FORBIDDEN_RESPONSE } from "@/lib/roles";
 import { sanitizeAndCap } from "@/lib/sanitizeText";
 
@@ -71,7 +72,7 @@ export async function POST(
     );
   }
 
-  const retryNote = `\n— Retry requested by ${founder.name} at ${new Date().toISOString()} —\n`;
+  const retryNote = `\n— Retry requested by ${founderDisplayName(founder)} at ${new Date().toISOString()} —\n`;
   await db.upload.update({
     where: { id },
     data: {

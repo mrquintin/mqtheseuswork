@@ -1,19 +1,41 @@
 #!/bin/bash
-# Round 10 — sequentially run every prompt in coding_prompts/ via the
+# Round 12 — sequentially run every prompt in coding_prompts/ via the
 # OpenAI Codex CLI (`codex exec`). Streams each session's stdout to the
 # terminal AND saves the full text log to .codex_runs/<timestamp>_<prompt>.log
 # for review.
+#
+# Round 12 layout (22 prompts):
+#   Wave A (01–04) — Login transition, dashboard X-button UX,
+#                    Oracle markdown rendering, founder display name.
+#   Wave B (05–08) — Public homepage reorganization, About page,
+#                    institutional copy library, contact channel.
+#   Wave C (09–12) — Currents real X ingestion + commentary, Theseus
+#                    X bot account outbound, Substack one-click publish,
+#                    unified publish panel.
+#   Wave D (13–15) — Oracle citation deep-links, transcript explorer
+#                    (Dorkesh-style), auto-embedding pipeline.
+#   Wave E (16)    — Nav consolidation (Knowledge hub).
+#   Wave F (17)    — Prediction-market portfolio surface.
+#   Wave G (18–22) — Live-trading activation prompts carried over from
+#                    Round 11 and never run: credential validator,
+#                    production migration, demo integration test,
+#                    operator rehearsal doc, deployment + observability.
+#
+# Prompts 01–17 do not require .env.live — they are app changes.
+# Prompts 18–22 do. The preflight enforces .env.live ONLY when the plan
+# includes prompt 18 or higher.
 #
 # This script uses the installed `codex` CLI's existing auth (your ChatGPT/
 # Codex subscription) — it does NOT read any OpenAI API key. If you have not
 # yet signed in, run `codex auth login` once before invoking this script.
 #
 # Usage:
-#   ./run_prompts.sh                       # run all prompts, halt on first failure
+#   ./run_prompts.sh                       # run prompts 01–17 (app changes)
 #   ./run_prompts.sh --from 5              # start at prompt 05
 #   ./run_prompts.sh --to 9                # stop after prompt 09 (inclusive)
 #   ./run_prompts.sh --from 3 --to 9       # 03 through 09 inclusive
 #   ./run_prompts.sh --only 09             # run only prompt 09
+#   ./run_prompts.sh --include-live        # include prompts 18–22; requires .env.live
 #   ./run_prompts.sh --model gpt-5-codex   # override the model
 #   ./run_prompts.sh --continue            # keep going on prompt failure
 #   ./run_prompts.sh --dry-run             # show plan only
@@ -80,12 +102,14 @@ ONLY=""
 CONTINUE_ON_FAIL=0
 DRY_RUN=0
 SKIP_CHECKPOINTS=0
+INCLUDE_LIVE=0
 
 # ----- Checkpoints (parallel arrays — bash 3.2 has no associative arrays) ---
-# Round 11 ships with no per-prompt checkpoints. Prompts produce ops scripts
-# and docs; their own Definition-of-Done assertions are sufficient. Earlier-
-# round checkpoint functions (ck_design, ck_data, ck_safety) are preserved in
-# git history under archive_round10/ for reference.
+# Round 12 ships with no per-prompt checkpoints. Each prompt has its own
+# Definition-of-Done assertions, and the breadth of changes (UI, schema,
+# pipelines) makes a single-shape checkpoint function impractical.
+# Earlier-round checkpoint functions (ck_design, ck_data, ck_safety) are
+# preserved in git history under archive_round10/ for reference.
 CHECKPOINT_AFTER=()
 CHECKPOINT_FN=()
 
@@ -96,6 +120,7 @@ while [[ $# -gt 0 ]]; do
     --to)                TO="$2"; shift 2 ;;
     --only)              ONLY="$2"; shift 2 ;;
     --model)             MODEL="$2"; shift 2 ;;
+    --include-live)      INCLUDE_LIVE=1; shift ;;
     --continue)          CONTINUE_ON_FAIL=1; shift ;;
     --dry-run)           DRY_RUN=1; shift ;;
     --skip-checkpoints)  SKIP_CHECKPOINTS=1; shift ;;
@@ -108,8 +133,17 @@ if [[ "$FROM" -gt 0 && "$TO" -gt 0 && "$((10#$FROM))" -gt "$((10#$TO))" ]]; then
   echo "error: --from $FROM is greater than --to $TO"; exit 2
 fi
 
+# App-wave runs should not unexpectedly continue into the credential-gated
+# live-trading wave. Prompts 18–22 still run when explicitly requested via
+# --include-live, --from 18+, --to 18+, or --only 18+.
+if [ "$INCLUDE_LIVE" -eq 0 ] && [ "$TO" -eq 0 ] && [ -z "$ONLY" ] && { [ "$FROM" -eq 0 ] || [ "$((10#$FROM))" -lt 18 ]; }; then
+  TO=17
+fi
+
 # ----- Pre-flight ------------------------------------------------------------
-if ! command -v codex >/dev/null 2>&1; then
+# In dry-run mode we never invoke `codex`, so don't insist it be installed —
+# this lets the user inspect the plan from any machine.
+if [ "$DRY_RUN" -eq 0 ] && ! command -v codex >/dev/null 2>&1; then
   echo "ERROR: 'codex' CLI not found in PATH." >&2
   echo "Install per https://github.com/openai/codex and run 'codex auth login'." >&2
   exit 3
@@ -178,9 +212,10 @@ if [ "$DRY_RUN" -eq 1 ]; then
   exit 0
 fi
 
-# ----- Round 11 — pre-flight, progress bar, heartbeat ------------------------
-# Round 11 has no per-prompt checkpoints. Instead it has:
-#   - A single .env.live preflight that runs ONCE before any codex call.
+# ----- Round 12 — pre-flight, progress bar, heartbeat ------------------------
+# Round 12 has no per-prompt checkpoints. Instead it has:
+#   - A conditional .env.live preflight: only enforced when the plan
+#     includes a prompt ≥ 18 (live-trading wave).
 #   - A progress bar header printed at the start of each prompt.
 #   - A heartbeat that prints elapsed time every 30s during long codex calls.
 
@@ -191,11 +226,14 @@ preflight_env_live() {
   if [ ! -f "$f" ]; then
     echo
     echo "${RED}${BOLD}── .env.live not found at $f ──${NC}"
-    echo "${RED}Round 11 requires a populated .env.live before any codex call.${NC}"
+    echo "${RED}Round 12 prompts 18–22 (live-trading wave) require a populated .env.live.${NC}"
     echo
     echo "Setup:"
     echo "    cp .env.live.template .env.live"
     echo "    \$EDITOR .env.live          # fill in real values"
+    echo
+    echo "Or restrict the run to prompts 1–17 (app changes only):"
+    echo "    ./run_prompts.sh --to 17"
     echo
     echo "Then re-run:  ./run_prompts.sh"
     return 1
@@ -220,6 +258,16 @@ preflight_env_live() {
     echo
     echo "${YELLOW}This runner does not read or print the values themselves —${NC}"
     echo "${YELLOW}only checks that each KEY=<non-empty-value> line exists.${NC}"
+    echo
+    echo "If you only want the app/product prompts, run:"
+    if [ "$FROM" -gt 0 ] && [ "$((10#$FROM))" -lt 18 ]; then
+      printf "    ./run_prompts.sh --from %02d --to 17\n" "$((10#$FROM))"
+    else
+      echo "    ./run_prompts.sh --to 17"
+    fi
+    echo
+    echo "If you really want prompts 18–22, fill .env.live with real values first."
+    echo "Do not paste those values into chat and do not commit .env.live."
     echo
     return 1
   fi
@@ -277,7 +325,7 @@ heartbeat_loop() {
 }
 
 # Look up the checkpoint function for a given prompt number, if any.
-# Round 11 has no checkpoints (CHECKPOINT_AFTER is empty), so this always
+# Round 12 has no checkpoints (CHECKPOINT_AFTER is empty), so this always
 # returns "". Kept for forward-compat with future rounds.
 checkpoint_for() {
   local n="$1"
@@ -413,12 +461,29 @@ run_codex_with_retry() {
   done
 }
 
-# ----- Pre-flight: .env.live populated --------------------------------------
-# Skip in dry-run mode (no codex calls happen so missing .env.live is fine).
-if [ "$DRY_RUN" -eq 0 ]; then
+# ----- Pre-flight: .env.live populated (only if plan touches live-trading) --
+# Round 12 prompts 1–17 are app changes that do NOT require .env.live.
+# Prompts 18–22 are the live-trading carry-overs from Round 11 and DO.
+# Compute whether any planned prompt is ≥ 18 and only enforce in that case.
+# Skip entirely in dry-run mode.
+PLAN_HAS_LIVE=0
+for _f in ${PROMPTS[@]+"${PROMPTS[@]}"}; do
+  _n=$(basename "$_f" .txt); _num="${_n%%_*}"
+  if [ -n "$ONLY" ] && [ "$_num" != "$ONLY" ]; then continue; fi
+  if [ "$FROM" -gt 0 ] && [ "$((10#$_num))" -lt "$((10#$FROM))" ]; then continue; fi
+  if [ "$TO"   -gt 0 ] && [ "$((10#$_num))" -gt "$((10#$TO))"   ]; then continue; fi
+  if [ "$((10#$_num))" -ge 18 ]; then
+    PLAN_HAS_LIVE=1
+    break
+  fi
+done
+
+if [ "$DRY_RUN" -eq 0 ] && [ "$PLAN_HAS_LIVE" -eq 1 ]; then
   if ! preflight_env_live; then
     exit 1
   fi
+elif [ "$DRY_RUN" -eq 0 ] && [ "$PLAN_HAS_LIVE" -eq 0 ]; then
+  echo "${BLUE}Plan touches only prompts 1–17 (app changes) — .env.live preflight skipped.${NC}"
 fi
 
 # ----- Run -------------------------------------------------------------------

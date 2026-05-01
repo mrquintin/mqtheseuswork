@@ -1,5 +1,6 @@
 import { db } from "@/lib/db";
 import { fetchPeerReviews } from "@/lib/api/round3";
+import { founderDisplayName } from "@/lib/founderDisplay";
 import { requireTenantContext } from "@/lib/tenant";
 
 interface TimelineEvent {
@@ -37,7 +38,9 @@ export default async function HistoryTab({ conclusionId }: { conclusionId: strin
       where: { id: conclusionId, organizationId: tenant.organizationId },
       select: {
         createdAt: true,
-        attributedFounder: { select: { name: true } },
+        attributedFounder: {
+          select: { displayName: true, name: true, username: true },
+        },
       },
     }),
     fetchPeerReviews(tenant.organizationId, conclusionId),
@@ -55,7 +58,7 @@ export default async function HistoryTab({ conclusionId }: { conclusionId: strin
     kind: "created",
     summary: "Conclusion created",
     detail: conclusion.attributedFounder
-      ? `Attributed to ${conclusion.attributedFounder.name}`
+      ? `Attributed to ${founderDisplayName(conclusion.attributedFounder)}`
       : undefined,
   });
 

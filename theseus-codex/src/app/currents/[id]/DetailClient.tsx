@@ -5,6 +5,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 
 import type { PublicOpinion, PublicSource } from "@/lib/currentsTypes";
 import { renderSafeMarkdown } from "@/lib/safeMarkdown";
+import PublishToToolbar from "@/components/PublishToToolbar";
 
 import AuditTrail from "./AuditTrail";
 import { CopyLinkButton } from "./CopyLinkButton";
@@ -13,6 +14,7 @@ import SourceCard from "./SourceCard";
 import SourceDrawer from "./SourceDrawer";
 
 interface DetailClientProps {
+  canPublish?: boolean;
   opinion: PublicOpinion;
   sources: PublicSource[];
 }
@@ -37,7 +39,7 @@ function topicFor(opinion: PublicOpinion): string {
   return opinion.topic_hint || opinion.event?.topic_hint || "untagged";
 }
 
-export default function DetailClient({ opinion, sources }: DetailClientProps) {
+export default function DetailClient({ canPublish = false, opinion, sources }: DetailClientProps) {
   const sourceIds = useMemo(
     () => new Set(sources.map((source) => source.source_id)),
     [sources],
@@ -128,7 +130,12 @@ export default function DetailClient({ opinion, sources }: DetailClientProps) {
             <span>
               {opinion.stance} · {topicFor(opinion)}
             </span>
-            <CopyLinkButton opinionId={opinion.id} />
+            <span style={{ alignItems: "center", display: "inline-flex", flexWrap: "wrap", gap: "0.5rem" }}>
+              {canPublish ? (
+                <PublishToToolbar artifactId={opinion.id} artifactType="currents-opinion" />
+              ) : null}
+              <CopyLinkButton opinionId={opinion.id} />
+            </span>
           </div>
           <h1
             style={{

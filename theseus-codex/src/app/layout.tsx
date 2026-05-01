@@ -1,11 +1,11 @@
 import type { Metadata } from "next";
 import "./globals.css";
 import CRTOverlay from "@/components/CRTOverlay";
+import { theseusIdentity } from "@/content/theseusIdentity";
 
 export const metadata: Metadata = {
-  title: "Theseus Codex",
-  description:
-    "Upload ideas, track methodology, build the communal brain. A disciplined instrument for firms that want to converge on better beliefs.",
+  title: theseusIdentity.metadata.title,
+  description: theseusIdentity.metadata.description,
   alternates: {
     types: {
       "application/rss+xml": "/feed.xml",

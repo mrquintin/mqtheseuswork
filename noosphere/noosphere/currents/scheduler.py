@@ -32,6 +32,7 @@ MAX_EVENTS_PER_CYCLE = 40
 MAX_OPINIONS_PER_CYCLE = 12
 SHORT_BACKOFF_SECONDS = 30
 LONG_BACKOFF_SECONDS = CYCLE_SECONDS
+EMBED_BACKFILL_INTERVAL_SECONDS = 24 * 60 * 60
 
 LOGGER = logging.getLogger(__name__)
 
@@ -186,6 +187,16 @@ async def run_cycle(store, ingestor_cfg, budget) -> CycleReport:
 
             if outcome == OpinionOutcome.PUBLISHED:
                 opined += 1
+                try:
+                    from noosphere.social.currents_bridge import (
+                        create_x_draft_for_event_opinion,
+                    )
+
+                    await create_x_draft_for_event_opinion(store, event_id)
+                except Exception as exc:
+                    errors.append(
+                        f"event:{event_id}:social_draft:{type(exc).__name__}: {exc}"
+                    )
             elif outcome == OpinionOutcome.ABSTAINED_BUDGET:
                 abstained_budget += 1
                 break
@@ -245,6 +256,74 @@ async def _sleep_or_stop(seconds: float, stop_event: asyncio.Event) -> None:
         return
 
 
+def _env_bool(name: str, default: bool) -> bool:
+    raw = os.environ.get(name, "").strip().lower()
+    if not raw:
+        return default
+    return raw not in {"0", "false", "no", "off"}
+
+
+def _env_int(name: str, default: int) -> int:
+    raw = os.environ.get(name, "").strip()
+    if not raw:
+        return default
+    try:
+        return int(raw)
+    except ValueError:
+        return default
+
+
+def _embed_backfill_marker_path() -> Path:
+    explicit = os.environ.get("EMBED_BACKFILL_MARKER_PATH", "").strip()
+    if explicit:
+        return Path(explicit)
+    data_dir = os.environ.get("NOOSPHERE_DATA_DIR", "").strip()
+    if data_dir:
+        return Path(data_dir) / "embed_backfill_last_run.json"
+    return get_settings().data_dir / "embed_backfill_last_run.json"
+
+
+def _last_embed_backfill_ts(path: Path) -> float | None:
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+        value = payload.get("finished_at_unix")
+        return float(value) if value is not None else None
+    except Exception:
+        return None
+
+
+def _write_embed_backfill_marker(path: Path, *, ok: bool) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    payload = {
+        "finished_at_unix": time.time(),
+        "finished_at": datetime.now(timezone.utc).isoformat(),
+        "ok": ok,
+    }
+    path.write_text(json.dumps(payload, sort_keys=True) + "\n", encoding="utf-8")
+
+
+def _run_embed_backfill_if_due(store: Store) -> None:
+    if not _env_bool("EMBED_BACKFILL_ENABLED", True):
+        return
+    marker = _embed_backfill_marker_path()
+    interval = max(
+        60,
+        _env_int("EMBED_BACKFILL_INTERVAL_SECONDS", EMBED_BACKFILL_INTERVAL_SECONDS),
+    )
+    last = _last_embed_backfill_ts(marker)
+    now = time.time()
+    if last is not None and now - last < interval:
+        return
+    try:
+        from noosphere.cli_commands.embed_backfill import run_backfill
+
+        report = run_backfill(store=store)
+        _write_embed_backfill_marker(marker, ok=not report.errors)
+    except Exception:
+        LOGGER.exception("embed_backfill.scheduler_failed")
+        _write_embed_backfill_marker(marker, ok=False)
+
+
 async def loop(store, ingestor_cfg, budget):
     """Run the standing scheduler until SIGINT/SIGTERM."""
     stop_event = asyncio.Event()
@@ -258,6 +337,7 @@ async def loop(store, ingestor_cfg, budget):
     while not stop_event.is_set():
         cycle_started = time.monotonic()
         try:
+            _run_embed_backfill_if_due(store)
             report = await run_cycle(store, ingestor_cfg, budget)
             write_status(report)
             _log_cycle(report)

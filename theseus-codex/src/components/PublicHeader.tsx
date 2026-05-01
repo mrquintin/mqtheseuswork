@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { theseusIdentity } from "@/content/theseusIdentity";
 import { CurrentsNavPulse } from "./CurrentsNavPulse";
 import { ForecastsNavPulse } from "./ForecastsNavPulse";
 import ThemeToggle from "./ThemeToggle";
@@ -38,6 +39,7 @@ export default function PublicHeader({ authed }: { authed: boolean }) {
       }}
     >
       <Link
+        aria-label={theseusIdentity.publicHeader.logoAriaLabel}
         href="/"
         style={{
           textDecoration: "none",
@@ -74,7 +76,7 @@ export default function PublicHeader({ authed }: { authed: boolean }) {
             color: "var(--parchment-dim)",
           }}
         >
-          Codex
+          {theseusIdentity.publicHeader.tagline}
         </span>
       </Link>
 
@@ -92,6 +94,9 @@ export default function PublicHeader({ authed }: { authed: boolean }) {
           textTransform: "uppercase",
         }}
       >
+        <Link href="/about" style={{ color: "var(--amber-dim)", textDecoration: "none" }}>
+          About
+        </Link>
         <Link href="/methodology" style={{ color: "var(--amber-dim)", textDecoration: "none" }}>
           Methodology
         </Link>
@@ -99,9 +104,6 @@ export default function PublicHeader({ authed }: { authed: boolean }) {
         <ForecastsNavPulse label="Forecasts" />
         <Link href="/responses" style={{ color: "var(--amber-dim)", textDecoration: "none" }}>
           Responses
-        </Link>
-        <Link href="/#about" style={{ color: "var(--amber-dim)", textDecoration: "none" }}>
-          About
         </Link>
       </nav>
 

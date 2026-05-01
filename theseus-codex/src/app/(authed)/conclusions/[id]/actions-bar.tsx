@@ -5,6 +5,7 @@ import { getFounder } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { submitToRigorGate } from "@/lib/api/round3";
 import { callNoosphereJson } from "@/lib/pythonRuntime";
+import { founderDisplayName } from "@/lib/founderDisplay";
 
 /**
  * Actions bar for /conclusions/[id]. Server component; each action
@@ -28,7 +29,7 @@ export default function ActionsBar({ conclusionId }: { conclusionId: string }) {
     "use server";
     const founder = await getFounder();
     if (!founder) redirect("/login");
-    const gate = await submitToRigorGate("peer_review.run", founder.name);
+    const gate = await submitToRigorGate("peer_review.run", founderDisplayName(founder));
     if (!gate.approved) {
       redirect(
         `/conclusions/${conclusionId}?tab=peer&ledger=${encodeURIComponent(
@@ -92,10 +93,10 @@ export default function ActionsBar({ conclusionId }: { conclusionId: string }) {
           Queue for publication
         </button>
       </form>
-      <Link href={`/peer-review/${conclusionId}`} className="btn" style={btnStyle}>
+      <Link href={`/ops?panel=peer-review&target=${encodeURIComponent(conclusionId)}`} className="btn" style={btnStyle}>
         Peer review history
       </Link>
-      <Link href="/decay" className="btn" style={btnStyle}>
+      <Link href="/ops?panel=decay" className="btn" style={btnStyle}>
         Decay dashboard
       </Link>
     </div>

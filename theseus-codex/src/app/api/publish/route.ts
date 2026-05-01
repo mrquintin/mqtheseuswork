@@ -13,10 +13,9 @@
  *   - `publish=true`: sets publishedAt=now(), mints a slug if the row
  *     doesn't have one yet. Re-publishing preserves the existing slug
  *     so external links don't break.
- *   - `publish=false`: clears publishedAt but KEEPS slug so that if
- *     the founder re-publishes later the same URL still works. (The
- *     public index filter is `publishedAt IS NOT NULL`, so a cleared
- *     timestamp is sufficient to hide the post.)
+ *   - `publish=false`: clears publishedAt and slug. Prompt 14 makes
+ *     "Private" a hide-from-public action; old public URLs should stop
+ *     resolving rather than silently reappearing on a later publish.
  */
 import { NextResponse } from "next/server";
 import { getFounderFromAuth } from "@/lib/apiKeyAuth";
@@ -154,10 +153,10 @@ export async function POST(req: Request) {
       });
     }
 
-    // Unpublish — clear timestamp, keep slug.
+    // Unpublish: clear both timestamp and slug so the post has no public URL.
     await db.upload.update({
       where: { id: uploadId },
-      data: { publishedAt: null },
+      data: { publishedAt: null, slug: null },
     });
     await db.auditEvent
       .create({
@@ -172,7 +171,7 @@ export async function POST(req: Request) {
       .catch(() => {});
     return NextResponse.json({
       ok: true,
-      slug: existing.slug,
+      slug: null,
       publishedAt: null,
       publicUrl: null,
     });

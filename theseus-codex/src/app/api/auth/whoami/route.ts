@@ -12,6 +12,7 @@
  */
 import { NextResponse } from "next/server";
 import { getFounderFromAuth } from "@/lib/apiKeyAuth";
+import { founderDisplayName } from "@/lib/founderDisplay";
 
 export async function GET(req: Request) {
   const founder = await getFounderFromAuth(req);
@@ -37,6 +38,8 @@ export async function GET(req: Request) {
     founder: {
       id: founder.id,
       name: founder.name,
+      displayName: founder.displayName,
+      publicName: founderDisplayName(founder),
       username: founder.username,
       email: founder.email,
       role: founder.role,

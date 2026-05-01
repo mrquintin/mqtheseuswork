@@ -1,0 +1,79 @@
+# Codex Prompt 16 of 22 — Consolidate the founder nav: Knowledge hub (Conclusions + Explorer + Library), kill standalone Review and Publication
+
+**Round:** 12, Wave E (Nav simplification). **Sequence:** 16 of 22. **Report back with:** the before/after nav diagram and a redirect map for retired routes.
+
+## Why this prompt exists
+
+Voice memo: *"There's just a lot of [tabs] and it's hard to intuitively distinguish what is what. We need to find a way to lump the conclusions, explore, review, and possibly library tab together. Also, the publication tab just doesn't work and I don't know if we even need it. How about we get rid of the publication tab and then we'll add it back if we need it. Also: yeah, the Review tab can be eliminated."*
+
+Concrete decisions encoded by the founder:
+
+- **Conclusions, Explorer, Library** → one hub.
+- **Review** → eliminated as a top-level destination (its constituents migrate or retire).
+- **Publication** → eliminated as a top-level destination.
+- **Ops** → stays (it has a good user guide; founder explicitly approved keeping it).
+
+## Before you start — read current state
+
+1. `theseus-codex/src/components/Nav.tsx` — current top-level entries: Dashboard · Upload · Library · Ask · Conclusions · Explorer · (group entries from `SUB_NAV_GROUPS`) · Publication · Manage.
+2. `theseus-codex/src/components/SubNav.tsx` — the secondary row, plus `SUB_NAV_GROUPS` array.
+3. Each retired-tab page: `(authed)/publication/page.tsx`, `(authed)/peer-review/`, `(authed)/contradictions/`, `(authed)/post-mortem/`, `(authed)/adversarial/`, `(authed)/decay/`, `(authed)/rigor-gate/`. We must decide for each: keep as a sub-page somewhere, or retire with a redirect.
+
+## Your task
+
+### A. New top-level nav
+
+```
+Dashboard · Upload · Knowledge · Ask · Currents · Forecasts · Social · Ops · [Manage admin-only]
+```
+
+- **Knowledge** — new group with default route `/knowledge` (a hub page rendering tabbed access to its children).
+- **Currents** — new top-level entry; was buried inside Currents-only route. Promote it; the homepage points here.
+- **Forecasts** — promotes the existing forecasts route to top level (foundation for prompt 17's portfolio).
+- **Social** — the outbound publish queue from prompts 10–12.
+- **Manage** — admin-only, unchanged.
+
+### B. Knowledge hub page
+
+Create `theseus-codex/src/app/(authed)/knowledge/page.tsx` rendering a `<TabNav>` with:
+
+- `Conclusions` (default) → reuses the existing `/conclusions` page, mounted under `/knowledge?tab=conclusions`.
+- `Explorer` → the semantic explorer, mounted under `/knowledge?tab=explorer`.
+- `Library` → the org-wide upload library, mounted under `/knowledge?tab=library`.
+- `Transcripts` → an index of every upload that has a transcript page (`/transcripts/<id>` from prompt 14).
+
+Each tab loads as a server component using the existing page logic (extract the body of each existing page into a sharable async component if the duplication is more than ~30 lines).
+
+### C. Old route handling — redirect, don't 404
+
+Add Next.js redirects (in `next.config.ts`) for:
+
+- `/conclusions` → `/knowledge?tab=conclusions`
+- `/explorer` → `/knowledge?tab=explorer`
+- `/library` → `/knowledge?tab=library`
+- `/publication` → `/knowledge?tab=conclusions` (with a one-time toast on land: "Publication has been retired. Conclusions show their publish state inline.")
+- `/peer-review`, `/contradictions`, `/post-mortem`, `/adversarial`, `/decay`, `/rigor-gate` → `/ops` with a deep-link query param so each retired surface lands as a focused panel inside Ops if a founder still needs it.
+
+Do NOT delete the underlying pages — the Ops sub-nav exposes them as advanced tooling. The founder's complaint was nav-overload, not "remove the functionality entirely."
+
+### D. Inline publish state replaces the Publication tab
+
+Since `/publication` is retired, add an inline `<PublishToggle />` (existing component) on every conclusion's detail page. The functionality the Publication tab previously provided (inspect drafts, flip publish state) is now per-conclusion, in-context.
+
+### E. SubNav simplification
+
+Delete the now-empty `SUB_NAV_GROUPS` entries that previously grouped Review/Library. The remaining group is just `Ops`, so the `<SubNav />` only renders when the active route is under `/ops`.
+
+### F. Tests
+
+- Vitest for `next.config.ts` redirects: each old URL resolves to the expected new URL.
+- Playwright e2e: from the dashboard, click Knowledge → see the four tabs, click each, see the matching content.
+- Snapshot test of the new Nav rendered for an admin role and a non-admin role.
+
+## Definition of Done
+
+- Top nav has at most 8 entries (9 with Manage).
+- No regressions: every previously-accessible piece of functionality is reachable, just via a clearer path.
+- Visiting an old URL never 404s; it redirects with a polite toast.
+- Build clean, tests pass.
+- No secrets in the patch.

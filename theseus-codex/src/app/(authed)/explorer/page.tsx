@@ -1,7 +1,7 @@
 import { requireTenantContext } from "@/lib/tenant";
 import ExplorerScatterPlot from "./scatter-plot";
 
-export default async function ExplorerPage() {
+async function ExplorerContent() {
   const tenant = await requireTenantContext();
   if (!tenant) return null;
 
@@ -35,4 +35,8 @@ export default async function ExplorerPage() {
       <ExplorerScatterPlot />
     </main>
   );
+}
+
+export default async function ExplorerPage() {
+  return ExplorerContent();
 }

@@ -58,6 +58,7 @@ import { NextResponse } from "next/server";
 import bcrypt from "bcryptjs";
 import { db } from "@/lib/db";
 import { createSession, destroySession } from "@/lib/auth";
+import { founderDisplayName } from "@/lib/founderDisplay";
 import { checkLoginRateLimit, resetLoginRateLimit } from "@/lib/rateLimit";
 
 const BCRYPT_ROUNDS = 10;
@@ -133,6 +134,7 @@ export async function POST(req: Request) {
         passwordHash: true,
         email: true,
         name: true,
+        displayName: true,
         username: true,
       },
     });
@@ -202,6 +204,8 @@ export async function POST(req: Request) {
         id: founder.id,
         email: founder.email,
         name: founder.name,
+        displayName: founder.displayName,
+        publicName: founderDisplayName(founder),
         username: founder.username,
       },
     });

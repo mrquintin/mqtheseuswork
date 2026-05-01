@@ -3,9 +3,13 @@ import { notFound, redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { db } from "@/lib/db";
 import { resolveClaimTexts } from "@/lib/api/round3";
+import { founderDisplayName } from "@/lib/founderDisplay";
+import { canWrite } from "@/lib/roles";
 import { requireTenantContext } from "@/lib/tenant";
 import PageHelp from "@/components/PageHelp";
+import PublishToggle from "@/components/PublishToggle";
 import TabNav from "@/components/TabNav";
+import PublicationClient from "../../publication/PublicationClient";
 import ConclusionSigil from "./conclusion-sigil";
 import ProvenanceTab from "./provenance-tab";
 import CascadeTab from "./cascade-tab";
@@ -71,31 +75,61 @@ export default async function ConclusionDetailPage({
   const sp = await searchParams;
   const activeTab: TabId = isTabId(sp.tab) ? sp.tab : "overview";
 
-  const conclusion = await db.conclusion.findFirst({
-    where: { id, organizationId: tenant.organizationId },
-    include: {
-      attributedFounder: true,
-      organization: true,
-      // Source uploads: the M:N bridge row plus the underlying Upload
-      // metadata we need for the "Source documents" list in the Overview
-      // tab. Filtered in app code to drop uploads that have been
-      // soft-deleted since extraction (deletedAt IS NOT NULL).
-      sources: {
-        include: {
-          upload: {
-            select: {
-              id: true,
-              title: true,
-              sourceType: true,
-              createdAt: true,
-              deletedAt: true,
+  const [conclusion, publicationReviews, publishedVersions] = await Promise.all([
+    db.conclusion.findFirst({
+      where: { id, organizationId: tenant.organizationId },
+      include: {
+        attributedFounder: true,
+        organization: true,
+        // Source uploads: the M:N bridge row plus the underlying Upload
+        // metadata we need for the "Source documents" list in the Overview
+        // tab and the inline source publish toggles below. Filtered in app
+        // code to drop uploads that have been soft-deleted since extraction.
+        sources: {
+          include: {
+            upload: {
+              select: {
+                id: true,
+                title: true,
+                sourceType: true,
+                status: true,
+                visibility: true,
+                founderId: true,
+                publishedAt: true,
+                slug: true,
+                createdAt: true,
+                deletedAt: true,
+              },
             },
           },
+          orderBy: { createdAt: "desc" },
         },
-        orderBy: { createdAt: "desc" },
       },
-    },
-  });
+    }),
+    db.publicationReview.findMany({
+      where: { organizationId: tenant.organizationId, conclusionId: id },
+      orderBy: { updatedAt: "desc" },
+      take: 20,
+      include: {
+        target: true,
+        reviewer: {
+          select: { id: true, displayName: true, name: true, username: true },
+        },
+      },
+    }),
+    db.publishedConclusion.findMany({
+      where: { organizationId: tenant.organizationId, sourceConclusionId: id },
+      orderBy: { version: "desc" },
+      take: 10,
+      select: {
+        id: true,
+        slug: true,
+        version: true,
+        publishedAt: true,
+        doi: true,
+      },
+    }),
+  ]);
   if (!conclusion) notFound();
 
   const supportIds = tryParse(conclusion.supportingPrincipleIds);
@@ -108,13 +142,61 @@ export default async function ConclusionDetailPage({
   const allIds = [...supportIds, ...evidenceIds, ...dissentIds];
   const idTextMap = await resolveClaimTexts(tenant.organizationId, allIds);
 
-  const sources = conclusion.sources
+  const sourceUploads = conclusion.sources
     .filter((cs) => !cs.upload.deletedAt)
     .map((cs) => ({
       uploadId: cs.upload.id,
       title: cs.upload.title,
       sourceType: cs.upload.sourceType,
+      status: cs.upload.status,
+      visibility: cs.upload.visibility,
+      founderId: cs.upload.founderId,
+      publishedAt: cs.upload.publishedAt,
+      slug: cs.upload.slug,
     }));
+  const sources = sourceUploads.map((source) => ({
+    uploadId: source.uploadId,
+    title: source.title,
+    sourceType: source.sourceType,
+  }));
+  const writer = canWrite(tenant.role);
+  const publicationReviewProps = publicationReviews.map((r) => ({
+    id: r.id,
+    status: r.status,
+    checklistJson: r.checklistJson,
+    reviewerNotes: r.reviewerNotes,
+    declineReason: r.declineReason,
+    revisionAsk: r.revisionAsk,
+    reviewerFounderId: r.reviewerFounderId,
+    createdAt: r.createdAt.toISOString(),
+    updatedAt: r.updatedAt.toISOString(),
+    target: {
+      id: r.target.id,
+      text: r.target.text,
+      topicHint: r.target.topicHint,
+      confidenceTier: r.target.confidenceTier,
+      confidence: r.target.confidence,
+      createdAt: r.target.createdAt.toISOString(),
+    },
+    reviewer: r.reviewer,
+  }));
+  const firmConclusionProps =
+    conclusion.confidenceTier === "firm"
+      ? [
+          {
+            id: conclusion.id,
+            text: conclusion.text,
+            topicHint: conclusion.topicHint,
+            createdAt: conclusion.createdAt.toISOString(),
+          },
+        ]
+      : [];
+  const toggleableSourceUploads = sourceUploads.filter(
+    (source) =>
+      writer &&
+      source.status === "ingested" &&
+      (tenant.role === "admin" || source.founderId === tenant.founderId),
+  );
 
   async function requestConclusionDeletion(formData: FormData) {
     "use server";
@@ -204,7 +286,7 @@ export default async function ConclusionDetailPage({
             >
               Confidence {(conclusion.confidence * 100).toFixed(0)}%
               {conclusion.attributedFounder
-                ? ` · Attributed to ${conclusion.attributedFounder.name}`
+                ? ` · Attributed to ${founderDisplayName(conclusion.attributedFounder)}`
                 : ""}
               {conclusion.topicHint ? ` · ${conclusion.topicHint}` : ""}
             </span>
@@ -225,6 +307,18 @@ export default async function ConclusionDetailPage({
             </p>
           ) : null}
         </header>
+
+        <PublicationInlinePanel
+          canUseReviewControls={writer}
+          currentFounderId={tenant.founderId}
+          firmConclusions={firmConclusionProps}
+          publishedVersions={publishedVersions.map((version) => ({
+            ...version,
+            publishedAt: version.publishedAt.toISOString(),
+          }))}
+          reviews={publicationReviewProps}
+          sourceUploads={toggleableSourceUploads}
+        />
 
         <ActionsBar conclusionId={id} />
 
@@ -267,7 +361,7 @@ export default async function ConclusionDetailPage({
           }}
         >
           <Link
-            href="/conclusions"
+            href="/knowledge?tab=conclusions"
             style={{
               fontFamily: "'Cinzel', serif",
               fontSize: "0.7rem",
@@ -276,7 +370,7 @@ export default async function ConclusionDetailPage({
               textDecoration: "none",
             }}
           >
-            ← All conclusions
+            ← Knowledge
           </Link>
           <form action={requestConclusionDeletion}>
             <input type="hidden" name="conclusionId" value={id} />
@@ -384,6 +478,193 @@ function ConfidenceContext({ confidence }: { confidence: number }) {
   );
 }
 
+function PublicationInlinePanel({
+  canUseReviewControls,
+  currentFounderId,
+  firmConclusions,
+  publishedVersions,
+  reviews,
+  sourceUploads,
+}: {
+  canUseReviewControls: boolean;
+  currentFounderId: string;
+  firmConclusions: Array<{
+    id: string;
+    text: string;
+    topicHint: string;
+    createdAt: string;
+  }>;
+  publishedVersions: Array<{
+    id: string;
+    slug: string;
+    version: number;
+    publishedAt: string;
+    doi: string;
+  }>;
+  reviews: Array<{
+    id: string;
+    status: string;
+    checklistJson: string;
+    reviewerNotes: string;
+    declineReason: string;
+    revisionAsk: string;
+    reviewerFounderId: string | null;
+    createdAt: string;
+    updatedAt: string;
+    target: {
+      id: string;
+      text: string;
+      topicHint: string;
+      confidenceTier: string;
+      confidence: number;
+      createdAt: string;
+    };
+    reviewer: {
+      id: string;
+      displayName: string | null;
+      name: string;
+      username: string;
+    } | null;
+  }>;
+  sourceUploads: Array<{
+    uploadId: string;
+    title: string;
+    sourceType: string;
+    status: string;
+    visibility: string;
+    founderId: string;
+    publishedAt: Date | null;
+    slug: string | null;
+  }>;
+}) {
+  const latest = publishedVersions[0];
+
+  return (
+    <section
+      className="portal-card"
+      style={{
+        padding: "1rem 1.25rem",
+        marginBottom: "1rem",
+        display: "grid",
+        gap: "0.85rem",
+      }}
+    >
+      <div style={{ display: "flex", justifyContent: "space-between", gap: "1rem", flexWrap: "wrap" }}>
+        <div>
+          <h2
+            className="mono"
+            style={{
+              color: "var(--amber-dim)",
+              fontSize: "0.62rem",
+              letterSpacing: "0.22em",
+              margin: 0,
+              textTransform: "uppercase",
+            }}
+          >
+            Publish state
+          </h2>
+          <p style={{ color: "var(--parchment-dim)", fontSize: "0.82rem", margin: "0.35rem 0 0" }}>
+            Publication review now lives with the conclusion instead of in a separate top-level tab.
+          </p>
+        </div>
+        {latest ? (
+          <Link
+            className="btn"
+            href={`/c/${encodeURIComponent(latest.slug)}/v/${latest.version}`}
+            style={{ alignSelf: "flex-start", fontSize: "0.65rem", textDecoration: "none" }}
+          >
+            Public v{latest.version}
+          </Link>
+        ) : null}
+      </div>
+
+      <div style={{ display: "flex", flexWrap: "wrap", gap: "0.7rem", alignItems: "center" }}>
+        <span className="mono" style={{ color: latest ? "var(--gold)" : "var(--parchment-dim)", fontSize: "0.62rem", letterSpacing: "0.18em", textTransform: "uppercase" }}>
+          {latest ? `Published ${latest.publishedAt.slice(0, 10)}` : "No published version"}
+        </span>
+        {reviews[0] ? (
+          <span className="mono" style={{ color: "var(--amber-dim)", fontSize: "0.62rem", letterSpacing: "0.18em", textTransform: "uppercase" }}>
+            Latest review: {reviews[0].status}
+          </span>
+        ) : null}
+      </div>
+
+      {publishedVersions.length > 1 ? (
+        <div style={{ display: "flex", flexWrap: "wrap", gap: "0.45rem" }}>
+          {publishedVersions.slice(1).map((version) => (
+            <Link
+              key={version.id}
+              href={`/c/${encodeURIComponent(version.slug)}/v/${version.version}`}
+              style={{ color: "var(--gold-dim)", fontSize: "0.72rem", textDecoration: "none" }}
+            >
+              v{version.version}
+            </Link>
+          ))}
+        </div>
+      ) : null}
+
+      {sourceUploads.length > 0 ? (
+        <div style={{ borderTop: "1px solid var(--border)", paddingTop: "0.85rem" }}>
+          <h3
+            className="mono"
+            style={{
+              color: "var(--parchment-dim)",
+              fontSize: "0.58rem",
+              letterSpacing: "0.2em",
+              margin: "0 0 0.55rem",
+              textTransform: "uppercase",
+            }}
+          >
+            Source post visibility
+          </h3>
+          <div style={{ display: "grid", gap: "0.5rem" }}>
+            {sourceUploads.map((source) => (
+              <div
+                key={source.uploadId}
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "space-between",
+                  gap: "0.8rem",
+                  flexWrap: "wrap",
+                }}
+              >
+                <span style={{ color: "var(--parchment)", fontSize: "0.82rem" }}>
+                  {source.title}
+                  <span style={{ color: "var(--parchment-dim)", marginLeft: "0.45rem" }}>
+                    {source.sourceType}
+                  </span>
+                </span>
+                <PublishToggle
+                  uploadId={source.uploadId}
+                  initialPublishedAt={source.publishedAt}
+                  initialSlug={source.slug}
+                />
+              </div>
+            ))}
+          </div>
+        </div>
+      ) : null}
+
+      {canUseReviewControls ? (
+        <PublicationClient
+          currentFounderId={currentFounderId}
+          firmConclusions={firmConclusions}
+          reviews={reviews}
+        />
+      ) : reviews.length > 0 ? (
+        <div style={{ borderTop: "1px solid var(--border)", paddingTop: "0.85rem" }}>
+          {reviews.map((review) => (
+            <p key={review.id} style={{ color: "var(--parchment-dim)", fontSize: "0.78rem", margin: "0.25rem 0" }}>
+              {review.status} · updated {review.updatedAt.slice(0, 10)}
+            </p>
+          ))}
+        </div>
+      ) : null}
+    </section>
+  );
+}
+
 function OverviewTab({
   text,
   supportIds,
@@ -448,7 +729,7 @@ function OverviewTab({
           {sources.map((s) => (
             <Link
               key={s.uploadId}
-              href="/library"
+              href="/knowledge?tab=library"
               style={{
                 display: "block",
                 padding: "0.4rem 0.75rem",

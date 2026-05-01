@@ -1,0 +1,59 @@
+# Codex Prompt 12 of 22 — Unified outbound publish panel
+
+**Round:** 12, Wave C. **Sequence:** 12 of 22. **Report back with:** the publish-panel screenshot path and an accessibility audit summary.
+
+## Why this prompt exists
+
+Prompts 10 (X) and 11 (Substack) ship two parallel outbound pipes with distinct backends but identical operator UX needs: queue, draft preview, edit, approve, kill switch. The voice memo's framing is *"one button"* — the founder doesn't want to think about which platform, only "publish this artifact." This prompt unifies the surface and reduces accidental misuse (e.g. approving an X post when meaning to approve a Substack post).
+
+## Before you start — read current state
+
+1. `theseus-codex/src/app/(authed)/social/page.tsx` (prompt 10) — index of all outbound posts.
+2. `theseus-codex/src/app/(authed)/social/[id]/page.tsx` (prompt 11) — per-post review.
+3. The two formatter modules (`x_formatter.py`, `substack_formatter.py`).
+4. Both safety modules (`post_safety.py`, `substack_safety.py`).
+
+## Your task
+
+### A. One queue, two filters
+
+Update `/social` to render a single queue of all `SocialPost` rows (any platform). Add:
+
+- A platform filter chip row: `All · X · Substack`.
+- A status filter chip row: `All · Draft · Approved · Posted · Rejected · Failed`.
+- A bulk-action bar visible only when ≥1 row is selected: `Approve all selected (Drafts only)` and `Reject all selected (Drafts only)`. Approval still runs every gate per-row server-side; bulk approval is a UX shortcut, not a gate bypass.
+
+### B. Per-post page becomes platform-aware
+
+Rename `[id]/page.tsx` content to a thin shell that renders one of two platform-specific subcomponents:
+
+- `XReviewBlock` — character counter, source link, body editor, mocked tweet preview.
+- `SubstackReviewBlock` — subject + subtitle inputs, markdown editor with live preview, expected delivery preview.
+
+The KILL button at the top is global: clicking it disables ALL outbound posting (sets both `theseus.x_kill` and `theseus.substack_kill` flags). A second, narrower KILL exists per platform card for when the founder wants to pause one channel only.
+
+### C. "Publish from artifact" affordance
+
+Pick one component and reuse it everywhere a publishable artifact lives. `theseus-codex/src/components/PublishToToolbar.tsx`:
+
+- Props: `{ artifactType: "session" | "upload" | "currents-opinion", artifactId: string }`.
+- Renders: a single `Publish to ▾` button → dropdown with `Substack`, `X`, optionally `Both`.
+- `Both` calls the X formatter AND the Substack formatter and creates two draft rows linked by a `bundleId` (new optional column on `SocialPost`).
+- Wherever a publishable artifact is shown — session page, upload page, currents opinion modal — render `<PublishToToolbar />`.
+
+### D. Schema addition
+
+Add `bundleId String? @db.Uuid` to `SocialPost`. Index it. The bundle id lets the queue group an X+Substack pair so approving one prompts the operator to also act on the sibling.
+
+### E. Tests
+
+- Vitest unit tests for the bulk-action server action: enforces gates per-row.
+- Playwright e2e: from a session, click `Publish to → Both`, land on `/social`, see two grouped drafts, approve both, see both move to posted.
+
+## Definition of Done
+
+- One coherent panel covers both platforms.
+- No regression in the per-platform gate behavior — gates run server-side, every time, regardless of bulk vs single approval.
+- The KILL switches still work and are unmistakable in the UI.
+- Tests pass.
+- No secrets in patches.

@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 
+import type { CurrentsHealth } from "@/lib/currentsApi";
 import type { PublicOpinion } from "@/lib/currentsTypes";
 import {
   filterToParams,
@@ -19,6 +20,7 @@ import OpinionCard from "./OpinionCard";
 import TopicClusters from "./TopicClusters";
 
 interface FeedClientProps {
+  health: CurrentsHealth | null;
   seed: PublicOpinion[];
 }
 
@@ -60,7 +62,36 @@ function EmptyFeedMessage({ filtered }: { filtered: boolean }) {
   );
 }
 
-export default function FeedClient({ seed }: FeedClientProps) {
+function DisabledBanner({ health }: { health: CurrentsHealth | null }) {
+  if (!health || health.disabled_reasons.length === 0) return null;
+  const reasons = health.disabled_reasons.join(", ");
+  return (
+    <div
+      role="status"
+      style={{
+        background: "rgba(172, 54, 37, 0.13)",
+        border: "1px solid rgba(255, 111, 82, 0.55)",
+        borderLeft: "4px solid var(--currents-stance-disagrees)",
+        borderRadius: "6px",
+        color: "var(--currents-parchment)",
+        fontFamily: "'IBM Plex Mono', monospace",
+        fontSize: "0.78rem",
+        lineHeight: 1.55,
+        marginBottom: "1rem",
+        padding: "0.75rem 0.9rem",
+      }}
+    >
+      Currents disabled — set X_BEARER_TOKEN and at least one of
+      CURRENTS_X_CURATED_ACCOUNTS / CURRENTS_X_SEARCH_QUERIES.
+      <span style={{ color: "var(--currents-parchment-dim)" }}>
+        {" "}
+        Reason: {reasons}.
+      </span>
+    </div>
+  );
+}
+
+export default function FeedClient({ health, seed }: FeedClientProps) {
   const seedIds = useRef(new Set(seed.map((opinion) => opinion.id)));
   const seenOpinionIds = useRef(new Set(seed.map((opinion) => opinion.id)));
   const activeFilterKey = useRef<string | null>(null);
@@ -117,6 +148,7 @@ export default function FeedClient({ seed }: FeedClientProps) {
 
   return (
     <section aria-label="Current-events opinions">
+      <DisabledBanner health={health} />
       <LiveBanner connected={connected} lastOpinionAt={lastOpinionAt} />
       <FilterBar opinions={opinions} />
 

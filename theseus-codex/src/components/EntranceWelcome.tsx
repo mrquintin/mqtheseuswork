@@ -8,7 +8,7 @@ import { useEffect, useState } from "react";
  * Context
  * -------
  * When the user submits the login form, the Gate component plays a
- * short exit (~720 ms): form + wordmark + labyrinth fade out while a
+ * short exit (~300 ms): form + wordmark + labyrinth fade out while a
  * thin amber hairline sweeps across the viewport's horizon. Navigation
  * happens mid-sweep. This component picks up on the other side.
  *
@@ -20,7 +20,7 @@ import { useEffect, useState } from "react";
  *   content fades up from a small `translateY` below (via the
  *   `.codex-arrival` class).
  * - No Latin banner, no blur, no brightness jump, no scale — quiet and
- *   precise. Total duration ~650 ms.
+ *   precise. Total duration ~350 ms.
  * - Respects `prefers-reduced-motion: reduce` (no-op).
  *
  * Prior revision
@@ -64,9 +64,9 @@ export default function EntranceWelcome({
 
     // Remove the arrival class after the animation so subsequent state
     // updates don't inherit the fade/translate transforms.
-    const t1 = window.setTimeout(() => setJustEntered(false), 700);
+    const t1 = window.setTimeout(() => setJustEntered(false), 360);
     // Unmount the hairline once its animation has had time to run.
-    const t2 = window.setTimeout(() => setShowHairline(false), 750);
+    const t2 = window.setTimeout(() => setShowHairline(false), 380);
 
     return () => {
       window.clearTimeout(t1);

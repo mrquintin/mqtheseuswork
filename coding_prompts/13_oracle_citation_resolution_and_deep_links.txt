@@ -1,0 +1,79 @@
+# Codex Prompt 13 of 22 — Resolve Oracle citations to real, deep-linkable destinations
+
+**Round:** 12, Wave D (Knowledge surface). **Sequence:** 13 of 22. **Report back with:** the citation-resolution algorithm's pseudocode, the JSON shape returned by the API, and three example end-to-end traces.
+
+## Why this prompt exists
+
+Voice memo: *"The citations are very, very often don't actually link to any material in the codex itself. Can you also make material in the codex — for example, the podcast — their transcriptions be explorable. Currently they're not, and it would help with things like this where the citations can point to an actual line in the podcast that then we can open in a new tab."*
+
+The Oracle currently emits `[C:abc]` and `[U:xyz]` tokens. Token text is rendered (post prompt 03) but the tokens are not anchors — clicking does nothing. The `U:` tokens point at upload IDs, but the upload's own surface has no per-paragraph or per-timestamp anchors to deep-link into. Prompt 14 builds the explorable transcript surface; this prompt wires the linking.
+
+## Before you start — read current state
+
+1. `theseus-codex/src/app/api/ask/route.ts` — note that the response includes a `sources` array. Each source already has the metadata we need (id, type, label, URL, raw text) — the bug is just that the renderer doesn't use them.
+2. `theseus-codex/src/components/AnswerMarkdown.tsx` (created in prompt 03) — the place to consume a citation resolver.
+3. `theseus-codex/src/app/(authed)/conclusions/[id]/page.tsx` — the existing conclusion detail page; this is the destination for `[C:...]` tokens.
+4. The transcript explorer page introduced in prompt 14 will live at `theseus-codex/src/app/(authed)/transcripts/[uploadId]/page.tsx` and accept `?anchor=<line-id>` for deep-linking. This prompt assumes that route exists; if prompt 14 has not yet shipped at the time this prompt runs, link `[U:...]` tokens to `theseus-codex/src/app/(authed)/upload/[id]/page.tsx` (the existing upload detail page) as a degradation path. The link target is centralized so prompt 14 can flip it.
+
+## Your task
+
+### A. Server-side: resolved-citation map alongside `sources`
+
+Extend `POST /api/ask`'s response with `citations: Record<string, ResolvedCitation>` keyed by the raw token (e.g. `"[C:abc]"`):
+
+```ts
+type ResolvedCitation =
+  | {
+      type: "conclusion";
+      id: string;            // full Conclusion id
+      tier: string;          // firm/founder/open/retired
+      url: string;           // /conclusions/<id>
+      preview: string;       // first 240 chars of the conclusion's text
+    }
+  | {
+      type: "upload";
+      id: string;            // full Upload id
+      title: string;
+      url: string;           // /transcripts/<id> if available, else /upload/<id>
+      anchor: string | null; // when prompt 14 ships, this resolves to a line id
+      preview: string;       // matched paragraph (~240 chars)
+    };
+```
+
+Resolution algorithm:
+
+1. Scan the LLM's answer text with a regex for `\[(C|U):([A-Za-z0-9_-]+)\]`.
+2. For each unique match, find the source row by id-prefix match against the `sources` array already returned.
+3. For uploads, attempt to anchor: search the upload's chunked text for the chunk whose preview overlaps most with the surrounding 200 chars of the citation. Record the chunk's stable id as `anchor`. If embeddings are available (post prompt 15), prefer cosine similarity.
+4. If no match (LLM hallucinated an id), record an entry with `type: "conclusion" | "upload"` inferred from the prefix and `url: null` — the renderer will show the token in red.
+
+### B. Client-side: clickable citations
+
+Update `AnswerMarkdown` to accept a `citations` prop (the map above). Replace its `<code>` rendering of citation tokens with:
+
+- If `url` present: an `<a href={url}{anchor ? `?anchor=${anchor}` : ""} target="_blank" rel="noopener">` containing the token text. On hover, show a tooltip with the citation's `preview`.
+- If `url` null: a red, non-clickable `<span>` with `title="Source not found in corpus — possible model hallucination"`.
+
+Maintain inline mono styling so citations remain visually distinct.
+
+### C. "Show sources" panel symmetry
+
+The existing sources panel beneath the answer should match: each row links to the same URL (with anchor when applicable) and shows the same preview. A user clicking a citation token in the answer body and a user clicking the same source in the sources panel land in the same place.
+
+### D. Hallucination guardrails
+
+Add a small server-side post-processor: if any `[C:...]` or `[U:...]` token in the answer cannot be resolved, log a warning `oracle.citation.unresolved token=<masked> question_id=<id>` and surface a count in the response: `{ citationsResolved: 5, citationsUnresolved: 1 }`. The UI displays this faintly: `"5 sources linked · 1 unverified."` This is the only visible signal of model hallucination in citations; do not auto-strip the bad token (preserves the ability to debug).
+
+### E. Tests
+
+- Unit tests for the resolution algorithm: zero tokens → empty map; tokens that match → resolved; tokens that don't → null url.
+- Unit test for the renderer: given a citations map with one resolved and one unresolved, asserts the resolved one is an `<a>` and the unresolved is a `<span>` with the expected color attribute.
+- Playwright e2e: ask the Oracle a question (against fixture corpus), click a `[C:...]` token, land on `/conclusions/<id>` in a new tab.
+
+## Definition of Done
+
+- Every Oracle answer's citation tokens are clickable when they correspond to real corpus material.
+- Hallucinated citations are visibly marked but not silently dropped.
+- The route target for `[U:...]` is centralized in one place so prompt 14 can flip it from `/upload/[id]` to `/transcripts/[uploadId]?anchor=...` without touching this prompt's code.
+- Tests pass.
+- No secrets in patches.

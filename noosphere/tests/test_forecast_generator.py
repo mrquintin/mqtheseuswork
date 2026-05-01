@@ -199,6 +199,20 @@ def test_publishes_with_valid_citations(monkeypatch) -> None:
         "conclusion_policy_a",
         "claim_policy_b",
     }
+    trace = store.get_forecast_trace(prediction.id)
+    assert trace is not None
+    assert trace.market_id == market.id
+    assert trace.market_title == market.title
+    assert trace.principles_used == [
+        {
+            "conclusionId": "conclusion_policy_a",
+            "weight": 0.94,
+            "snippet": "bill sponsorship has broadened",
+        }
+    ]
+    assert trace.model_output["side"] == "YES"
+    assert trace.model_output["edge"] == 0.23
+    assert any(gate["gateName"] == "paper_edge_threshold" for gate in trace.gate_results)
     assert budget.charges == [(240, 90)]
     assert subject.PROMPT_SEPARATOR_BEGIN in fake_llm.calls[0]["user"]
     assert subject.PROMPT_SEPARATOR_END in fake_llm.calls[0]["user"]

@@ -2,6 +2,7 @@ import { Suspense } from "react";
 import TemporalReplayBar from "@/components/TemporalReplayBar";
 import SculptureBackdrop from "@/components/SculptureBackdrop";
 import { db } from "@/lib/db";
+import { founderDisplayName } from "@/lib/founderDisplay";
 import { AS_OF_ISO, asOfEndUtc } from "@/lib/replayDate";
 import { requireTenantContext } from "@/lib/tenant";
 
@@ -124,7 +125,7 @@ export default async function FoundersPage({
                   marginBottom: "0.3rem",
                 }}
               >
-                {f.name}
+                {founderDisplayName(f)}
               </h3>
               <p
                 style={{
@@ -136,7 +137,7 @@ export default async function FoundersPage({
                   marginBottom: "1rem",
                 }}
               >
-                @{f.username} · {f.role}
+                @{f.username}
               </p>
 
               {f.bio && (

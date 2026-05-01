@@ -55,7 +55,7 @@ async function seedAccounts() {
 
   const founders = [
     {
-      name: "Founder Alpha",
+      name: process.env.SEED_FOUNDER_A_NAME?.trim() || "alpha",
       username: "alpha",
       email: aEmail,
       password: aPass,
@@ -64,7 +64,7 @@ async function seedAccounts() {
       noosphereId: "seed-founder-alpha",
     },
     {
-      name: "Founder Beta",
+      name: process.env.SEED_FOUNDER_B_NAME?.trim() || "beta",
       username: "beta",
       email: bEmail,
       password: bPass,

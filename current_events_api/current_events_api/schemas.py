@@ -21,7 +21,9 @@ from noosphere.models import (
     ForecastPortfolioState,
     ForecastPrediction,
     ForecastResolution,
+    ForecastTrace,
     OpinionCitation,
+    WatchedMarket,
 )
 
 
@@ -194,6 +196,125 @@ class PublicBet(BaseModel):
     settlement_pnl_usd: float | None = None
     created_at: datetime
     settled_at: datetime | None = None
+
+
+class TracePrinciple(BaseModel):
+    conclusion_id: str
+    weight: float
+    snippet: str
+
+
+class TraceModelOutput(BaseModel):
+    side: str | None = None
+    edge: float | None = None
+    confidence: float | None = None
+    rationale: str = ""
+
+
+class TraceGateResult(BaseModel):
+    gate_name: str
+    passed: bool
+    reason: str
+
+
+class PublicForecastTrace(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    id: str
+    prediction_id: str
+    market_id: str
+    organization_id: str
+    market_title: str
+    principles_used: list[TracePrinciple]
+    model_output: TraceModelOutput
+    gate_results: list[TraceGateResult]
+    created_at: datetime
+    updated_at: datetime
+
+
+class PortfolioPosition(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    bet_id: str
+    prediction_id: str
+    mode: str
+    market_title: str
+    market_url: str | None = None
+    side: str
+    size_usd: float
+    avg_price: float
+    current_implied_prob: float | None = None
+    driving_principles: list[TracePrinciple]
+    gate_results: list[TraceGateResult]
+    last_updated: datetime
+
+
+class ResolvedPortfolioPosition(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    bet_id: str
+    prediction_id: str
+    market_title: str
+    market_url: str | None = None
+    outcome: str
+    our_side: str
+    pnl_usd: float | None = None
+    reasoning_href: str
+    resolved_at: datetime | None = None
+
+
+class PipelineCandidate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    market_id: str
+    market_title: str
+    market_url: str | None = None
+    source: str
+    category: str | None = None
+    driving_principles: list[TracePrinciple]
+    gate_results: list[TraceGateResult]
+    gate_state: str
+    last_updated: datetime
+
+
+class PublicWatchedMarket(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    id: str
+    source: str
+    url: str
+    external_id: str | None = None
+    status: str
+    created_at: datetime
+    last_considered_at: datetime | None = None
+
+
+class WatchingSummary(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    polymarket_categories: list[str]
+    kalshi_categories: list[str]
+    watched_markets: list[PublicWatchedMarket]
+    scanned_this_week: int
+
+
+class GateBannerState(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    mode: str
+    live_trading_enabled: bool
+    failed_gates: list[TraceGateResult]
+
+
+class PortfolioSurface(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    summary: PortfolioSummary
+    gate_banner: GateBannerState
+    open_positions: list[PortfolioPosition]
+    recently_resolved: list[ResolvedPortfolioPosition]
+    pipeline: list[PipelineCandidate]
+    watching: WatchingSummary
 
 
 class PortfolioPoint(BaseModel):
@@ -513,6 +634,90 @@ def public_bet(bet: ForecastBet) -> PublicBet:
     )
 
 
+def _trace_principles(raw: object) -> list[TracePrinciple]:
+    if not isinstance(raw, list):
+        return []
+    out: list[TracePrinciple] = []
+    for item in raw:
+        if not isinstance(item, dict):
+            continue
+        conclusion_id = str(item.get("conclusionId") or item.get("conclusion_id") or "")
+        if not conclusion_id:
+            continue
+        try:
+            weight = float(item.get("weight") or 0.0)
+        except (TypeError, ValueError):
+            weight = 0.0
+        out.append(
+            TracePrinciple(
+                conclusion_id=conclusion_id,
+                weight=weight,
+                snippet=str(item.get("snippet") or ""),
+            )
+        )
+    return out
+
+
+def _trace_model_output(raw: object) -> TraceModelOutput:
+    if not isinstance(raw, dict):
+        return TraceModelOutput()
+    return TraceModelOutput(
+        side=str(raw.get("side")) if raw.get("side") is not None else None,
+        edge=_float_or_none(raw.get("edge")),
+        confidence=_float_or_none(raw.get("confidence")),
+        rationale=str(raw.get("rationale") or ""),
+    )
+
+
+def _trace_gate_results(raw: object) -> list[TraceGateResult]:
+    if not isinstance(raw, list):
+        return []
+    out: list[TraceGateResult] = []
+    for item in raw:
+        if not isinstance(item, dict):
+            continue
+        gate_name = str(item.get("gateName") or item.get("gate_name") or "")
+        if not gate_name:
+            continue
+        out.append(
+            TraceGateResult(
+                gate_name=gate_name,
+                passed=bool(item.get("passed")),
+                reason=str(item.get("reason") or ""),
+            )
+        )
+    return out
+
+
+def public_forecast_trace(trace: ForecastTrace | None) -> PublicForecastTrace | None:
+    if trace is None:
+        return None
+    return PublicForecastTrace(
+        id=trace.id,
+        prediction_id=trace.prediction_id,
+        market_id=trace.market_id,
+        organization_id=trace.organization_id,
+        market_title=trace.market_title,
+        principles_used=_trace_principles(trace.principles_used),
+        model_output=_trace_model_output(trace.model_output),
+        gate_results=_trace_gate_results(trace.gate_results),
+        created_at=trace.created_at,
+        updated_at=trace.updated_at,
+    )
+
+
+def public_watched_market(row: WatchedMarket) -> PublicWatchedMarket:
+    return PublicWatchedMarket(
+        id=row.id,
+        source=_enum_value(row.source) or "",
+        url=row.url,
+        external_id=row.external_id,
+        status=row.status,
+        created_at=row.created_at,
+        last_considered_at=row.last_considered_at,
+    )
+
+
 def operator_bet(bet: ForecastBet) -> OperatorBet:
     return OperatorBet(
         id=bet.id,
@@ -554,3 +759,4 @@ def empty_portfolio_summary(
 
 
 PublicForecast.model_rebuild()
+PortfolioSurface.model_rebuild()

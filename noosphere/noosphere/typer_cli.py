@@ -507,6 +507,25 @@ def rebuild_embeddings_cmd() -> None:
     typer.echo(json.dumps({"ok": True, "embedded": n}))
 
 
+@app.command("embed-backfill")
+def embed_backfill_cmd(
+    max_per_run: Optional[int] = typer.Option(
+        None,
+        "--max-per-run",
+        help="Max conclusion embeddings to write this run. Defaults to EMBED_BACKFILL_MAX_PER_RUN or 1000.",
+    ),
+    batch_size: int = typer.Option(32, "--batch-size", help="Embedding batch size."),
+) -> None:
+    """Fill missing current-model conclusion embeddings."""
+    configure_logging(json_format=True)
+    from noosphere.cli_commands.embed_backfill import run_backfill
+
+    report = run_backfill(max_per_run=max_per_run, batch_size=batch_size)
+    typer.echo(json.dumps({"ok": not report.errors, **report.__dict__}, default=str))
+    if report.errors:
+        raise typer.Exit(code=1)
+
+
 @app.command("adversarial")
 def adversarial_cmd(
     conclusion: Optional[str] = typer.Option(None, "--conclusion", help="Noosphere conclusion id"),

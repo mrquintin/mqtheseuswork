@@ -5,6 +5,7 @@ import SubNav from "@/components/SubNav";
 import AutoPageHelp from "@/components/AutoPageHelp";
 import NavTransition from "@/components/NavTransition";
 import EntranceWelcome from "@/components/EntranceWelcome";
+import { founderDisplayName } from "@/lib/founderDisplay";
 
 /**
  * Shell for every signed-in Codex page. Renders the top nav (7 items),
@@ -32,7 +33,7 @@ export default async function AuthedLayout({
     <>
       <Nav
         founder={{
-          name: founder.name,
+          name: founderDisplayName(founder),
           username: founder.username,
           organizationSlug: founder.organization.slug,
           role: founder.role,

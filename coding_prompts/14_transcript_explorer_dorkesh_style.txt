@@ -1,0 +1,93 @@
+# Codex Prompt 14 of 22 — Transcript explorer (Dorkesh-style): blurb + timestamps + raw transcript with deep-linkable lines
+
+**Round:** 12, Wave D. **Sequence:** 14 of 22. **Report back with:** the new route, anchor-id stability strategy, and a screenshot of a fixture transcript rendered.
+
+## Why this prompt exists
+
+Voice memo: *"What would be fascinating is, if we have a very clear, intuitively compelling way of accessing previous conversations — we can call conversations 'podcasts'. You can go in, and the AI would give a summary, like a blurb, like a paragraph overview. And then kind of like Dorkesh, where if you see — he'll do the substack post here and show you. But then it does timestamps. And then this is the raw transcript."*
+
+Goal: every transcript or essay upload has a public-quality reading surface — a blurb (LLM-generated), a timestamp/heading index (clickable), the raw transcript (deep-linkable per line). This is what Oracle citations link into (prompt 13), and what Substack publishing reads from (prompt 11).
+
+## Before you start — read current state
+
+1. `theseus-codex/src/app/(authed)/upload/[id]/page.tsx` (the existing upload detail page).
+2. `theseus-codex/prisma/schema.prisma` — the `Upload` and `UploadChunk` (or equivalent) models. Note whether chunks have stable ids; if not, add them.
+3. `noosphere/noosphere/articles/` — the existing essay/transcript pipeline.
+4. Any speaker-segmentation logic — if uploads from `dialectic/` carry speaker tags, render them as Dorkesh does (boldface speaker name then their lines).
+
+## Your task
+
+### A. Schema — stable line/chunk ids
+
+Confirm `UploadChunk` (or equivalent) has:
+
+- `id` (cuid).
+- `uploadId`.
+- `index` (zero-based).
+- `text`.
+- `startMs INT?` and `endMs INT?` (nullable; only populated for transcripts with timing metadata).
+- `speakerLabel String?` (nullable).
+- `headingHint String?` (nullable; LLM-generated section title for navigation).
+
+Migrate if any of these fields are missing.
+
+### B. Upload-side enrichment pipeline
+
+`noosphere/noosphere/articles/transcript_enrichment.py`:
+
+- Given an upload, call the LLM ONCE to produce:
+  - A 60–100-word blurb (overview of the piece).
+  - A list of section markers — `{ chunkIndex, headingHint }` for the 6–12 most-natural section boundaries. The model picks; the output is rendered as a clickable mini-TOC.
+- Persist as `Upload.blurb` (new TEXT column) and `UploadChunk.headingHint` (existing nullable column from §A).
+- Idempotent: re-running on an already-enriched upload is a no-op unless `--force`.
+- Triggered automatically as the last step of the existing ingestion pipeline (cf. prompt 15 — auto-embedding — same trigger model).
+
+### C. New route: `/transcripts/[uploadId]`
+
+Create `theseus-codex/src/app/(authed)/transcripts/[uploadId]/page.tsx`. Keep it authed for now (mirrors `/upload/[id]`). The PUBLIC analogue lives under `theseus-public` only when the upload's `publishedAt` is set (out of scope for this prompt; cross-link in a follow-up).
+
+Layout, top to bottom:
+
+1. **Header.** Title, founder/uploader, date, "Source: <type>", a `Publish to ▾` toolbar (uses prompt 12's `<PublishToToolbar />`).
+2. **Blurb card.** Renders `Upload.blurb` in italic serif. Below the blurb: chip row of section headings (LLM-derived from §B). Clicking a chip scrolls to the corresponding `<UploadChunk>`.
+3. **Transcript body.** Rendered as a column of paragraph blocks. Each block:
+   - Anchor `id={`chunk-${chunkId}`}`.
+   - If timing data exists, a small monospace timestamp `[mm:ss]` to the left, hyperlinking to `?anchor=chunk-<id>` (so the URL itself is shareable).
+   - If `speakerLabel` is set, render in bold accent color.
+   - Body text, lightly typeset (prose styling that matches the firm's serif palette).
+4. **Right rail (desktop) / collapsible drawer (mobile).** A "What the firm thinks about this" panel: pulls the top 5 firm Conclusions semantically related to the transcript and renders them as cards with `[C:<id>]`-style links. Reuses the embedding adapter; if embeddings are unavailable, falls back to keyword overlap.
+
+### D. Anchor link contract
+
+The route accepts `?anchor=chunk-<id>`:
+
+- On load (client), scrolls smoothly to the matching element and adds a transient highlight class for 4 seconds.
+- The element MUST have a stable id matching the `UploadChunk.id` so anchor links remain valid across re-ingestion (re-ingestion preserves chunk ids unless the upload's text actually changed).
+
+### E. Cross-wire prompt 13
+
+In the citation resolver (prompt 13), flip the URL target for `[U:...]` tokens to:
+
+```
+/transcripts/<uploadId>?anchor=chunk-<chunkId>
+```
+
+Update the unit tests to reflect.
+
+### F. Hide-from-public toggle
+
+Each transcript page renders an admin/owner-only toggle: `Public` / `Private`. Public sets `publishedAt = NOW()` and assigns a `slug` if missing. Private clears both. This is the same toggle the Library uses; surface it here too so the publish path is fluid.
+
+### G. Tests
+
+- Vitest snapshot of a fixture transcript (3 chunks, 2 with timing, 1 with speaker label).
+- Playwright e2e: visit `/transcripts/<id>?anchor=chunk-X`, assert the chunk is in viewport and has the highlight class.
+- Unit test for the enrichment pipeline asserting blurb and section markers are produced and persisted.
+
+## Definition of Done
+
+- Every existing upload renders a coherent transcript page with blurb + timestamps (where applicable) + deep-linkable lines.
+- Oracle citations land on the right line of the right transcript.
+- The Publish-to toolbar is wired (prompt 12) so a transcript becomes a Substack draft in one click.
+- Tests pass.
+- No secrets in any patch.

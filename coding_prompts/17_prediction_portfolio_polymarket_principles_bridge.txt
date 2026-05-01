@@ -1,0 +1,73 @@
+# Codex Prompt 17 of 22 — Prediction-market portfolio surface: principles → forecasts → paper bets (live mode gated for later)
+
+**Round:** 12, Wave F (Prediction-market focus). **Sequence:** 17 of 22. **Report back with:** the principles → bet trace for one fixture market, and the gate state diagram for paper vs live.
+
+## Why this prompt exists
+
+The founder explicitly chose prediction markets over public-equities trading as the immediate focus: *"I think that's a good — that makes more sense than investment just yet. Because we need a lot of information. … But you think we should have a conversation about our polymarket betting dynamics or not? … No, I mean, I think the predictions are drawn from the conclusions itself. Like, if there's a principle that says, 'oh, successful education is this', if there's a betting [market], whatever — that's like, 'oh, Harvard is going to be 4th place in 4 years', then it can bet on that because that's related."*
+
+We have a forecasts module (`noosphere/noosphere/forecasts/`) with paper-bet engine, polymarket and kalshi clients, and safety gates from Round 10. Live trading prompts (round 11) are queued at 18–22. This prompt focuses on the SURFACE: a Forecasts portfolio page that makes the principles → bets pipeline legible, defaults to paper mode, and prepares for live activation without enabling it.
+
+## Before you start — read current state
+
+1. `noosphere/noosphere/forecasts/forecast_generator.py` — generates a forecast from firm conclusions for a candidate market.
+2. `noosphere/noosphere/forecasts/paper_bet_engine.py` — paper-mode order placement.
+3. `noosphere/noosphere/forecasts/safety.py` — eight-gate live-trading safety check.
+4. `theseus-codex/src/app/(authed)/forecasts/page.tsx` and `ForecastGridClient.tsx` — current grid; we will extend, not replace.
+5. `current_events_api/current_events_api/routes/portfolio.py` — confirm whether a portfolio endpoint exists; if not, we add it here.
+
+## Your task
+
+### A. Promote `/forecasts/portfolio` as a first-class page
+
+Create `theseus-codex/src/app/(authed)/forecasts/portfolio/page.tsx` (now reachable from the top nav per prompt 16):
+
+Sections, top to bottom:
+
+1. **Mode banner.** A wide horizontal bar showing the current mode (`PAPER` green / `LIVE` amber). Mode is read from `FORECASTS_LIVE_TRADING_ENABLED` (env, default false). Live mode requires every gate from `safety.check_all_gates` to pass; if any gate fails the banner shows red and lists which gate failed.
+2. **Position summary.** A small KPI strip: Open positions · Realized P&L (paper) · Unrealized P&L (paper) · Brier score (running) · Hit rate.
+3. **Open positions table.** Columns: Market title (link to source), Side (Yes/No), Size, Avg price, Current implied prob, Driving principles (chip list of `[C:<id>]` tokens linking via prompt 13's resolver), Last updated.
+4. **Recently-resolved table.** Columns: Market title, Outcome, Our side, P&L, Reasoning (link to the saved forecast notes).
+5. **Pipeline panel.** A read-only view of the forecast generator's queue: candidate markets the system is considering, the principles that would drive each, and the gate state of each (e.g. "would fail concentration cap"). This is the founder's "what is the bot thinking about?" panel.
+
+### B. Principles → forecast trace, persisted
+
+Extend the forecast generator's output to record a structured `forecastTrace` (new `ForecastTrace` table or a JSON column on the existing `Forecast` model):
+
+- `marketId`
+- `marketTitle`
+- `principlesUsed: [{ conclusionId, weight, snippet }]`
+- `modelOutput: { side, edge, confidence, rationale }`
+- `gateResults: { gateName, passed, reason }[]`
+
+This trace is what the portfolio page reads. It's also what the Oracle's citation resolver (prompt 13) can use to wire `[C:<id>]` chips inside the portfolio rows.
+
+### C. Default-paper, live-toggleable safety
+
+The portfolio page always shows live state when it exists (the live engine writes to the same tables) but when `FORECASTS_LIVE_TRADING_ENABLED=false` the portfolio is in paper mode and the engine is `PaperBetEngine`. NO row in this prompt's path enables live trading. The user wants the surface to be ready for live; the activation is rounds-11 prompts (18–22 of this run).
+
+### D. Polymarket / Kalshi market discovery surfacing
+
+Surface a small "Watching" panel:
+
+- The categories the firm is currently watching (read from `FORECASTS_POLYMARKET_CATEGORIES` and `FORECASTS_KALSHI_CATEGORIES`).
+- A textbox to add an ad-hoc market URL (Polymarket / Kalshi). Adding writes a row to `WatchedMarket` (new table); the next forecaster cycle considers it.
+- The total count of markets the system has scanned this week.
+
+### E. Founder pulse on the dashboard
+
+Add a "Forecasts" card to the dashboard (next to the Currents pulse from prompt 9): paper P&L last 7d, open positions count, mode (PAPER / LIVE / GATE-BLOCKED), link to the portfolio.
+
+### F. Tests
+
+- Unit test for the forecast trace writer: every Forecast row produces a Trace.
+- Integration test (no network): seed a corpus, run the generator on a fixture market, assert the portfolio page renders with the right principles chips and right gate state.
+- Playwright e2e: navigate to `/forecasts/portfolio`, see the mode banner, see at least one fixture position, click a principle chip and land on `/conclusions/<id>` (via prompt 13).
+
+## Definition of Done
+
+- A founder can open one page and see what the system is betting on, why (which principles), and how those bets are doing — all in paper mode by default.
+- The surface is identical when live is enabled; only the engine behind it changes (per rounds 18–22).
+- The principles → bet linkage is concrete and auditable.
+- Tests pass.
+- No secrets in any patch.
