@@ -33,6 +33,8 @@ CREATE TABLE "Upload" (
   "status" TEXT NOT NULL DEFAULT 'pending',
   "processLog" TEXT NOT NULL DEFAULT '',
   "claimsCount" INTEGER,
+  "methodCount" INTEGER,
+  "principleCount" INTEGER,
   "errorMessage" TEXT,
   "extractionMethod" TEXT,
   "createdAt" TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -78,6 +80,33 @@ CREATE TABLE "ConclusionSource" (
   "createdAt" TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
   PRIMARY KEY ("conclusionId", "uploadId")
 );
+
+CREATE TABLE "MethodologyProfile" (
+  "id" TEXT PRIMARY KEY,
+  "organizationId" TEXT NOT NULL,
+  "uploadId" TEXT,
+  "conclusionId" TEXT,
+  "sourceKind" TEXT NOT NULL DEFAULT 'UPLOAD',
+  "patternType" TEXT NOT NULL,
+  "title" TEXT NOT NULL,
+  "summary" TEXT NOT NULL,
+  "reasoningMoves" TEXT NOT NULL,
+  "transferTargets" TEXT NOT NULL,
+  "assumptions" TEXT NOT NULL,
+  "failureModes" TEXT NOT NULL,
+  "evidenceAnchors" TEXT NOT NULL,
+  "confidence" REAL NOT NULL DEFAULT 0.5,
+  "dedupeKey" TEXT NOT NULL,
+  "createdAt" TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  "updatedAt" TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  UNIQUE ("organizationId", "dedupeKey")
+);
+
+CREATE INDEX "MethodologyProfile_upload_idx"
+  ON "MethodologyProfile" ("uploadId");
+
+CREATE INDEX "MethodologyProfile_conclusion_idx"
+  ON "MethodologyProfile" ("conclusionId");
 
 CREATE TABLE "Contradiction" (
   "id" TEXT PRIMARY KEY,

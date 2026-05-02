@@ -1,4 +1,12 @@
 import { db } from "@/lib/db";
+import {
+  hasMethodologyContent,
+  parseMethodologyPayload,
+  profilesForConclusions,
+  type PublicationMethodology,
+  type PublicationMethodologyProfile,
+} from "@/lib/methodologyProfiles";
+import { parsePublicationPayload } from "@/lib/conclusionsRead";
 import { publicationSlugFromText } from "@/lib/publicSlug";
 import { mintZenodoDoi } from "@/lib/zenodoMint";
 
@@ -12,6 +20,7 @@ export type PublicationPayloadV1 = {
   strongestObjection: { objection: string; firmAnswer: string };
   openQuestionsAdjacent: string[];
   voiceComparisons: { voice: string; stance: string }[];
+  methodology: PublicationMethodology;
   timeline: { at: string; label: string; detail?: string }[];
   whatWouldChangeOurMind: string[];
   citations: { format: "bibtex" | "apa" | "ris"; block: string }[];
@@ -130,6 +139,8 @@ export type PublicationReviewAction =
       strongestObjection: { objection: string; firmAnswer: string };
       openQuestionsAdjacent: string[];
       voiceComparisons: { voice: string; stance: string }[];
+      methodologyProfiles?: PublicationMethodologyProfile[];
+      methodologyNarrative?: string;
       timeline?: { at: string; label: string; detail?: string }[];
       discountedConfidence: number;
       statedConfidence?: number;
@@ -249,6 +260,17 @@ export async function applyPublicationReviewAction(params: {
 
       const conclusion = review.target;
       const stated = params.body.statedConfidence ?? conclusion.confidence;
+      let methodology: PublicationMethodology = parseMethodologyPayload({
+        reviewerNarrative: params.body.methodologyNarrative,
+        profiles: params.body.methodologyProfiles,
+      });
+      if (methodology.profiles.length === 0) {
+        const profileMap = await profilesForConclusions(params.organizationId, [conclusion.id]);
+        methodology = {
+          ...methodology,
+          profiles: profileMap.get(conclusion.id) ?? [],
+        };
+      }
 
       const prev = await db.publishedConclusion.findFirst({
         where: { organizationId: params.organizationId, sourceConclusionId: conclusion.id },
@@ -280,9 +302,15 @@ export async function applyPublicationReviewAction(params: {
         try {
           const priorPayload = JSON.parse(prev.payloadJson) as PublicationPayloadV1;
           priorTimeline = priorPayload.timeline ?? [];
+          if (!hasMethodologyContent(methodology)) {
+            methodology = parseMethodologyPayload(priorPayload.methodology);
+          }
         } catch {
           priorTimeline = [];
         }
+      }
+      if (!hasMethodologyContent(methodology)) {
+        throw new Error("methodology profile or reviewer methodology narrative is required");
       }
       const timeline =
         params.body.timeline?.length ?
@@ -307,6 +335,7 @@ export async function applyPublicationReviewAction(params: {
         strongestObjection: { objection, firmAnswer },
         openQuestionsAdjacent: params.body.openQuestionsAdjacent.map((s) => s.trim()).filter(Boolean),
         voiceComparisons: params.body.voiceComparisons,
+        methodology,
         timeline,
         whatWouldChangeOurMind,
         citations: [],
@@ -382,12 +411,7 @@ export async function buildPublicExportBundle(organizationId: string) {
   });
 
   const conclusions = pubs.map((p) => {
-    let payload: PublicationPayloadV1 | Record<string, unknown> = {};
-    try {
-      payload = JSON.parse(p.payloadJson) as PublicationPayloadV1;
-    } catch {
-      payload = {};
-    }
+    const payload = parsePublicationPayload({ payloadJson: p.payloadJson, slug: p.slug });
     return {
       id: p.id,
       slug: p.slug,

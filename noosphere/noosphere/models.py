@@ -953,6 +953,37 @@ class PublishedConclusion(SQLModel, table=True):
     published_at: datetime = SQLField(default_factory=_now, sa_column=Column("publishedAt", SADateTime, nullable=False))
 
 
+class MethodologyProfile(SQLModel, table=True):
+    """How a source reasons: reusable method, transfer frame, and risks."""
+
+    __tablename__ = "MethodologyProfile"
+    __table_args__ = (
+        UniqueConstraint("organizationId", "dedupeKey", name="MethodologyProfile_organizationId_dedupeKey_key"),
+        Index("MethodologyProfile_organizationId_createdAt_idx", "organizationId", "createdAt"),
+        Index("MethodologyProfile_organizationId_patternType_idx", "organizationId", "patternType"),
+        Index("MethodologyProfile_uploadId_idx", "uploadId"),
+        Index("MethodologyProfile_conclusionId_idx", "conclusionId"),
+    )
+
+    id: str = SQLField(default_factory=_new_cuid, primary_key=True)
+    organization_id: str = SQLField(sa_column=Column("organizationId", String, nullable=False))
+    upload_id: Optional[str] = SQLField(default=None, sa_column=Column("uploadId", String, nullable=True))
+    conclusion_id: Optional[str] = SQLField(default=None, sa_column=Column("conclusionId", String, nullable=True))
+    source_kind: str = SQLField(default="UPLOAD", sa_column=Column("sourceKind", String, nullable=False))
+    pattern_type: str = SQLField(sa_column=Column("patternType", String, nullable=False))
+    title: str = SQLField(sa_column=Column("title", String, nullable=False))
+    summary: str = SQLField(sa_column=Column("summary", Text, nullable=False))
+    reasoning_moves: Any = SQLField(default_factory=list, sa_column=Column("reasoningMoves", JSON, nullable=False))
+    transfer_targets: Any = SQLField(default_factory=list, sa_column=Column("transferTargets", JSON, nullable=False))
+    assumptions: Any = SQLField(default_factory=list, sa_column=Column("assumptions", JSON, nullable=False))
+    failure_modes: Any = SQLField(default_factory=list, sa_column=Column("failureModes", JSON, nullable=False))
+    evidence_anchors: Any = SQLField(default_factory=list, sa_column=Column("evidenceAnchors", JSON, nullable=False))
+    confidence: float = SQLField(default=0.5, sa_column=Column("confidence", SAFloat, nullable=False))
+    dedupe_key: str = SQLField(sa_column=Column("dedupeKey", String, nullable=False))
+    created_at: datetime = SQLField(default_factory=_now, sa_column=Column("createdAt", SADateTime, nullable=False))
+    updated_at: datetime = SQLField(default_factory=_now, sa_column=Column("updatedAt", SADateTime, nullable=False))
+
+
 class FollowUpSession(SQLModel, table=True):
     """Anonymous follow-up chat session keyed by a rotating fingerprint."""
 

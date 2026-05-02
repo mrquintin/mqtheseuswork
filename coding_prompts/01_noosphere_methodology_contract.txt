@@ -1,0 +1,20 @@
+You are operating in /Users/michaelquintin/Desktop/Theseus.
+
+Goal: reformulate Noosphere so it extracts methodology, not only truth-apt object-level claims. The product intent is that a transcript about education should preserve the way the conclusion was reached, then let that method transfer to other domains without smuggling the education conclusion itself.
+
+Implement or repair:
+- A deterministic methodology extraction contract in Python.
+- A registered Noosphere method named `extract_methodology`.
+- Tests proving the output captures reasoning moves, transfer targets, assumptions, failure modes, and source anchors.
+
+Implementation constraints:
+- Do not require an LLM for the deterministic first pass.
+- Keep the output structured and stable enough for database backfills.
+- Do not remove the existing claim extractor.
+- If the work already exists, inspect it and only repair gaps.
+
+SCOPE
+- `noosphere/noosphere/methodology.py` CREATE
+- `noosphere/noosphere/methods/extract_methodology.py` CREATE
+- `noosphere/noosphere/methods/extract_methodology.RATIONALE.md` CREATE
+- `noosphere/tests/test_methodology_analysis.py` CREATE

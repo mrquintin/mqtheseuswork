@@ -41,7 +41,7 @@ from typing import Any, Optional
 
 log = logging.getLogger(__name__)
 
-DEFAULT_CODEX_URL = "https://mqtheseuswork-qiw6.vercel.app"
+DEFAULT_CODEX_URL = "https://www.theseuscodex.com"
 DEFAULT_ORG_SLUG = "theseus-local"
 
 # Pick a stable path per-OS. The env var overrides so CI / tests can

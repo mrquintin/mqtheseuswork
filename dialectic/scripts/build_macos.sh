@@ -8,6 +8,9 @@ cd "$ROOT"
 echo "=== Generating icons ==="
 python3 scripts/generate_icons.py
 
+echo "=== Writing build metadata ==="
+python3 scripts/write_build_info.py
+
 echo "=== Installing build dependencies ==="
 pip install pyinstaller
 

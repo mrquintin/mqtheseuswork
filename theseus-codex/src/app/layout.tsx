@@ -49,7 +49,68 @@ export default function RootLayout({
         />
       </head>
       <body className="crt-fade-in">
-        {children}
+        <a className="skip-link" href="#main-content">
+          Skip to content
+        </a>
+        <div id="main-content" tabIndex={-1}>
+          {children}
+        </div>
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `
+              (function () {
+                function findSkipTarget() {
+                  var root = document.getElementById("main-content");
+                  if (!root) return null;
+                  var main = root.querySelector("main");
+                  if (!main) return root;
+
+                  var firstChild = main.firstElementChild;
+                  if (
+                    firstChild &&
+                    firstChild.tagName === "HEADER" &&
+                    firstChild.querySelector('nav[aria-label="Public navigation"]')
+                  ) {
+                    return firstChild.nextElementSibling || main;
+                  }
+
+                  return main;
+                }
+
+                function activateSkipLink(event) {
+                  var trigger = event.target && event.target.closest
+                    ? event.target.closest(".skip-link")
+                    : null;
+                  if (!trigger) return;
+
+                  var target = findSkipTarget();
+                  if (!target) return;
+
+                  event.preventDefault();
+                  if (!target.hasAttribute("tabindex")) {
+                    target.setAttribute("tabindex", "-1");
+                  }
+                  var previous = document.querySelector("[data-skip-focus-target]");
+                  if (previous) previous.removeAttribute("data-skip-focus-target");
+                  target.setAttribute("data-skip-focus-target", "true");
+                  target.focus({ preventScroll: true });
+                  target.scrollIntoView({ block: "start" });
+                  if (window.history && window.history.pushState) {
+                    window.history.pushState(null, "", "#main-content");
+                  } else {
+                    window.location.hash = "main-content";
+                  }
+                }
+
+                document.addEventListener("click", activateSkipLink);
+                document.addEventListener("keydown", function (event) {
+                  if (event.key !== "Enter" && event.key !== " ") return;
+                  activateSkipLink(event);
+                });
+              })();
+            `,
+          }}
+        />
         {/* Sitewide scan-line + vignette overlay. Mounted last so it sits
             above all content in the stacking order. Respects
             prefers-reduced-motion internally. */}

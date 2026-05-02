@@ -1,0 +1,22 @@
+You are operating in /Users/michaelquintin/Desktop/Theseus.
+
+Goal: connect the methodology layer back to the transcript explorer. The transcript page should show not only conversation geometry, but also the reasoning frames Noosphere extracted from that source.
+
+Implement or repair:
+- A query helper for upload-scoped methodology profiles.
+- A transcript methodology panel.
+- Transcript page integration.
+- Test and snapshot updates so the panel cannot silently disappear.
+
+Implementation constraints:
+- If profiles do not exist yet, render a clear empty state that points to re-ingestion/reanalysis.
+- Do not infer actual speaker identity; this is about reasoning method, not biometric attribution.
+- Keep the panel compact and scannable beside the existing transcript/geometry experience.
+
+SCOPE
+- `theseus-codex/src/lib/methodologyProfiles.ts` MODIFY
+- `theseus-codex/src/app/(authed)/transcripts/[uploadId]/MethodologyProfilesPanel.tsx` CREATE
+- `theseus-codex/src/app/(authed)/transcripts/[uploadId]/page.tsx` MODIFY
+- `theseus-codex/src/__tests__/transcriptPage.test.tsx` MODIFY
+- `theseus-codex/src/__tests__/__snapshots__/transcriptPage.test.tsx.snap` MODIFY
+- `theseus-codex/src/app/globals.css` MODIFY

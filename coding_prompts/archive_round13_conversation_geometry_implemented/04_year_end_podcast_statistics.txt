@@ -1,0 +1,46 @@
+# Codex Prompt 4 of 8 — Year-end podcast statistics
+
+**Round:** Podcast conversation geometry. **Sequence:** 4 of 8.
+**Report back with:** the season/year visibility rule and the aggregate fields rendered.
+
+## Intent
+
+The voice memo says a weighting statistic should probably be visible only at the end of a podcast season or year, because showing it while conversations are ongoing could steer how people talk. Implement that principle directly.
+
+## Before You Start
+
+1. Read `buildYearEndConversationStats` in `theseus-codex/src/lib/conversationGeometry.ts`.
+2. Read the year-end card in `ConversationGeometryPanel.tsx`.
+3. Confirm transcript page queries are scoped to the signed-in founder's organization and visibility rules.
+
+## Task
+
+For the current transcript's calendar year, query same-organization transcript/audio uploads and build an aggregate:
+
+- transcript count.
+- total turns.
+- total handoffs.
+- participant count.
+- center-of-gravity speaker by word share.
+- strongest speaker bridge.
+
+If the year is still open, render a locked card and do not reveal those aggregate values. If the year is closed, reveal the aggregate.
+
+## Verification
+
+- Unit tests cover locked and ready states.
+- The transcript page passes type-check with the new query.
+- The query respects organization, deletion, and private-upload visibility.
+
+## Definition of Done
+
+- Current-year aggregate values are not shown before year close.
+- Past-year aggregate values can render without a new migration.
+- The card is stable when there are zero or one transcripts.
+
+## SCOPE
+
+- `theseus-codex/src/lib/conversationGeometry.ts`                                      MODIFY
+- `theseus-codex/src/app/(authed)/transcripts/[uploadId]/page.tsx`                    MODIFY
+- `theseus-codex/src/app/(authed)/transcripts/[uploadId]/ConversationGeometryPanel.tsx` MODIFY
+- `theseus-codex/src/__tests__/conversationGeometry.test.ts`                           MODIFY

@@ -206,16 +206,22 @@ The spec excludes packages not needed at runtime: \cmd{tensorflow}, \cmd{tensorb
 
 \subsection{Update mechanism}
 
-\file{dialectic/dialectic/updater.py} runs a background thread on application launch that fetches a JSON manifest from a configurable URL (default: \cmd{https://releases.theseus.co/dialectic/latest.json}). The manifest format is:
+\file{dialectic/dialectic/updater.py} runs a background thread on application launch that fetches a JSON manifest from a configurable URL (default: \cmd{https://github.com/mrquintin/mqtheseuswork/releases/download/latest-main/dialectic-latest.json}). The rolling release workflow publishes this manifest alongside \file{Dialectic.dmg} and \file{Dialectic-Setup.exe}. The manifest format is:
 \begin{lstlisting}
 {
   "version": "0.2.0",
+  "commit": "abc123...",
+  "build": "123456789",
   "download_url": "https://...",
+  "download_urls": {
+    "macos": "https://...",
+    "windows": "https://..."
+  },
   "release_notes": "Bug fixes and ..."
 }
 \end{lstlisting}
 
-If the manifest version is newer than the running version, the callback notifies the user in the Qt dashboard. The check is non-blocking (10s timeout), daemon-threaded, and silently no-ops on network errors. There is no silent auto-install; the user must download and install manually. To host the manifest, place the JSON file at the configured URL and update it on each release.
+If the manifest version is newer than the running version, or the version is unchanged but the release commit/build differs from the build embedded in the app, the callback notifies the user in the Qt dashboard. The check is non-blocking (10s timeout), daemon-threaded, and silently no-ops on network errors. There is no silent auto-install; the user must download and install manually. The default manifest URL can be overridden with \cmd{DIALECTIC_UPDATE_MANIFEST_URL}.
 
 % =======================================================================
 \section{Noosphere CLI}

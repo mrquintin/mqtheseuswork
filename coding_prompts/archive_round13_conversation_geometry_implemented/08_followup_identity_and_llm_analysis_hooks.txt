@@ -1,0 +1,42 @@
+# Codex Prompt 8 of 8 — Follow-up identity and LLM analysis hooks
+
+**Round:** Podcast conversation geometry. **Sequence:** 8 of 8.
+**Report back with:** the deferred decisions and any TODOs intentionally not implemented.
+
+## Intent
+
+The transcript raises a hard question: how do we tie a voice in transcription to the actual person? The correct first answer is not to fake identity. This prompt records the follow-up architecture so later work can add diarization/identity mapping without corrupting today's transcript data.
+
+## Before You Start
+
+1. Read `UploadChunk.speakerLabel` in Prisma.
+2. Read any Dialectic speaker or transcription metadata.
+3. Read the new conversation geometry code.
+
+## Task
+
+Do not infer real names from voice labels. Instead:
+
+- Confirm the current UI treats speaker labels as analysis objects, not verified identities.
+- Add concise notes in the prompt README for future identity mapping:
+  - optional `TranscriptParticipant` model.
+  - verified founder/guest links.
+  - diarization confidence.
+  - season/podcast grouping.
+  - LLM-generated higher-order analysis frames layered after deterministic metrics.
+
+This is a planning prompt unless the repo already contains a safe participant identity model. If no safe model exists, do not add schema churn.
+
+## Verification
+
+- No code path maps `Speaker 1` to a founder automatically.
+- README notes make the deferred boundary explicit.
+
+## Definition of Done
+
+- The current shipped feature remains honest about identity.
+- Future identity and LLM-analysis work has a concrete path without being smuggled into this deterministic first pass.
+
+## SCOPE
+
+- `coding_prompts/README.md` MODIFY

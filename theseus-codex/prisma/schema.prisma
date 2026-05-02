@@ -145,6 +145,7 @@ model Organization {
   apiKeys              ApiKey[]
   currentEvents        CurrentEvent[]
   eventOpinions        EventOpinion[]
+  methodologyProfiles  MethodologyProfile[]
   socialPosts          SocialPost[]
   operatorStates       OperatorState[]
   forecastMarkets      ForecastMarket[]
@@ -355,6 +356,7 @@ model Upload {
   // of exactly one ingestion run, even when it references claims from
   // multiple uploads.
   conclusionSources   ConclusionSource[]
+  methodologyProfiles MethodologyProfile[]
   contradictions      Contradiction[]      @relation("ContradictionSourceUpload")
   openQuestions       OpenQuestion[]       @relation("OpenQuestionSourceUpload")
   researchSuggestions ResearchSuggestion[] @relation("ResearchSuggestionSourceUpload")
@@ -467,6 +469,7 @@ model Conclusion {
   organization        Organization                @relation(fields: [organizationId], references: [id], onDelete: Restrict)
   publicationReviews  PublicationReview[]
   sources             ConclusionSource[]
+  methodologyProfiles MethodologyProfile[]
   deletionRequests    ConclusionDeletionRequest[]
   dashboardDismissals DashboardDismissal[]
 
@@ -570,6 +573,49 @@ model PublishedConclusion {
   @@index([organizationId])
   @@index([slug])
   @@index([kind, publishedAt])
+}
+
+// ── Methodology profiles ───────────────────────────────────────────────────
+
+/// A durable description of how a piece of material reasons, not merely what it
+/// concludes. Noosphere writes these from transcripts/uploads and reanalysis
+/// scripts; publication review can attach them to public conclusions.
+model MethodologyProfile {
+  id             String @id @default(cuid())
+  organizationId String
+  uploadId       String?
+  conclusionId   String?
+
+  /// UPLOAD when derived from a transcript/artifact; CONCLUSION when derived
+  /// from a conclusion/publication review; MANUAL for founder-authored method
+  /// summaries.
+  sourceKind String @default("UPLOAD")
+
+  patternType String
+  title       String
+  summary     String @db.Text
+
+  reasoningMoves  Json
+  transferTargets Json
+  assumptions     Json
+  failureModes    Json
+  evidenceAnchors Json
+
+  confidence Float @default(0.5)
+  dedupeKey  String
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  upload       Upload?      @relation(fields: [uploadId], references: [id], onDelete: Cascade)
+  conclusion   Conclusion?  @relation(fields: [conclusionId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, dedupeKey])
+  @@index([organizationId, createdAt])
+  @@index([organizationId, patternType])
+  @@index([uploadId])
+  @@index([conclusionId])
 }
 
 // ── Currents — observed external events + source-grounded opinions ──────────

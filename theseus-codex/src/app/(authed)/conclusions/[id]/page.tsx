@@ -4,6 +4,10 @@ import { revalidatePath } from "next/cache";
 import { db } from "@/lib/db";
 import { resolveClaimTexts } from "@/lib/api/round3";
 import { founderDisplayName } from "@/lib/founderDisplay";
+import {
+  profilesForConclusions,
+  type PublicationMethodologyProfile,
+} from "@/lib/methodologyProfiles";
 import { canWrite } from "@/lib/roles";
 import { requireTenantContext } from "@/lib/tenant";
 import PageHelp from "@/components/PageHelp";
@@ -160,6 +164,8 @@ export default async function ConclusionDetailPage({
     sourceType: source.sourceType,
   }));
   const writer = canWrite(tenant.role);
+  const methodologyProfiles =
+    (await profilesForConclusions(tenant.organizationId, [conclusion.id])).get(conclusion.id) ?? [];
   const publicationReviewProps = publicationReviews.map((r) => ({
     id: r.id,
     status: r.status,
@@ -177,6 +183,7 @@ export default async function ConclusionDetailPage({
       confidenceTier: r.target.confidenceTier,
       confidence: r.target.confidence,
       createdAt: r.target.createdAt.toISOString(),
+      methodologyProfiles,
     },
     reviewer: r.reviewer,
   }));
@@ -188,6 +195,7 @@ export default async function ConclusionDetailPage({
             text: conclusion.text,
             topicHint: conclusion.topicHint,
             createdAt: conclusion.createdAt.toISOString(),
+            methodologyProfiles,
           },
         ]
       : [];
@@ -493,6 +501,7 @@ function PublicationInlinePanel({
     text: string;
     topicHint: string;
     createdAt: string;
+    methodologyProfiles: PublicationMethodologyProfile[];
   }>;
   publishedVersions: Array<{
     id: string;
@@ -518,6 +527,7 @@ function PublicationInlinePanel({
       confidenceTier: string;
       confidence: number;
       createdAt: string;
+      methodologyProfiles: PublicationMethodologyProfile[];
     };
     reviewer: {
       id: string;

@@ -1,0 +1,21 @@
+You are operating in /Users/michaelquintin/Desktop/Theseus.
+
+Goal: prove the methodological reorientation is wired through Python, Prisma/TypeScript, and the transcript/public UI without breaking existing behavior.
+
+Run and repair as needed:
+- Python tests for methodology extraction and Codex ingest/reanalysis.
+- Targeted Vitest tests for transcript/public surfaces.
+- TypeScript typecheck after Prisma generation.
+- Prompt audit/dry-run to confirm active prompt scopes.
+
+Implementation constraints:
+- Prefer focused repairs over broad refactors.
+- Do not run production migrations against a real database.
+- If an environment-dependent test cannot run locally, document the missing env explicitly.
+
+SCOPE
+- `noosphere/tests/test_methodology_analysis.py` MODIFY
+- `noosphere/tests/test_codex_methodology_reanalysis.py` MODIFY
+- `theseus-codex/src/__tests__/transcriptPage.test.tsx` MODIFY
+- `theseus-codex/src/__tests__/homepage.test.tsx` MODIFY
+- `coding_prompts/_audit_implementation.py` MODIFY

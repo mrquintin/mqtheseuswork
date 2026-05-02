@@ -9,9 +9,16 @@ import {
   activeEmbeddingModelName,
   decodeFloat32Vector,
 } from "@/lib/embeddingHealth";
+import {
+  buildConversationGeometry,
+  buildYearEndConversationStats,
+} from "@/lib/conversationGeometry";
 import { founderDisplayName } from "@/lib/founderDisplay";
+import { profilesForUpload } from "@/lib/methodologyProfiles";
 import { canWrite } from "@/lib/roles";
 
+import ConversationGeometryPanel from "./ConversationGeometryPanel";
+import MethodologyProfilesPanel from "./MethodologyProfilesPanel";
 import TranscriptAnchorClient from "./TranscriptAnchorClient";
 
 export const dynamic = "force-dynamic";
@@ -247,7 +254,49 @@ export default async function TranscriptPage({
   const transcriptText =
     upload.chunks.map((chunk) => chunk.text).join("\n\n") || upload.textContent || "";
   const headings = sectionHeading(upload.chunks);
-  const related = await relatedConclusions(founder.organizationId, transcriptText, upload.id);
+  const uploadYear = upload.createdAt.getUTCFullYear();
+  const yearStart = new Date(Date.UTC(uploadYear, 0, 1));
+  const yearEnd = new Date(Date.UTC(uploadYear + 1, 0, 1));
+  const [related, yearUploads, methodologyProfiles] = await Promise.all([
+    relatedConclusions(founder.organizationId, transcriptText, upload.id),
+    db.upload.findMany({
+      where: {
+        organizationId: founder.organizationId,
+        deletedAt: null,
+        sourceType: { in: ["transcript", "audio"] },
+        createdAt: { gte: yearStart, lt: yearEnd },
+        OR: [{ visibility: { not: "private" } }, { founderId: founder.id }],
+      },
+      orderBy: { createdAt: "asc" },
+      select: {
+        id: true,
+        title: true,
+        createdAt: true,
+        chunks: {
+          orderBy: { index: "asc" },
+          select: {
+            id: true,
+            index: true,
+            text: true,
+            startMs: true,
+            endMs: true,
+            speakerLabel: true,
+          },
+        },
+      },
+    }),
+    profilesForUpload(founder.organizationId, upload.id),
+  ]);
+  const geometry = buildConversationGeometry(upload.chunks);
+  const yearStats = buildYearEndConversationStats(
+    uploadYear,
+    yearUploads.map((item) => ({
+      id: item.id,
+      title: item.title,
+      createdAt: item.createdAt,
+      chunks: item.chunks,
+    })),
+  );
   const writer = canWrite(founder.role);
   const canPublish = writer && Boolean(transcriptText.trim());
   const canTogglePublic = writer && (founder.role === "admin" || founder.id === upload.founderId);
@@ -306,6 +355,15 @@ export default async function TranscriptPage({
           </nav>
         ) : null}
       </section>
+
+      <div className="transcript-insight-grid">
+        <ConversationGeometryPanel
+          geometry={geometry}
+          uploadId={upload.id}
+          yearStats={yearStats}
+        />
+        <MethodologyProfilesPanel profiles={methodologyProfiles} />
+      </div>
 
       <div className="transcript-grid">
         <article className="transcript-main" aria-label="Raw transcript">

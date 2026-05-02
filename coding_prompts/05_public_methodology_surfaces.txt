@@ -1,0 +1,20 @@
+You are operating in /Users/michaelquintin/Desktop/Theseus.
+
+Goal: make the public-facing side less superficial by making methodology legible. A public conclusion page should show the method used to reach the view, and `/methodology` should explain the methodological orientation directly.
+
+Implement or repair:
+- Public conclusion rendering for the methodology payload.
+- A reworked public methodology page that distinguishes object-level conclusions from reusable methods.
+- CSS for method cards that fits the existing public-site visual language.
+- Fixture updates needed for the stricter payload type.
+
+Implementation constraints:
+- Do not reveal raw private transcripts or hidden source artifacts.
+- Keep the public explanation precise: methodology is not a claim that the conclusion transfers automatically.
+- Maintain accessibility and responsive layout.
+
+SCOPE
+- `theseus-codex/src/components/ConclusionView.tsx` MODIFY
+- `theseus-codex/src/app/methodology/page.tsx` MODIFY
+- `theseus-codex/src/app/globals.css` MODIFY
+- `theseus-codex/src/__tests__/homepage.test.tsx` MODIFY

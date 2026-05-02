@@ -5,6 +5,7 @@ import {
   founderDisplayName,
   type FounderDisplayFields,
 } from "@/lib/founderDisplay";
+import type { PublicationMethodologyProfile } from "@/lib/methodologyProfiles";
 
 type ReviewRow = {
   id: string;
@@ -23,11 +24,18 @@ type ReviewRow = {
     confidenceTier: string;
     confidence: number;
     createdAt: string;
+    methodologyProfiles: PublicationMethodologyProfile[];
   };
   reviewer: (FounderDisplayFields & { id: string; username: string }) | null;
 };
 
-type FirmRow = { id: string; text: string; topicHint: string; createdAt: string };
+type FirmRow = {
+  id: string;
+  text: string;
+  topicHint: string;
+  createdAt: string;
+  methodologyProfiles: PublicationMethodologyProfile[];
+};
 
 const CHECKLIST_KEYS = [
   ["metaAnalysisOk", "Five-criterion meta-analysis passed"],
@@ -36,6 +44,16 @@ const CHECKLIST_KEYS = [
   ["noLeakageOk", "No private-context leakage"],
   ["noHarmOk", "No inadvertent harms"],
 ] as const;
+
+function methodologyNarrative(profiles: PublicationMethodologyProfile[]): string {
+  return profiles
+    .map((profile) => {
+      const transfer = profile.transferTargets.length ? ` Transfer: ${profile.transferTargets.join("; ")}.` : "";
+      const risk = profile.failureModes.length ? ` Risk: ${profile.failureModes.join("; ")}.` : "";
+      return `${profile.title}: ${profile.summary}${transfer}${risk}`;
+    })
+    .join("\n\n");
+}
 
 export default function PublicationClient({
   reviews,
@@ -50,6 +68,7 @@ export default function PublicationClient({
   const [busyId, setBusyId] = useState<string | null>(null);
   const [enqueueId, setEnqueueId] = useState<string>(firmConclusions[0]?.id ?? "");
   const [openId, setOpenId] = useState<string | null>(reviews[0]?.id ?? null);
+  const selectedFirm = firmConclusions.find((c) => c.id === enqueueId) ?? null;
 
   const checklistTemplate = useMemo(() => {
     const o: Record<string, boolean> = {};
@@ -136,6 +155,11 @@ export default function PublicationClient({
             Export JSON
           </a>
         </div>
+        {selectedFirm?.methodologyProfiles.length ? (
+          <p style={{ color: "var(--parchment-dim)", fontSize: "0.78rem", lineHeight: 1.45, margin: "0.75rem 0 0" }}>
+            Method profile available: {selectedFirm.methodologyProfiles.map((profile) => profile.title).join("; ")}
+          </p>
+        ) : null}
       </section>
 
       <section style={{ display: "flex", flexDirection: "column", gap: "0.75rem" }}>
@@ -210,6 +234,7 @@ export default function PublicationClient({
                       reviewId={r.id}
                       checklist={checklist}
                       defaultStatedConfidence={r.target.confidence}
+                      suggestedMethodologyProfiles={r.target.methodologyProfiles}
                       busy={busyId === r.id}
                       onError={(msg) => setMessage(msg)}
                       onPublish={(payload) => void callReview(r.id, payload)}
@@ -232,6 +257,7 @@ function PublishPanel({
   reviewId,
   checklist,
   defaultStatedConfidence,
+  suggestedMethodologyProfiles,
   busy,
   onError,
   onPublish,
@@ -242,6 +268,7 @@ function PublishPanel({
   reviewId: string;
   checklist: Record<string, boolean>;
   defaultStatedConfidence: number;
+  suggestedMethodologyProfiles: PublicationMethodologyProfile[];
   busy: boolean;
   onError: (msg: string) => void;
   onPublish: (payload: unknown) => void;
@@ -256,6 +283,7 @@ function PublishPanel({
   const [firmAnswer, setFirmAnswer] = useState("");
   const [openQs, setOpenQs] = useState("");
   const [voices, setVoices] = useState("");
+  const [methodText, setMethodText] = useState(() => methodologyNarrative(suggestedMethodologyProfiles));
   const [discounted, setDiscounted] = useState("0.65");
   const [calibReason, setCalibReason] = useState("");
   const [slug, setSlug] = useState("");
@@ -344,6 +372,35 @@ function PublishPanel({
         />
       </label>
 
+      <fieldset style={{ border: "1px solid var(--border)", padding: "0.75rem" }}>
+        <legend style={{ color: "var(--gold-dim)", fontSize: "0.65rem", letterSpacing: "0.12em" }}>
+          Methodology analysis
+        </legend>
+        {suggestedMethodologyProfiles.length ? (
+          <div style={{ display: "grid", gap: "0.55rem", marginBottom: "0.7rem" }}>
+            {suggestedMethodologyProfiles.map((profile) => (
+              <div key={profile.patternType} style={{ borderLeft: "2px solid var(--gold-dim)", paddingLeft: "0.65rem" }}>
+                <strong style={{ color: "var(--parchment)", display: "block", fontSize: "0.82rem" }}>
+                  {profile.title}
+                </strong>
+                <span style={{ color: "var(--parchment-dim)", display: "block", fontSize: "0.76rem", lineHeight: 1.45 }}>
+                  {profile.summary}
+                </span>
+              </div>
+            ))}
+          </div>
+        ) : null}
+        <label style={{ color: "var(--parchment-dim)", fontSize: "0.8rem", display: "flex", flexDirection: "column", gap: "0.35rem" }}>
+          Public method narrative
+          <textarea
+            value={methodText}
+            onChange={(e) => setMethodText(e.target.value)}
+            rows={5}
+            style={{ width: "100%", background: "var(--obsidian)", color: "var(--parchment)", padding: "0.5rem" }}
+          />
+        </label>
+      </fieldset>
+
       <div style={{ display: "flex", flexWrap: "wrap", gap: "0.75rem" }}>
         <label style={{ color: "var(--parchment-dim)", fontSize: "0.8rem", display: "flex", flexDirection: "column", gap: "0.35rem" }}>
           Discounted confidence (0–1)
@@ -408,6 +465,10 @@ function PublishPanel({
               onError("Calibration discount reason is required.");
               return;
             }
+            if (!methodText.trim() && suggestedMethodologyProfiles.length === 0) {
+              onError("Methodology analysis is required.");
+              return;
+            }
             const dc = Number(discounted);
             if (!Number.isFinite(dc) || dc < 0 || dc > 1) {
               onError("Discounted confidence must be a number between 0 and 1.");
@@ -424,6 +485,8 @@ function PublishPanel({
                 .map((s) => s.trim())
                 .filter(Boolean),
               voiceComparisons,
+              methodologyProfiles: suggestedMethodologyProfiles,
+              methodologyNarrative: methodText,
               discountedConfidence: dc,
               statedConfidence: defaultStatedConfidence,
               calibrationDiscountReason: calibReason,

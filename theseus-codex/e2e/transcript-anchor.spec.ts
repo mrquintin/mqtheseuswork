@@ -84,6 +84,21 @@ test("transcript anchor query scrolls to and highlights the target chunk", async
     await page.goto(`/transcripts/${upload.id}?anchor=chunk-${target.id}`);
     const chunk = page.locator(`#chunk-${target.id}`);
     await expect(chunk).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Harvest table" })).toBeVisible();
+    await expect(page.getByRole("button", { name: /Map/i })).toHaveAttribute("aria-pressed", "true");
+    await page.getByRole("button", { name: /Catalysts/i }).click();
+    await expect(page.getByText(/Catalyst scores rank adjacent speaker handoffs/i)).toBeVisible();
+    await expect(page.getByText(/Neutral handoff \/ score/i)).toBeVisible();
+    await expect(page.getByText("Source / Michael")).toBeVisible();
+    await expect(page.getByText("Target / Ada")).toBeVisible();
+    const catalystLink = page.getByRole("link", { name: "Michael -> Ada" });
+    await expect(catalystLink).toBeVisible();
+    await expect(catalystLink).toHaveAttribute(
+      "href",
+      `/transcripts/${upload.id}?anchor=chunk-${target.id}`,
+    );
+    await catalystLink.click();
+    await expect(page).toHaveURL(new RegExp(`/transcripts/${upload.id}\\?anchor=chunk-${target.id}$`));
     await expect(chunk).toHaveClass(/chunk-highlight/);
     await expect
       .poll(async () =>

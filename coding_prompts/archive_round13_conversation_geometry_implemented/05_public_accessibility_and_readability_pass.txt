@@ -1,0 +1,42 @@
+# Codex Prompt 5 of 8 — Public accessibility and readability pass
+
+**Round:** Podcast conversation geometry. **Sequence:** 5 of 8.
+**Report back with:** the accessibility improvements, affected public surfaces, and verification steps.
+
+## Intent
+
+The broader product direction is to make the public-facing side of Theseus easier to enter without diluting the rigor. This prompt handles the small but load-bearing accessibility basics that make the public site more navigable before larger copy/design passes.
+
+## Before You Start
+
+1. Read `theseus-codex/src/app/layout.tsx`.
+2. Read `theseus-codex/src/app/page.tsx` and `theseus-codex/src/app/about/page.tsx`.
+3. Read global focus/link styles in `theseus-codex/src/app/globals.css`.
+
+## Task
+
+Add a sitewide skip link targeting a stable main-content wrapper, with:
+
+- visible focus state.
+- no layout shift when unfocused.
+- contrast against both dark and light themes.
+- no interference with the CRT overlay.
+
+Keep this pass deliberately small; do not redesign the public homepage.
+
+## Verification
+
+- `npm run lint` passes.
+- Keyboard smoke: tab from a fresh page load; "Skip to content" appears and jumps past navigation.
+- Public homepage snapshot remains stable except for the wrapper/skip link if covered by tests.
+
+## Definition of Done
+
+- Every page has a reachable `#main-content` target.
+- The skip link is not visible with pointer/mouse browsing.
+- No new dependency is added.
+
+## SCOPE
+
+- `theseus-codex/src/app/layout.tsx`     MODIFY
+- `theseus-codex/src/app/globals.css`    MODIFY

@@ -58,6 +58,8 @@ vi.mock("@/lib/conclusionsRead", () => ({
 }));
 
 import PublicHomePage from "@/app/page";
+import MethodologyPage from "@/app/methodology/page";
+import ConclusionView from "@/components/ConclusionView";
 
 function opinion(overrides: Partial<PublicOpinion> = {}): PublicOpinion {
   return {
@@ -117,6 +119,11 @@ function article(overrides: Partial<PublishedConclusion> = {}): PublishedConclus
       strongestObjection: { objection: "", firmAnswer: "" },
       openQuestionsAdjacent: [],
       voiceComparisons: [],
+      methodology: {
+        schema: "theseus.methodology.v1",
+        reviewerNarrative: "",
+        profiles: [],
+      },
       timeline: [],
       whatWouldChangeOurMind: [],
       citations: [],
@@ -130,12 +137,23 @@ async function renderHomepage(): Promise<string> {
   return renderToStaticMarkup(element);
 }
 
+async function renderMethodologyPage(): Promise<string> {
+  const element = await MethodologyPage();
+  return renderToStaticMarkup(element);
+}
+
+function renderConclusion(row: PublishedConclusion): string {
+  return renderToStaticMarkup(<ConclusionView row={row} allVersions={[row]} responses={[]} />);
+}
+
+function resetPublicMocks() {
+  mocks.getFounder.mockResolvedValue(null);
+  mocks.listCurrents.mockResolvedValue({ items: [] });
+  mocks.listPublishedArticles.mockResolvedValue([]);
+}
+
 describe("PublicHomePage", () => {
-  beforeEach(() => {
-    mocks.getFounder.mockResolvedValue(null);
-    mocks.listCurrents.mockResolvedValue({ items: [] });
-    mocks.listPublishedArticles.mockResolvedValue([]);
-  });
+  beforeEach(resetPublicMocks);
 
   it("snapshots the empty public homepage", async () => {
     const html = await renderHomepage();
@@ -182,5 +200,61 @@ describe("PublicHomePage", () => {
     expect(html).toContain("LATEST FROM THE FIRM · CURRENTS");
     expect(html).toContain("PUBLICATIONS · ESSAYS &amp; MEMOS");
     expect(html).toContain('data-testid="homepage-current-card"');
+  });
+});
+
+describe("Public methodology surfaces", () => {
+  beforeEach(resetPublicMocks);
+
+  it("explains the object-level conclusion versus reusable method distinction", async () => {
+    const html = await renderMethodologyPage();
+
+    expect(html).toContain("Two different public records");
+    expect(html).toContain("object-level");
+    expect(html).toContain("reusable");
+    expect(html).toContain("the conclusion does not transfer automatically with it");
+    expect(html).toContain("does not expose raw deliberation");
+  });
+
+  it("renders public methodology profiles without exposing private source anchors", () => {
+    const privateSourceTitle = "PRIVATE_SESSION_TRANSCRIPT_DO_NOT_RENDER";
+    const base = article();
+    const row = article({
+      payload: {
+        ...base.payload,
+        methodology: {
+          schema: "theseus.methodology.v1",
+          reviewerNarrative: "The reviewer approved this as a method summary rather than a source excerpt.",
+          profiles: [
+            {
+              patternType: "first_principles_decomposition",
+              title: "Purpose before mechanism",
+              summary: "The reasoning first fixes the purpose, then judges mechanisms by that purpose.",
+              reasoningMoves: ["Separate terminal purpose from implementation mechanism."],
+              transferTargets: ["institution-design questions"],
+              assumptions: ["The purpose can be named without hiding the operative tradeoff."],
+              failureModes: ["Treating the abstraction as proof in another domain."],
+              evidenceAnchors: [{ sourceTitle: privateSourceTitle, sentenceIndex: 42 }],
+              confidence: 0.84,
+            },
+          ],
+        },
+      },
+    });
+
+    const html = renderConclusion(row);
+
+    expect(html).toContain("Method used to reach this view");
+    expect(html).toContain("Methodology orientation");
+    expect(html).toContain("Purpose before mechanism");
+    expect(html).toContain("Reasoning moves");
+    expect(html).toContain("Working assumptions");
+    expect(html).toContain("Potential transfer targets");
+    expect(html).toContain("Failure modes");
+    expect(html).toContain("not a raw transcript");
+    expect(html).toContain("claim that the conclusion automatically transfers");
+    expect(html).not.toContain(privateSourceTitle);
+    expect(html).not.toContain("sourceTitle");
+    expect(html).not.toContain("sentenceIndex");
   });
 });

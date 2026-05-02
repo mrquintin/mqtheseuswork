@@ -1,5 +1,6 @@
 import { getFounder } from "@/lib/auth";
 import { db } from "@/lib/db";
+import { profilesForConclusions } from "@/lib/methodologyProfiles";
 
 import PublicationClient from "./PublicationClient";
 
@@ -29,6 +30,11 @@ export default async function PublicationPage() {
     }),
   ]);
 
+  const profileMap = await profilesForConclusions(
+    founder.organizationId,
+    [...reviews.map((r) => r.conclusionId), ...firmConclusions.map((c) => c.id)],
+  );
+
   const reviewProps = reviews.map((r) => ({
     id: r.id,
     status: r.status,
@@ -46,6 +52,7 @@ export default async function PublicationPage() {
       confidenceTier: r.target.confidenceTier,
       confidence: r.target.confidence,
       createdAt: r.target.createdAt.toISOString(),
+      methodologyProfiles: profileMap.get(r.target.id) ?? [],
     },
     reviewer: r.reviewer,
   }));
@@ -55,6 +62,7 @@ export default async function PublicationPage() {
     text: c.text,
     topicHint: c.topicHint,
     createdAt: c.createdAt.toISOString(),
+    methodologyProfiles: profileMap.get(c.id) ?? [],
   }));
 
   return (

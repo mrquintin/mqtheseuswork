@@ -1,0 +1,24 @@
+You are operating in /Users/michaelquintin/Desktop/Theseus.
+
+Goal: make methodology profiles durable in the shared Codex database and have normal Noosphere ingestion write them alongside conclusions.
+
+Implement or repair:
+- A Prisma `MethodologyProfile` model and SQL migration.
+- A SQLModel mirror for Noosphere-side schema awareness.
+- Idempotent upsert helpers keyed by source and pattern type.
+- `ingest-from-codex` integration that derives profiles, writes them, updates `Upload.methodCount`, and logs the count without disturbing conclusion extraction.
+- SQLite fixture/test coverage for the new ingest behavior.
+
+Implementation constraints:
+- No production reset, no destructive migration.
+- Re-ingesting the same upload must update existing profiles rather than duplicate them.
+- Existing tests for upload status transitions must keep their semantics.
+
+SCOPE
+- `theseus-codex/prisma/schema.prisma` MODIFY
+- `theseus-codex/prisma/migrations/20260502120000_methodology_profiles/migration.sql` CREATE
+- `noosphere/noosphere/models.py` MODIFY
+- `noosphere/noosphere/codex_methodology.py` CREATE
+- `noosphere/noosphere/codex_bridge.py` MODIFY
+- `noosphere/tests/fixtures/minimal_codex_schema.sql` MODIFY
+- `noosphere/tests/test_codex_methodology_reanalysis.py` CREATE

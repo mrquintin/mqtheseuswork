@@ -1,0 +1,19 @@
+You are operating in /Users/michaelquintin/Desktop/Theseus.
+
+Goal: keep the prompt workspace executable from Cursor with the OpenAI Codex CLI login path, and archive only work that has actually landed.
+
+Implement or repair:
+- Archive the previously implemented conversation-geometry prompt batch with a README explaining the audit.
+- Keep the methodology prompt batch active at the top level.
+- Update the prompt README.
+- Update the root runner label/preamble while preserving the existing output style and flags.
+
+Implementation constraints:
+- The runner must use `codex exec`, not API keys.
+- The runner must execute only top-level numbered `coding_prompts/*.txt` files.
+- Preserve `--dry-run`, `--from`, `--to`, `--only`, `--continue`, and `--model`.
+
+SCOPE
+- `coding_prompts/archive_round13_conversation_geometry_implemented/README.md` CREATE
+- `coding_prompts/README.md` MODIFY
+- `run_prompts.sh` MODIFY

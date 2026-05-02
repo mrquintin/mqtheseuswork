@@ -1,0 +1,20 @@
+You are operating in /Users/michaelquintin/Desktop/Theseus.
+
+Goal: provide the final safe reanalysis hook requested in the transcript: after the platform has the new method infrastructure, operators can reanalyze existing material and connect it to the new tables.
+
+Implement or repair:
+- A Python reanalysis module that scans existing Codex uploads, derives methodology profiles, and writes idempotently.
+- A Typer CLI command exposed through `python -m noosphere`.
+- A root script operators can run from Cursor.
+
+Implementation constraints:
+- Default to dry-run. Require `--apply` before writing.
+- Reuse the same Codex database URL resolution as `ingest-from-codex`.
+- Do not print database URLs or secrets.
+- Gate CLI mutation behind the existing Noosphere/Codex auth requirement.
+
+SCOPE
+- `noosphere/noosphere/codex_methodology_reanalysis.py` CREATE
+- `noosphere/noosphere/typer_cli.py` MODIFY
+- `scripts/reanalyze-methodology.sh` CREATE
+- `noosphere/tests/test_codex_methodology_reanalysis.py` MODIFY

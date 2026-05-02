@@ -106,6 +106,13 @@ class AnalysisBridge(QObject):
     interlocutor_suggested = pyqtSignal(object)
 
 
+class ThreePaneBridge(QObject):
+    """Thread-safe bridge for the default live dashboard window."""
+    init_succeeded = pyqtSignal(object, object, object, object, object, object)
+    init_failed = pyqtSignal(object)
+    interlocutor_suggested = pyqtSignal(object, str)
+
+
 # ======================================================================
 # Custom Widgets
 # ======================================================================
@@ -1171,6 +1178,10 @@ class ThreePaneDialecticWindow(QMainWindow):
         # in the Alerts pane; also used to grey out the Begin button
         # if a critical dependency is missing.
         self._preflight_ok = True
+        self._bridge = ThreePaneBridge()
+        self._bridge.init_succeeded.connect(self._finish_start_on_ui_thread)
+        self._bridge.init_failed.connect(self._on_init_failed)
+        self._bridge.interlocutor_suggested.connect(self._append_prompt_card)
 
         self._build_ui()
         self._run_preflight()
@@ -1614,7 +1625,7 @@ class ThreePaneDialecticWindow(QMainWindow):
         self._rec_btn.setText("INITIALIZING…")
         self._set_status("● INITIALIZING", color="#d4a017")
 
-            ts = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+        ts = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
         self._session_id = f"session_{ts}"
         self._log_alert(f"starting session {self._session_id}")
         self._log_alert(
@@ -1647,20 +1658,15 @@ class ThreePaneDialecticWindow(QMainWindow):
                 )
             except Exception as exc:
                 # Bounce back to UI thread to report failure and reset.
-                QTimer.singleShot(
-                    0, lambda e=exc: self._on_init_failed(e)
-                )
+                self._bridge.init_failed.emit(exc)
                 return
 
             # Success — hand the freshly constructed components back to
             # the UI thread and finish starting there (Qt objects have
             # thread affinity, and sounddevice is friendliest when its
             # InputStream is opened on the owning thread).
-            QTimer.singleShot(
-                0,
-                lambda: self._finish_start_on_ui_thread(
-                    segment_q, trans_q, session_q, cap, transcriber, analyzer
-                ),
+            self._bridge.init_succeeded.emit(
+                segment_q, trans_q, session_q, cap, transcriber, analyzer
             )
 
         _threading.Thread(
@@ -1724,11 +1730,7 @@ class ThreePaneDialecticWindow(QMainWindow):
             # legacy Dashboard flow if the user wants finer control.
             try:
                 def _on_intervention(cand, rid: str) -> None:
-                    # Bounce onto the Qt main thread — the interlocutor
-                    # fires this from its analysis worker.
-                    QTimer.singleShot(
-                        0, lambda c=cand, i=rid: self._append_prompt_card(c, i)
-                    )
+                    self._bridge.interlocutor_suggested.emit(cand, rid)
 
                 self._interlocutor = InterlocutorController(
                     self.cfg.interlocutor,
@@ -1771,14 +1773,14 @@ class ThreePaneDialecticWindow(QMainWindow):
 
     def _stop_session(self) -> None:
         self._set_status("● STOPPING", color="#d4a017")
-            self._recording = False
+        self._recording = False
 
         if self._timer is not None:
             self._timer.stop()
 
         if self._cap is not None:
             try:
-            self._cap.stop()
+                self._cap.stop()
             except Exception as e:
                 self._log_alert(
                     f"audio stop raised: {type(e).__name__}: {e}",
@@ -1786,16 +1788,16 @@ class ThreePaneDialecticWindow(QMainWindow):
                 )
         if self._transcriber is not None:
             try:
-            self._transcriber.stop()
+                self._transcriber.stop()
             except Exception as e:
                 self._log_alert(
                     f"transcriber stop raised: {type(e).__name__}: {e}",
                     level="warn",
                 )
 
-            for t in self._tasks:
-                t.cancel()
-            self._tasks.clear()
+        for t in self._tasks:
+            t.cancel()
+        self._tasks.clear()
 
         sid = self._session_id or ""
         if self._interlocutor is not None:
@@ -2063,28 +2065,69 @@ def _schedule_update_check(window: QMainWindow) -> None:
     """Trigger a background update check that shows a non-blocking banner.
 
     ``updater.check_for_updates`` runs in its own daemon thread; when it
-    finds a new version it calls our callback with the manifest dict. We
-    bounce the UI work onto the Qt main thread via ``QTimer.singleShot``
-    so we don't try to pop a dialog from a worker thread (which would
-    silently fail on macOS).
+    finds a new version or build it calls our callback with the manifest dict.
+    We bounce the UI work onto the Qt main thread with a signal; creating a
+    QTimer in the worker thread can fail silently on macOS.
     """
+    class UpdateBridge(QObject):
+        update_available = pyqtSignal(object)
+
+    bridge = UpdateBridge(window)
+    # Keep the bridge alive for as long as the window lives.
+    setattr(window, "_dialectic_update_bridge", bridge)
+
+    def _download_url(info: dict) -> str:
+        urls = info.get("download_urls")
+        if isinstance(urls, dict):
+            if sys.platform == "darwin" and urls.get("macos"):
+                return str(urls["macos"])
+            if sys.platform.startswith("win") and urls.get("windows"):
+                return str(urls["windows"])
+        return str(info.get("download_url", ""))
+
+    def _show(info: dict) -> None:
+        try:
+            version = info.get("version", "?")
+            reason = info.get("update_reason", "version")
+            latest_commit = str(
+                info.get("commit")
+                or info.get("commit_sha")
+                or info.get("sha")
+                or ""
+            )
+            current_commit = str(info.get("current_commit", ""))
+            notes = str(info.get("release_notes", "")).strip()
+            url = _download_url(info)
+
+            title = f"A new Dialectic release is available: {version}"
+            if reason == "commit" and latest_commit:
+                title = (
+                    "A newer Dialectic build is available "
+                    f"({latest_commit[:12]})."
+                )
+            elif reason == "build":
+                title = "A refreshed Dialectic build is available."
+
+            details = []
+            if current_commit and latest_commit:
+                details.append(
+                    f"Current commit: {current_commit[:12]}\n"
+                    f"Latest commit:  {latest_commit[:12]}"
+                )
+            if notes:
+                details.append(notes)
+            if url:
+                details.append(f"Download: {url}")
+
+            body = title if not details else title + "\n\n" + "\n\n".join(details)
+            QMessageBox.information(window, "Dialectic update", body)
+        except Exception:
+            pass
+
+    bridge.update_available.connect(_show)
 
     def _on_new_version(info: dict) -> None:
-        def _show() -> None:
-            try:
-                version = info.get("version", "?")
-                url = info.get("download_url", "")
-                notes = info.get("release_notes", "")
-                body = (
-                    f"A new Dialectic release is available: {version}\n\n"
-                    f"{notes}\n\n"
-                    f"Download: {url}"
-                )
-                QMessageBox.information(window, "Dialectic update", body)
-            except Exception:
-                pass
-
-        QTimer.singleShot(0, _show)
+        bridge.update_available.emit(info)
 
     try:
         check_for_updates(callback=_on_new_version)

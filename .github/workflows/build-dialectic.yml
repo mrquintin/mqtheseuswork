@@ -43,6 +43,9 @@ jobs:
       - name: Generate icons
         run: python scripts/generate_icons.py
 
+      - name: Write build metadata
+        run: python scripts/write_build_info.py
+
       - name: Build with PyInstaller
         run: pyinstaller dialectic.spec --noconfirm --clean
 

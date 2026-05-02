@@ -1,0 +1,46 @@
+# Codex Prompt 1 of 8 — Conversation geometry metrics contract
+
+**Round:** Podcast conversation geometry. **Sequence:** 1 of 8.
+**Report back with:** the pure metrics API, tests added, and any assumptions about speaker identity.
+
+## Intent
+
+The transcript asks for podcast conversations to be analyzable as geometry: participants as objects, weighted lines between them, and a way to see which points caused later points. Build the deterministic metrics layer first so the UI and later ingestion work share one contract.
+
+## Before You Start
+
+1. Read `theseus-codex/src/app/(authed)/transcripts/[uploadId]/page.tsx`.
+2. Read `theseus-codex/prisma/schema.prisma` around `Upload` and `UploadChunk`.
+3. Confirm whether `UploadChunk.speakerLabel`, `startMs`, and stable `id` already exist.
+4. Inspect `theseus-codex/src/__tests__/transcriptPage.test.tsx` for fixture shape.
+
+## Task
+
+Create a pure TypeScript metrics module that accepts ordered `UploadChunk`-like rows and returns:
+
+- speaker objects: label, stable id, turns, word count, question turns, share of words, average turn length, first/last chunk ids, top repeated terms.
+- handoff edges: source, target, count, weight, shared terms.
+- catalyst moments: adjacent chunk pairs that look like question-response, agreement, disagreement, causal continuation, conceptual carry, or neutral handoff.
+- total turns, total words, total handoffs, and whether real speaker labels were present.
+
+Do not infer real human identity when the transcript only has `Speaker 1` or a missing label. Use the available label as an analysis object and make the uncertainty explicit in the UI prompt that follows.
+
+## Verification
+
+Add unit tests covering:
+
+- two-speaker handoffs.
+- question-response catalyst classification.
+- same-version/current-year aggregate lock behavior.
+- closed-year aggregate reveal behavior.
+
+## Definition of Done
+
+- `npm run test -- conversationGeometry` passes in `theseus-codex/`.
+- The module is deterministic and has no DB, browser, or network dependency.
+- No secret values or credential names are added.
+
+## SCOPE
+
+- `theseus-codex/src/lib/conversationGeometry.ts`                  CREATE
+- `theseus-codex/src/__tests__/conversationGeometry.test.ts`        CREATE

@@ -10,6 +10,30 @@ function clamp01(n: number) {
   return Math.min(1, Math.max(0, n));
 }
 
+function percent(n: number) {
+  return `${(clamp01(n) * 100).toFixed(0)}%`;
+}
+
+function formatPatternType(value: string) {
+  const formatted = value.replace(/[_-]+/g, " ").trim();
+  return formatted || "method profile";
+}
+
+function MethodList({ label, items }: { label: string; items: string[] }) {
+  if (!items.length) return null;
+
+  return (
+    <div className="public-method-list-group">
+      <h4 className="mono">{label}</h4>
+      <ul className="public-method-list">
+        {items.map((item, index) => (
+          <li key={`${label}:${index}`}>{item}</li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
 export default function ConclusionView({
   row,
   allVersions,
@@ -22,6 +46,9 @@ export default function ConclusionView({
   const p = row.payload;
   const canonical = `${SITE}/c/${encodeURIComponent(row.slug)}/v/${row.version}`;
   const citations = Array.isArray(p.citations) ? p.citations : [];
+  const methodologyNarrative = p.methodology.reviewerNarrative.trim();
+  const methodologyProfiles = p.methodology.profiles;
+  const hasMethodology = Boolean(methodologyNarrative || methodologyProfiles.length);
 
   return (
     <main className="public-container">
@@ -45,9 +72,9 @@ export default function ConclusionView({
       <section className="public-card">
         <h2>Confidence</h2>
         <p className="public-muted">
-          Headline (calibration-discounted): <strong>{(clamp01(row.discountedConfidence) * 100).toFixed(0)}%</strong>
+          Headline (calibration-discounted): <strong>{percent(row.discountedConfidence)}</strong>
           <span className="public-inline-stat">
-            Stated / model confidence (context): <strong>{(clamp01(row.statedConfidence) * 100).toFixed(0)}%</strong>
+            Stated / model confidence (context): <strong>{percent(row.statedConfidence)}</strong>
           </span>
         </p>
         {row.calibrationDiscountReason ? <p>{row.calibrationDiscountReason}</p> : null}
@@ -57,6 +84,50 @@ export default function ConclusionView({
         <h2>Why the firm believes this</h2>
         <p>{p.evidenceSummary || p.rationale}</p>
       </section>
+
+      {hasMethodology ? (
+        <section aria-labelledby="conclusion-methodology-title" className="public-section public-methodology-section">
+          <div className="public-section-heading">
+            <h2 id="conclusion-methodology-title">Method used to reach this view</h2>
+            <Link className="public-section-link mono" href="/methodology">
+              Methodology orientation
+            </Link>
+          </div>
+          <p className="public-card public-method-note" role="note">
+            This is a public, reviewer-approved abstraction of the reasoning process. It is not a raw transcript, source
+            excerpt, or claim that the conclusion automatically transfers to another domain.
+          </p>
+          {methodologyNarrative ? <p className="public-method-narrative">{methodologyNarrative}</p> : null}
+          {methodologyProfiles.length ? (
+            <div className="public-method-grid" role="list">
+              {methodologyProfiles.map((profile, index) => {
+                const headingId = `method-profile-${index}`;
+                return (
+                  <article
+                    aria-labelledby={headingId}
+                    className="public-card public-method-card"
+                    key={`${profile.patternType}:${profile.title}`}
+                    role="listitem"
+                  >
+                    <div className="public-method-meta mono">
+                      <span>{formatPatternType(profile.patternType)}</span>
+                      <span>{percent(profile.confidence)}</span>
+                    </div>
+                    <h3 id={headingId}>{profile.title}</h3>
+                    <p className="public-method-summary">{profile.summary}</p>
+                    <MethodList label="Reasoning moves" items={profile.reasoningMoves} />
+                    <MethodList label="Working assumptions" items={profile.assumptions} />
+                    <MethodList label="Potential transfer targets" items={profile.transferTargets} />
+                    <MethodList label="Failure modes" items={profile.failureModes} />
+                  </article>
+                );
+              })}
+            </div>
+          ) : (
+            <p className="public-muted">No reusable method profile was attached to this publication.</p>
+          )}
+        </section>
+      ) : null}
 
       <section className="public-section">
         <h2>Strongest engaged objection</h2>

@@ -1,0 +1,41 @@
+# Codex Prompt 6 of 8 — Prompt archive and runner hygiene
+
+**Round:** Podcast conversation geometry. **Sequence:** 6 of 8.
+**Report back with:** what was archived, what was paused, and how to run the new batch.
+
+## Intent
+
+The active `coding_prompts/` directory should contain the current runnable batch. Implemented prompts should be archived. Unimplemented prompts from unrelated waves should not be mislabeled as done or accidentally run by the current batch.
+
+## Before You Start
+
+1. List top-level `coding_prompts/[0-9][0-9]_*.txt`.
+2. Check implemented status by matching each prompt's deliverables against the repo.
+3. Read the existing `run_prompts.sh` terminal output style.
+
+## Task
+
+- Move implemented Round 12 prompts into `coding_prompts/archive_round12_implemented/`.
+- Move unimplemented live-trading carry-over prompts into a paused folder, not a completed archive.
+- Add README notes explaining the classification.
+- Rewrite `run_prompts.sh` for this current batch while keeping the existing plan/filter/log/heartbeat style.
+- Ensure the runner uses `codex exec --full-auto` and the user's Codex CLI login, not an API key.
+
+## Verification
+
+- `./run_prompts.sh --dry-run` prints only the current prompt batch.
+- The runner exits cleanly when no `codex` CLI is needed for dry-run.
+- The runner logs to `.codex_runs/`.
+
+## Definition of Done
+
+- No unrelated live-trading prompt runs by default.
+- The prompt archive has enough notes to reconstruct why files moved.
+- The runner remains bash 3.2 compatible.
+
+## SCOPE
+
+- `coding_prompts/archive_round12_implemented/README.md`                    CREATE
+- `coding_prompts/_paused/live_trading_round12_unimplemented/README.md`     CREATE
+- `coding_prompts/README.md`                                                MODIFY
+- `run_prompts.sh`                                                          MODIFY

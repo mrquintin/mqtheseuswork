@@ -7,6 +7,9 @@ Set-Location $Root
 Write-Host "=== Generating icons ===" -ForegroundColor Cyan
 python scripts\generate_icons.py
 
+Write-Host "=== Writing build metadata ===" -ForegroundColor Cyan
+python scripts\write_build_info.py
+
 Write-Host "=== Installing build dependencies ===" -ForegroundColor Cyan
 pip install pyinstaller
 

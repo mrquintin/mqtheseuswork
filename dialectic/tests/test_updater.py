@@ -30,26 +30,103 @@ def _join(thread, timeout: float = 5.0) -> None:
 def test_callback_invoked_when_newer_version_available():
     callback = MagicMock()
     payload = {
-        "version": "99.0.0",
+        "version": "2.0.0",
         "download_url": "https://example.com/dialectic-99.0.0.dmg",
         "release_notes": "test",
     }
-    with patch.object(updater, "urlopen", return_value=_fake_response(payload)):
+    with (
+        patch.object(updater, "_current_version", return_value="1.0.0"),
+        patch.object(updater, "_current_commit", return_value="abc123"),
+        patch.object(updater, "urlopen", return_value=_fake_response(payload)),
+    ):
         t = updater.check_for_updates(callback=callback)
         _join(t)
 
-    callback.assert_called_once_with(payload)
+    callback.assert_called_once()
+    info = callback.call_args.args[0]
+    assert info["version"] == "2.0.0"
+    assert info["update_reason"] == "version"
+    assert info["current_version"] == "1.0.0"
 
 
 def test_callback_not_invoked_when_running_latest():
     callback = MagicMock()
-    current = updater._current_version()
-    payload = {"version": current, "download_url": "x", "release_notes": "y"}
-    with patch.object(updater, "urlopen", return_value=_fake_response(payload)):
+    payload = {
+        "version": "1.0.0",
+        "commit": "abc123",
+        "download_url": "x",
+        "release_notes": "y",
+    }
+    with (
+        patch.object(updater, "_current_version", return_value="1.0.0"),
+        patch.object(updater, "_current_commit", return_value="abc123"),
+        patch.object(updater, "urlopen", return_value=_fake_response(payload)),
+    ):
         t = updater.check_for_updates(callback=callback)
         _join(t)
 
     callback.assert_not_called()
+
+
+def test_callback_invoked_when_same_version_has_new_commit():
+    callback = MagicMock()
+    payload = {
+        "version": "1.0.0",
+        "commit": "def456",
+        "download_url": "https://example.com/dialectic.dmg",
+    }
+    with (
+        patch.object(updater, "_current_version", return_value="1.0.0"),
+        patch.object(updater, "_current_commit", return_value="abc123"),
+        patch.object(updater, "urlopen", return_value=_fake_response(payload)),
+    ):
+        t = updater.check_for_updates(callback=callback)
+        _join(t)
+
+    callback.assert_called_once()
+    info = callback.call_args.args[0]
+    assert info["update_reason"] == "commit"
+    assert info["commit"] == "def456"
+    assert info["current_commit"] == "abc123"
+
+
+def test_short_and_full_matching_commit_do_not_prompt():
+    callback = MagicMock()
+    payload = {
+        "version": "1.0.0",
+        "commit": "abcdef1234567890",
+        "download_url": "https://example.com/dialectic.dmg",
+    }
+    with (
+        patch.object(updater, "_current_version", return_value="1.0.0"),
+        patch.object(updater, "_current_commit", return_value="abcdef1"),
+        patch.object(updater, "urlopen", return_value=_fake_response(payload)),
+    ):
+        t = updater.check_for_updates(callback=callback)
+        _join(t)
+
+    callback.assert_not_called()
+
+
+def test_callback_invoked_when_same_commit_has_new_build():
+    callback = MagicMock()
+    payload = {
+        "version": "1.0.0",
+        "commit": "abc123",
+        "build": "new-run",
+        "download_url": "https://example.com/dialectic.dmg",
+    }
+    with (
+        patch.object(updater, "_current_version", return_value="1.0.0"),
+        patch.object(updater, "_current_commit", return_value="abc123"),
+        patch.object(updater, "_current_build_id", return_value="old-run"),
+        patch.object(updater, "urlopen", return_value=_fake_response(payload)),
+    ):
+        t = updater.check_for_updates(callback=callback)
+        _join(t)
+
+    callback.assert_called_once()
+    assert callback.call_args.args[0]["update_reason"] == "build"
 
 
 def test_url_error_does_not_propagate():

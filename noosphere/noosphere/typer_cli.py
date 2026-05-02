@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 import sys
 from pathlib import Path
 from typing import Optional
@@ -13,13 +14,36 @@ from typing import Optional
 import typer
 from rich.console import Console
 
-from noosphere.backup_restore import create_backup_archive, restore_backup_archive
-from noosphere.config import get_settings
 from noosphere.observability import configure_logging, get_logger
 
-app = typer.Typer(no_args_is_help=True, help="Noosphere — Brain of the Firm")
+app = typer.Typer(
+    no_args_is_help=True,
+    help="Noosphere — Brain of the Firm",
+    pretty_exceptions_show_locals=False,
+)
 console = Console()
 log = get_logger(__name__)
+
+
+def get_settings():
+    """Load settings lazily so lightweight CLI commands can start cleanly."""
+    from noosphere.config import get_settings as _get_settings
+
+    return _get_settings()
+
+
+def _redact_sensitive_error(exc: Exception, *sensitive_values: Optional[str]) -> str:
+    message = str(exc)
+    for value in (
+        *sensitive_values,
+        os.environ.get("THESEUS_CODEX_DATABASE_URL"),
+        os.environ.get("CODEX_DATABASE_URL"),
+        os.environ.get("DIRECT_URL"),
+        os.environ.get("DATABASE_URL"),
+    ):
+        if value:
+            message = message.replace(value, "[redacted]")
+    return message
 
 
 def _orch():
@@ -292,6 +316,7 @@ def ingest_from_codex_cmd(
                 "upload_id": result.upload_id,
                 "title": result.title,
                 "claims_extracted": result.num_claims_extracted,
+                "methodology_profiles_written": result.num_methodology_profiles_written,
                 "conclusions_written": result.num_conclusions_written,
                 "contradictions_written": result.num_contradictions_written,
                 "open_questions_written": result.num_open_questions_written,
@@ -333,6 +358,71 @@ def codex_queued_cmd(
         raise typer.Exit(1) from exc
 
     typer.echo(json.dumps({"ok": True, "count": len(rows), "rows": rows}, default=str))
+
+
+@app.command("codex-methodology-reanalyze")
+def codex_methodology_reanalyze_cmd(
+    codex_db_url: Optional[str] = typer.Option(
+        None,
+        "--codex-db-url",
+        help="Codex Postgres URL (see ingest-from-codex for fallback env vars).",
+    ),
+    organization_slug: Optional[str] = typer.Option(
+        None,
+        "--organization-slug",
+        help="Limit reanalysis to one Organization.slug.",
+    ),
+    limit: int = typer.Option(500, help="Maximum uploads to scan."),
+    apply: bool = typer.Option(
+        False,
+        "--apply",
+        help="Write MethodologyProfile rows. Default is dry-run only.",
+    ),
+) -> None:
+    """Backfill methodology profiles for existing Codex uploads.
+
+    This is the safe reanalysis hook for the methodological reorientation:
+    it scans already-uploaded material, derives reusable method profiles,
+    and writes idempotent MethodologyProfile rows when --apply is supplied.
+    """
+    try:
+        configure_logging(json_format=True, log_to_file=False)
+        from noosphere.auth import require_auth
+        from noosphere.codex_methodology_reanalysis import (
+            reanalyze_methodology_profiles,
+        )
+
+        require_auth(action="codex-methodology-reanalyze")
+
+        result = reanalyze_methodology_profiles(
+            codex_db_url=codex_db_url,
+            organization_slug=organization_slug,
+            limit=limit,
+            dry_run=not apply,
+        )
+    except Exception as exc:
+        typer.echo(
+            json.dumps(
+                {"ok": False, "error": _redact_sensitive_error(exc, codex_db_url)},
+                default=str,
+            ),
+            err=True,
+        )
+        raise typer.Exit(1) from exc
+
+    typer.echo(
+        json.dumps(
+            {
+                "ok": True,
+                "dry_run": result.dry_run,
+                "organization_slug": result.organization_slug,
+                "uploads_scanned": result.uploads_scanned,
+                "profiles_found": result.profiles_found,
+                "profiles_written": result.profiles_written,
+            },
+            default=str,
+        )
+    )
 
 
 @app.command("as-of")
@@ -933,6 +1023,8 @@ def backup_cmd(
 ) -> None:
     """Dump SQLite store, data directory, and manifest into a timestamped .tar.gz."""
     configure_logging(json_format=True)
+    from noosphere.backup_restore import create_backup_archive
+
     path = create_backup_archive(output_dir=output_dir)
     log.info("typer_backup_done", path=str(path))
     typer.echo(json.dumps({"ok": True, "archive": str(path)}, indent=2))
@@ -945,6 +1037,8 @@ def restore_cmd(
 ) -> None:
     """Restore from ``noosphere backup`` archive (SQLite + data_dir)."""
     configure_logging(json_format=True)
+    from noosphere.backup_restore import restore_backup_archive
+
     restore_backup_archive(archive, force=force)
     log.info("typer_restore_done", archive=str(archive))
     typer.echo(json.dumps({"ok": True, "restored_from": str(archive)}, indent=2))

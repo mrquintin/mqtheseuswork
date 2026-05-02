@@ -1,0 +1,46 @@
+# Codex Prompt 2 of 8 — Transcript harvest-table UI
+
+**Round:** Podcast conversation geometry. **Sequence:** 2 of 8.
+**Report back with:** the new transcript UI sections, interaction modes, and screenshots or test evidence.
+
+## Intent
+
+The transcript explicitly asks for a harvest-table-style interface: participants/voices as objects, with lines between them showing the weighting of the conversation. Add this to the existing transcript explorer without replacing the transcript itself.
+
+## Before You Start
+
+1. Read `theseus-codex/src/lib/conversationGeometry.ts`.
+2. Read `theseus-codex/src/app/(authed)/transcripts/[uploadId]/page.tsx`.
+3. Read transcript-related CSS in `theseus-codex/src/app/globals.css`.
+4. Inspect current component patterns for buttons and icon usage.
+
+## Task
+
+Add a `ConversationGeometryPanel` on `/transcripts/[uploadId]` after the blurb and before the raw transcript. It must include:
+
+- a Map view: SVG speaker nodes with weighted lines between speakers.
+- a Weighting view: participant share, turns, question count, average turn length, and repeated terms.
+- a Catalysts view: high-scoring point-to-point handoffs linking back to the exact target chunk.
+- a year-end signal card that is locked for an open season/year.
+
+Use the existing amber Codex visual system, but include a second restrained accent for graph edges/term chips so the panel does not become a one-hue amber wall.
+
+## Verification
+
+- Existing transcript snapshot test still passes after update.
+- E2E transcript anchor test checks that the harvest table renders and that the Catalyst view links to chunk-level evidence.
+- Mobile layout collapses to one column without text overlap.
+
+## Definition of Done
+
+- The transcript page remains readable as a transcript first.
+- The analysis panel is discoverable but not more visually dominant than the raw text.
+- No persistent schema change is introduced by this prompt.
+
+## SCOPE
+
+- `theseus-codex/src/app/(authed)/transcripts/[uploadId]/ConversationGeometryPanel.tsx` CREATE
+- `theseus-codex/src/app/(authed)/transcripts/[uploadId]/page.tsx`                      MODIFY
+- `theseus-codex/src/app/globals.css`                                                   MODIFY
+- `theseus-codex/src/__tests__/transcriptPage.test.tsx`                                 MODIFY
+- `theseus-codex/e2e/transcript-anchor.spec.ts`                                         MODIFY

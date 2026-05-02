@@ -1,0 +1,43 @@
+# Codex Prompt 7 of 8 — Visual verification and regression checks
+
+**Round:** Podcast conversation geometry. **Sequence:** 7 of 8.
+**Report back with:** the commands run, pass/fail status, and any skipped checks.
+
+## Intent
+
+This batch touches a dense transcript UI and the public root layout. Verify the implemented surface rather than trusting type-checks alone.
+
+## Before You Start
+
+1. Read the new geometry component.
+2. Read `theseus-codex/e2e/transcript-anchor.spec.ts`.
+3. Confirm whether a local seeded database is available before running e2e.
+
+## Task
+
+Run the practical verification ladder:
+
+1. `npm run test -- conversationGeometry transcriptPage`.
+2. `npm run lint`.
+3. If the local database and seeded founder credentials are available, run `npx playwright test e2e/transcript-anchor.spec.ts`.
+4. If Playwright is not runnable, report precisely why.
+
+## Verification
+
+The prompt is complete only when the final report distinguishes:
+
+- tests that passed.
+- tests skipped because credentials/database/browser dependencies were unavailable.
+- code defects that still require fixes.
+
+## Definition of Done
+
+- No failing test is hidden as a skip.
+- TypeScript has no new errors from the conversation geometry code.
+- The transcript page snapshot is either updated intentionally or unchanged.
+
+## SCOPE
+
+- `theseus-codex/src/__tests__/conversationGeometry.test.ts`      MODIFY
+- `theseus-codex/src/__tests__/transcriptPage.test.tsx`           MODIFY
+- `theseus-codex/e2e/transcript-anchor.spec.ts`                   MODIFY

@@ -1,0 +1,22 @@
+You are operating in /Users/michaelquintin/Desktop/Theseus.
+
+Goal: make the publication workflow ask how a conclusion was reached, not only why the conclusion is believed. Public snapshots should carry methodology data.
+
+Implement or repair:
+- A TypeScript methodology-profile parser/query helper.
+- `PublicationPayloadV1` support for methodology profiles and a reviewer narrative.
+- Publication review UI that surfaces available method profiles and sends them on publish.
+- Server-side fallback that pulls profiles from conclusion source uploads when the client does not supply them.
+
+Implementation constraints:
+- Old published payloads must still parse with an empty methodology payload.
+- Publishing should require either structured methodology profiles or a manual methodology narrative.
+- Do not expose private raw transcript text in public payloads.
+
+SCOPE
+- `theseus-codex/src/lib/methodologyProfiles.ts` CREATE
+- `theseus-codex/src/lib/publicationService.ts` MODIFY
+- `theseus-codex/src/lib/conclusionsRead.ts` MODIFY
+- `theseus-codex/src/app/(authed)/publication/page.tsx` MODIFY
+- `theseus-codex/src/app/(authed)/publication/PublicationClient.tsx` MODIFY
+- `theseus-codex/src/app/(authed)/conclusions/[id]/page.tsx` MODIFY

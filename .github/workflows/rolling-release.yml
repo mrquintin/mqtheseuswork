@@ -79,6 +79,35 @@ jobs:
           pick_first 'artifacts/noosphere-macos/noosphere-*-macos.tar.gz' noosphere-macos.tar.gz
           pick_first 'artifacts/noosphere-windows/Noosphere-Setup.exe' Noosphere-Setup.exe
 
+          python3 - <<'PY'
+          import json
+          import os
+          import tomllib
+          from pathlib import Path
+
+          with open("dialectic/pyproject.toml", "rb") as f:
+              version = tomllib.load(f)["project"]["version"]
+          tag_url = "https://github.com/mrquintin/mqtheseuswork/releases/download/latest-main"
+          sha = os.environ.get("GITHUB_SHA", "")
+          run_id = os.environ.get("GITHUB_RUN_ID", "")
+          manifest = {
+              "app": "dialectic",
+              "version": version,
+              "commit": sha,
+              "build": run_id,
+              "download_url": f"{tag_url}/Dialectic.dmg",
+              "download_urls": {
+                  "macos": f"{tag_url}/Dialectic.dmg",
+                  "windows": f"{tag_url}/Dialectic-Setup.exe",
+              },
+              "release_notes": f"Latest Dialectic build from main commit {sha[:12]}.",
+          }
+          Path("release/dialectic-latest.json").write_text(
+              json.dumps(manifest, indent=2, sort_keys=True) + "\n",
+              encoding="utf-8",
+          )
+          PY
+
           # Theseus Codex is a web app — no installers to package.
 
           echo ""

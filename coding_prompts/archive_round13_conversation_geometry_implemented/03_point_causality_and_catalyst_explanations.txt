@@ -1,0 +1,42 @@
+# Codex Prompt 3 of 8 — Point causality and catalyst explanations
+
+**Round:** Podcast conversation geometry. **Sequence:** 3 of 8.
+**Report back with:** the catalyst scoring rules and how users can jump from an analysis claim to evidence.
+
+## Intent
+
+The transcript asks not only for speaker weighting, but for seeing "which points caused what." This must stay epistemically modest: the app should expose adjacent conversational catalysts, not claim true causality it cannot prove.
+
+## Before You Start
+
+1. Read catalyst logic in `theseus-codex/src/lib/conversationGeometry.ts`.
+2. Read the Catalyst view in `ConversationGeometryPanel.tsx`.
+3. Read `TranscriptAnchorClient.tsx` to confirm anchor highlighting.
+
+## Task
+
+Make catalyst moments evidence-first:
+
+- classify adjacent handoffs as question, agreement, disagreement, causal, conceptual, or neutral handoff.
+- include score, shared terms, source/target speakers, source excerpt, target excerpt.
+- link each catalyst to `/transcripts/<uploadId>?anchor=chunk-<targetChunkId>`.
+- avoid overclaiming: labels should describe observable conversational structure, not hidden psychological cause.
+
+## Verification
+
+- Unit tests prove question-response classification and anchor id generation.
+- Transcript page test contains the catalyst panel in rendered markup.
+- E2E test switches to the Catalyst view and finds a speaker-to-speaker transition.
+
+## Definition of Done
+
+- Every catalyst in the UI has a direct transcript anchor.
+- No LLM call is needed for this first pass.
+- No UI copy claims the metric is a definitive causal proof.
+
+## SCOPE
+
+- `theseus-codex/src/lib/conversationGeometry.ts`                                          MODIFY
+- `theseus-codex/src/app/(authed)/transcripts/[uploadId]/ConversationGeometryPanel.tsx`    MODIFY
+- `theseus-codex/src/__tests__/conversationGeometry.test.ts`                               MODIFY
+- `theseus-codex/e2e/transcript-anchor.spec.ts`                                           MODIFY

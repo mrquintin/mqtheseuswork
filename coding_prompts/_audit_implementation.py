@@ -32,8 +32,8 @@ import sys
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
-PROMPTS_DIR = REPO_ROOT / "Claude_Code_Prompts"
-RUNS_DIR = REPO_ROOT / ".claude_code_runs"
+PROMPTS_DIR = REPO_ROOT / "coding_prompts"
+RUNS_DIR = REPO_ROOT / ".codex_runs"
 
 # Lines that look like SCOPE entries:
 #     - `some/path`                                                    CREATE
@@ -82,8 +82,43 @@ def classify(paths: list[str]) -> tuple[str, int, int]:
     return ("PARTIAL", exists, total)
 
 
+def describe_prompt(prompt_path: Path) -> dict:
+    text = prompt_path.read_text(encoding="utf-8", errors="replace")
+    paths = extract_scope_paths(text)
+    verdict, exists, total = classify(paths)
+    return {
+        "prompt": prompt_path,
+        "rel": prompt_path.relative_to(PROMPTS_DIR),
+        "verdict": verdict,
+        "exists": exists,
+        "total": total,
+        "has_log": has_run_log(prompt_path.stem),
+        "missing": [p for p in paths if not (REPO_ROOT / p).exists()],
+    }
+
+
+def print_rows(title: str, rows: list[dict], *, show_missing: bool = False) -> None:
+    if not rows:
+        return
+    print(f"\n=== {title} ({len(rows)}) ===")
+    for r in rows:
+        log_marker = "  log" if r["has_log"] else "no log"
+        print(
+            f"  {r['exists']:>3}/{r['total']:<3}  "
+            f"{r['verdict']:<15}  {log_marker}  {r['rel']}"
+        )
+        if show_missing and r["missing"]:
+            for missing in r["missing"][:6]:
+                print(f"       missing: {missing}")
+            if len(r["missing"]) > 6:
+                print(f"       ... {len(r['missing']) - 6} more missing")
+
+
 def main(argv: list[str]) -> int:
     apply = "--apply" in argv
+
+    active_prompts = sorted(PROMPTS_DIR.glob("[0-9][0-9]_*.txt"))
+    active_rows = [describe_prompt(p) for p in active_prompts]
 
     # Collect all .txt prompts under any archive folder.
     archives = sorted(
@@ -94,23 +129,13 @@ def main(argv: list[str]) -> int:
     for a in archives:
         candidate_prompts.extend(sorted(a.rglob("*.txt")))
 
-    if not candidate_prompts:
-        print("no archived prompts found")
+    if not candidate_prompts and not active_rows:
+        print("no active or archived prompts found")
         return 0
 
-    rows: list[dict] = []
-    for prompt_path in candidate_prompts:
-        text = prompt_path.read_text(encoding="utf-8", errors="replace")
-        paths = extract_scope_paths(text)
-        verdict, exists, total = classify(paths)
-        rows.append({
-            "prompt": prompt_path,
-            "rel": prompt_path.relative_to(PROMPTS_DIR),
-            "verdict": verdict,
-            "exists": exists,
-            "total": total,
-            "has_log": has_run_log(prompt_path.stem),
-        })
+    print_rows("ACTIVE TOP-LEVEL PROMPT SCOPES", active_rows, show_missing=True)
+
+    rows = [describe_prompt(prompt_path) for prompt_path in candidate_prompts]
 
     # Print report grouped by verdict for clarity.
     by_verdict: dict[str, list[dict]] = {
@@ -121,16 +146,12 @@ def main(argv: list[str]) -> int:
         by_verdict[r["verdict"]].append(r)
 
     for v in ("NOT_IMPLEMENTED", "PARTIAL", "UNCHECKABLE", "IMPLEMENTED"):
-        if not by_verdict[v]:
-            continue
-        print(f"\n=== {v} ({len(by_verdict[v])}) ===")
-        for r in by_verdict[v]:
-            log_marker = "  log" if r["has_log"] else "no log"
-            print(f"  {r['exists']:>3}/{r['total']:<3}  {log_marker}  {r['rel']}")
+        print_rows(v, by_verdict[v])
 
     # Action: move NOT_IMPLEMENTED prompts back to the top level.
     movers = by_verdict["NOT_IMPLEMENTED"]
     print(f"\n=== Action plan ===")
+    print(f"  {len(active_rows)} ACTIVE       → leave at top level (audit-only)")
     print(f"  {len(by_verdict['IMPLEMENTED'])} IMPLEMENTED  → leave archived")
     print(f"  {len(by_verdict['PARTIAL'])} PARTIAL      → leave archived (likely refactored)")
     print(f"  {len(by_verdict['UNCHECKABLE'])} UNCHECKABLE  → leave archived (no SCOPE found)")

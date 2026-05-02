@@ -1,4 +1,5 @@
 import { db } from "@/lib/db";
+import { parseMethodologyPayload } from "@/lib/methodologyProfiles";
 import type { PublicationPayloadV1 } from "@/lib/publicationService";
 
 export type PublicCitation = PublicationPayloadV1["citations"][number];
@@ -63,6 +64,11 @@ type PublicResponseRow = {
   pseudonymous: boolean;
 };
 
+export type PublicationPayloadJsonRow = {
+  payloadJson: string;
+  slug: string;
+};
+
 const PUBLISHED_CONCLUSION_SELECT = {
   id: true,
   kind: true,
@@ -93,7 +99,7 @@ function stringArray(value: unknown): string[] {
   return Array.isArray(value) ? value.filter((item): item is string => typeof item === "string") : [];
 }
 
-function parsePayload(row: Pick<PublishedConclusionRow, "payloadJson" | "slug">): PublicationPayloadV1 {
+export function parsePublicationPayload(row: PublicationPayloadJsonRow): PublicationPayloadV1 {
   let parsed: Record<string, unknown> = {};
   try {
     const value = JSON.parse(row.payloadJson);
@@ -165,6 +171,7 @@ function parsePayload(row: Pick<PublishedConclusionRow, "payloadJson" | "slug">)
     },
     openQuestionsAdjacent: stringArray(parsed.openQuestionsAdjacent),
     voiceComparisons,
+    methodology: parseMethodologyPayload(parsed.methodology),
     timeline,
     whatWouldChangeOurMind: whatWouldChangeOurMind.length ? whatWouldChangeOurMind : exitConditions,
     citations,
@@ -185,7 +192,7 @@ function toPublishedConclusion(row: PublishedConclusionRow): PublishedConclusion
     discountedConfidence: row.discountedConfidence,
     statedConfidence: row.statedConfidence,
     calibrationDiscountReason: row.calibrationDiscountReason,
-    payload: parsePayload(row),
+    payload: parsePublicationPayload(row),
   };
 }
 

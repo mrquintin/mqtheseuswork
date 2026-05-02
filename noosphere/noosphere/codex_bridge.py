@@ -52,16 +52,20 @@ import sys
 import uuid
 from dataclasses import dataclass
 from datetime import datetime, timezone
+from types import SimpleNamespace
 from typing import Optional
 
 try:
-    import psycopg2
-    import psycopg2.extras
+    import psycopg2 as _psycopg2
+    import psycopg2.extras as _psycopg2_extras
 except ImportError as e:  # pragma: no cover
-    raise RuntimeError(
-        "psycopg2 is required for the Codex bridge. "
-        "Install with: pip install psycopg2-binary"
-    ) from e
+    _psycopg2 = None
+    _psycopg2_extras = SimpleNamespace(RealDictCursor=object)
+    _PSYCOPG2_IMPORT_ERROR = e
+else:
+    _PSYCOPG2_IMPORT_ERROR = None
+
+REAL_DICT_CURSOR = _psycopg2_extras.RealDictCursor
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -143,7 +147,12 @@ def _open_codex_connection(url: str):
         conn = sqlite3.connect(path)
         conn.row_factory = sqlite3.Row
         return _SqliteCodexConn(conn)
-    return psycopg2.connect(url)
+    if _psycopg2 is None:
+        raise RuntimeError(
+            "psycopg2 is required for Postgres-backed Codex ingest. "
+            "Install a working psycopg2-binary build or use a sqlite:// test URL."
+        ) from _PSYCOPG2_IMPORT_ERROR
+    return _psycopg2.connect(url)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -320,10 +329,10 @@ def llm_extract_claims(
     Raises if the LLM is unconfigured — the caller is expected to have
     passed --with-llm deliberately.
     """
-    from noosphere.methods.extract_claims import (
-        ExtractClaimsInput,
-        extract_claims,
-    )
+    from noosphere.methods._registry import REGISTRY
+    from noosphere.methods.extract_claims import ExtractClaimsInput
+
+    _, run_extract_claims = REGISTRY.get("extract_claims")
 
     # Chunk the text so no single LLM call blows past the context budget.
     # Paragraph splits preferred; fall back to hard-cut if a paragraph is
@@ -351,7 +360,7 @@ def llm_extract_claims(
 
     out: list[NaiveClaim] = []
     for i, chunk in enumerate(chunks):
-        result = extract_claims(
+        result = run_extract_claims(
             ExtractClaimsInput(
                 chunk_text=chunk,
                 chunk_id=f"{upload_id}_chunk_{i}",
@@ -384,6 +393,7 @@ class IngestFromCodexResult:
     upload_id: str
     title: str
     num_claims_extracted: int
+    num_methodology_profiles_written: int
     num_conclusions_written: int
     num_contradictions_written: int
     num_open_questions_written: int
@@ -623,7 +633,7 @@ def ingest_from_codex(
     url = _resolve_codex_db_url(codex_db_url)
     conn = _open_codex_connection(url)
     try:
-        cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        cur = conn.cursor(cursor_factory=REAL_DICT_CURSOR)
 
         # ── Fetch the upload ─────────────────────────────────────────────
         cur.execute(
@@ -754,11 +764,21 @@ def ingest_from_codex(
             claims = naive_extract_claims(text, max_claims=max_claims)
             mode = "naive"
 
+        from noosphere.methodology import derive_methodology_profiles
+
+        source_title = row["title"] or row["originalName"] or upload_id
+        methodology_profiles = derive_methodology_profiles(
+            text,
+            source_title=source_title,
+            max_profiles=6,
+        )
+
         if dry_run:
             return IngestFromCodexResult(
                 upload_id=upload_id,
                 title=row["title"] or row["originalName"] or upload_id,
                 num_claims_extracted=len(claims),
+                num_methodology_profiles_written=len(methodology_profiles),
                 num_conclusions_written=0,
                 num_contradictions_written=0,
                 num_open_questions_written=0,
@@ -871,6 +891,25 @@ def ingest_from_codex(
         contradictions_written = 0
         open_questions_written = 0
         research_suggestions_written = 0
+        methodology_profiles_written = 0
+
+        # ── Write methodology profiles ─────────────────────────────────
+        # These rows capture how the source reasons: first-principles
+        # decomposition, adversarial revision, analogical transfer, etc.
+        # They are deliberately separate from Conclusion rows so a method
+        # can transfer across domains without pretending the original
+        # object-level conclusion transfers with it.
+        if methodology_profiles:
+            from noosphere.codex_methodology import upsert_methodology_profiles
+
+            methodology_profiles_written = upsert_methodology_profiles(
+                cur,
+                organization_id=row["organizationId"],
+                upload_id=upload_id,
+                source_kind="UPLOAD",
+                profiles=methodology_profiles,
+                now=now,
+            )
 
         heuristic_pairs = naive_detect_contradictions(claims)
 
@@ -1106,12 +1145,14 @@ def ingest_from_codex(
             '''UPDATE "Upload"
                SET status = %s,
                    "claimsCount" = %s,
+                   "methodCount" = %s,
                    "errorMessage" = NULL,
                    "extractionMethod" = %s
                WHERE id = %s''',
             (
                 "ingested",
                 written + deduped,
+                methodology_profiles_written,
                 _db_safe(extracted.extraction_method, cap=64),
                 upload_id,
             ),
@@ -1122,6 +1163,7 @@ def ingest_from_codex(
             f"Noosphere {mode} ingest · "
             f"{written} new conclusions · "
             f"{deduped} re-sourced · "
+            f"{methodology_profiles_written} methodology profiles · "
             f"{contradictions_written} contradictions · "
             f"{open_questions_written} open questions · "
             f"{research_suggestions_written} research suggestions"
@@ -1188,6 +1230,7 @@ def ingest_from_codex(
             upload_id=upload_id,
             title=row["title"] or row["originalName"] or upload_id,
             num_claims_extracted=len(claims),
+            num_methodology_profiles_written=methodology_profiles_written,
             num_conclusions_written=written,
             num_contradictions_written=contradictions_written,
             num_open_questions_written=open_questions_written,
@@ -1242,7 +1285,7 @@ def list_queued_uploads(
     url = _resolve_codex_db_url(codex_db_url)
     conn = _open_codex_connection(url)
     try:
-        cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        cur = conn.cursor(cursor_factory=REAL_DICT_CURSOR)
         cur.execute(
             '''SELECT id, title, "originalName", status, "mimeType",
                       "fileSize", "createdAt"
