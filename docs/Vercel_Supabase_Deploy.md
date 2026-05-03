@@ -56,25 +56,25 @@ You now have a free Postgres. Save the URL — that's your `DATABASE_URL`.
 
 ## 2. Apply the schema migration (3 min)
 
-There are two ways:
-
-### Option A — from your laptop (recommended, first-time only)
+Run migrations deliberately, outside the Vercel build. Vercel functions are
+serverless and the Supabase pooler can reject build-time migration connections
+when the session pool is saturated.
 
 ```bash
 cd theseus-codex
 export DATABASE_URL="postgresql://postgres.<ref>:<pw>@…pooler.supabase.com:6543/postgres?pgbouncer=true"
-npx prisma migrate deploy
+export DIRECT_URL="postgresql://postgres:<pw>@db.<ref>.supabase.co:5432/postgres"
+npm run db:deploy
 ```
 
 `migrate deploy` applies any unapplied migrations without prompting. On a
 fresh Supabase DB it runs the `20260417000000_init` migration and creates all
 the tables. Takes ~10 seconds.
 
-### Option B — let Vercel do it on first build
-
-Add a `postinstall` or `build` script that runs the migration. We already
-generate the Prisma client on build; adding migrate-deploy is one line. Skip
-this unless you specifically want a zero-laptop-setup path.
+`DIRECT_URL` is preferred for migrations when your network supports Supabase's
+IPv6 direct host. Keep `DATABASE_URL` pointed at the transaction pooler for
+runtime. If you only have IPv4, the session pooler can work for one-off manual
+migrations, but do not put migration execution back into Vercel's build step.
 
 ### Seed the first founder account
 
@@ -116,6 +116,7 @@ log in with the email + password + org slug.
    | `OPENAI_API_KEY` | _(your OpenAI key)_ |
    | `DEFAULT_ORGANIZATION_SLUG` | `theseus-local` |
    | `CURRENTS_API_URL` | `https://currents.theseuscodex.com` once the FastAPI VM has TLS/domain routing; use its temporary HTTPS URL before then |
+   | `DATABASE_POOL_MAX` | Optional. Defaults to `1` on Vercel/Supabase pooler URLs so each serverless function instance does not reserve many database sessions. Raise only after checking Supabase connection telemetry. |
 
    Skip `REDIS_URL` and `USE_JOB_QUEUE` for the first deploy — without them,
    the Codex just runs ingest in-process (fine for low traffic).
@@ -131,8 +132,8 @@ log in with the email + password + org slug.
 The merged Codex stays in this existing Vercel project. Do not create a second
 Vercel project for Currents. The Vercel build command remains `npm run build`;
 the checked-in `vercel-build` package script still exists for deployments that
-call it explicitly and continues to run `prisma migrate deploy` before
-`next build`.
+call it explicitly, but it only builds the app. Migrations are explicit via
+`npm run db:deploy`.
 
 When it's green, you have a live URL like `https://theseus-codex-<hash>.vercel.app`.
 Visit it — you should see the login page. Log in with a seeded founder
@@ -354,6 +355,14 @@ Settings → Environment Variables → apply to Production + Preview + Developme
 Your `DATABASE_URL` is using the direct-connection port (5432) instead of
 the pgbouncer port (6543). Swap ports in the URL. Serverless + direct
 Postgres connections = broken.
+
+**Build or runtime fails with `EMAXCONNSESSION` / "max clients reached in session mode".**
+This is the Supabase pooler protecting the Postgres connection budget, not a
+Theseus user limit. For Vercel runtime traffic, use the transaction-pooler URL
+on port `6543` and keep the app-side pool small. For migrations, run
+`npm run db:deploy` manually instead of inside the Vercel build. If real usage
+outgrows the current pool, raise Supabase's pool settings or upgrade compute
+from the Supabase dashboard after checking connection telemetry.
 
 **Dialectic upload always returns 401.**
 API key is either wrong, revoked, or the `Authorization: Bearer tcx_…` prefix

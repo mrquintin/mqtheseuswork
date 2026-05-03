@@ -42,6 +42,23 @@ function maskUrl(url: string): string {
   }
 }
 
+function parsePositiveInt(value: string | undefined): number | undefined {
+  if (!value) return undefined;
+  const parsed = Number.parseInt(value, 10);
+  if (!Number.isFinite(parsed) || parsed < 1) return undefined;
+  return parsed;
+}
+
+function poolMaxForUrl(url: string): number | undefined {
+  const configured = parsePositiveInt(process.env.DATABASE_POOL_MAX ?? process.env.POSTGRES_POOL_MAX);
+  if (configured) return configured;
+
+  const parsed = new URL(url);
+  const isServerless = Boolean(process.env.VERCEL);
+  const isSupabasePooler = parsed.hostname.includes(".pooler.supabase.com");
+  return isServerless || isSupabasePooler ? 1 : undefined;
+}
+
 export function createSqlAdapter() {
   const raw = process.env.DATABASE_URL;
   if (!raw) {
@@ -84,5 +101,6 @@ export function createSqlAdapter() {
     );
   }
 
-  return new PrismaPg({ connectionString: url });
+  const max = poolMaxForUrl(url);
+  return new PrismaPg(max ? { connectionString: url, max } : { connectionString: url });
 }
