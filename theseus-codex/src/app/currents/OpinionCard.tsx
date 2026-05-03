@@ -109,13 +109,18 @@ const mutedStyle: CSSProperties = {
 interface OpinionCardProps {
   opinion: PublicOpinion;
   className?: string;
+  detailBasePath?: string;
 }
 
-export default function OpinionCard({ opinion, className }: OpinionCardProps) {
+export default function OpinionCard({
+  opinion,
+  className,
+  detailBasePath = "/currents",
+}: OpinionCardProps) {
   const stance = stanceKey(opinion.stance);
   const stanceColor = `var(--currents-stance-${stance})`;
   const confidence = confidenceBand(opinion.confidence);
-  const href = `/currents/${encodeURIComponent(opinion.id)}`;
+  const href = `${detailBasePath.replace(/\/+$/, "")}/${encodeURIComponent(opinion.id)}`;
   const topic = opinion.topic_hint || opinion.event?.topic_hint || "untagged";
   const shownCitations = opinion.citations.slice(0, 3);
   const hiddenCitationCount = Math.max(0, opinion.citations.length - shownCitations.length);

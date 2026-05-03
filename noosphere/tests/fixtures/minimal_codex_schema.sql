@@ -68,6 +68,7 @@ CREATE TABLE "Conclusion" (
   "dissentClaimIds" TEXT NOT NULL DEFAULT '[]',
   "confidence" REAL NOT NULL DEFAULT 0,
   "topicHint" TEXT NOT NULL DEFAULT '',
+  "embeddingJson" TEXT,
   "createdAt" TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -156,6 +157,36 @@ CREATE TABLE "AuditEvent" (
   "action" TEXT NOT NULL,
   "detail" TEXT,
   "createdAt" TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE "embedding_model_version" (
+  "id" TEXT PRIMARY KEY,
+  "effective_from" TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  "model_name" TEXT NOT NULL,
+  "notes" TEXT NOT NULL DEFAULT ''
+);
+
+CREATE TABLE "embedding" (
+  "id" TEXT PRIMARY KEY,
+  "model_name" TEXT NOT NULL,
+  "text_sha256" TEXT NOT NULL,
+  "dimension" INTEGER NOT NULL,
+  "vector" BLOB NOT NULL,
+  "ref_claim_id" TEXT NOT NULL DEFAULT ''
+);
+
+CREATE INDEX "embedding_ref_claim_id_idx"
+  ON "embedding" ("ref_claim_id");
+
+CREATE TABLE "embedding_retry" (
+  "id" TEXT PRIMARY KEY,
+  "source_kind" TEXT NOT NULL,
+  "source_id" TEXT NOT NULL,
+  "model_name" TEXT NOT NULL,
+  "text_sha256" TEXT NOT NULL,
+  "attempts" INTEGER NOT NULL DEFAULT 0,
+  "last_error" TEXT NOT NULL DEFAULT '',
+  "updated_at" TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
 -- Status-transition log. Populated by the trigger below so the ingest tests

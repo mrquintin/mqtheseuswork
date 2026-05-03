@@ -22,6 +22,7 @@ import TopicClusters from "./TopicClusters";
 interface FeedClientProps {
   health: CurrentsHealth | null;
   seed: PublicOpinion[];
+  detailBasePath?: string;
 }
 
 function latestOpinionAt(opinions: PublicOpinion[]): string | null {
@@ -91,7 +92,11 @@ function DisabledBanner({ health }: { health: CurrentsHealth | null }) {
   );
 }
 
-export default function FeedClient({ health, seed }: FeedClientProps) {
+export default function FeedClient({
+  health,
+  seed,
+  detailBasePath = "/currents",
+}: FeedClientProps) {
   const seedIds = useRef(new Set(seed.map((opinion) => opinion.id)));
   const seenOpinionIds = useRef(new Set(seed.map((opinion) => opinion.id)));
   const activeFilterKey = useRef<string | null>(null);
@@ -175,7 +180,12 @@ export default function FeedClient({ health, seed }: FeedClientProps) {
       ) : null}
 
       {filteredOpinions.length && filter.view === "clusters" ? (
-        <TopicClusters filter={filter} opinions={filteredOpinions} />
+        <TopicClusters
+          basePath={pathname}
+          detailBasePath={detailBasePath}
+          filter={filter}
+          opinions={filteredOpinions}
+        />
       ) : filteredOpinions.length ? (
         <div
           aria-live="polite"
@@ -187,6 +197,7 @@ export default function FeedClient({ health, seed }: FeedClientProps) {
           {filteredOpinions.map((opinion) => (
             <OpinionCard
               key={opinion.id}
+              detailBasePath={detailBasePath}
               opinion={opinion}
               className={seedIds.current.has(opinion.id) ? undefined : "currents-fade-in"}
             />

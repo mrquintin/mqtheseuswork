@@ -50,7 +50,13 @@ const TOP_NAV_LINKS: ReadonlyArray<{
   // proposition of the Codex (ask the oracle a question, get an answer
   // grounded in the firm's recorded conclusions).
   { href: "/ask", label: "Ask" },
-  { href: "/currents", label: "Currents" },
+  {
+    href: "/founder-currents",
+    label: "Currents",
+    active: (pathname) =>
+      pathname === "/founder-currents" ||
+      pathname.startsWith("/founder-currents/"),
+  },
   {
     href: "/forecasts/portfolio",
     label: "Forecasts",

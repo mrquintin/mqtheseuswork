@@ -93,3 +93,31 @@ def test_transcript_enrichment_persists_blurb_markers_and_chunks(
     assert client.calls == 1
     assert ids_after == ids_before
 
+
+def test_written_prompt_is_not_persisted_as_explorable_chunk(
+    fake_codex_db,
+    codex_sqlite_url,
+    upload_factory,
+) -> None:
+    upload_id = upload_factory(
+        mime="application/pdf",
+        title="Essay with prompt",
+        original_name="essay.pdf",
+        text=(
+            "Prompt: Write an essay about the future of school.\n\n"
+            "The future of school should be judged by the methodology it teaches. "
+            "A school that rewards theatrical certainty trains students to hide "
+            "their uncertainty instead of improving the way they reason."
+        ),
+    )
+
+    result = enrich_upload_transcript(upload_id, codex_db_url=codex_sqlite_url)
+
+    assert result.enriched is True
+    chunks = fake_codex_db.execute(
+        'SELECT text FROM "UploadChunk" WHERE "uploadId" = ? ORDER BY "index"',
+        (upload_id,),
+    ).fetchall()
+    rendered = "\n".join(row["text"] for row in chunks)
+    assert "Prompt:" not in rendered
+    assert "The future of school" in rendered

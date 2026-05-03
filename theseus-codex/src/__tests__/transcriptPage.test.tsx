@@ -222,4 +222,39 @@ describe("TranscriptPage", () => {
     expect(html).toContain("No methodology profiles yet.");
     expect(html).toContain("Re-run Noosphere ingestion or the methodology reanalysis script");
   });
+
+  it("uses source structure instead of conversation geometry for written uploads", async () => {
+    mocks.db.upload.findFirst.mockResolvedValue({
+      id: "upload_fixture",
+      title: "PDF essay fixture",
+      description: "A fixture essay.",
+      sourceType: "written",
+      status: "ingested",
+      textContent: "The future of school depends on better methods.",
+      blurb: "A short essay about education and method.",
+      publishedAt: null,
+      slug: null,
+      visibility: "org",
+      createdAt: new Date("2026-05-01T12:00:00.000Z"),
+      founderId: "founder-1",
+      founder: { displayName: "Michael Quintin", name: "Michael", username: "mq" },
+      chunks: [
+        {
+          id: "essay-a",
+          index: 0,
+          text: "The future of school depends on better methods.",
+          startMs: null,
+          endMs: null,
+          speakerLabel: null,
+          headingHint: "Method and School",
+        },
+      ],
+    });
+
+    const html = await renderTranscript();
+
+    expect(html).toContain("Source structure");
+    expect(html).toContain("Method and School");
+    expect(html).not.toContain("Conversation geometry");
+  });
 });

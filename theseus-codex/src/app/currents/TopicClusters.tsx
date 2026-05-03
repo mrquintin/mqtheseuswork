@@ -14,6 +14,8 @@ import OpinionCard from "./OpinionCard";
 interface TopicClustersProps {
   opinions: PublicOpinion[];
   filter?: Filter;
+  basePath?: string;
+  detailBasePath?: string;
 }
 
 interface TopicGroup {
@@ -90,15 +92,21 @@ export function groupByTopic(opinions: PublicOpinion[]): TopicGroup[] {
   });
 }
 
-export function topicFeedHref(topic: string, filter: Filter = DEFAULT_FILTER): string {
+export function topicFeedHref(
+  topic: string,
+  filter: Filter = DEFAULT_FILTER,
+  basePath = "/currents",
+): string {
   const params = filterToParams({ ...filter, topic, view: "feed" });
   const query = params.toString();
-  return query ? `/currents?${query}` : "/currents";
+  return query ? `${basePath}?${query}` : basePath;
 }
 
 export default function TopicClusters({
   opinions,
   filter = DEFAULT_FILTER,
+  basePath = "/currents",
+  detailBasePath = "/currents",
 }: TopicClustersProps) {
   const groups = groupByTopic(opinions);
 
@@ -116,10 +124,14 @@ export default function TopicClusters({
             </summary>
             <div style={bodyStyle}>
               {shown.map((opinion) => (
-                <OpinionCard key={opinion.id} opinion={opinion} />
+                <OpinionCard
+                  key={opinion.id}
+                  detailBasePath={detailBasePath}
+                  opinion={opinion}
+                />
               ))}
               {hiddenCount ? (
-                <Link href={topicFeedHref(group.topic, filter)} style={moreLinkStyle}>
+                <Link href={topicFeedHref(group.topic, filter, basePath)} style={moreLinkStyle}>
                   +{hiddenCount} more
                 </Link>
               ) : null}

@@ -290,3 +290,22 @@ jobs:
             fi
           done < /tmp/ids.txt
           echo "::notice::Sweep complete — processed=$processed failed=$failed"
+
+      - name: Backfill explorer data
+        if: steps.secretcheck.outputs.skip != 'true'
+        working-directory: noosphere
+        env:
+          PYTHONPATH: ${{ github.workspace }}/noosphere
+          DIRECT_URL: ${{ secrets.CODEX_DATABASE_URL }}
+          DATABASE_URL: ${{ secrets.CODEX_DATABASE_URL }}
+          THESEUS_CODEX_DATABASE_URL: ${{ secrets.CODEX_DATABASE_URL }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          SUPABASE_AUDIO_BUCKET: ${{ secrets.SUPABASE_AUDIO_BUCKET }}
+          NOOSPHERE_SKIP_AUTH: "1"
+        run: |
+          set -eo pipefail
+          echo "+ python -m noosphere codex-reanalyze --apply --limit 500 --max-embeddings 1000"
+          python -m noosphere codex-reanalyze --apply --limit 500 --max-embeddings 1000

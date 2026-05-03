@@ -1522,6 +1522,44 @@ input::placeholder, textarea::placeholder {
   margin: 0;
 }
 
+.transcript-source-structure {
+  align-self: start;
+  display: grid;
+  gap: 0.9rem;
+  padding: 0.9rem;
+}
+
+.transcript-source-structure-list {
+  display: grid;
+  gap: 0.45rem;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.transcript-source-structure-list a {
+  border: 1px solid rgba(232, 225, 211, 0.12);
+  color: var(--parchment);
+  display: grid;
+  gap: 0.25rem;
+  padding: 0.65rem;
+  text-decoration: none;
+}
+
+.transcript-source-structure-list .mono {
+  color: var(--amber-dim);
+  font-size: 0.56rem;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.transcript-source-structure-list strong {
+  color: var(--parchment);
+  font-size: 0.84rem;
+  font-weight: 500;
+  line-height: 1.35;
+}
+
 .transcript-grid {
   align-items: start;
   display: grid;

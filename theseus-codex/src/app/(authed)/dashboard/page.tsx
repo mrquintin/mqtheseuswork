@@ -290,7 +290,7 @@ async function OperatorPulse() {
         >
           Currents · {healthy ? "live" : "attention"}
         </div>
-        <Link href="/currents" style={{ color: "var(--gold)", fontSize: "0.78rem" }}>
+        <Link href="/founder-currents" style={{ color: "var(--gold)", fontSize: "0.78rem" }}>
           Open feed
         </Link>
       </div>

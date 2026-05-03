@@ -34,7 +34,7 @@ def _organization_id_for_slug(cur, slug: str) -> str:
 
 def _upload_query(has_deleted_at: bool) -> str:
     deleted_filter = 'AND "deletedAt" IS NULL' if has_deleted_at else ""
-    return f'''SELECT id, "organizationId", title, "originalName", "textContent"
+    return f'''SELECT id, "organizationId", title, "originalName", "sourceType", "mimeType", "textContent"
                FROM "Upload"
                WHERE "textContent" IS NOT NULL
                  AND LENGTH(TRIM("textContent")) >= 80
@@ -98,7 +98,13 @@ def reanalyze_methodology_profiles(
         profiles_written = 0
         now = datetime.now(timezone.utc)
         for upload in uploads:
-            text = upload["textContent"] or ""
+            from noosphere.relevant_text import select_pertinent_text
+
+            text = select_pertinent_text(
+                upload["textContent"] or "",
+                source_type=upload.get("sourceType") or "written",
+                mime_type=upload.get("mimeType") or "",
+            ).text
             profiles = derive_methodology_profiles(
                 text,
                 source_title=upload["title"] or upload["originalName"] or upload["id"],

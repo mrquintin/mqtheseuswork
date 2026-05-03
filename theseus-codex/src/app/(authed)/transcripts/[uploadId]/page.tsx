@@ -19,6 +19,7 @@ import { canWrite } from "@/lib/roles";
 
 import ConversationGeometryPanel from "./ConversationGeometryPanel";
 import MethodologyProfilesPanel from "./MethodologyProfilesPanel";
+import SourceStructurePanel from "./SourceStructurePanel";
 import TranscriptAnchorClient from "./TranscriptAnchorClient";
 
 export const dynamic = "force-dynamic";
@@ -202,6 +203,22 @@ function sectionHeading(chunks: { id: string; headingHint: string | null }[]) {
   }));
 }
 
+function isConversationLike(
+  sourceType: string,
+  chunks: { speakerLabel: string | null }[],
+): boolean {
+  const normalized = sourceType.trim().toLowerCase();
+  if (["audio", "dialectic", "podcast", "session", "transcript"].includes(normalized)) {
+    return true;
+  }
+  const speakers = new Set(
+    chunks
+      .map((chunk) => chunk.speakerLabel?.trim())
+      .filter((speaker): speaker is string => Boolean(speaker)),
+  );
+  return speakers.size >= 2;
+}
+
 export default async function TranscriptPage({
   params,
   searchParams,
@@ -251,9 +268,24 @@ export default async function TranscriptPage({
   if (!upload) notFound();
 
   const sp = await searchParams;
+  const displayChunks = upload.chunks.length
+    ? upload.chunks
+    : upload.textContent?.trim()
+      ? [
+          {
+            id: "raw-text",
+            index: 0,
+            text: upload.textContent.trim(),
+            startMs: null,
+            endMs: null,
+            speakerLabel: null,
+            headingHint: null,
+          },
+        ]
+      : [];
   const transcriptText =
-    upload.chunks.map((chunk) => chunk.text).join("\n\n") || upload.textContent || "";
-  const headings = sectionHeading(upload.chunks);
+    displayChunks.map((chunk) => chunk.text).join("\n\n") || upload.textContent || "";
+  const headings = sectionHeading(displayChunks);
   const uploadYear = upload.createdAt.getUTCFullYear();
   const yearStart = new Date(Date.UTC(uploadYear, 0, 1));
   const yearEnd = new Date(Date.UTC(uploadYear + 1, 0, 1));
@@ -287,7 +319,8 @@ export default async function TranscriptPage({
     }),
     profilesForUpload(founder.organizationId, upload.id),
   ]);
-  const geometry = buildConversationGeometry(upload.chunks);
+  const geometry = buildConversationGeometry(displayChunks);
+  const conversationLike = isConversationLike(upload.sourceType, displayChunks);
   const yearStats = buildYearEndConversationStats(
     uploadYear,
     yearUploads.map((item) => ({
@@ -357,18 +390,22 @@ export default async function TranscriptPage({
       </section>
 
       <div className="transcript-insight-grid">
-        <ConversationGeometryPanel
-          geometry={geometry}
-          uploadId={upload.id}
-          yearStats={yearStats}
-        />
+        {conversationLike ? (
+          <ConversationGeometryPanel
+            geometry={geometry}
+            uploadId={upload.id}
+            yearStats={yearStats}
+          />
+        ) : (
+          <SourceStructurePanel chunks={displayChunks} />
+        )}
         <MethodologyProfilesPanel profiles={methodologyProfiles} />
       </div>
 
       <div className="transcript-grid">
         <article className="transcript-main" aria-label="Raw transcript">
-          {upload.chunks.length > 0 ? (
-            upload.chunks.map((chunk) => {
+          {displayChunks.length > 0 ? (
+            displayChunks.map((chunk) => {
               const anchor = `chunk-${chunk.id}`;
               return (
                 <section

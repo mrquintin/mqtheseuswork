@@ -117,7 +117,7 @@ async function TranscriptsIndex() {
         },
         {
           OR: [
-            { sourceType: "transcript" },
+            { sourceType: { in: ["audio", "dialectic", "podcast", "session", "transcript"] } },
             { chunks: { some: {} } },
           ],
         },

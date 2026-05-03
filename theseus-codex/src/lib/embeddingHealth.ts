@@ -20,6 +20,14 @@ export type ConclusionEmbeddingRow = {
   dimension: number;
 };
 
+export type ConclusionJsonEmbeddingRow = {
+  id: string;
+  text: string;
+  topicHint: string | null;
+  confidenceTier: string;
+  embeddingJson: string | null;
+};
+
 const EMBEDDING_BACKFILL_KEY = "embedding_backfill";
 const DEFAULT_EMBEDDING_MODEL = "all-mpnet-base-v2";
 
@@ -105,6 +113,27 @@ export async function conclusionEmbeddingRows(
   }
 }
 
+export async function conclusionJsonEmbeddingRows(
+  organizationId: string,
+  limit = 2000,
+): Promise<ConclusionJsonEmbeddingRow[]> {
+  return db.conclusion.findMany({
+    where: {
+      organizationId,
+      embeddingJson: { not: null },
+    },
+    orderBy: { createdAt: "desc" },
+    take: limit,
+    select: {
+      id: true,
+      text: true,
+      topicHint: true,
+      confidenceTier: true,
+      embeddingJson: true,
+    },
+  });
+}
+
 function backfillFailed(value: unknown): boolean {
   if (!value || typeof value !== "object") return false;
   const record = value as { status?: unknown; ok?: unknown; errors?: unknown };
@@ -115,9 +144,17 @@ function backfillFailed(value: unknown): boolean {
 
 export async function embeddingHealth(organizationId: string): Promise<EmbeddingHealth> {
   const modelName = await activeEmbeddingModelName();
-  const [totalCount, embeddedCount, backfill] = await Promise.all([
+  const [totalCount, storedEmbeddedCount, jsonEmbeddedCount, backfill] = await Promise.all([
     db.conclusion.count({ where: { organizationId } }).catch(() => 0),
     embeddedConclusionCount(organizationId, modelName),
+    db.conclusion
+      .count({
+        where: {
+          organizationId,
+          embeddingJson: { not: null },
+        },
+      })
+      .catch(() => 0),
     db.operatorState
       .findUnique({
         where: {
@@ -130,6 +167,7 @@ export async function embeddingHealth(organizationId: string): Promise<Embedding
       })
       .catch(() => null),
   ]);
+  const embeddedCount = Math.max(storedEmbeddedCount, jsonEmbeddedCount);
   const backlog = Math.max(0, totalCount - embeddedCount);
   const lastBackfillFailed = backfillFailed(backfill?.value);
   return {

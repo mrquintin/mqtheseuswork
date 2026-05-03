@@ -122,6 +122,7 @@ def _insert_upload(
     *,
     mime: str,
     text: str | None = None,
+    source_type: str = "written",
     file_path: str | None = None,
     file_size: int = 0,
     original_name: str = "test",
@@ -132,14 +133,15 @@ def _insert_upload(
     uid = f"cx_{uuid4().hex[:22]}"
     conn.execute(
         'INSERT INTO "Upload" '
-        '(id, "organizationId", "founderId", title, "textContent", status, '
+        '(id, "organizationId", "founderId", title, "sourceType", "textContent", status, '
         ' "mimeType", "originalName", "filePath", "fileSize") '
-        'VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+        'VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
         (
             uid,
             org_id,
             founder_id,
             title,
+            source_type,
             text,
             "pending",
             mime,

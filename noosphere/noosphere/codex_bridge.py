@@ -638,7 +638,7 @@ def ingest_from_codex(
         # ── Fetch the upload ─────────────────────────────────────────────
         cur.execute(
             '''SELECT id, "organizationId", "founderId", title, "textContent",
-                      status, "mimeType", "originalName", "filePath", "fileSize"
+                      "sourceType", status, "mimeType", "originalName", "filePath", "fileSize"
                FROM "Upload" WHERE id = %s''',
             (upload_id,),
         )
@@ -740,21 +740,29 @@ def ingest_from_codex(
             )
             conn.commit()
 
-        # ── Strip interview prompts / external quotes BEFORE extraction ─
-        # Defense-in-depth against misattributing external text as
-        # founder claims. Failures here log & fall through to raw text.
+        # ── Select the pertinent analytical text BEFORE extraction ─────
+        # Written uploads often include an instruction prompt plus the
+        # actual essay/article. We preserve the raw Upload.textContent but
+        # run Noosphere over the authorial body so prompt text does not
+        # become a claim, chunk, or methodology profile.
         try:
-            from noosphere.mitigations.prompt_separator import PromptSeparator
-            separated = PromptSeparator().separate(text, source_type="written")
-            print(
-                f"prompt_separator founder_sections={len(separated.founder_sections)} "
-                f"prompt_sections={len(separated.prompt_sections)} "
-                f"confidence={separated.confidence:.2f}"
+            from noosphere.relevant_text import select_pertinent_text
+
+            pertinent = select_pertinent_text(
+                text,
+                source_type=row.get("sourceType") or "written",
+                mime_type=row.get("mimeType") or "",
             )
-            if separated.founder_sections:
-                text = separated.founder_text
+            print(
+                f"pertinent_text changed={pertinent.changed} "
+                f"founder_sections={pertinent.founder_sections} "
+                f"prompt_sections={pertinent.prompt_sections} "
+                f"confidence={pertinent.confidence:.2f} "
+                f"retained_chars={len(pertinent.text)}"
+            )
+            text = pertinent.text
         except Exception as sep_err:
-            print(f"prompt_separator_failed: {sep_err}")
+            print(f"pertinent_text_failed: {sep_err}")
 
         # ── Extract claims ───────────────────────────────────────────────
         if use_llm:

@@ -425,6 +425,195 @@ def codex_methodology_reanalyze_cmd(
     )
 
 
+@app.command("codex-transcript-enrich")
+def codex_transcript_enrich_cmd(
+    codex_db_url: Optional[str] = typer.Option(
+        None,
+        "--codex-db-url",
+        help="Codex Postgres URL (see ingest-from-codex for fallback env vars).",
+    ),
+    organization_slug: Optional[str] = typer.Option(
+        None,
+        "--organization-slug",
+        help="Limit enrichment to one Organization.slug.",
+    ),
+    limit: int = typer.Option(500, help="Maximum uploads to scan."),
+    force: bool = typer.Option(
+        False,
+        "--force",
+        help="Regenerate blurbs/headings even when an upload already has them.",
+    ),
+    apply: bool = typer.Option(
+        False,
+        "--apply",
+        help="Write UploadChunk/blurb/heading rows. Default is dry-run only.",
+    ),
+) -> None:
+    """Backfill explorable transcript/source chunks for existing uploads."""
+    try:
+        configure_logging(json_format=True, log_to_file=False)
+        from noosphere.auth import require_auth
+        from noosphere.articles.transcript_enrichment import (
+            enrich_all_upload_transcripts,
+        )
+
+        require_auth(action="codex-transcript-enrich")
+
+        result = enrich_all_upload_transcripts(
+            codex_db_url=codex_db_url,
+            organization_slug=organization_slug,
+            limit=limit,
+            force=force,
+            dry_run=not apply,
+        )
+    except Exception as exc:
+        typer.echo(
+            json.dumps(
+                {"ok": False, "error": _redact_sensitive_error(exc, codex_db_url)},
+                default=str,
+            ),
+            err=True,
+        )
+        raise typer.Exit(1) from exc
+
+    typer.echo(
+        json.dumps(
+            {
+                "ok": not result.errors,
+                "dry_run": result.dry_run,
+                "organization_slug": result.organization_slug,
+                "uploads_scanned": result.uploads_scanned,
+                "uploads_enriched": result.uploads_enriched,
+                "chunks_found": result.chunks_found,
+                "skipped": result.skipped,
+                "errors": list(result.errors[:5]),
+            },
+            default=str,
+        )
+    )
+    if result.errors:
+        raise typer.Exit(code=1)
+
+
+@app.command("codex-reanalyze")
+def codex_reanalyze_cmd(
+    codex_db_url: Optional[str] = typer.Option(
+        None,
+        "--codex-db-url",
+        help="Codex Postgres URL (see ingest-from-codex for fallback env vars).",
+    ),
+    organization_slug: Optional[str] = typer.Option(
+        None,
+        "--organization-slug",
+        help="Limit upload-scoped passes to one Organization.slug.",
+    ),
+    limit: int = typer.Option(500, help="Maximum uploads to scan for upload-scoped passes."),
+    force_transcripts: bool = typer.Option(
+        False,
+        "--force-transcripts",
+        help="Regenerate existing transcript blurbs/headings as well as chunks.",
+    ),
+    max_embeddings: int = typer.Option(
+        1000,
+        "--max-embeddings",
+        help="Maximum missing conclusion embeddings to write when --apply is set.",
+    ),
+    apply: bool = typer.Option(
+        False,
+        "--apply",
+        help="Write transcript chunks, methodology profiles, and embeddings. Default is dry-run.",
+    ),
+) -> None:
+    """Run the full Codex repair pass: chunks, methodology, embeddings."""
+    try:
+        configure_logging(json_format=True, log_to_file=False)
+        from noosphere.auth import require_auth
+        from noosphere.articles.transcript_enrichment import (
+            enrich_all_upload_transcripts,
+        )
+        from noosphere.cli_commands.embed_backfill import run_backfill
+        from noosphere.codex_bridge import _resolve_codex_db_url
+        from noosphere.codex_methodology_reanalysis import (
+            reanalyze_methodology_profiles,
+        )
+
+        require_auth(action="codex-reanalyze")
+
+        resolved_url = _resolve_codex_db_url(codex_db_url)
+        transcript_result = enrich_all_upload_transcripts(
+            codex_db_url=resolved_url,
+            organization_slug=organization_slug,
+            limit=limit,
+            force=force_transcripts,
+            dry_run=not apply,
+        )
+        methodology_result = reanalyze_methodology_profiles(
+            codex_db_url=resolved_url,
+            organization_slug=organization_slug,
+            limit=limit,
+            dry_run=not apply,
+        )
+
+        if apply:
+            from noosphere.store import Store
+
+            store = Store.from_database_url(resolved_url)
+            embedding_report = run_backfill(
+                store=store,
+                max_per_run=max_embeddings,
+            )
+            embeddings_payload = {
+                "dry_run": False,
+                "count": embedding_report.count,
+                "remaining": embedding_report.remaining,
+                "model_name": embedding_report.model_name,
+                "errors": embedding_report.errors[:5],
+            }
+        else:
+            embeddings_payload = {
+                "dry_run": True,
+                "count": 0,
+                "remaining": None,
+                "model_name": None,
+                "errors": [],
+            }
+    except Exception as exc:
+        typer.echo(
+            json.dumps(
+                {"ok": False, "error": _redact_sensitive_error(exc, codex_db_url)},
+                default=str,
+            ),
+            err=True,
+        )
+        raise typer.Exit(1) from exc
+
+    ok = not transcript_result.errors and not embeddings_payload["errors"]
+    typer.echo(
+        json.dumps(
+            {
+                "ok": ok,
+                "dry_run": not apply,
+                "transcripts": {
+                    "uploads_scanned": transcript_result.uploads_scanned,
+                    "uploads_enriched": transcript_result.uploads_enriched,
+                    "chunks_found": transcript_result.chunks_found,
+                    "skipped": transcript_result.skipped,
+                    "errors": list(transcript_result.errors[:5]),
+                },
+                "methodology": {
+                    "uploads_scanned": methodology_result.uploads_scanned,
+                    "profiles_found": methodology_result.profiles_found,
+                    "profiles_written": methodology_result.profiles_written,
+                },
+                "embeddings": embeddings_payload,
+            },
+            default=str,
+        )
+    )
+    if not ok:
+        raise typer.Exit(code=1)
+
+
 @app.command("as-of")
 def as_of_cmd(
     when: str = typer.Argument(..., metavar="YYYY-MM-DD"),

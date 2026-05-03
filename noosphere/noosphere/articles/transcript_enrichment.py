@@ -53,6 +53,17 @@ class TranscriptEnrichmentResult:
     section_markers: tuple[tuple[int, str], ...] = ()
 
 
+@dataclass(frozen=True)
+class TranscriptEnrichmentBatchResult:
+    dry_run: bool
+    uploads_scanned: int
+    uploads_enriched: int
+    chunks_found: int
+    skipped: dict[str, int]
+    errors: tuple[str, ...] = ()
+    organization_slug: str | None = None
+
+
 def _new_cuid() -> str:
     return "c" + uuid.uuid4().hex[:24]
 
@@ -377,7 +388,7 @@ def enrich_upload_transcript(
     try:
         cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
         cur.execute(
-            '''SELECT id, title, "sourceType", "textContent", blurb
+            '''SELECT id, title, "sourceType", "mimeType", "textContent", blurb
                FROM "Upload"
                WHERE id = %s''',
             (upload_id,),
@@ -393,6 +404,15 @@ def enrich_upload_transcript(
                 enriched=False,
                 skipped_reason="no_text",
             )
+
+        from noosphere.relevant_text import select_pertinent_text
+
+        pertinent = select_pertinent_text(
+            text,
+            source_type=upload.get("sourceType") or "written",
+            mime_type=upload.get("mimeType") or "",
+        )
+        text = pertinent.text
 
         chunks = sync_upload_chunks(conn, upload_id, text)
         if not chunks:
@@ -471,3 +491,126 @@ def enrich_upload_transcript(
         )
     finally:
         conn.close()
+
+
+def _has_column(cur: Any, table: str, column: str) -> bool:
+    try:
+        cur.execute(
+            '''SELECT 1
+               FROM information_schema.columns
+               WHERE table_name = %s AND column_name = %s
+               LIMIT 1''',
+            (table, column),
+        )
+        return cur.fetchone() is not None
+    except Exception:
+        try:
+            cur.execute(f'PRAGMA table_info("{table}")')
+            return any(
+                (row["name"] if isinstance(row, dict) else row[1]) == column
+                for row in cur.fetchall()
+            )
+        except Exception:
+            return False
+
+
+def _organization_id_for_slug(cur: Any, slug: str) -> str:
+    cur.execute('SELECT id FROM "Organization" WHERE slug = %s', (slug,))
+    row = cur.fetchone()
+    if not row:
+        raise RuntimeError(f"Organization slug not found: {slug}")
+    return row["id"] if isinstance(row, dict) else row[0]
+
+
+def _candidate_query(has_deleted_at: bool) -> str:
+    deleted_filter = 'AND "deletedAt" IS NULL' if has_deleted_at else ""
+    return f'''SELECT id, title, "sourceType", "mimeType", "textContent"
+               FROM "Upload"
+               WHERE "textContent" IS NOT NULL
+                 AND LENGTH(TRIM("textContent")) >= 40
+                 {deleted_filter}
+                 AND (%s IS NULL OR "organizationId" = %s)
+               ORDER BY "createdAt" ASC
+               LIMIT %s'''
+
+
+def enrich_all_upload_transcripts(
+    *,
+    codex_db_url: Optional[str] = None,
+    organization_slug: Optional[str] = None,
+    limit: int = 500,
+    force: bool = False,
+    dry_run: bool = True,
+    client: Any | None = None,
+) -> TranscriptEnrichmentBatchResult:
+    """Backfill explorable chunks, blurbs, and headings for existing uploads."""
+
+    url = _resolve_codex_db_url(codex_db_url)
+    conn = _open_codex_connection(url)
+    try:
+        cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        organization_id = (
+            _organization_id_for_slug(cur, organization_slug)
+            if organization_slug
+            else None
+        )
+        has_deleted_at = _has_column(cur, "Upload", "deletedAt")
+        cur.execute(
+            _candidate_query(has_deleted_at),
+            (organization_id, organization_id, int(limit)),
+        )
+        uploads = list(cur.fetchall())
+    finally:
+        conn.close()
+
+    skipped: dict[str, int] = {}
+    errors: list[str] = []
+    chunks_found = 0
+    uploads_enriched = 0
+
+    if dry_run:
+        from noosphere.relevant_text import select_pertinent_text
+
+        for upload in uploads:
+            pertinent = select_pertinent_text(
+                str(upload.get("textContent") or ""),
+                source_type=upload.get("sourceType") or "written",
+                mime_type=upload.get("mimeType") or "",
+            )
+            chunks_found += len(split_upload_text_into_chunks(pertinent.text))
+        return TranscriptEnrichmentBatchResult(
+            dry_run=True,
+            uploads_scanned=len(uploads),
+            uploads_enriched=0,
+            chunks_found=chunks_found,
+            skipped={},
+            errors=(),
+            organization_slug=organization_slug,
+        )
+
+    for upload in uploads:
+        upload_id = str(upload["id"])
+        try:
+            result = enrich_upload_transcript(
+                upload_id,
+                codex_db_url=url,
+                force=force,
+                client=client,
+            )
+            chunks_found += result.chunk_count
+            if result.enriched:
+                uploads_enriched += 1
+            elif result.skipped_reason:
+                skipped[result.skipped_reason] = skipped.get(result.skipped_reason, 0) + 1
+        except Exception as exc:
+            errors.append(f"{upload_id}:{type(exc).__name__}: {exc}")
+
+    return TranscriptEnrichmentBatchResult(
+        dry_run=False,
+        uploads_scanned=len(uploads),
+        uploads_enriched=uploads_enriched,
+        chunks_found=chunks_found,
+        skipped=skipped,
+        errors=tuple(errors),
+        organization_slug=organization_slug,
+    )

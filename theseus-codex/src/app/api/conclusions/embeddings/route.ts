@@ -3,6 +3,7 @@ import { db } from "@/lib/db";
 import { computeProjection } from "@/lib/embeddingAxes";
 import {
   activeEmbeddingModelName,
+  conclusionJsonEmbeddingRows,
   conclusionEmbeddingRows,
   decodeFloat32Vector,
   embeddedConclusionCount,
@@ -16,13 +17,14 @@ export async function GET() {
   }
 
   const modelName = await activeEmbeddingModelName();
-  const [totalCount, embeddedCount, embeddingRows] = await Promise.all([
+  const [totalCount, storedEmbeddedCount, embeddingRows, jsonEmbeddingRows] = await Promise.all([
     db.conclusion.count({ where: { organizationId: tenant.organizationId } }),
     embeddedConclusionCount(tenant.organizationId, modelName),
     conclusionEmbeddingRows(tenant.organizationId, modelName),
+    conclusionJsonEmbeddingRows(tenant.organizationId),
   ]);
 
-  const conclusions = embeddingRows
+  let conclusions = embeddingRows
     .map((row) => {
       const vector = decodeFloat32Vector(row.vector, row.dimension);
       if (vector.length === 0) return null;
@@ -35,6 +37,20 @@ export async function GET() {
       };
     })
     .filter((row): row is NonNullable<typeof row> => row !== null);
+  const jsonConclusionCount = jsonEmbeddingRows.length;
+  const embeddedCount = Math.max(storedEmbeddedCount, jsonConclusionCount);
+
+  if (conclusions.length < 3 && jsonEmbeddingRows.length >= 3) {
+    conclusions = jsonEmbeddingRows
+      .filter((row): row is typeof row & { embeddingJson: string } => Boolean(row.embeddingJson))
+      .map((row) => ({
+        id: row.id,
+        text: row.text,
+        topicHint: row.topicHint || "",
+        confidenceTier: row.confidenceTier,
+        embeddingJson: row.embeddingJson,
+      }));
+  }
 
   if (conclusions.length < 3) {
     return NextResponse.json({

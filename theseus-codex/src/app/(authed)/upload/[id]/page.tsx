@@ -43,12 +43,22 @@ export default async function UploadDetailPage({
       visibility: true,
       createdAt: true,
       founder: { select: { displayName: true, name: true, username: true } },
+      chunks: {
+        orderBy: { index: "asc" },
+        select: { id: true, index: true, text: true },
+      },
     },
   });
   if (!upload) notFound();
 
   const sp = await searchParams;
-  const canPublish = canWrite(founder.role) && Boolean(upload.textContent?.trim());
+  const analyzedText =
+    upload.chunks.map((chunk) => chunk.text).join("\n\n").trim() ||
+    upload.textContent?.trim() ||
+    "";
+  const rawText = upload.textContent?.trim() || "";
+  const rawDiffers = Boolean(rawText && analyzedText && rawText !== analyzedText);
+  const canPublish = canWrite(founder.role) && Boolean(analyzedText);
 
   return (
     <main style={{ display: "grid", gap: "1rem", margin: "0 auto", maxWidth: 1040, padding: "1.5rem 1rem 3rem" }}>
@@ -77,7 +87,7 @@ export default async function UploadDetailPage({
         </p>
       ) : null}
 
-      {!upload.textContent?.trim() ? (
+      {!analyzedText ? (
         <section className="portal-card" style={{ color: "var(--parchment-dim)", padding: "1rem" }}>
           This upload has no extracted text yet, so it cannot be formatted into a Substack draft.
         </section>
@@ -92,11 +102,20 @@ export default async function UploadDetailPage({
             {upload.description}
           </p>
         ) : null}
+        {analyzedText ? (
+          <Link
+            className="mono"
+            href={`/transcripts/${upload.id}`}
+            style={{ color: "var(--gold)", fontSize: "0.74rem", textDecoration: "none" }}
+          >
+            Open explorable source
+          </Link>
+        ) : null}
       </section>
 
       <article className="portal-card" style={{ padding: "1rem" }}>
         <p className="mono" style={{ color: "var(--amber-dim)", fontSize: "0.62rem", letterSpacing: "0.18em", margin: "0 0 0.75rem", textTransform: "uppercase" }}>
-          Source text
+          Analyzed text
         </p>
         <pre
           style={{
@@ -108,9 +127,29 @@ export default async function UploadDetailPage({
             whiteSpace: "pre-wrap",
           }}
         >
-          {upload.textContent || ""}
+          {analyzedText}
         </pre>
       </article>
+
+      {rawDiffers ? (
+        <details className="portal-card" style={{ padding: "1rem" }}>
+          <summary className="mono" style={{ color: "var(--amber-dim)", cursor: "pointer", fontSize: "0.62rem", letterSpacing: "0.18em", textTransform: "uppercase" }}>
+            Raw extracted text
+          </summary>
+          <pre
+            style={{
+              color: "var(--parchment-dim)",
+              fontFamily: "inherit",
+              lineHeight: 1.55,
+              margin: "0.85rem 0 0",
+              overflowX: "auto",
+              whiteSpace: "pre-wrap",
+            }}
+          >
+            {rawText}
+          </pre>
+        </details>
+      ) : null}
     </main>
   );
 }
