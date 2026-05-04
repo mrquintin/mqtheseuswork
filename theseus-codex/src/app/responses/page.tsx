@@ -85,7 +85,10 @@ export default async function ResponsesPage({
                     <h3 style={{ marginTop: 0 }}>
                       <Link href={`/c/${encodeURIComponent(article.slug)}`}>{article.payload.conclusionText}</Link>
                     </h3>
-                    <p>{article.payload.evidenceSummary.slice(0, 260)}{article.payload.evidenceSummary.length > 260 ? "..." : ""}</p>
+                    <p>
+                      {(article.payload.article?.bodyMarkdown || article.payload.evidenceSummary).slice(0, 260)}
+                      {(article.payload.article?.bodyMarkdown || article.payload.evidenceSummary).length > 260 ? "..." : ""}
+                    </p>
                   </li>
                 ))}
               </ul>

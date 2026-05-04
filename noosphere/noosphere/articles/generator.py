@@ -37,6 +37,7 @@ class ArticleCitation:
     source_kind: str
     source_id: str
     quoted_span: str
+    public_url: str | None = None
 
 
 @dataclass(frozen=True)
@@ -58,11 +59,18 @@ class _SourceBlock:
     organization_id: str
     topic_hint: str | None
     text: str
+    public_url: str | None = None
 
 
 ARTICLE_MAX_TOKENS = 2_600
 MAX_JSON_FAILURES = 3
 MAX_CITATION_FAILURES = 2
+MAX_BODY_FAILURES = 2
+FIRM_VOICE_RE = re.compile(r"\bthe\s+firm\b", re.IGNORECASE)
+SOURCE_RECAP_RE = re.compile(
+    r"(?im)(^\s{0,3}#{1,6}\s*(retrieved\s+)?(source|sources|transcript|essay)\b|^\s*\[SOURCE\s+\d+\])"
+)
+PUBLIC_RELATIVE_PATH_RE = re.compile(r"^/(?:c|post|currents|forecasts)(?:/|$)")
 
 
 def _prompt_path(name: str) -> Path:
@@ -133,6 +141,17 @@ def _source_blocks_text(sources: list[_SourceBlock]) -> str:
     return "\n\n".join(blocks)
 
 
+def _public_url(value: str | None) -> str | None:
+    url = (value or "").strip()
+    if not url:
+        return None
+    if url.startswith("https://"):
+        return url
+    if PUBLIC_RELATIVE_PATH_RE.match(url):
+        return url
+    return None
+
+
 def _article_user_prompt(kind: ArticleKind, source_ids: list[str], sources: list[_SourceBlock]) -> str:
     return "\n\n".join(
         [
@@ -177,6 +196,7 @@ def _source_text_for_current_event(store: Any, source_id: str) -> _SourceBlock |
         source_id=event.id,
         organization_id=event.organization_id,
         topic_hint=event.topic_hint,
+        public_url=_public_url(event.url),
         text="\n".join(
             [
                 f"Current event: {event.text}",
@@ -199,6 +219,7 @@ def _source_text_for_opinion(store: Any, source_id: str) -> _SourceBlock | None:
         source_id=opinion.id,
         organization_id=opinion.organization_id,
         topic_hint=opinion.topic_hint,
+        public_url=f"/currents/{opinion.id}",
         text="\n".join(
             [
                 f"Opinion headline: {opinion.headline}",
@@ -226,6 +247,7 @@ def _source_text_for_postmortem(store: Any, prediction_id: str) -> _SourceBlock 
         source_id=prediction.id,
         organization_id=prediction.organization_id,
         topic_hint=prediction.topic_hint,
+        public_url=f"/forecasts/{prediction.id}",
         text="\n".join(
             [
                 f"Forecast headline: {prediction.headline}",
@@ -262,6 +284,7 @@ def _source_text_for_correction(store: Any, opinion_id: str) -> _SourceBlock | N
         source_id=opinion.id,
         organization_id=opinion.organization_id,
         topic_hint=opinion.topic_hint,
+        public_url=f"/currents/{opinion.id}",
         text="\n".join(
             [
                 f"Affected opinion: {opinion.headline}",
@@ -323,11 +346,20 @@ def validate_article_citations(
         if quoted_span not in source.text:
             errors.append(f"citation {idx} quoted_span is not a verbatim substring")
             continue
-        normalized.append(ArticleCitation(source_kind, source_id, quoted_span))
+        normalized.append(ArticleCitation(source_kind, source_id, quoted_span, source.public_url))
 
     if require_any and not normalized:
         errors.append("published articles require at least one valid citation")
     return normalized, errors
+
+
+def validate_article_body(body_markdown: str) -> list[str]:
+    errors: list[str] = []
+    if not FIRM_VOICE_RE.search(body_markdown):
+        errors.append('body_markdown must explicitly use firm voice with the phrase "the firm"')
+    if SOURCE_RECAP_RE.search(body_markdown):
+        errors.append("body_markdown must not include raw source/transcript/essay recap sections")
+    return errors
 
 
 def _article_payload(
@@ -353,7 +385,10 @@ def _article_payload(
         "exitConditions": exit_conditions,
         "strongestObjection": {
             "objection": "The essay may overfit a narrow source window.",
-            "firmAnswer": "It is published with explicit source ids and verbatim citation spans so later corrections can be traced.",
+            "firmAnswer": (
+                "It is published with explicit source ids and verbatim citation "
+                "spans so later corrections can be traced."
+            ),
         },
         "openQuestionsAdjacent": [],
         "voiceComparisons": [],
@@ -371,11 +406,14 @@ def _article_payload(
             "bodyMarkdown": body_markdown,
             "citations": [
                 {
+                    "label": f"S{idx}",
                     "source_kind": citation.source_kind,
                     "source_id": citation.source_id,
                     "quoted_span": citation.quoted_span,
+                    "public_url": citation.public_url,
+                    "linkable": bool(citation.public_url),
                 }
-                for citation in citations
+                for idx, citation in enumerate(citations, start=1)
             ],
         },
     }
@@ -393,6 +431,7 @@ def _published_article_row_to_article(row: PublishedConclusion) -> Article:
                         str(raw.get("source_kind") or ""),
                         str(raw.get("source_id") or ""),
                         str(raw.get("quoted_span") or ""),
+                        _public_url(str(raw.get("public_url") or raw.get("publicUrl") or "")),
                     )
                 )
     kind_value = str(article_payload.get("kind") if isinstance(article_payload, dict) else "")
@@ -402,8 +441,16 @@ def _published_article_row_to_article(row: PublishedConclusion) -> Article:
         slug=row.slug,
         kind=kind,
         headline=str(payload.get("conclusionText") or row.slug) if isinstance(payload, dict) else row.slug,
-        body_markdown=str(article_payload.get("bodyMarkdown") or payload.get("rationale") or "") if isinstance(article_payload, dict) else "",
-        source_ids=[str(item) for item in article_payload.get("sourceIds", [])] if isinstance(article_payload, dict) else [],
+        body_markdown=(
+            str(article_payload.get("bodyMarkdown") or payload.get("rationale") or "")
+            if isinstance(article_payload, dict)
+            else ""
+        ),
+        source_ids=(
+            [str(item) for item in article_payload.get("sourceIds", [])]
+            if isinstance(article_payload, dict)
+            else []
+        ),
         citations=citations,
         published_at=_as_utc(row.published_at),
     )
@@ -505,7 +552,10 @@ def _persist_article(
         kind="ARTICLE",
         discounted_confidence=confidence,
         stated_confidence=confidence,
-        calibration_discount_reason="Generated article confidence is source-grounded and not a reviewed firm conclusion confidence.",
+        calibration_discount_reason=(
+            "Generated article confidence is source-grounded and not a reviewed "
+            "firm conclusion confidence."
+        ),
         payload_json=json.dumps(payload, sort_keys=True),
         doi="",
         zenodo_record_id="",
@@ -547,9 +597,14 @@ async def generate_article(
     corrective = ""
     json_failures = 0
     citation_failures = 0
+    body_failures = 0
     client = None
 
-    while json_failures < MAX_JSON_FAILURES and citation_failures < MAX_CITATION_FAILURES:
+    while (
+        json_failures < MAX_JSON_FAILURES
+        and citation_failures < MAX_CITATION_FAILURES
+        and body_failures < MAX_BODY_FAILURES
+    ):
         system_prompt = base_system + corrective
         try:
             _authorize_budget(budget, system=system_prompt, user=user_prompt)
@@ -578,6 +633,19 @@ async def generate_article(
         if not body_markdown:
             json_failures += 1
             corrective = "\n\nCorrection: body_markdown is required."
+            continue
+
+        body_errors = validate_article_body(body_markdown)
+        if body_errors:
+            body_failures += 1
+            if body_failures >= MAX_BODY_FAILURES:
+                return None
+            corrective = (
+                "\n\nCorrection: the previous response violated the public article voice contract: "
+                + "; ".join(body_errors[:3])
+                + '. Rewrite as a synthesized firm perspective using the phrase "the firm", '
+                "not as a recap of source material."
+            )
             continue
 
         citations, citation_errors = validate_article_citations(payload.get("citations"), sources)

@@ -37,6 +37,7 @@ CREATE TABLE "Upload" (
   "principleCount" INTEGER,
   "errorMessage" TEXT,
   "extractionMethod" TEXT,
+  "deletedAt" TEXT,
   "createdAt" TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
   "updatedAt" TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );

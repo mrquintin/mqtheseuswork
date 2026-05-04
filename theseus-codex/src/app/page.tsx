@@ -342,7 +342,9 @@ function PublicationsRail({ articles }: { articles: PublishedConclusion[] }) {
                 }}
               >
                 {deriveExcerpt(
-                  article.payload.evidenceSummary || article.payload.rationale,
+                  article.payload.article?.bodyMarkdown ||
+                    article.payload.evidenceSummary ||
+                    article.payload.rationale,
                   160,
                 )}
               </span>

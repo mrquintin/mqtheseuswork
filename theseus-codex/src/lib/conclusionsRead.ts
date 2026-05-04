@@ -99,6 +99,71 @@ function stringArray(value: unknown): string[] {
   return Array.isArray(value) ? value.filter((item): item is string => typeof item === "string") : [];
 }
 
+function objectValue(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
+}
+
+function publicSourceUrl(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const url = value.trim();
+  if (!url) return null;
+  if (/^\/(?:c|post|currents|forecasts)(?:\/|$)/.test(url)) return url;
+  try {
+    const parsed = new URL(url);
+    return parsed.protocol === "https:" ? url : null;
+  } catch {
+    return null;
+  }
+}
+
+function parseArticlePayload(value: unknown): PublicationPayloadV1["article"] | undefined {
+  const article = objectValue(value);
+  const bodyMarkdown =
+    typeof article.bodyMarkdown === "string" ? article.bodyMarkdown
+    : typeof article.body_markdown === "string" ? article.body_markdown
+    : "";
+  const rawCitations = Array.isArray(article.citations) ? article.citations : [];
+  const citations = rawCitations.flatMap((item, index): NonNullable<PublicationPayloadV1["article"]>["citations"] => {
+    const citation = objectValue(item);
+    const sourceKind =
+      typeof citation.sourceKind === "string" ? citation.sourceKind
+      : typeof citation.source_kind === "string" ? citation.source_kind
+      : "";
+    const sourceId =
+      typeof citation.sourceId === "string" ? citation.sourceId
+      : typeof citation.source_id === "string" ? citation.source_id
+      : "";
+    const quotedSpan =
+      typeof citation.quotedSpan === "string" ? citation.quotedSpan
+      : typeof citation.quoted_span === "string" ? citation.quoted_span
+      : "";
+    if (!sourceKind || !sourceId || !quotedSpan) return [];
+    const publicUrl = publicSourceUrl(citation.publicUrl ?? citation.public_url);
+    return [
+      {
+        label:
+          typeof citation.label === "string" && citation.label.trim()
+            ? citation.label.trim()
+            : `S${index + 1}`,
+        sourceKind,
+        sourceId,
+        quotedSpan,
+        publicUrl,
+        linkable: Boolean(publicUrl),
+      },
+    ];
+  });
+
+  if (!bodyMarkdown && citations.length === 0) return undefined;
+  return {
+    kind: typeof article.kind === "string" ? article.kind : "",
+    bodyMarkdown,
+    sourceIds: stringArray(article.sourceIds ?? article.source_ids),
+    ...(typeof article.sourceKey === "string" ? { sourceKey: article.sourceKey } : {}),
+    citations,
+  };
+}
+
 export function parsePublicationPayload(row: PublicationPayloadJsonRow): PublicationPayloadV1 {
   let parsed: Record<string, unknown> = {};
   try {
@@ -157,6 +222,7 @@ export function parsePublicationPayload(row: PublicationPayloadJsonRow): Publica
 
   const exitConditions = stringArray(parsed.exitConditions);
   const whatWouldChangeOurMind = stringArray(parsed.whatWouldChangeOurMind);
+  const article = parseArticlePayload(parsed.article);
 
   return {
     schema: "theseus.publicConclusion.v1",
@@ -176,6 +242,7 @@ export function parsePublicationPayload(row: PublicationPayloadJsonRow): Publica
     whatWouldChangeOurMind: whatWouldChangeOurMind.length ? whatWouldChangeOurMind : exitConditions,
     citations,
     ...(Array.isArray(parsed.internalLinks) ? { internalLinks: [] } : {}),
+    ...(article ? { article } : {}),
   };
 }
 

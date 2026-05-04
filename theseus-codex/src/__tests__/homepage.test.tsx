@@ -257,4 +257,47 @@ describe("Public methodology surfaces", () => {
     expect(html).not.toContain("sourceTitle");
     expect(html).not.toContain("sentenceIndex");
   });
+
+  it("renders generated articles as firm perspective and withholds private citation links", () => {
+    const privateQuotedSpan = "PRIVATE_SOURCE_CONTENT_DO_NOT_RENDER";
+    const base = article();
+    const row = article({
+      payload: {
+        ...base.payload,
+        article: {
+          kind: "THEMATIC",
+          bodyMarkdown:
+            "The firm believes public claims should cite the firm's source record without reproducing the source record.",
+          sourceIds: ["opinion-1", "upload-private"],
+          citations: [
+            {
+              label: "S1",
+              sourceKind: "event_opinion",
+              sourceId: "opinion-1",
+              quotedSpan: "The public Currents opinion states the relevant position.",
+              publicUrl: "/currents/opinion-1",
+              linkable: true,
+            },
+            {
+              label: "S2",
+              sourceKind: "upload",
+              sourceId: "upload-private",
+              quotedSpan: privateQuotedSpan,
+              publicUrl: null,
+              linkable: false,
+            },
+          ],
+        },
+      },
+    });
+
+    const html = renderConclusion(row);
+
+    expect(html).toContain("The firm&#x27;s perspective");
+    expect(html).toContain("The firm believes public claims should cite");
+    expect(html).toContain("Firm-side sources");
+    expect(html).toContain('href="/currents/opinion-1"');
+    expect(html).toContain("Internal source recorded by the firm");
+    expect(html).not.toContain(privateQuotedSpan);
+  });
 });

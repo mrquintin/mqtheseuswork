@@ -14,10 +14,11 @@
  *     jar; the Electron/PyQt runtime isn't a browser).
  *   - Asking the user to copy-paste an API key minted in the web UI
  *     is terrible first-run UX. This endpoint lets the app say "email
- *     + password, please" once and keep quiet thereafter.
+ *     or username + password, please" once and keep quiet thereafter.
  *
  * Request body:
  *   { email, password, organizationSlug?, appLabel? }
+ *     `email` is the legacy field name; it accepts either email or username.
  *
  * Response:
  *   { apiKey, keyId, founder, organizationSlug, codexUrl }
@@ -46,6 +47,18 @@ function clientIp(req: Request): string {
   return req.headers.get("x-real-ip") || "unknown";
 }
 
+function loginIdentityFilter(identifier: string) {
+  const trimmed = identifier.trim();
+  const lowered = trimmed.toLowerCase();
+  return {
+    OR: [
+      { email: lowered },
+      { username: trimmed },
+      { username: lowered },
+    ],
+  };
+}
+
 export async function POST(req: Request) {
   try {
     const body = (await req.json().catch(() => ({}))) as {
@@ -56,11 +69,12 @@ export async function POST(req: Request) {
     };
     const { email, password, organizationSlug, appLabel } = body;
     const ip = clientIp(req);
-    const rateKey = `${ip}::${(email || "").toLowerCase()}`;
+    const identifier = String(email || "").trim();
+    const rateKey = `${ip}::${identifier.toLowerCase()}`;
 
-    if (!email || !password) {
+    if (!identifier || !password) {
       return NextResponse.json(
-        { error: "Email and password required" },
+        { error: "Email/username and password required" },
         { status: 400 },
       );
     }
@@ -79,7 +93,7 @@ export async function POST(req: Request) {
     }
 
     const founder = await db.founder.findFirst({
-      where: { organizationId: org.id, email },
+      where: { organizationId: org.id, ...loginIdentityFilter(identifier) },
     });
     const valid = founder
       ? await bcrypt.compare(password, founder.passwordHash)

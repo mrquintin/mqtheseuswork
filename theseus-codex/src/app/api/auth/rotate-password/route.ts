@@ -7,16 +7,17 @@
  * `/api/auth/change-password` endpoint requires a valid session
  * cookie (deliberately, so a compromised device API key can't lock
  * the owner out); this endpoint fills the gap by re-authenticating
- * via (email, organizationSlug, currentPassword) and rotating to a
+ * via (email-or-username, organizationSlug, currentPassword) and rotating to a
  * new passphrase in the same request.
  *
  * Contract
  * --------
  * Request body: `{ email, organizationSlug, currentPassword, newPassword }`
+ *   * `email` is the legacy field name; it accepts either email or username.
  *   * All four fields required; any missing returns 400.
  *   * `newPassword` ≥ 8 chars and must differ from the current one.
  *   * `currentPassword` must bcrypt-match the stored hash for the
- *     (org, email) founder — otherwise 401, rate-limited identically
+ *     (org, email-or-username) founder — otherwise 401, rate-limited identically
  *     to `/api/auth/login` so an attacker can't use this path as an
  *     uncapped password-guessing oracle.
  *
@@ -45,7 +46,7 @@
  *                        key is (IP + founder.id).
  *
  *   rotate-password   — caller has NO session and must prove identity
- *                        via (email, org, currentPassword). The
+ *                        via (email-or-username, org, currentPassword). The
  *                        password check IS the auth gate. Rate-limit
  *                        key is (IP + email) — same bucket as
  *                        /api/auth/login, so someone brute-forcing a
@@ -70,6 +71,18 @@ function clientIp(req: Request): string {
   return req.headers.get("x-real-ip") || "unknown";
 }
 
+function loginIdentityFilter(identifier: string) {
+  const trimmed = identifier.trim();
+  const lowered = trimmed.toLowerCase();
+  return {
+    OR: [
+      { email: lowered },
+      { username: trimmed },
+      { username: lowered },
+    ],
+  };
+}
+
 export async function POST(req: Request) {
   try {
     const body = (await req.json().catch(() => ({}))) as {
@@ -79,12 +92,13 @@ export async function POST(req: Request) {
       newPassword?: string;
     };
     const { email, organizationSlug, currentPassword, newPassword } = body;
+    const identifier = String(email || "").trim();
 
-    if (!email || !currentPassword || !newPassword) {
+    if (!identifier || !currentPassword || !newPassword) {
       return NextResponse.json(
         {
           error:
-            "email, currentPassword, and newPassword are all required",
+            "email/username, currentPassword, and newPassword are all required",
         },
         { status: 400 },
       );
@@ -116,7 +130,7 @@ export async function POST(req: Request) {
     // Match the login route's bucket so an attacker can't evade the
     // login rate-limit by bouncing between /auth/login and
     // /auth/rotate-password guessing the same credential.
-    const rateKey = `${ip}::${email.toLowerCase()}`;
+    const rateKey = `${ip}::${identifier.toLowerCase()}`;
 
     const org = await db.organization.findUnique({ where: { slug } });
     if (!org) {
@@ -127,7 +141,7 @@ export async function POST(req: Request) {
     }
 
     const founder = await db.founder.findFirst({
-      where: { organizationId: org.id, email },
+      where: { organizationId: org.id, ...loginIdentityFilter(identifier) },
       select: {
         id: true,
         organizationId: true,

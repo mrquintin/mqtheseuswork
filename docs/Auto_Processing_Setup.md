@@ -25,14 +25,14 @@ All three run the same workflow — `.github/workflows/noosphere-process-uploads
 
 | Secret name | Value | Required? |
 |---|---|---|
-| `CODEX_DATABASE_URL` | Your Supabase **DIRECT** connection URL — port **5432**, not the 6543 pooler | **yes** |
+| `CODEX_DATABASE_URL` | Your Supabase Postgres URL for GitHub Actions. Prefer the **transaction pooler** URL on port **6543** unless the direct host is known to work from GitHub Actions. Do not use the session pooler on 5432 for long ingest runs. | **yes** |
 | `OPENAI_API_KEY` | `sk-proj-…` from OpenAI | optional but recommended (enables LLM mode) |
 | `ANTHROPIC_API_KEY` | `sk-ant-…` from Anthropic | optional (alternative to OpenAI) |
 
-> **Where to find the DIRECT URL:** Supabase dashboard → Project Settings → Database → Connection string → **Direct connection** (not Session/Transaction). Format:
-> `postgresql://postgres.<ref>:<pw>@aws-1-us-west-2.pooler.supabase.com:5432/postgres`
+> **Where to find the URL:** Supabase dashboard → Project Settings → Database → Connection string → **Transaction pooler**. Format:
+> `postgresql://postgres.<ref>:<pw>@aws-1-us-west-2.pooler.supabase.com:6543/postgres`
 >
-> If you used 6543 before for Prisma, that's the pooler — Noosphere needs 5432 because psycopg2 does DDL-like operations that some pooler modes reject.
+> The Noosphere upload processor uses normal `SELECT`/`UPDATE`/`INSERT` work and is safe on the transaction pooler. Avoid the session-pooler 5432 URL in CI: it can hit Supabase's `EMAXCONNSESSION` cap when serverless app connections are already open. If you copy a Prisma URL with `?pgbouncer=true`, the Noosphere bridge strips that Prisma-only parameter before calling `psycopg2`.
 
 ### 2. Add secrets on Vercel (Project → Settings → Environment Variables)
 

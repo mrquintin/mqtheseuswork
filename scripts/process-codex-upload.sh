@@ -34,7 +34,7 @@ fi
 if [ -z "${DIRECT_URL:-}${DATABASE_URL:-}${THESEUS_CODEX_DATABASE_URL:-}" ]; then
   echo "ERROR: no Codex DB URL set." >&2
   echo "       export one of: DIRECT_URL / DATABASE_URL / THESEUS_CODEX_DATABASE_URL" >&2
-  echo "       (Use the Supabase DIRECT connection, port 5432 — not the 6543 pooler.)" >&2
+  echo "       (For CI/serverless-adjacent runs, prefer the Supabase transaction pooler on port 6543.)" >&2
   exit 1
 fi
 

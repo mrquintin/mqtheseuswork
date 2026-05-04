@@ -54,6 +54,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from types import SimpleNamespace
 from typing import Optional
+from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 try:
     import psycopg2 as _psycopg2
@@ -66,6 +67,39 @@ else:
     _PSYCOPG2_IMPORT_ERROR = None
 
 REAL_DICT_CURSOR = _psycopg2_extras.RealDictCursor
+
+_PSYCOPG2_UNSUPPORTED_QUERY_PARAMS = {
+    # Prisma/Supabase pooler hints. libpq/psycopg2 rejects unknown URI
+    # parameters with "invalid URI query parameter", so a URL copied from
+    # a Next.js DATABASE_URL cannot be used verbatim.
+    "pgbouncer",
+    "connection_limit",
+    "pool_timeout",
+}
+
+
+def _psycopg2_compatible_url(url: str) -> str:
+    """Strip Prisma-only query params from a Postgres URI before psycopg2.
+
+    Supabase's transaction-pooler URL is the right host/port for GitHub
+    Actions, but the value commonly copied from a Prisma app also includes
+    `?pgbouncer=true` and sometimes `connection_limit=...`. Those parameters
+    are app-client hints, not libpq options, and psycopg2 refuses to connect
+    until they are removed. Preserve standard libpq params such as `sslmode`.
+    """
+    if "?" not in url:
+        return url
+    parts = urlsplit(url)
+    if parts.scheme not in {"postgres", "postgresql"}:
+        return url
+    filtered = [
+        (key, value)
+        for key, value in parse_qsl(parts.query, keep_blank_values=True)
+        if key.lower() not in _PSYCOPG2_UNSUPPORTED_QUERY_PARAMS
+    ]
+    return urlunsplit(
+        (parts.scheme, parts.netloc, parts.path, urlencode(filtered), parts.fragment)
+    )
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -152,7 +186,7 @@ def _open_codex_connection(url: str):
             "psycopg2 is required for Postgres-backed Codex ingest. "
             "Install a working psycopg2-binary build or use a sqlite:// test URL."
         ) from _PSYCOPG2_IMPORT_ERROR
-    return _psycopg2.connect(url)
+    return _psycopg2.connect(_psycopg2_compatible_url(url))
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -638,13 +672,17 @@ def ingest_from_codex(
         # ── Fetch the upload ─────────────────────────────────────────────
         cur.execute(
             '''SELECT id, "organizationId", "founderId", title, "textContent",
-                      "sourceType", status, "mimeType", "originalName", "filePath", "fileSize"
-               FROM "Upload" WHERE id = %s''',
+                      "sourceType", status, "mimeType", "originalName", "filePath",
+                      "fileSize", "deletedAt"
+               FROM "Upload"
+               WHERE id = %s AND "deletedAt" IS NULL''',
             (upload_id,),
         )
         row = cur.fetchone()
         if row is None:
-            raise RuntimeError(f"Upload {upload_id} not found in the Codex DB.")
+            raise RuntimeError(
+                f"Upload {upload_id} not found as an active Codex upload."
+            )
 
         # ── Fetch-and-extract via the MIME dispatcher ───────────────────
         # ``fetch_upload_content`` returns TextContent when the DB has
@@ -1298,8 +1336,11 @@ def list_queued_uploads(
             '''SELECT id, title, "originalName", status, "mimeType",
                       "fileSize", "createdAt"
                FROM "Upload"
-               WHERE status IN ('pending', 'queued_offline', 'processing')
-                  OR status IS NULL
+               WHERE "deletedAt" IS NULL
+                 AND (
+                      status IN ('pending', 'queued_offline', 'processing')
+                      OR status IS NULL
+                 )
                ORDER BY "createdAt" DESC
                LIMIT %s''',
             (limit,),

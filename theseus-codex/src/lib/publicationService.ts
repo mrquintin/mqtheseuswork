@@ -25,6 +25,20 @@ export type PublicationPayloadV1 = {
   whatWouldChangeOurMind: string[];
   citations: { format: "bibtex" | "apa" | "ris"; block: string }[];
   internalLinks?: { label: string; url: string }[];
+  article?: {
+    kind: string;
+    bodyMarkdown: string;
+    sourceIds: string[];
+    sourceKey?: string;
+    citations: {
+      label: string;
+      sourceKind: string;
+      sourceId: string;
+      quotedSpan: string;
+      publicUrl: string | null;
+      linkable: boolean;
+    }[];
+  };
 };
 
 const PUBLISH_CHECKLIST_KEYS = [

@@ -3,6 +3,7 @@ import Link from "next/link";
 import type { PublishedConclusion, PublicResponse } from "@/lib/conclusionsRead";
 import { SITE } from "@/lib/site";
 
+import AnswerMarkdown from "./AnswerMarkdown";
 import CopyButton from "./CopyButton";
 
 function clamp01(n: number) {
@@ -17,6 +18,20 @@ function percent(n: number) {
 function formatPatternType(value: string) {
   const formatted = value.replace(/[_-]+/g, " ").trim();
   return formatted || "method profile";
+}
+
+function sourceLabel(value: string) {
+  return value.replace(/[_-]+/g, " ").trim() || "firm source";
+}
+
+function truncateSourceSpan(value: string, max = 220) {
+  const cleaned = value.replace(/\s+/g, " ").trim();
+  if (cleaned.length <= max) return cleaned;
+  return `${cleaned.slice(0, max - 3).trimEnd()}...`;
+}
+
+function isExternalHref(href: string) {
+  return /^https?:\/\//i.test(href);
 }
 
 function MethodList({ label, items }: { label: string; items: string[] }) {
@@ -46,6 +61,8 @@ export default function ConclusionView({
   const p = row.payload;
   const canonical = `${SITE}/c/${encodeURIComponent(row.slug)}/v/${row.version}`;
   const citations = Array.isArray(p.citations) ? p.citations : [];
+  const article = p.article;
+  const isArticle = row.kind === "ARTICLE" && Boolean(article?.bodyMarkdown);
   const methodologyNarrative = p.methodology.reviewerNarrative.trim();
   const methodologyProfiles = p.methodology.profiles;
   const hasMethodology = Boolean(methodologyNarrative || methodologyProfiles.length);
@@ -54,7 +71,7 @@ export default function ConclusionView({
     <main className="public-container">
       <p className="public-muted public-kicker">
         <span>
-          v{row.version} · published {row.publishedAt.slice(0, 10)}
+          {isArticle ? "ARTICLE" : `v${row.version}`} · published {row.publishedAt.slice(0, 10)}
         </span>
         {row.doi ? (
           <>
@@ -69,21 +86,29 @@ export default function ConclusionView({
 
       <h1 className="public-title">{p.conclusionText}</h1>
 
-      <section className="public-card">
-        <h2>Confidence</h2>
-        <p className="public-muted">
-          Headline (calibration-discounted): <strong>{percent(row.discountedConfidence)}</strong>
-          <span className="public-inline-stat">
-            Stated / model confidence (context): <strong>{percent(row.statedConfidence)}</strong>
-          </span>
-        </p>
-        {row.calibrationDiscountReason ? <p>{row.calibrationDiscountReason}</p> : null}
-      </section>
+      {!isArticle ? (
+        <section className="public-card">
+          <h2>Confidence</h2>
+          <p className="public-muted">
+            Headline (calibration-discounted): <strong>{percent(row.discountedConfidence)}</strong>
+            <span className="public-inline-stat">
+              Stated / model confidence (context): <strong>{percent(row.statedConfidence)}</strong>
+            </span>
+          </p>
+          {row.calibrationDiscountReason ? <p>{row.calibrationDiscountReason}</p> : null}
+        </section>
+      ) : null}
 
       <section className="public-section">
-        <h2>Why the firm believes this</h2>
-        <p>{p.evidenceSummary || p.rationale}</p>
+        <h2>{isArticle ? "The firm's perspective" : "Why the firm believes this"}</h2>
+        {isArticle && article ? (
+          <AnswerMarkdown>{article.bodyMarkdown}</AnswerMarkdown>
+        ) : (
+          <p>{p.evidenceSummary || p.rationale}</p>
+        )}
       </section>
+
+      {isArticle && article ? <ArticleSourceList citations={article.citations} /> : null}
 
       {hasMethodology ? (
         <section aria-labelledby="conclusion-methodology-title" className="public-section public-methodology-section">
@@ -251,5 +276,51 @@ export default function ConclusionView({
         <Link href="/responses">Submit a structured response</Link>
       </p>
     </main>
+  );
+}
+
+function ArticleSourceList({
+  citations,
+}: {
+  citations: NonNullable<PublishedConclusion["payload"]["article"]>["citations"];
+}) {
+  if (!citations.length) return null;
+
+  return (
+    <section className="public-section">
+      <h2>Firm-side sources</h2>
+      <p className="public-muted">
+        Citation links are exposed only when the cited source has a public surface. Internal firm sources remain
+        non-clickable here.
+      </p>
+      <ul className="public-response-list">
+        {citations.map((citation) => {
+          const href = citation.publicUrl;
+          return (
+            <li className="public-card" key={`${citation.label}:${citation.sourceKind}:${citation.sourceId}`}>
+              <div className="public-muted mono">
+                {citation.label} · {sourceLabel(citation.sourceKind)}
+              </div>
+              {href ? (
+                <>
+                  <p>
+                    <a
+                      href={href}
+                      rel={isExternalHref(href) ? "noreferrer" : undefined}
+                      target={isExternalHref(href) ? "_blank" : undefined}
+                    >
+                      Open public source
+                    </a>
+                  </p>
+                  <p className="public-muted">Cited span: {truncateSourceSpan(citation.quotedSpan)}</p>
+                </>
+              ) : (
+                <p className="public-muted">Internal source recorded by the firm; no public link is available.</p>
+              )}
+            </li>
+          );
+        })}
+      </ul>
+    </section>
   );
 }

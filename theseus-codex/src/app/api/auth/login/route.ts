@@ -27,6 +27,18 @@ function safeNext(value: unknown): string {
   }
 }
 
+function loginIdentityFilter(identifier: string) {
+  const trimmed = identifier.trim();
+  const lowered = trimmed.toLowerCase();
+  return {
+    OR: [
+      { email: lowered },
+      { username: trimmed },
+      { username: lowered },
+    ],
+  };
+}
+
 export async function POST(req: Request) {
   try {
     const { email, password, organizationSlug, next } = (await req.json()) as {
@@ -37,10 +49,11 @@ export async function POST(req: Request) {
     };
     const nextPath = safeNext(next);
     const ip = clientIp(req);
-    const rateKey = `${ip}::${(email || "").toLowerCase()}`;
+    const identifier = String(email || "").trim();
+    const rateKey = `${ip}::${identifier.toLowerCase()}`;
 
-    if (!email || !password) {
-      return NextResponse.json({ error: "Email and password required" }, { status: 400 });
+    if (!identifier || !password) {
+      return NextResponse.json({ error: "Email/username and password required" }, { status: 400 });
     }
 
     const slug =
@@ -54,7 +67,7 @@ export async function POST(req: Request) {
     }
 
     const founder = await db.founder.findFirst({
-      where: { organizationId: org.id, email },
+      where: { organizationId: org.id, ...loginIdentityFilter(identifier) },
     });
     const valid = founder ? await bcrypt.compare(password, founder.passwordHash) : false;
 

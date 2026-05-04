@@ -85,7 +85,7 @@ function GateInner() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const [mode, setMode] = useState<Mode>("login");
-  const [email, setEmail] = useState("");
+  const [identifier, setIdentifier] = useState("");
   const [password, setPassword] = useState("");
   const [organizationSlug, setOrganizationSlug] = useState("theseus-local");
   // Rotate-mode-only fields. Kept in state even when mode="login"
@@ -146,7 +146,7 @@ function GateInner() {
       const res = await fetch("/api/auth/login", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email, password, organizationSlug, next: nextPath }),
+        body: JSON.stringify({ email: identifier, password, organizationSlug, next: nextPath }),
       });
       const data = await res.json().catch(() => ({}));
 
@@ -187,7 +187,7 @@ function GateInner() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          email,
+          email: identifier,
           organizationSlug,
           currentPassword: password,
           newPassword,
@@ -369,13 +369,13 @@ function GateInner() {
           />
         </FormField>
 
-        <FormField label="Email">
+        <FormField label="Email or username">
           <input
-            type="email"
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            placeholder="you@example.com"
-            autoComplete="email"
+            type="text"
+            value={identifier}
+            onChange={(e) => setIdentifier(e.target.value)}
+            placeholder="you@example.com or GDThomas"
+            autoComplete="username"
             required
             disabled={isLocked}
           />

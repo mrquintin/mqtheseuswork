@@ -18,11 +18,12 @@ name: Noosphere — process Codex uploads
 #
 # Secrets required on the repo (Settings → Secrets → Actions):
 #
-#   CODEX_DATABASE_URL  — Supabase DIRECT connection URL, port 5432
-#                         (not the 6543 pooler). The Python client
-#                         needs psycopg2's real Postgres protocol,
-#                         and the pooler silently rejects DDL on
-#                         some paths.
+#   CODEX_DATABASE_URL  — Supabase Postgres URL for CI. Prefer the
+#                         transaction-pooler URL on port 6543 for GitHub
+#                         Actions unless the project has reliable IPv6
+#                         direct-host access. Do not use the session-pooler
+#                         URL on port 5432 here; long ingest runs can exhaust
+#                         its small session cap before the queue drains.
 #
 #   OPENAI_API_KEY      — optional but strongly recommended. Without
 #                         it, the workflow runs in "naive" mode:
@@ -163,10 +164,11 @@ jobs:
               echo "uploads will be processed until it is."
               echo ""
               echo "**Fix:** Settings → Secrets and variables → Actions →"
-              echo "New repository secret. Use the Supabase DIRECT connection"
-              echo "URL (port 5432, **not** the 6543 pooler):"
+              echo "New repository secret. Use the Supabase transaction"
+              echo "pooler URL (port 6543) unless your direct host is known"
+              echo "to work from GitHub Actions:"
               echo ""
-              echo "    postgresql://postgres.<ref>:<pw>@aws-<n>-<region>.pooler.supabase.com:5432/postgres"
+              echo "    postgresql://postgres.<ref>:<pw>@aws-<n>-<region>.pooler.supabase.com:6543/postgres"
               echo ""
               echo "For best results also set \`OPENAI_API_KEY\` so the pipeline"
               echo "runs in LLM mode (richer claim extraction + contradictions)."
