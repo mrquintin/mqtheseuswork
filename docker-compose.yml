@@ -3,7 +3,9 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.api
-    env_file: ./current_events_api/.env
+    env_file:
+      - path: ./current_events_api/.env
+        required: false
     environment:
       NOOSPHERE_DATA_DIR: /data/noosphere
     ports:
@@ -20,7 +22,9 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.scheduler
-    env_file: ./current_events_api/.env
+    env_file:
+      - path: ./current_events_api/.env
+        required: false
     environment:
       NOOSPHERE_DATA_DIR: /data/noosphere
       FORECASTS_SCHEDULER_ENABLED: ${FORECASTS_SCHEDULER_ENABLED:-false}
