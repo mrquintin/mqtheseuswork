@@ -16,6 +16,14 @@ WORKDIR /app
 # for better-sqlite3 are no longer required since we use @prisma/adapter-pg.
 RUN apk add --no-cache libc6-compat
 COPY package.json package-lock.json ./
+# `npm ci` runs the package postinstall (`prisma generate`). In a clean Docker
+# context that means Prisma needs both its schema/config and a syntactically
+# valid datasource URL before dependencies are installed. The URL is only used
+# to satisfy Prisma config resolution during client generation; the real
+# DATABASE_URL is supplied at runtime.
+COPY prisma.config.ts ./
+COPY prisma ./prisma
+ENV DATABASE_URL="postgresql://postgres:postgres@localhost:5432/theseus"
 RUN npm ci --legacy-peer-deps
 
 # ── Stage 2: build Next.js + generate Prisma client ──────────────────────────
@@ -25,6 +33,7 @@ RUN apk add --no-cache libc6-compat
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 ENV NEXT_TELEMETRY_DISABLED=1
+ENV DATABASE_URL="postgresql://postgres:postgres@localhost:5432/theseus"
 # Generate the Prisma client against the Postgres schema. No live DB needed.
 RUN npx prisma generate
 RUN npm run build
