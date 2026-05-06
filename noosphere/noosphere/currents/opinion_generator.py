@@ -35,7 +35,10 @@ MIN_CONCLUSIONS_FOR_OPINION = 3
 MIN_CONCLUSION_SCORE = 0.55
 CONCLUSION_TOKEN_RE = re.compile(r"\[C:([^\]\s]+)\]")
 GENERIC_EVENT_SUBJECT_RE = re.compile(
-    r"\b(?:the|this|that|observed|source)\s+event\b",
+    (
+        r"\b(?:(?:the|this|that|observed|source|current)\s+event|event's|"
+        r"in\s+the\s+event)\b"
+    ),
     flags=re.IGNORECASE,
 )
 
@@ -160,7 +163,7 @@ def _event_subject_guidance(event: Any) -> str:
         return (
             "Refer to this source as the post, the X post, the author, or the "
             "claim. Do not use 'the event', 'this event', 'that event', or "
-            "'the observed event' as the subject of the opinion."
+            "'the current event' as the subject of the opinion."
         )
     return (
         "Refer to this source item concretely by its author, source, title, "

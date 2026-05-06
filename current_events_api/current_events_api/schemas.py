@@ -413,6 +413,18 @@ def public_current_event(event: CurrentEvent | None) -> PublicCurrentEvent | Non
 
 X_SOURCE_VALUES = {"X", "X_TWITTER", "TWITTER"}
 GENERIC_X_EVENT_REPLACEMENTS = (
+    (re.compile(r"\bThe current event\b"), "The source post"),
+    (re.compile(r"\bthe current event\b"), "the source post"),
+    (re.compile(r"\bCurrent event\b"), "Source post"),
+    (re.compile(r"\bcurrent event\b"), "source post"),
+    (re.compile(r"\bThe event's\b"), "The post's"),
+    (re.compile(r"\bthe event's\b"), "the post's"),
+    (re.compile(r"\bThis event's\b"), "This post's"),
+    (re.compile(r"\bthis event's\b"), "this post's"),
+    (re.compile(r"\bThat event's\b"), "That post's"),
+    (re.compile(r"\bthat event's\b"), "that post's"),
+    (re.compile(r"\bIn the event\b"), "In the post"),
+    (re.compile(r"\bin the event\b"), "in the post"),
     (re.compile(r"\bThe event\b"), "The post"),
     (re.compile(r"\bthe event\b"), "the post"),
     (re.compile(r"\bThis event\b"), "This post"),

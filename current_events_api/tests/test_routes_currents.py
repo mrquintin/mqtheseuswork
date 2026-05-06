@@ -121,8 +121,11 @@ def test_list_currents_repairs_legacy_event_copy_for_x_posts(client) -> None:
         event_id="event_x_copy",
         stance=OpinionStance.COMPLICATES,
         confidence=0.72,
-        headline="The event complicates the policy story",
-        body_markdown="The event should be evaluated through the firm's sources.",
+        headline="The current event complicates the policy story",
+        body_markdown=(
+            "The event should be evaluated through the firm's sources. "
+            "The event's strongest claim was raised in the event."
+        ),
         uncertainty_notes=[],
         topic_hint="policy",
         model_name="claude-haiku-4-5-test",
@@ -145,8 +148,11 @@ def test_list_currents_repairs_legacy_event_copy_for_x_posts(client) -> None:
     assert response.status_code == 200
     item = response.json()["items"][0]
     assert item["event"]["source"] == "X_TWITTER"
-    assert item["headline"] == "The post complicates the policy story"
-    assert item["body_markdown"] == "The post should be evaluated through the firm's sources."
+    assert item["headline"] == "The source post complicates the policy story"
+    assert item["body_markdown"] == (
+        "The post should be evaluated through the firm's sources. "
+        "The post's strongest claim was raised in the post."
+    )
 
 
 def test_get_current_sources_returns_full_source_detail(client) -> None:
