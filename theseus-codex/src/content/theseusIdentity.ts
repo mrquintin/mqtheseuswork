@@ -8,23 +8,23 @@ const intellectualCapitalDefinition =
 
 const manifestoBody = `Theseus is building infrastructure for firm reasoning. A useful argument should not disappear when a meeting ends. A serious objection should remain visible after the conversation moves on. A judgment that informs action should retain the record of how it was formed, what challenged it, and what would require revision.
 
-The project begins from a distinction between infrastructure and capital. The infrastructure can be replicated: any serious organization can build a memory layer, require citations, preserve objections, connect conclusions to later evidence, and publish a controlled public surface. That portability is part of the point. If intellectual work is going to become an industry rather than a mood, it needs tools, protocols, and institutional surfaces that more than one firm can use.
+The project begins from a distinction between infrastructure and capital. The infrastructure is replicable: an organization can build a memory layer, require citations, preserve objections, connect conclusions to later evidence, and publish a controlled surface. That portability is part of the point. Intellectual work becomes an industry only when it has tools, protocols, and institutions that many firms can use.
 
-But the reasoning itself is not portable in the same sense. A firm's opinions and logic are sedimented from the people who argue inside it: their experiences, temperaments, risk tolerances, intellectual debts, moral limits, failures, loyalties, and forms of attention. Software can record and discipline that material, but it cannot make it interchangeable. A replicated Codex would not reproduce Theseus; it would reveal the mind of the firm using it.
+At maturity, this can serve venture firms, research shops, and other knowledge institutions. A partner evaluating an AI forecast, an investment committee testing a thesis, or an executive decision under uncertainty should be able to consult the firm's own accumulated reasoning: documents, meetings, predictions, founder essays, partner debates, and post-mortems. The point is not generic advice. It is live feedback from the firm's recorded mind, used to lower error rates in decisions that matter.
 
-The firm is organized around a practical claim: reasoning improves when it is recorded, criticized, compared against alternatives, and later checked against consequences. That claim is methodological rather than sentimental. It requires source records, explicit assumptions, public/private boundaries, and a willingness to let evidence change the result.
+That is close to retrieval-augmented generation with extra discipline, and the manifesto should not mystify it. A context bot embedded in Slack can retrieve useful passages. Theseus is trying to do something more demanding: model the logic of a firm, expose its recurring assumptions, preserve its dissent, and apply that modeled judgment to new situations without pretending that retrieval alone is reasoning.
 
-The Codex is the operating surface for that work. It records deliberation, processes uploaded source material, extracts conclusions, preserves dissent, identifies methodological patterns, and gives each reviewed judgment a traceable history. Currents and public articles expose a narrower surface: the firm's perspective on live events and selected conclusions, with citations governed by source visibility.
+The value of each installation is therefore its knowledge base, not the software in isolation. A replicated Codex would not reproduce Theseus. It would reveal the mind of the firm using it. A venture firm with manifestos, memos, partner calls, and years of investment debate could build its own Theseus-like system; the resulting model would be valuable precisely because it would not be ours.
 
-The operating axioms are progress, rigor, and intellectual camaraderie. Progress means choosing work by whether it increases real capability. Rigor means naming assumptions, judging methods, and earning confidence under objection. Intellectual camaraderie means treating disagreement as shared work rather than as a social threat.
+This also explains why the need is only now becoming visible. When the actual decision makers are always available, software can seem unnecessary: one can ask the founders, partners, or operators directly. But as firms scale, memory fragments. The same arguments recur, predictions go unscored, private reasoning becomes inaccessible, and the firm loses track of how it came to believe what it believes. The Codex exists to make that collective judgment durable.
 
-Frontier technology matters here because it can make reasoning more inspectable, adversarial, and cumulative. It is not treated as a substitute for judgment. It is used to preserve records, retrieve relevant sources, test objections, and make later review easier than unaided conversation would allow.
+For Theseus itself, the model is not merely a consultation surface. The aim is to apply the firm's logic across investing, writing, media production, Currents, prediction-market betting, and any other domain where disciplined judgment can be used profitably. The private Codex is the workspace where the source record is inspected and reprocessed; the public site is a selective publication surface governed by source visibility.
 
-The implication is philosophical as much as technical. Intellectual capital is human capital made durable without pretending to become post-human. It can be stored, searched, argued with, audited, and compounded; it cannot be severed from the living judgment that gives it shape. The new industry is therefore not the automation of belief. It is the institutionalization of accountable thought.
+The operating axioms remain progress, rigor, and intellectual camaraderie. Progress means increasing real capability. Rigor means naming assumptions, judging methods, and earning confidence under objection. Intellectual camaraderie means treating disagreement as shared work rather than as a social threat.
 
 No method should be trusted merely because it sounds rigorous. Theseus therefore treats forecasts, market outcomes, and later source evidence as checks on its reasoning. ${signatureClaim} The aim is not infallibility; it is a record detailed enough to show what failed when the firm is wrong.
 
-The standard is operational: when the firm publishes a conclusion, the reader should be able to distinguish the claim, the evidence, the method, the objection, and the conditions for revision. The public site is a selective publication surface, not a dump of private sources. The private Codex remains the workspace where the source record can be inspected and reprocessed.`;
+The standard is operational: when the firm publishes a conclusion, the reader should be able to distinguish the claim, the evidence, the method, the objection, and the conditions for revision. Intellectual capital is human capital made durable without pretending to become post-human. The new industry is not the automation of belief. It is the institutionalization of accountable thought.`;
 
 export const theseusIdentity = {
   oneLine:
@@ -56,7 +56,7 @@ export const theseusIdentity = {
     body: manifestoBody,
   },
   manifestoExcerpt:
-    "Theseus treats intellectual capital as recorded human judgment under pressure. The infrastructure can be replicated across firms; the opinions, logic, and forms of attention that give it value cannot.",
+    "Theseus treats intellectual capital as recorded human judgment under pressure: a firm-owned model of reasoning that can consult on decisions, expose assumptions, and carry institutional memory into new work.",
   signatureClaim,
   contactEmailEnvVar,
   contactEmailDefault,
