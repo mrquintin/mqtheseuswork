@@ -8,6 +8,10 @@ const intellectualCapitalDefinition =
 
 const manifestoBody = `Theseus is building infrastructure for firm reasoning. A useful argument should not disappear when a meeting ends. A serious objection should remain visible after the conversation moves on. A judgment that informs action should retain the record of how it was formed, what challenged it, and what would require revision.
 
+The project begins from a distinction between infrastructure and capital. The infrastructure can be replicated: any serious organization can build a memory layer, require citations, preserve objections, connect conclusions to later evidence, and publish a controlled public surface. That portability is part of the point. If intellectual work is going to become an industry rather than a mood, it needs tools, protocols, and institutional surfaces that more than one firm can use.
+
+But the reasoning itself is not portable in the same sense. A firm's opinions and logic are sedimented from the people who argue inside it: their experiences, temperaments, risk tolerances, intellectual debts, moral limits, failures, loyalties, and forms of attention. Software can record and discipline that material, but it cannot make it interchangeable. A replicated Codex would not reproduce Theseus; it would reveal the mind of the firm using it.
+
 The firm is organized around a practical claim: reasoning improves when it is recorded, criticized, compared against alternatives, and later checked against consequences. That claim is methodological rather than sentimental. It requires source records, explicit assumptions, public/private boundaries, and a willingness to let evidence change the result.
 
 The Codex is the operating surface for that work. It records deliberation, processes uploaded source material, extracts conclusions, preserves dissent, identifies methodological patterns, and gives each reviewed judgment a traceable history. Currents and public articles expose a narrower surface: the firm's perspective on live events and selected conclusions, with citations governed by source visibility.
@@ -15,6 +19,8 @@ The Codex is the operating surface for that work. It records deliberation, proce
 The operating axioms are progress, rigor, and intellectual camaraderie. Progress means choosing work by whether it increases real capability. Rigor means naming assumptions, judging methods, and earning confidence under objection. Intellectual camaraderie means treating disagreement as shared work rather than as a social threat.
 
 Frontier technology matters here because it can make reasoning more inspectable, adversarial, and cumulative. It is not treated as a substitute for judgment. It is used to preserve records, retrieve relevant sources, test objections, and make later review easier than unaided conversation would allow.
+
+The implication is philosophical as much as technical. Intellectual capital is human capital made durable without pretending to become post-human. It can be stored, searched, argued with, audited, and compounded; it cannot be severed from the living judgment that gives it shape. The new industry is therefore not the automation of belief. It is the institutionalization of accountable thought.
 
 No method should be trusted merely because it sounds rigorous. Theseus therefore treats forecasts, market outcomes, and later source evidence as checks on its reasoning. ${signatureClaim} The aim is not infallibility; it is a record detailed enough to show what failed when the firm is wrong.
 
@@ -50,7 +56,7 @@ export const theseusIdentity = {
     body: manifestoBody,
   },
   manifestoExcerpt:
-    "Theseus treats intellectual capital as recorded judgment under pressure: reasoning that can be challenged, revised, and carried forward. The Codex gives the firm's ideas a memory; forecasts, market outcomes, and later source evidence give them consequence.",
+    "Theseus treats intellectual capital as recorded human judgment under pressure. The infrastructure can be replicated across firms; the opinions, logic, and forms of attention that give it value cannot.",
   signatureClaim,
   contactEmailEnvVar,
   contactEmailDefault,
