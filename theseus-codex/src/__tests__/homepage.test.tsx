@@ -159,7 +159,7 @@ describe("PublicHomePage", () => {
     const html = await renderHomepage();
 
     expect(html).toMatchSnapshot();
-    expect(html).toContain("A destination for intellectual capital");
+    expect(html).toContain("A working system for recording firm reasoning");
     expect(html).toContain(
       "The firm has not yet published anything publicly. Reach out:",
     );

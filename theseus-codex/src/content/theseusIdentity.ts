@@ -1,30 +1,31 @@
-const signatureClaim = "We put our money where our mind is.";
+const signatureClaim =
+  "Capital decisions are one way the firm makes its reasoning accountable.";
 const contactEmailEnvVar = "NEXT_PUBLIC_THESEUS_CONTACT_EMAIL";
 const contactEmailDefault = "hello@theseuscodex.com";
 
 const intellectualCapitalDefinition =
   "Intellectual capital is recorded judgment that can survive criticism, guide action, and compound across decisions. It is not private cleverness; it is thought made durable enough to be inspected, priced, and revised.";
 
-const manifestoBody = `Theseus begins with a refusal to let serious thought dissolve into private conversation. A good argument should not vanish after the meeting ends. A hard-won objection should not be lost because it was inconvenient. A conviction that moves capital should carry the history of how it was formed, what challenged it, and what would defeat it.
+const manifestoBody = `Theseus is building infrastructure for firm reasoning. A useful argument should not disappear when a meeting ends. A serious objection should remain visible after the conversation moves on. A judgment that informs action should retain the record of how it was formed, what challenged it, and what would require revision.
 
-We are a group of highly ambitious, future-oriented thinkers from the University of Chicago, united by a commitment to a noble ideal: a better tomorrow. That commitment is not sentimental. It demands methods. It demands records. It demands the discipline to expose our own reasoning to people, tools, markets, and time.
+The firm is organized around a practical claim: reasoning improves when it is recorded, criticized, compared against alternatives, and later checked against consequences. That claim is methodological rather than sentimental. It requires source records, explicit assumptions, public/private boundaries, and a willingness to let evidence change the result.
 
-Theseus is a destination for intellectual capital and a vehicle for thoughtful, intentional progress. The Codex is the instrument through which that ambition becomes operational. It records deliberation, extracts claims, preserves dissent, identifies assumptions, and gives every conclusion a memory. It turns the firm's thinking into something durable enough to be searched, attacked, improved, and carried forward into action.
+The Codex is the operating surface for that work. It records deliberation, processes uploaded source material, extracts conclusions, preserves dissent, identifies methodological patterns, and gives each reviewed judgment a traceable history. Currents and public articles expose a narrower surface: the firm's perspective on live events and selected conclusions, with citations governed by source visibility.
 
-Our organizational axioms are progress, rigor, and intellectual camaraderie. Progress means the future is a responsibility, not an aesthetic. Rigor means assumptions are named, methods are judged, and confidence is earned under pressure. Intellectual camaraderie means we sharpen one another by treating disagreement as a shared instrument rather than a social threat. The dialectic is not ornament; it is how the institution protects itself from comfort.
+The operating axioms are progress, rigor, and intellectual camaraderie. Progress means choosing work by whether it increases real capability. Rigor means naming assumptions, judging methods, and earning confidence under objection. Intellectual camaraderie means treating disagreement as shared work rather than as a social threat.
 
-Frontier technology matters because intelligence can now be made more inspectable, more adversarial, and more cumulative. We use it as an intellectual instrument: to inform investment decisions, to challenge assumptions, and to enact meaningful impact. The tool is not a substitute for judgment. It is a way to make judgment answerable to more evidence, more memory, and more severe tests than unaided conversation can sustain.
+Frontier technology matters here because it can make reasoning more inspectable, adversarial, and cumulative. It is not treated as a substitute for judgment. It is used to preserve records, retrieve relevant sources, test objections, and make later review easier than unaided conversation would allow.
 
-But no method deserves reverence until it survives consequence. Theseus therefore treats capital markets as an epistemic arena. Prediction markets force beliefs into probabilities before the world resolves them. Public equities raise the standard further, because capital allocation binds theory to time, uncertainty, and loss. ${signatureClaim} Capital markets are the test our ideas endure.
+No method should be trusted merely because it sounds rigorous. Theseus therefore treats forecasts, market outcomes, and later source evidence as checks on its reasoning. ${signatureClaim} The aim is not infallibility; it is a record detailed enough to show what failed when the firm is wrong.
 
-The firm does not promise infallibility. It promises a stronger standard of failure. When we are wrong, the record should show which premise broke, which method misled us, and what evidence should have changed our minds earlier. Capital outcomes are the falsifiability mechanism for the firm's recorded reasoning. That is the stake: to build an institution whose ideas do not merely sound serious, but endure the audit of reality.`;
+The standard is operational: when the firm publishes a conclusion, the reader should be able to distinguish the claim, the evidence, the method, the objection, and the conditions for revision. The public site is a selective publication surface, not a dump of private sources. The private Codex remains the workspace where the source record can be inspected and reprocessed.`;
 
 export const theseusIdentity = {
   oneLine:
-    "A destination for intellectual capital and a vehicle for thoughtful, intentional progress.",
+    "A working system for recording firm reasoning, testing it, and publishing reviewed perspectives.",
   whatIsTheseus: {
-    p1: "Theseus is a group of highly ambitious, future-oriented thinkers from the University of Chicago, united by a commitment to a noble ideal: a better tomorrow. The firm exists as a destination for intellectual capital and a vehicle for thoughtful, intentional progress.",
-    p2: "Through the Codex, Theseus records how it reasons, subjects conclusions to adversarial pressure, and converts the strongest surviving judgments into capital-allocation theses. Frontier technology is applied as an intellectual instrument: to inform investment decisions, challenge assumptions, and enact meaningful impact.",
+    p1: "Theseus is a research and investment firm building infrastructure for institutional reasoning. The firm records source material, extracts claims and methodology profiles, tests conclusions against objections, and keeps a revision trail for later review.",
+    p2: "Through the Codex, founders upload transcripts and writings, inspect the resulting source record, review conclusions, monitor live Currents opinions, and publish selected perspectives without exposing private source material.",
   },
   intellectualCapitalDefinition,
   axioms: [
@@ -49,23 +50,23 @@ export const theseusIdentity = {
     body: manifestoBody,
   },
   manifestoExcerpt:
-    "Theseus treats intellectual capital as recorded judgment under pressure: reasoning that can be challenged, priced, revised, and carried forward. The Codex gives the firm's ideas a memory; markets give them consequence. We put our money where our mind is because capital outcomes are the falsifiability mechanism for the reasoning we choose to record.",
+    "Theseus treats intellectual capital as recorded judgment under pressure: reasoning that can be challenged, revised, and carried forward. The Codex gives the firm's ideas a memory; forecasts, market outcomes, and later source evidence give them consequence.",
   signatureClaim,
   contactEmailEnvVar,
   contactEmailDefault,
   metadata: {
     title: "Theseus Codex",
     description:
-      "A destination for intellectual capital and a vehicle for thoughtful, intentional progress.",
+      "A public surface for Theseus research, Currents opinions, and reviewed firm perspectives.",
   },
   homePage: {
     identityTitle: "THESEUS",
     commonsLine:
-      "This is the firm's public commons. The private workspace lives behind /login.",
+      "This public surface shows reviewed articles and Currents opinions. The private workspace lives behind /login.",
   },
   publicHeader: {
     logoAriaLabel:
-      "Theseus: a destination for intellectual capital and thoughtful progress.",
+      "Theseus Codex public home.",
     tagline: "Codex",
   },
   aboutPage: {
@@ -110,11 +111,11 @@ export const theseusIdentity = {
     heading: "Further reading.",
     items: [
       {
-        title: "Theseus: The Methodological Reorientation",
+        title: "Theseus Methodological Reorientation",
         href: "https://github.com/mrquintin/mqtheseuswork/blob/main/METHODOLOGICAL_REORIENTATION.md",
       },
       {
-        title: "The Meta-Method: Theseus as a Theory of Inquiry",
+        title: "The Meta-Method: Working Criteria for Inquiry",
         href: "https://github.com/mrquintin/mqtheseuswork/blob/main/THE_META_METHOD.md",
       },
       {

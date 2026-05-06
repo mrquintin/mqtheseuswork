@@ -10,6 +10,9 @@ Currents publishes only when every link in the chain is live:
 4. `opinion_generator.generate_opinion` retrieves up to 12 firm Conclusions, requires at least 3 above the relevance threshold, and asks the LLM to cite them inline as `[C:<id>]`.
 5. The FastAPI `/v1/currents` route returns the resulting `EventOpinion`.
 6. The Next.js `/api/currents` route proxies that result into `/currents`.
+7. When article dispatch is enabled, the scheduler clusters recent published firm opinions and writes public article snapshots. The default article source surface is `EventOpinion`, not raw `CurrentEvent`, so generated articles express the firm's perspective rather than recapping outside posts directly.
+
+Current public contract: public Currents and articles should be written in the firm's voice, grounded in firm-side sources, and linked only to public-safe source surfaces. Private source material can still support internal reasoning, but public citation links must not expose private transcript or document pages.
 
 Set `X_BEARER_TOKEN` only in the deployment secret store or local untracked env file used by the Currents runtime. Do not commit it and do not paste it into logs. For the existing local-hosted runtime, the secret belongs in the same untracked environment path used by the launchd `currents-api` and `currents-scheduler` services.
 
@@ -31,6 +34,19 @@ python noosphere/scripts/diagnose_currents_pipeline.py
 Read the table from top to bottom. `X recent search` proves the X API returned posts. `Relevance gate` proves the returned posts overlap the firm memory. `Opinion prompt` proves the opinion generator would inject at least 3 Conclusion citations into the prompt. The script prints only booleans, counts, and errors; it never prints the bearer token and never writes production rows.
 
 The founder dashboard includes an `OperatorPulse` card. Green means the token and source lists are configured, a scheduler cycle has reported, and the last 24 hours contain both events and opinions. Red lists the precise missing link. The public `/currents` page also shows a disabled banner when the health endpoint reports missing X credentials or missing X sources.
+
+Article generation is controlled separately from opinion generation:
+
+```dotenv
+ARTICLES_ENABLED=true
+ARTICLES_DISPATCH_INTERVAL_SECONDS=3600
+ARTICLES_MAX_PER_DAY=4
+ARTICLES_THEMATIC_MIN_OPINIONS=2
+ARTICLES_THEMATIC_MAX_SOURCES=8
+ARTICLES_THEMATIC_ALLOW_RAW_EVENTS=false
+```
+
+Keep `ARTICLES_THEMATIC_ALLOW_RAW_EVENTS=false` for normal production. It exists for diagnostics and migrations; enabling it makes thematic articles eligible from raw event clusters instead of firm opinion clusters.
 
 Kill switch path:
 
