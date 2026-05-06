@@ -39,7 +39,6 @@ from noosphere.models import (
 )
 from noosphere.store import Store
 
-
 ORG_ID = "org_articles"
 NOW = datetime(2026, 4, 30, 12, 0, tzinfo=timezone.utc)
 
@@ -102,7 +101,9 @@ def _article_rows(store: Store) -> list[PublishedConclusion]:
         )
 
 
-def _seed_current(store: Store, idx: int, *, topic_hint: str = "ai::epistemology") -> str:
+def _seed_current(
+    store: Store, idx: int, *, topic_hint: str = "ai::epistemology"
+) -> str:
     event = CurrentEvent(
         id=f"current_article_{idx}",
         organization_id=ORG_ID,
@@ -115,6 +116,32 @@ def _seed_current(store: Store, idx: int, *, topic_hint: str = "ai::epistemology
         dedupe_hash=f"current_article_hash_{idx}",
     )
     return store.add_current_event(event)
+
+
+def _seed_opinion(
+    store: Store, idx: int, *, topic_hint: str = "ai::epistemology"
+) -> str:
+    event_id = _seed_current(store, idx, topic_hint=topic_hint)
+    opinion = EventOpinion(
+        id=f"opinion_article_{idx}",
+        organization_id=ORG_ID,
+        event_id=event_id,
+        stance=OpinionStance.COMPLICATES,
+        confidence=0.66,
+        headline=f"Firm view {idx} on source discipline",
+        body_markdown=(
+            f"The firm believes Topic evidence {idx} shows automated research "
+            "needs source discipline before it can be trusted in public."
+        ),
+        topic_hint=topic_hint,
+        model_name="fixture",
+        generated_at=NOW - timedelta(hours=1, minutes=idx),
+    )
+    opinion_id = opinion.id
+    with store.session() as session:
+        session.add(opinion)
+        session.commit()
+    return opinion_id
 
 
 def _seed_postmortem(store: Store, idx: int, *, brier: float = 0.81) -> str:
@@ -203,13 +230,17 @@ def _seed_correction(store: Store) -> str:
             )
         ],
     )
-    store.revoke_citations_for_source("conclusion", conclusion.id, "source revoked after audit")
+    store.revoke_citations_for_source(
+        "conclusion", conclusion.id, "source revoked after audit"
+    )
     return opinion_id
 
 
-def test_thematic_happy_path_persists_article_with_verbatim_citations(monkeypatch) -> None:
+def test_thematic_happy_path_persists_article_with_verbatim_citations(
+    monkeypatch,
+) -> None:
     store = _store()
-    source_ids = [_seed_current(store, idx) for idx in range(5)]
+    source_ids = [_seed_opinion(store, idx) for idx in range(3)]
     payload = {
         "headline": "Source discipline is becoming the central automation question",
         "body_markdown": (
@@ -221,7 +252,7 @@ def test_thematic_happy_path_persists_article_with_verbatim_citations(monkeypatc
         "confidence": 0.66,
         "citations": [
             {
-                "source_kind": "current_event",
+                "source_kind": "event_opinion",
                 "source_id": source_id,
                 "quoted_span": f"Topic evidence {idx}",
             }
@@ -248,14 +279,34 @@ def test_thematic_happy_path_persists_article_with_verbatim_citations(monkeypatc
     assert rows[0].kind == "ARTICLE"
     assert stored["article"]["kind"] == "THEMATIC"
     assert {c["quoted_span"] for c in stored["article"]["citations"]} == {
-        f"Topic evidence {idx}" for idx in range(5)
+        f"Topic evidence {idx}" for idx in range(3)
     }
     assert {c["public_url"] for c in stored["article"]["citations"]} == {
-        f"https://x.com/theseus_fixture/status/{idx}" for idx in range(5)
+        f"/currents/{source_id}" for source_id in source_ids
     }
 
 
-def test_postmortem_trigger_and_generation_reference_prior_and_outcome(monkeypatch) -> None:
+def test_thematic_trigger_caps_large_opinion_cluster(monkeypatch) -> None:
+    store = _store()
+    monkeypatch.setenv("ARTICLES_THEMATIC_MAX_SOURCES", "4")
+    for idx in range(12):
+        _seed_opinion(store, idx)
+
+    clusters = asyncio.run(thematic_trigger_check(store))
+
+    assert len(clusters) == 1
+    assert len(clusters[0]) == 4
+    assert set(clusters[0]) == {
+        "opinion_article_0",
+        "opinion_article_1",
+        "opinion_article_2",
+        "opinion_article_3",
+    }
+
+
+def test_postmortem_trigger_and_generation_reference_prior_and_outcome(
+    monkeypatch,
+) -> None:
     store = _store()
     prediction_id = _seed_postmortem(store, 1, brier=0.67)
     payload = {
@@ -297,7 +348,9 @@ def test_postmortem_trigger_and_generation_reference_prior_and_outcome(monkeypat
     assert "realized outcome was NO" in body
 
 
-def test_correction_trigger_cites_revocation_and_lists_affected_opinion(monkeypatch) -> None:
+def test_correction_trigger_cites_revocation_and_lists_affected_opinion(
+    monkeypatch,
+) -> None:
     store = _store()
     opinion_id = _seed_correction(store)
     payload = {
@@ -392,6 +445,48 @@ def test_article_generation_rejects_source_recap_until_firm_voice(monkeypatch) -
     assert len(client.calls) == 2
     assert "firm voice" in client.calls[1]["system"]
     assert "the firm" in article.body_markdown.lower()
+
+
+def test_article_generation_filters_invalid_extra_citations(monkeypatch) -> None:
+    store = _store()
+    source_id = _seed_opinion(store, 8)
+    payload = {
+        "headline": "Source discipline remains the controlling question",
+        "body_markdown": (
+            "The firm believes source discipline remains the controlling question "
+            "for any public automation claim."
+        ),
+        "topic_hint": "ai_epistemology",
+        "confidence": 0.63,
+        "citations": [
+            {
+                "source_kind": "event_opinion",
+                "source_id": source_id,
+                "quoted_span": "not actually present in the retrieved source",
+            },
+            {
+                "source_kind": "event_opinion",
+                "source_id": source_id,
+                "quoted_span": "Topic evidence 8",
+            },
+        ],
+    }
+    monkeypatch.setattr(subject, "make_client", lambda: ScriptedClient([payload]))
+
+    article = asyncio.run(
+        subject.generate_article(
+            store,
+            kind=ArticleKind.THEMATIC,
+            source_ids=[source_id],
+            budget=RecordingBudget(),
+        )
+    )
+
+    assert article is not None
+    stored = json.loads(_article_rows(store)[0].payload_json)
+    assert [citation["quoted_span"] for citation in stored["article"]["citations"]] == [
+        "Topic evidence 8"
+    ]
 
 
 def test_correction_trigger_requires_recent_citation_revocation() -> None:

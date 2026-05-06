@@ -14,7 +14,6 @@ from noosphere.currents.x_ingestor import IngestReport
 from noosphere.models import CurrentEvent, CurrentEventSource, CurrentEventStatus
 from noosphere.store import Store
 
-
 ORG_ID = "org_scheduler_cycle"
 EVENT_ID = "event_scheduler_cycle"
 
@@ -155,3 +154,50 @@ def test_run_cycle_resumes_observed_backlog(monkeypatch) -> None:
     assert report.ingested == 0
     assert report.enriched == 1
     assert report.opined == 1
+
+
+def test_run_cycle_dispatches_public_articles_when_enabled(
+    monkeypatch, tmp_path
+) -> None:
+    st = _store()
+    calls: list[int] = []
+
+    async def fake_ingest_once(store, cfg):
+        return IngestReport(
+            cycle_id="cycle_articles_test",
+            fetched=0,
+            new_event_ids=[],
+            duplicates=0,
+            errors=[],
+        )
+
+    async def fake_dispatch_triggered_articles(store, *, budget, daily_cap):
+        calls.append(daily_cap)
+        return [SimpleNamespace(id="article_1")]
+
+    monkeypatch.setenv(
+        "ARTICLES_DISPATCH_MARKER_PATH",
+        str(tmp_path / "articles_last_run.json"),
+    )
+    monkeypatch.setenv("ARTICLES_DISPATCH_INTERVAL_SECONDS", "60")
+    monkeypatch.setenv("ARTICLES_MAX_PER_DAY", "7")
+    monkeypatch.setattr(scheduler, "ingest_once", fake_ingest_once)
+    monkeypatch.setattr(
+        scheduler,
+        "dispatch_triggered_articles",
+        fake_dispatch_triggered_articles,
+    )
+
+    report = asyncio.run(
+        scheduler.run_cycle(
+            st,
+            _cfg(),
+            HourlyBudgetGuard(max_prompt_tokens=1000, max_completion_tokens=500),
+            publish_articles=True,
+        )
+    )
+
+    assert report.cycle_id == "cycle_articles_test"
+    assert report.articles_published == 1
+    assert report.article_errors == []
+    assert calls == [7]

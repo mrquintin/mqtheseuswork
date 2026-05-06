@@ -5,11 +5,13 @@ SQLite persistence via SQLModel. Raw SQL is confined to this module.
 from __future__ import annotations
 
 import json
+import os
 import struct
 import uuid
 from contextlib import contextmanager
 from datetime import date, datetime, timedelta, timezone
 from typing import Any, Generator, Iterator, Literal, Optional
+from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 try:
     import numpy as np
@@ -21,6 +23,7 @@ else:
 from sqlalchemy import Column, LargeBinary, asc, desc, inspect, text
 from sqlalchemy.engine import Engine
 from sqlalchemy.exc import IntegrityError
+from sqlalchemy.pool import NullPool
 from sqlmodel import Field, Session, SQLModel, create_engine, select
 
 from noosphere.models import (
@@ -97,6 +100,76 @@ from noosphere.models import (
     WatchedMarket,
     voice_canonical_key,
 )
+
+_PSYCOPG2_UNSUPPORTED_QUERY_PARAMS = {
+    "pgbouncer",
+    "connection_limit",
+    "pool_timeout",
+}
+
+
+def _is_postgres_url(url: str) -> bool:
+    return urlsplit(url).scheme.startswith("postgres")
+
+
+def _psycopg2_compatible_url(url: str) -> str:
+    """Remove client-only pooler hints that psycopg2 rejects."""
+
+    if "?" not in url or not _is_postgres_url(url):
+        return url
+    parts = urlsplit(url)
+    filtered = [
+        (key, value)
+        for key, value in parse_qsl(parts.query, keep_blank_values=True)
+        if key.lower() not in _PSYCOPG2_UNSUPPORTED_QUERY_PARAMS
+    ]
+    return urlunsplit(
+        (parts.scheme, parts.netloc, parts.path, urlencode(filtered), parts.fragment)
+    )
+
+
+def _env_int(name: str, default: int, *, minimum: int) -> int:
+    raw = os.environ.get(name, "").strip()
+    try:
+        value = int(raw) if raw else default
+    except ValueError:
+        value = default
+    return max(minimum, value)
+
+
+def _default_pool_size(url: str) -> int:
+    host = urlsplit(url).hostname or ""
+    if ".pooler.supabase.com" in host:
+        return 1
+    return 2
+
+
+def _is_supabase_transaction_pooler(url: str) -> bool:
+    parts = urlsplit(url)
+    return (parts.hostname or "").endswith(
+        ".pooler.supabase.com"
+    ) and parts.port == 6543
+
+
+def _engine_kwargs_for_url(url: str) -> dict[str, Any]:
+    """Keep long-lived Noosphere processes inside managed Postgres limits."""
+
+    if not _is_postgres_url(url):
+        return {}
+    if _is_supabase_transaction_pooler(url):
+        return {"poolclass": NullPool, "pool_pre_ping": True}
+    return {
+        "pool_size": _env_int(
+            "NOOSPHERE_DB_POOL_SIZE",
+            _default_pool_size(url),
+            minimum=1,
+        ),
+        "max_overflow": _env_int("NOOSPHERE_DB_MAX_OVERFLOW", 0, minimum=0),
+        "pool_timeout": _env_int("NOOSPHERE_DB_POOL_TIMEOUT", 10, minimum=1),
+        "pool_recycle": _env_int("NOOSPHERE_DB_POOL_RECYCLE_SECONDS", 300, minimum=30),
+        "pool_pre_ping": True,
+        "pool_use_lifo": True,
+    }
 
 
 def _dt(v: datetime | date) -> datetime:
@@ -554,9 +627,17 @@ def _sqlite_migrate_literature_columns(engine: Engine) -> None:
     acols = {c["name"] for c in insp.get_columns("artifact")}
     with engine.begin() as conn:
         if "license_status" not in acols:
-            conn.execute(text("ALTER TABLE artifact ADD COLUMN license_status VARCHAR DEFAULT 'unknown'"))
+            conn.execute(
+                text(
+                    "ALTER TABLE artifact ADD COLUMN license_status VARCHAR DEFAULT 'unknown'"
+                )
+            )
         if "literature_connector" not in acols:
-            conn.execute(text("ALTER TABLE artifact ADD COLUMN literature_connector VARCHAR DEFAULT ''"))
+            conn.execute(
+                text(
+                    "ALTER TABLE artifact ADD COLUMN literature_connector VARCHAR DEFAULT ''"
+                )
+            )
 
 
 def _sqlite_migrate_temporal_columns(engine: Engine) -> None:
@@ -573,7 +654,11 @@ def _sqlite_migrate_temporal_columns(engine: Engine) -> None:
         if "superseded_at" not in acols:
             conn.execute(text("ALTER TABLE artifact ADD COLUMN superseded_at DATETIME"))
         if "effective_at_inferred" not in acols:
-            conn.execute(text("ALTER TABLE artifact ADD COLUMN effective_at_inferred BOOLEAN DEFAULT 1"))
+            conn.execute(
+                text(
+                    "ALTER TABLE artifact ADD COLUMN effective_at_inferred BOOLEAN DEFAULT 1"
+                )
+            )
 
 
 def _sqlite_migrate_forecast_columns(engine: Engine) -> None:
@@ -586,7 +671,11 @@ def _sqlite_migrate_forecast_columns(engine: Engine) -> None:
     cols = {c["name"] for c in insp.get_columns("ForecastPortfolioState")}
     with engine.begin() as conn:
         if "totalResolved" not in cols:
-            conn.execute(text('ALTER TABLE "ForecastPortfolioState" ADD COLUMN "totalResolved" INTEGER NOT NULL DEFAULT 0'))
+            conn.execute(
+                text(
+                    'ALTER TABLE "ForecastPortfolioState" ADD COLUMN "totalResolved" INTEGER NOT NULL DEFAULT 0'
+                )
+            )
 
 
 def _sqlite_migrate_publication_columns(engine: Engine) -> None:
@@ -599,7 +688,11 @@ def _sqlite_migrate_publication_columns(engine: Engine) -> None:
     cols = {c["name"] for c in insp.get_columns("PublishedConclusion")}
     with engine.begin() as conn:
         if "kind" not in cols:
-            conn.execute(text('ALTER TABLE "PublishedConclusion" ADD COLUMN "kind" VARCHAR NOT NULL DEFAULT \'CONCLUSION\''))
+            conn.execute(
+                text(
+                    'ALTER TABLE "PublishedConclusion" ADD COLUMN "kind" VARCHAR NOT NULL DEFAULT \'CONCLUSION\''
+                )
+            )
 
 
 def _sqlite_migrate_currents_columns(engine: Engine) -> None:
@@ -612,7 +705,9 @@ def _sqlite_migrate_currents_columns(engine: Engine) -> None:
     cols = {c["name"] for c in insp.get_columns("OpinionCitation")}
     with engine.begin() as conn:
         if "revokedAt" not in cols:
-            conn.execute(text('ALTER TABLE "OpinionCitation" ADD COLUMN "revokedAt" DATETIME'))
+            conn.execute(
+                text('ALTER TABLE "OpinionCitation" ADD COLUMN "revokedAt" DATETIME')
+            )
 
 
 def _artifact_row_default_effective(row: StoredArtifact) -> tuple[datetime, bool]:
@@ -683,7 +778,12 @@ class Store:
         connect_args: dict[str, Any] = {}
         if url.startswith("sqlite"):
             connect_args["check_same_thread"] = False
-        eng = create_engine(url, connect_args=connect_args)
+        engine_url = _psycopg2_compatible_url(url.strip())
+        eng = create_engine(
+            engine_url,
+            connect_args=connect_args,
+            **_engine_kwargs_for_url(engine_url),
+        )
         SQLModel.metadata.create_all(eng)
         _sqlite_migrate_temporal_columns(eng)
         _sqlite_migrate_literature_columns(eng)
@@ -768,7 +868,9 @@ class Store:
                 superseded_at=sup,
                 effective_at_inferred=bool(getattr(r, "effective_at_inferred", True)),
                 license_status=str(getattr(r, "license_status", None) or "unknown"),
-                literature_connector=str(getattr(r, "literature_connector", None) or ""),
+                literature_connector=str(
+                    getattr(r, "literature_connector", None) or ""
+                ),
             )
 
     # --- Chunk ---
@@ -843,7 +945,9 @@ class Store:
         ref_claim_id: str = "",
     ) -> None:
         if np is None:
-            raise ImportError("NumPy is required for embedding persistence") from _NUMPY_IMPORT_ERROR
+            raise ImportError(
+                "NumPy is required for embedding persistence"
+            ) from _NUMPY_IMPORT_ERROR
         arr = np.asarray(vector, dtype=np.float32)
         blob = arr.tobytes()
         row = StoredEmbedding(
@@ -869,7 +973,9 @@ class Store:
 
     def get_embedding_vector(self, embedding_id: str) -> Optional[list[float]]:
         if np is None:
-            raise ImportError("NumPy is required for embedding persistence") from _NUMPY_IMPORT_ERROR
+            raise ImportError(
+                "NumPy is required for embedding persistence"
+            ) from _NUMPY_IMPORT_ERROR
         with self.session() as s:
             r = s.get(StoredEmbedding, embedding_id)
             if r is None:
@@ -1230,7 +1336,9 @@ class Store:
                 return None
             return ResearchSuggestion.model_validate_json(row.payload_json)
 
-    def list_research_suggestions(self, *, limit: int = 500) -> list[ResearchSuggestion]:
+    def list_research_suggestions(
+        self, *, limit: int = 500
+    ) -> list[ResearchSuggestion]:
         with self.session() as s:
             rows = s.exec(select(StoredResearchSuggestion).limit(limit)).all()
             out: list[ResearchSuggestion] = []
@@ -1247,7 +1355,9 @@ class Store:
         event_id = event.id
         with self.session() as s:
             existing = s.exec(
-                select(CurrentEvent).where(CurrentEvent.dedupe_hash == event.dedupe_hash)
+                select(CurrentEvent).where(
+                    CurrentEvent.dedupe_hash == event.dedupe_hash
+                )
             ).first()
             if existing is not None:
                 return existing.id
@@ -1258,7 +1368,9 @@ class Store:
             except IntegrityError:
                 s.rollback()
                 existing = s.exec(
-                    select(CurrentEvent).where(CurrentEvent.dedupe_hash == event.dedupe_hash)
+                    select(CurrentEvent).where(
+                        CurrentEvent.dedupe_hash == event.dedupe_hash
+                    )
                 ).first()
                 if existing is None:
                     raise
@@ -1267,7 +1379,9 @@ class Store:
 
     def find_current_event_by_dedupe(self, hash: str) -> Optional[CurrentEvent]:
         with self.session() as s:
-            return s.exec(select(CurrentEvent).where(CurrentEvent.dedupe_hash == hash)).first()
+            return s.exec(
+                select(CurrentEvent).where(CurrentEvent.dedupe_hash == hash)
+            ).first()
 
     def get_current_event(self, event_id: str) -> Optional[CurrentEvent]:
         with self.session() as s:
@@ -1440,9 +1554,9 @@ class Store:
             if event is None:
                 raise KeyError(f"unknown current event: {event_id}")
             event.status = parsed_status
-            if parsed_status == CurrentEventStatus.REVOKED and (
-                note or ""
-            ).startswith("near_duplicate_of:"):
+            if parsed_status == CurrentEventStatus.REVOKED and (note or "").startswith(
+                "near_duplicate_of:"
+            ):
                 event.is_near_duplicate = True
             event.updated_at = _utcnow()
             s.add(event)
@@ -1459,7 +1573,9 @@ class Store:
             prisma = self._get_prisma_conclusion(citation.conclusion_id)
             if prisma is not None:
                 return prisma.text
-            raise ValueError(f"unknown conclusion citation source: {citation.conclusion_id}")
+            raise ValueError(
+                f"unknown conclusion citation source: {citation.conclusion_id}"
+            )
         if source_kind == "claim":
             if not citation.claim_id:
                 raise ValueError("claim citation requires claim_id")
@@ -1469,7 +1585,9 @@ class Store:
             return Claim.model_validate_json(row.payload_json).text
         raise ValueError(f"unsupported citation source_kind: {citation.source_kind}")
 
-    def add_event_opinion(self, opinion: EventOpinion, citations: list[OpinionCitation]) -> str:
+    def add_event_opinion(
+        self, opinion: EventOpinion, citations: list[OpinionCitation]
+    ) -> str:
         """Insert an opinion and citations atomically after verbatim-span checks."""
         opinion_id = opinion.id
         with self.session() as s:
@@ -1477,7 +1595,9 @@ class Store:
                 citation.source_kind = citation.source_kind.lower()
                 source_text = self._source_text_for_citation(s, citation)
                 if citation.quoted_span not in source_text:
-                    raise ValueError("quoted_span is not a verbatim substring of the cited source text")
+                    raise ValueError(
+                        "quoted_span is not a verbatim substring of the cited source text"
+                    )
 
             s.add(opinion)
             for citation in citations:
@@ -1504,7 +1624,9 @@ class Store:
         with self.session() as s:
             return list(
                 s.exec(
-                    select(OpinionCitation).where(OpinionCitation.opinion_id == opinion_id)
+                    select(OpinionCitation).where(
+                        OpinionCitation.opinion_id == opinion_id
+                    )
                 ).all()
             )
 
@@ -1532,11 +1654,15 @@ class Store:
             s.add(opinion)
             s.commit()
 
-    def revoke_citations_for_source(self, source_kind: str, source_id: str, reason: str) -> int:
+    def revoke_citations_for_source(
+        self, source_kind: str, source_id: str, reason: str
+    ) -> int:
         source_kind_norm = source_kind.lower()
         forecast_source_type = source_kind_norm.upper()
         with self.session() as s:
-            stmt = select(OpinionCitation).where(OpinionCitation.source_kind == source_kind_norm)
+            stmt = select(OpinionCitation).where(
+                OpinionCitation.source_kind == source_kind_norm
+            )
             if source_kind_norm == "conclusion":
                 stmt = stmt.where(OpinionCitation.conclusion_id == source_id)
             elif source_kind_norm == "claim":
@@ -1556,7 +1682,9 @@ class Store:
             for opinion_id in affected_opinion_ids:
                 citations = list(
                     s.exec(
-                        select(OpinionCitation).where(OpinionCitation.opinion_id == opinion_id)
+                        select(OpinionCitation).where(
+                            OpinionCitation.opinion_id == opinion_id
+                        )
                     ).all()
                 )
                 if citations and all(c.is_revoked for c in citations):
@@ -1700,7 +1828,11 @@ class Store:
     # --- Forecasts ---
     def put_forecast_market(self, market: ForecastMarket) -> str:
         """Upsert a ForecastMarket by id, falling back to source/external_id."""
-        source_value = market.source.value if hasattr(market.source, "value") else str(market.source)
+        source_value = (
+            market.source.value
+            if hasattr(market.source, "value")
+            else str(market.source)
+        )
         with self.session() as s:
             existing = s.get(ForecastMarket, market.id)
             if existing is None:
@@ -1736,7 +1868,9 @@ class Store:
                 stmt = stmt.where(ForecastMarket.organization_id == organization_id)
             return list(
                 s.exec(
-                    stmt.order_by(asc(ForecastMarket.close_time), asc(ForecastMarket.created_at)).limit(limit)
+                    stmt.order_by(
+                        asc(ForecastMarket.close_time), asc(ForecastMarket.created_at)
+                    ).limit(limit)
                 ).all()
             )
 
@@ -1745,7 +1879,9 @@ class Store:
         with self.session() as s:
             existing = s.get(ForecastPrediction, prediction.id)
             if existing is not None:
-                _copy_sqlmodel_fields(existing, prediction, exclude={"id", "created_at"})
+                _copy_sqlmodel_fields(
+                    existing, prediction, exclude={"id", "created_at"}
+                )
                 s.add(existing)
             else:
                 s.add(prediction)
@@ -1804,7 +1940,9 @@ class Store:
             )
         )
 
-    def get_forecast_prediction(self, prediction_id: str) -> Optional[ForecastPrediction]:
+    def get_forecast_prediction(
+        self, prediction_id: str
+    ) -> Optional[ForecastPrediction]:
         with self.session() as s:
             return s.get(ForecastPrediction, prediction_id)
 
@@ -1881,9 +2019,7 @@ class Store:
             if organization_id is not None:
                 stmt = stmt.where(ForecastTrace.organization_id == organization_id)
             return list(
-                s.exec(
-                    stmt.order_by(desc(ForecastTrace.created_at)).limit(limit)
-                ).all()
+                s.exec(stmt.order_by(desc(ForecastTrace.created_at)).limit(limit)).all()
             )
 
     def put_forecast_resolution(self, resolution: ForecastResolution) -> str:
@@ -1900,7 +2036,9 @@ class Store:
             s.commit()
             return resolution.id
 
-    def get_forecast_resolution(self, prediction_id: str) -> Optional[ForecastResolution]:
+    def get_forecast_resolution(
+        self, prediction_id: str
+    ) -> Optional[ForecastResolution]:
         with self.session() as s:
             return s.exec(
                 select(ForecastResolution).where(
@@ -1908,13 +2046,18 @@ class Store:
                 )
             ).first()
 
-    def get_unresolved_predictions_for_market(self, market_id: str) -> list[ForecastPrediction]:
+    def get_unresolved_predictions_for_market(
+        self, market_id: str
+    ) -> list[ForecastPrediction]:
         with self.session() as s:
             resolved_ids = set(s.exec(select(ForecastResolution.prediction_id)).all())
             rows = s.exec(
                 select(ForecastPrediction)
                 .where(ForecastPrediction.market_id == market_id)
-                .where(ForecastPrediction.status == ForecastPredictionStatus.PUBLISHED.value)
+                .where(
+                    ForecastPrediction.status
+                    == ForecastPredictionStatus.PUBLISHED.value
+                )
                 .order_by(asc(ForecastPrediction.created_at))
             ).all()
             return [row for row in rows if row.id not in resolved_ids]
@@ -1943,7 +2086,9 @@ class Store:
                 ).all()
             )
 
-    def get_portfolio_state(self, organization_id: str) -> Optional[ForecastPortfolioState]:
+    def get_portfolio_state(
+        self, organization_id: str
+    ) -> Optional[ForecastPortfolioState]:
         with self.session() as s:
             return s.exec(
                 select(ForecastPortfolioState).where(
@@ -1999,9 +2144,7 @@ class Store:
             if active_only:
                 stmt = stmt.where(WatchedMarket.status == "ACTIVE")
             return list(
-                s.exec(
-                    stmt.order_by(desc(WatchedMarket.created_at)).limit(limit)
-                ).all()
+                s.exec(stmt.order_by(desc(WatchedMarket.created_at)).limit(limit)).all()
             )
 
     def add_forecast_followup_session(self, session: ForecastFollowUpSession) -> str:
@@ -2010,7 +2153,9 @@ class Store:
             s.commit()
             return session.id
 
-    def get_forecast_followup_session(self, session_id: str) -> Optional[ForecastFollowUpSession]:
+    def get_forecast_followup_session(
+        self, session_id: str
+    ) -> Optional[ForecastFollowUpSession]:
         with self.session() as s:
             return s.get(ForecastFollowUpSession, session_id)
 
@@ -2024,7 +2169,9 @@ class Store:
             s.commit()
             return message.id
 
-    def get_forecast_followup_message(self, message_id: str) -> Optional[ForecastFollowUpMessage]:
+    def get_forecast_followup_message(
+        self, message_id: str
+    ) -> Optional[ForecastFollowUpMessage]:
         with self.session() as s:
             return s.get(ForecastFollowUpMessage, message_id)
 
@@ -2056,7 +2203,9 @@ class Store:
         }
 
     # --- Topic clusters (stable IDs) ---
-    def put_topic_cluster(self, t: Topic, *, centroid: list[float], params_hash: str) -> None:
+    def put_topic_cluster(
+        self, t: Topic, *, centroid: list[float], params_hash: str
+    ) -> None:
         row = StoredTopicCluster(
             cluster_id=t.id,
             label=t.label,
@@ -2129,7 +2278,9 @@ class Store:
 
     def get_entity_by_canonical(self, canonical_key: str) -> Optional[Entity]:
         with self.session() as s:
-            stmt = select(StoredEntity).where(StoredEntity.canonical_key == canonical_key)
+            stmt = select(StoredEntity).where(
+                StoredEntity.canonical_key == canonical_key
+            )
             r = s.exec(stmt).first()
             if r is None:
                 return None
@@ -2163,7 +2314,9 @@ class Store:
             return n
 
     # --- Coherence evaluation cache (pair + versions + content hash) ---
-    def get_coherence_evaluation(self, evaluation_key: str) -> Optional[CoherenceEvaluationPayload]:
+    def get_coherence_evaluation(
+        self, evaluation_key: str
+    ) -> Optional[CoherenceEvaluationPayload]:
         with self.session() as s:
             r = s.get(StoredCoherenceResultCache, evaluation_key)
             if r is None:
@@ -2269,14 +2422,18 @@ class Store:
                 s.add(row)
             s.commit()
 
-    def get_adversarial_challenge(self, challenge_id: str) -> Optional[AdversarialChallenge]:
+    def get_adversarial_challenge(
+        self, challenge_id: str
+    ) -> Optional[AdversarialChallenge]:
         with self.session() as s:
             r = s.get(StoredAdversarialChallenge, challenge_id)
             if r is None:
                 return None
             return AdversarialChallenge.model_validate_json(r.payload_json)
 
-    def list_adversarial_challenges_for_conclusion(self, conclusion_id: str) -> list[AdversarialChallenge]:
+    def list_adversarial_challenges_for_conclusion(
+        self, conclusion_id: str
+    ) -> list[AdversarialChallenge]:
         with self.session() as s:
             rows = s.exec(
                 select(StoredAdversarialChallenge).where(
@@ -2291,7 +2448,9 @@ class Store:
                     continue
             return out
 
-    def list_adversarial_challenges_for_fingerprint(self, fingerprint: str) -> list[AdversarialChallenge]:
+    def list_adversarial_challenges_for_fingerprint(
+        self, fingerprint: str
+    ) -> list[AdversarialChallenge]:
         with self.session() as s:
             rows = s.exec(
                 select(StoredAdversarialChallenge).where(
@@ -2306,7 +2465,9 @@ class Store:
                     continue
             return out
 
-    def find_adversarial_challenge_by_content_hash(self, content_hash: str) -> Optional[AdversarialChallenge]:
+    def find_adversarial_challenge_by_content_hash(
+        self, content_hash: str
+    ) -> Optional[AdversarialChallenge]:
         with self.session() as s:
             rows = s.exec(select(StoredAdversarialChallenge)).all()
             for r in rows:
@@ -2330,7 +2491,10 @@ class Store:
             for r in rows:
                 ch = AdversarialChallenge.model_validate_json(r.payload_json)
                 ch = ch.model_copy(
-                    update={"conclusion_id": conclusion_id, "updated_at": datetime.now(timezone.utc)}
+                    update={
+                        "conclusion_id": conclusion_id,
+                        "updated_at": datetime.now(timezone.utc),
+                    }
                 )
                 r.conclusion_id = conclusion_id
                 r.payload_json = ch.model_dump_json()
@@ -2341,7 +2505,9 @@ class Store:
     # --- Chunks by artifact ---
     def list_chunks_for_artifact(self, artifact_id: str) -> list[Chunk]:
         with self.session() as s:
-            rows = s.exec(select(StoredChunk).where(StoredChunk.artifact_id == artifact_id)).all()
+            rows = s.exec(
+                select(StoredChunk).where(StoredChunk.artifact_id == artifact_id)
+            ).all()
             out: list[Chunk] = []
             for r in rows:
                 meta: dict[str, str] = {}
@@ -2386,7 +2552,9 @@ class Store:
 
     def get_voice_by_key(self, canonical_key: str) -> Optional[VoiceProfile]:
         with self.session() as s:
-            rows = s.exec(select(StoredVoice).where(StoredVoice.canonical_key == canonical_key)).all()
+            rows = s.exec(
+                select(StoredVoice).where(StoredVoice.canonical_key == canonical_key)
+            ).all()
             if not rows:
                 return None
             return VoiceProfile.model_validate_json(rows[0].payload_json)
@@ -2401,7 +2569,9 @@ class Store:
     def list_voice_profiles(self, *, limit: int = 200) -> list[VoiceProfile]:
         with self.session() as s:
             rows = s.exec(
-                select(StoredVoice).order_by(asc(StoredVoice.canonical_key)).limit(limit)
+                select(StoredVoice)
+                .order_by(asc(StoredVoice.canonical_key))
+                .limit(limit)
             ).all()
             out: list[VoiceProfile] = []
             for r in rows:
@@ -2430,7 +2600,9 @@ class Store:
 
     def list_voice_phases(self, voice_id: str) -> list[VoicePhaseRecord]:
         with self.session() as s:
-            rows = s.exec(select(StoredVoicePhase).where(StoredVoicePhase.voice_id == voice_id)).all()
+            rows = s.exec(
+                select(StoredVoicePhase).where(StoredVoicePhase.voice_id == voice_id)
+            ).all()
             out: list[VoicePhaseRecord] = []
             for r in rows:
                 try:
@@ -2459,7 +2631,9 @@ class Store:
 
     def list_citations_for_voice(self, voice_id: str) -> list[CitationRecord]:
         with self.session() as s:
-            rows = s.exec(select(StoredCitation).where(StoredCitation.voice_id == voice_id)).all()
+            rows = s.exec(
+                select(StoredCitation).where(StoredCitation.voice_id == voice_id)
+            ).all()
             out: list[CitationRecord] = []
             for r in rows:
                 try:
@@ -2484,14 +2658,18 @@ class Store:
                 s.add(row)
             s.commit()
 
-    def get_relative_position_map(self, conclusion_id: str) -> Optional[RelativePositionMap]:
+    def get_relative_position_map(
+        self, conclusion_id: str
+    ) -> Optional[RelativePositionMap]:
         with self.session() as s:
             r = s.get(StoredRelativePositionMap, conclusion_id)
             if r is None:
                 return None
             return RelativePositionMap.model_validate_json(r.payload_json)
 
-    def list_relative_position_maps(self, *, limit: int = 300) -> list[RelativePositionMap]:
+    def list_relative_position_maps(
+        self, *, limit: int = 300
+    ) -> list[RelativePositionMap]:
         with self.session() as s:
             rows = s.exec(
                 select(StoredRelativePositionMap)
@@ -2541,9 +2719,15 @@ class Store:
                 return None
             return ReadingQueueEntry.model_validate_json(r.payload_json)
 
-    def list_reading_queue_entries(self, *, limit: int = 200) -> list[ReadingQueueEntry]:
+    def list_reading_queue_entries(
+        self, *, limit: int = 200
+    ) -> list[ReadingQueueEntry]:
         with self.session() as s:
-            rows = s.exec(select(StoredReadingQueue).order_by(desc(StoredReadingQueue.created_at)).limit(limit)).all()
+            rows = s.exec(
+                select(StoredReadingQueue)
+                .order_by(desc(StoredReadingQueue.created_at))
+                .limit(limit)
+            ).all()
             out: list[ReadingQueueEntry] = []
             for r in rows:
                 try:
@@ -2566,7 +2750,9 @@ class Store:
 
         d = e.model_dump()
         d["status"] = status
-        d["rationale"] = (e.rationale + (" | " if e.rationale and notes else "") + notes).strip()
+        d["rationale"] = (
+            e.rationale + (" | " if e.rationale and notes else "") + notes
+        ).strip()
         d["updated_at"] = datetime.now(timezone.utc)
         e2 = ReadingQueueEntry.model_validate(d)
         self.put_reading_queue_entry(e2)
@@ -2617,7 +2803,11 @@ class Store:
 
     def list_predictive_claims(self, *, limit: int = 5000) -> list[PredictiveClaim]:
         with self.session() as s:
-            rows = s.exec(select(StoredPredictiveClaim).order_by(desc(StoredPredictiveClaim.created_at)).limit(limit)).all()
+            rows = s.exec(
+                select(StoredPredictiveClaim)
+                .order_by(desc(StoredPredictiveClaim.created_at))
+                .limit(limit)
+            ).all()
             out: list[PredictiveClaim] = []
             for r in rows:
                 try:
@@ -2626,7 +2816,9 @@ class Store:
                     continue
             return out
 
-    def list_predictive_claims_for_claim(self, source_claim_id: str) -> list[PredictiveClaim]:
+    def list_predictive_claims_for_claim(
+        self, source_claim_id: str
+    ) -> list[PredictiveClaim]:
         out: list[PredictiveClaim] = []
         for pc in self.list_predictive_claims():
             if pc.source_claim_id == source_claim_id:
@@ -2650,7 +2842,9 @@ class Store:
                 s.add(row)
             s.commit()
 
-    def get_prediction_resolution_for_claim(self, predictive_claim_id: str) -> Optional[PredictionResolution]:
+    def get_prediction_resolution_for_claim(
+        self, predictive_claim_id: str
+    ) -> Optional[PredictionResolution]:
         with self.session() as s:
             stmt = select(StoredPredictionResolution).where(
                 StoredPredictionResolution.predictive_claim_id == predictive_claim_id
@@ -2864,24 +3058,26 @@ class Store:
     # ── Round 3: Temporal cuts / Evaluation ───────────────────────────────
 
     def insert_temporal_cut(self, cut: TemporalCut) -> None:
-        row = StoredTemporalCut(
-            cut_id=cut.cut_id, payload_json=cut.model_dump_json()
-        )
+        row = StoredTemporalCut(cut_id=cut.cut_id, payload_json=cut.model_dump_json())
         with self.session() as s:
             s.add(row)
             for outcome in cut.outcomes:
                 if not s.get(StoredOutcome, outcome.outcome_id):
-                    s.add(StoredOutcome(
-                        outcome_id=outcome.outcome_id,
-                        payload_json=outcome.model_dump_json(),
-                    ))
+                    s.add(
+                        StoredOutcome(
+                            outcome_id=outcome.outcome_id,
+                            payload_json=outcome.model_dump_json(),
+                        )
+                    )
                 assoc_id = f"{cut.cut_id}:{outcome.outcome_id}"
                 if not s.get(StoredCutOutcome, assoc_id):
-                    s.add(StoredCutOutcome(
-                        id=assoc_id,
-                        cut_id=cut.cut_id,
-                        outcome_id=outcome.outcome_id,
-                    ))
+                    s.add(
+                        StoredCutOutcome(
+                            id=assoc_id,
+                            cut_id=cut.cut_id,
+                            outcome_id=outcome.outcome_id,
+                        )
+                    )
             s.commit()
 
     def get_temporal_cut(self, cut_id: str) -> Optional[TemporalCut]:
@@ -2900,17 +3096,21 @@ class Store:
     def insert_outcome(self, outcome: Outcome, *, cut_id: str) -> None:
         with self.session() as s:
             if not s.get(StoredOutcome, outcome.outcome_id):
-                s.add(StoredOutcome(
-                    outcome_id=outcome.outcome_id,
-                    payload_json=outcome.model_dump_json(),
-                ))
+                s.add(
+                    StoredOutcome(
+                        outcome_id=outcome.outcome_id,
+                        payload_json=outcome.model_dump_json(),
+                    )
+                )
             assoc_id = f"{cut_id}:{outcome.outcome_id}"
             if not s.get(StoredCutOutcome, assoc_id):
-                s.add(StoredCutOutcome(
-                    id=assoc_id,
-                    cut_id=cut_id,
-                    outcome_id=outcome.outcome_id,
-                ))
+                s.add(
+                    StoredCutOutcome(
+                        id=assoc_id,
+                        cut_id=cut_id,
+                        outcome_id=outcome.outcome_id,
+                    )
+                )
             s.commit()
 
     def list_outcomes_for_cut(self, cut_id: str) -> list[Outcome]:
@@ -2959,9 +3159,7 @@ class Store:
             return CorpusBundle.model_validate_json(r.payload_json)
 
     def insert_battery_run(self, run: BatteryRunResult) -> None:
-        row = StoredBatteryRun(
-            run_id=run.run_id, payload_json=run.model_dump_json()
-        )
+        row = StoredBatteryRun(run_id=run.run_id, payload_json=run.model_dump_json())
         with self.session() as s:
             s.add(row)
             s.commit()
@@ -3029,9 +3227,7 @@ class Store:
     def list_rebuttals(self, report_id: str) -> list[Rebuttal]:
         with self.session() as s:
             rows = s.exec(
-                select(StoredRebuttal).where(
-                    StoredRebuttal.report_id == report_id
-                )
+                select(StoredRebuttal).where(StoredRebuttal.report_id == report_id)
             ).all()
             return [Rebuttal.model_validate_json(r.payload_json) for r in rows]
 
@@ -3080,7 +3276,9 @@ class Store:
                     StoredRevalidation.object_id == object_id
                 )
             ).all()
-            return [RevalidationResult.model_validate_json(r.payload_json) for r in rows]
+            return [
+                RevalidationResult.model_validate_json(r.payload_json) for r in rows
+            ]
 
     # ── Round 3: Rigor gate ───────────────────────────────────────────────
 

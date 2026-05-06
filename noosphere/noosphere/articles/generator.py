@@ -152,7 +152,9 @@ def _public_url(value: str | None) -> str | None:
     return None
 
 
-def _article_user_prompt(kind: ArticleKind, source_ids: list[str], sources: list[_SourceBlock]) -> str:
+def _article_user_prompt(
+    kind: ArticleKind, source_ids: list[str], sources: list[_SourceBlock]
+) -> str:
     return "\n\n".join(
         [
             "ARTICLE REQUEST",
@@ -171,7 +173,10 @@ def _topic_hint(payload: dict[str, Any], sources: list[_SourceBlock]) -> str:
         return re.sub(r"[^a-z0-9_]+", "_", raw.lower()).strip("_")[:48] or "article"
     for source in sources:
         if source.topic_hint:
-            return re.sub(r"[^a-z0-9_]+", "_", source.topic_hint.lower()).strip("_")[:48] or "article"
+            return (
+                re.sub(r"[^a-z0-9_]+", "_", source.topic_hint.lower()).strip("_")[:48]
+                or "article"
+            )
     return "article"
 
 
@@ -213,7 +218,9 @@ def _source_text_for_opinion(store: Any, source_id: str) -> _SourceBlock | None:
     if opinion is None:
         return None
     event = store.get_current_event(opinion.event_id)
-    revoked = f" Revoked reason: {opinion.revoked_reason}" if opinion.revoked_reason else ""
+    revoked = (
+        f" Revoked reason: {opinion.revoked_reason}" if opinion.revoked_reason else ""
+    )
     return _SourceBlock(
         source_kind="event_opinion",
         source_id=opinion.id,
@@ -273,7 +280,9 @@ def _source_text_for_correction(store: Any, opinion_id: str) -> _SourceBlock | N
         f"{citation.source_kind}:{citation.conclusion_id or citation.claim_id or ''}"
         for citation in revoked
     )
-    reasons = "; ".join(citation.revoked_reason or "source revoked" for citation in revoked)
+    reasons = "; ".join(
+        citation.revoked_reason or "source revoked" for citation in revoked
+    )
     revoked_times = "; ".join(
         citation.revoked_at.isoformat()
         for citation in revoked
@@ -299,16 +308,22 @@ def _source_text_for_correction(store: Any, opinion_id: str) -> _SourceBlock | N
     )
 
 
-def _load_sources(store: Any, kind: ArticleKind, source_ids: list[str]) -> list[_SourceBlock]:
+def _load_sources(
+    store: Any, kind: ArticleKind, source_ids: list[str]
+) -> list[_SourceBlock]:
     sources: list[_SourceBlock] = []
     for source_id in source_ids:
         source: _SourceBlock | None
         if kind == ArticleKind.THEMATIC:
-            source = _source_text_for_current_event(store, source_id) or _source_text_for_opinion(store, source_id)
+            source = _source_text_for_current_event(
+                store, source_id
+            ) or _source_text_for_opinion(store, source_id)
         elif kind == ArticleKind.POSTMORTEM:
             source = _source_text_for_postmortem(store, source_id)
         else:
-            source = _source_text_for_correction(store, source_id) or _source_text_for_opinion(store, source_id)
+            source = _source_text_for_correction(
+                store, source_id
+            ) or _source_text_for_opinion(store, source_id)
         if source is not None:
             sources.append(source)
     return sources
@@ -346,7 +361,9 @@ def validate_article_citations(
         if quoted_span not in source.text:
             errors.append(f"citation {idx} quoted_span is not a verbatim substring")
             continue
-        normalized.append(ArticleCitation(source_kind, source_id, quoted_span, source.public_url))
+        normalized.append(
+            ArticleCitation(source_kind, source_id, quoted_span, source.public_url)
+        )
 
     if require_any and not normalized:
         errors.append("published articles require at least one valid citation")
@@ -356,9 +373,13 @@ def validate_article_citations(
 def validate_article_body(body_markdown: str) -> list[str]:
     errors: list[str] = []
     if not FIRM_VOICE_RE.search(body_markdown):
-        errors.append('body_markdown must explicitly use firm voice with the phrase "the firm"')
+        errors.append(
+            'body_markdown must explicitly use firm voice with the phrase "the firm"'
+        )
     if SOURCE_RECAP_RE.search(body_markdown):
-        errors.append("body_markdown must not include raw source/transcript/essay recap sections")
+        errors.append(
+            "body_markdown must not include raw source/transcript/essay recap sections"
+        )
     return errors
 
 
@@ -431,16 +452,28 @@ def _published_article_row_to_article(row: PublishedConclusion) -> Article:
                         str(raw.get("source_kind") or ""),
                         str(raw.get("source_id") or ""),
                         str(raw.get("quoted_span") or ""),
-                        _public_url(str(raw.get("public_url") or raw.get("publicUrl") or "")),
+                        _public_url(
+                            str(raw.get("public_url") or raw.get("publicUrl") or "")
+                        ),
                     )
                 )
-    kind_value = str(article_payload.get("kind") if isinstance(article_payload, dict) else "")
-    kind = ArticleKind(kind_value) if kind_value in {item.value for item in ArticleKind} else ArticleKind.THEMATIC
+    kind_value = str(
+        article_payload.get("kind") if isinstance(article_payload, dict) else ""
+    )
+    kind = (
+        ArticleKind(kind_value)
+        if kind_value in {item.value for item in ArticleKind}
+        else ArticleKind.THEMATIC
+    )
     return Article(
         id=row.id,
         slug=row.slug,
         kind=kind,
-        headline=str(payload.get("conclusionText") or row.slug) if isinstance(payload, dict) else row.slug,
+        headline=(
+            str(payload.get("conclusionText") or row.slug)
+            if isinstance(payload, dict)
+            else row.slug
+        ),
         body_markdown=(
             str(article_payload.get("bodyMarkdown") or payload.get("rationale") or "")
             if isinstance(article_payload, dict)
@@ -456,7 +489,9 @@ def _published_article_row_to_article(row: PublishedConclusion) -> Article:
     )
 
 
-def _existing_article_for_key(store: Any, source_key: str) -> PublishedConclusion | None:
+def _existing_article_for_key(
+    store: Any, source_key: str
+) -> PublishedConclusion | None:
     needle = f'"sourceKey": "{source_key}"'
     compact_needle = f'"sourceKey":"{source_key}"'
     with store.session() as session:
@@ -476,12 +511,17 @@ def _existing_article_for_key(store: Any, source_key: str) -> PublishedConclusio
         except json.JSONDecodeError:
             continue
         article_payload = payload.get("article") if isinstance(payload, dict) else None
-        if isinstance(article_payload, dict) and article_payload.get("sourceKey") == source_key:
+        if (
+            isinstance(article_payload, dict)
+            and article_payload.get("sourceKey") == source_key
+        ):
             return row
     return None
 
 
-def article_already_published(store: Any, *, kind: ArticleKind, source_ids: list[str]) -> bool:
+def article_already_published(
+    store: Any, *, kind: ArticleKind, source_ids: list[str]
+) -> bool:
     return _existing_article_for_key(store, _source_key(kind, source_ids)) is not None
 
 
@@ -503,15 +543,22 @@ def _unique_slug(store: Any, base_slug: str, source_key: str) -> str:
     suffix = source_key[:8]
     with store.session() as session:
         existing = session.exec(
-            select(PublishedConclusion.id).where(PublishedConclusion.slug == slug).limit(1)
+            select(PublishedConclusion.id)
+            .where(PublishedConclusion.slug == slug)
+            .limit(1)
         ).first()
         if existing is None:
             return slug
         slug = f"{base_slug[:72].rstrip('-')}-{suffix}"
         counter = 2
-        while session.exec(
-            select(PublishedConclusion.id).where(PublishedConclusion.slug == slug).limit(1)
-        ).first() is not None:
+        while (
+            session.exec(
+                select(PublishedConclusion.id)
+                .where(PublishedConclusion.slug == slug)
+                .limit(1)
+            ).first()
+            is not None
+        ):
             slug = f"{base_slug[:68].rstrip('-')}-{suffix}-{counter}"
             counter += 1
     return slug
@@ -581,7 +628,9 @@ async def generate_article(
     Idempotency is by `(kind, sorted(source_ids))`, stored in payload metadata.
     """
 
-    clean_source_ids = [source_id for source_id in dict.fromkeys(source_ids) if source_id]
+    clean_source_ids = [
+        source_id for source_id in dict.fromkeys(source_ids) if source_id
+    ]
     if not clean_source_ids:
         return None
     if article_already_published(store, kind=kind, source_ids=clean_source_ids):
@@ -629,7 +678,9 @@ async def generate_article(
             continue
 
         headline = _string(payload.get("headline"), "Theseus article")[:180]
-        body_markdown = _string(payload.get("body_markdown") or payload.get("bodyMarkdown"))
+        body_markdown = _string(
+            payload.get("body_markdown") or payload.get("bodyMarkdown")
+        )
         if not body_markdown:
             json_failures += 1
             corrective = "\n\nCorrection: body_markdown is required."
@@ -648,8 +699,10 @@ async def generate_article(
             )
             continue
 
-        citations, citation_errors = validate_article_citations(payload.get("citations"), sources)
-        if citation_errors:
+        citations, citation_errors = validate_article_citations(
+            payload.get("citations"), sources
+        )
+        if not citations:
             citation_failures += 1
             if citation_failures >= MAX_CITATION_FAILURES:
                 return None

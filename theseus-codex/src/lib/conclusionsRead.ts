@@ -277,12 +277,24 @@ function toPublicResponse(row: PublicResponseRow): PublicResponse {
 }
 
 async function resolvePublicOrganizationId(): Promise<string | null> {
-  const explicitSlug = process.env.THESEUS_PUBLIC_ORG_SLUG?.trim();
-  const devFallbackSlug =
-    process.env.NODE_ENV === "production"
-      ? ""
-      : process.env.DEFAULT_ORGANIZATION_SLUG?.trim() || process.env.NEXT_PUBLIC_DEFAULT_ORG_SLUG?.trim() || "";
-  const slug = explicitSlug || devFallbackSlug;
+  const explicitId = (
+    process.env.THESEUS_PUBLIC_ORG_ID?.trim() ||
+    process.env.CURRENTS_INGEST_ORG_ID?.trim() ||
+    ""
+  );
+  if (explicitId) {
+    const org = await db.organization.findUnique({
+      where: { id: explicitId },
+      select: { id: true, deletedAt: true },
+    });
+    return org && !org.deletedAt ? org.id : null;
+  }
+
+  const slug =
+    process.env.THESEUS_PUBLIC_ORG_SLUG?.trim() ||
+    process.env.DEFAULT_ORGANIZATION_SLUG?.trim() ||
+    process.env.NEXT_PUBLIC_DEFAULT_ORG_SLUG?.trim() ||
+    "";
 
   if (slug) {
     const org = await db.organization.findUnique({
@@ -292,17 +304,13 @@ async function resolvePublicOrganizationId(): Promise<string | null> {
     return org && !org.deletedAt ? org.id : null;
   }
 
-  if (process.env.NODE_ENV !== "production") {
-    const orgs = await db.organization.findMany({
-      where: { deletedAt: null },
-      orderBy: { createdAt: "asc" },
-      take: 2,
-      select: { id: true },
-    });
-    return orgs.length === 1 ? orgs[0].id : null;
-  }
-
-  return null;
+  const orgs = await db.organization.findMany({
+    where: { deletedAt: null },
+    orderBy: { createdAt: "asc" },
+    take: 2,
+    select: { id: true },
+  });
+  return orgs.length === 1 ? orgs[0].id : null;
 }
 
 export async function listPublishedConclusions(): Promise<PublishedConclusion[]> {

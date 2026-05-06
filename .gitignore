@@ -21,6 +21,8 @@ build/
 node_modules/
 .next/
 out/
+.vercel/
+**/.vercel/
 
 # Environment files — NEVER commit anything that could hold a secret.
 # Templates (.env.*.template) ARE intentionally committed — they're
@@ -112,3 +114,4 @@ Screenshot *.jpeg
 
 # macOS Finder duplicate of theseus-codex (e.g. "theseus-codex 2", " 3")
 theseus-codex [0-9]*/
+.vercel

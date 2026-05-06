@@ -18,11 +18,36 @@ from noosphere.models import (
     SixLayerScore,
     Speaker,
 )
-from noosphere.store import Store
+from noosphere.store import Store, _engine_kwargs_for_url, _psycopg2_compatible_url
 
 
 def _store() -> Store:
     return Store.from_database_url("sqlite:///:memory:")
+
+
+def test_postgres_pooler_url_is_psycopg2_safe_and_connection_capped(
+    monkeypatch,
+) -> None:
+    url = (
+        "postgresql://postgres.ref:secret@aws-1-us-west-2.pooler.supabase.com:5432/postgres"
+        "?pgbouncer=true&connection_limit=1&pool_timeout=10&sslmode=require"
+    )
+
+    safe_url = _psycopg2_compatible_url(url)
+    kwargs = _engine_kwargs_for_url(safe_url)
+
+    assert "pgbouncer" not in safe_url
+    assert "connection_limit" not in safe_url
+    assert "pool_timeout" not in safe_url
+    assert "sslmode=require" in safe_url
+    assert kwargs["pool_size"] == 1
+    assert kwargs["max_overflow"] == 0
+
+    monkeypatch.setenv("NOOSPHERE_DB_POOL_SIZE", "3")
+    assert _engine_kwargs_for_url(safe_url)["pool_size"] == 3
+
+    transaction_url = safe_url.replace(":5432/", ":6543/")
+    assert _engine_kwargs_for_url(transaction_url)["poolclass"].__name__ == "NullPool"
 
 
 def test_artifact_chunk_claim_crud() -> None:

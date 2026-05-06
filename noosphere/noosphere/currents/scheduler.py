@@ -17,6 +17,7 @@ from typing import Sequence
 
 from sqlalchemy.engine import make_url
 
+from noosphere.articles.triggers import dispatch_triggered_articles
 from noosphere.config import get_settings
 from noosphere.currents.budget import BudgetExhausted, PersistentHourlyBudgetGuard
 from noosphere.currents.config import IngestorConfig
@@ -26,13 +27,14 @@ from noosphere.models import CurrentEventStatus
 from noosphere.currents.x_ingestor import ingest_once
 from noosphere.store import Store
 
-
 CYCLE_SECONDS = 300
 MAX_EVENTS_PER_CYCLE = 40
 MAX_OPINIONS_PER_CYCLE = 12
 SHORT_BACKOFF_SECONDS = 30
 LONG_BACKOFF_SECONDS = CYCLE_SECONDS
 EMBED_BACKFILL_INTERVAL_SECONDS = 24 * 60 * 60
+ARTICLE_DISPATCH_INTERVAL_SECONDS = 60 * 60
+MAX_ARTICLES_PER_DAY = 4
 
 LOGGER = logging.getLogger(__name__)
 
@@ -53,6 +55,8 @@ class CycleReport:
     abstained_near_duplicate: int
     abstained_budget: int
     opined: int
+    articles_published: int
+    article_errors: list[str]
     errors: list[str]
     remaining_prompt_tokens: int
     remaining_completion_tokens: int
@@ -121,7 +125,9 @@ def _event_ids_for_cycle(store: Store, new_event_ids: list[str]) -> list[str]:
     return ordered[:MAX_EVENTS_PER_CYCLE]
 
 
-async def run_cycle(store, ingestor_cfg, budget) -> CycleReport:
+async def run_cycle(
+    store, ingestor_cfg, budget, *, publish_articles: bool = False
+) -> CycleReport:
     """Run one ingest -> enrich -> relevance -> opinion pass."""
     monotonic_start = time.monotonic()
     started_at = _utc_now_iso()
@@ -133,13 +139,17 @@ async def run_cycle(store, ingestor_cfg, budget) -> CycleReport:
     abstained_near_duplicate = 0
     abstained_budget = 0
     opined = 0
+    articles_published = 0
+    article_errors: list[str] = []
     opinion_attempts = 0
 
     try:
         capped_cfg = replace(
             ingestor_cfg,
             max_events_per_cycle=min(
-                int(getattr(ingestor_cfg, "max_events_per_cycle", MAX_EVENTS_PER_CYCLE)),
+                int(
+                    getattr(ingestor_cfg, "max_events_per_cycle", MAX_EVENTS_PER_CYCLE)
+                ),
                 MAX_EVENTS_PER_CYCLE,
             ),
         )
@@ -209,6 +219,13 @@ async def run_cycle(store, ingestor_cfg, budget) -> CycleReport:
         except Exception as exc:
             errors.append(f"event:{event_id}:{type(exc).__name__}: {exc}")
 
+    if publish_articles:
+        articles_published, article_errors = await _dispatch_articles_if_due(
+            store,
+            budget,
+        )
+        errors.extend(article_errors)
+
     duration_ms = int((time.monotonic() - monotonic_start) * 1000)
     return CycleReport(
         cycle_id=cycle_id,
@@ -220,6 +237,8 @@ async def run_cycle(store, ingestor_cfg, budget) -> CycleReport:
         abstained_near_duplicate=abstained_near_duplicate,
         abstained_budget=abstained_budget,
         opined=opined,
+        articles_published=articles_published,
+        article_errors=article_errors,
         errors=errors,
         remaining_prompt_tokens=_remaining_prompt_tokens(budget),
         remaining_completion_tokens=_remaining_completion_tokens(budget),
@@ -231,7 +250,8 @@ def _log_cycle(report: CycleReport) -> None:
         "currents_cycle cycle_id=%s started_at=%s duration_ms=%d "
         "ingested=%d enriched=%d abstained_insufficient=%d "
         "abstained_near_duplicate=%d abstained_budget=%d opined=%d "
-        "remaining_prompt_tokens=%d remaining_completion_tokens=%d errors=%s",
+        "articles_published=%d remaining_prompt_tokens=%d "
+        "remaining_completion_tokens=%d article_errors=%s errors=%s",
         report.cycle_id,
         report.started_at,
         report.duration_ms,
@@ -241,8 +261,10 @@ def _log_cycle(report: CycleReport) -> None:
         report.abstained_near_duplicate,
         report.abstained_budget,
         report.opined,
+        report.articles_published,
         report.remaining_prompt_tokens,
         report.remaining_completion_tokens,
+        json.dumps(report.article_errors, separators=(",", ":")),
         json.dumps(report.errors, separators=(",", ":")),
     )
 
@@ -324,6 +346,82 @@ def _run_embed_backfill_if_due(store: Store) -> None:
         _write_embed_backfill_marker(marker, ok=False)
 
 
+def _article_dispatch_marker_path() -> Path:
+    explicit = os.environ.get("ARTICLES_DISPATCH_MARKER_PATH", "").strip()
+    if explicit:
+        return Path(explicit)
+    data_dir = os.environ.get("NOOSPHERE_DATA_DIR", "").strip()
+    if data_dir:
+        return Path(data_dir) / "currents_articles_last_run.json"
+    return get_settings().data_dir / "currents_articles_last_run.json"
+
+
+def _last_article_dispatch_ts(path: Path) -> float | None:
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+        value = payload.get("finished_at_unix")
+        return float(value) if value is not None else None
+    except Exception:
+        return None
+
+
+def _write_article_dispatch_marker(path: Path, *, ok: bool, published: int) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    payload = {
+        "finished_at_unix": time.time(),
+        "finished_at": datetime.now(timezone.utc).isoformat(),
+        "ok": ok,
+        "published": published,
+    }
+    path.write_text(json.dumps(payload, sort_keys=True) + "\n", encoding="utf-8")
+
+
+async def _dispatch_articles_if_due(
+    store: Store, budget: object
+) -> tuple[int, list[str]]:
+    if not _env_bool("ARTICLES_ENABLED", True):
+        return 0, []
+    marker = _article_dispatch_marker_path()
+    interval_default = _env_int(
+        "FORECASTS_ARTICLE_INTERVAL_S",
+        ARTICLE_DISPATCH_INTERVAL_SECONDS,
+    )
+    interval = max(
+        60,
+        _env_int("ARTICLES_DISPATCH_INTERVAL_SECONDS", interval_default),
+    )
+    last = _last_article_dispatch_ts(marker)
+    if last is not None and time.time() - last < interval:
+        return 0, []
+
+    daily_cap_default = _env_int(
+        "FORECASTS_MAX_ARTICLES_PER_DAY",
+        MAX_ARTICLES_PER_DAY,
+    )
+    daily_cap = _env_int("ARTICLES_MAX_PER_DAY", daily_cap_default)
+    if daily_cap <= 0:
+        _write_article_dispatch_marker(marker, ok=True, published=0)
+        return 0, []
+
+    try:
+        articles = await dispatch_triggered_articles(
+            store,
+            budget=budget,
+            daily_cap=daily_cap,
+        )
+    except BudgetExhausted as exc:
+        _write_article_dispatch_marker(marker, ok=False, published=0)
+        return 0, [f"articles:BudgetExhausted: {exc}"]
+    except Exception as exc:
+        LOGGER.exception("articles.dispatch_failed")
+        _write_article_dispatch_marker(marker, ok=False, published=0)
+        return 0, [f"articles:{type(exc).__name__}: {exc}"]
+
+    published = len(articles)
+    _write_article_dispatch_marker(marker, ok=True, published=published)
+    return published, []
+
+
 async def loop(store, ingestor_cfg, budget):
     """Run the standing scheduler until SIGINT/SIGTERM."""
     stop_event = asyncio.Event()
@@ -338,7 +436,7 @@ async def loop(store, ingestor_cfg, budget):
         cycle_started = time.monotonic()
         try:
             _run_embed_backfill_if_due(store)
-            report = await run_cycle(store, ingestor_cfg, budget)
+            report = await run_cycle(store, ingestor_cfg, budget, publish_articles=True)
             write_status(report)
             _log_cycle(report)
             if report.abstained_budget > 0:
@@ -392,9 +490,7 @@ def _bootstrap_store() -> Store:
 
 def _configure_logging() -> None:
     level_name = (
-        os.environ.get("CURRENTS_LOG_LEVEL")
-        or os.environ.get("LOG_LEVEL")
-        or "INFO"
+        os.environ.get("CURRENTS_LOG_LEVEL") or os.environ.get("LOG_LEVEL") or "INFO"
     )
     logging.basicConfig(
         level=getattr(logging, level_name.upper(), logging.INFO),
@@ -415,7 +511,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     budget = PersistentHourlyBudgetGuard(budget_path_from_env())
 
     if args.command == "once":
-        report = asyncio.run(run_cycle(store, ingestor_cfg, budget))
+        report = asyncio.run(
+            run_cycle(store, ingestor_cfg, budget, publish_articles=True)
+        )
         write_status(report)
         _log_cycle(report)
         print(json.dumps({"last_cycle": asdict(report)}, indent=2, sort_keys=True))
