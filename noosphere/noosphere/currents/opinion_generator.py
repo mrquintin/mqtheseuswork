@@ -34,6 +34,10 @@ DEFAULT_TOP_K = 12
 MIN_CONCLUSIONS_FOR_OPINION = 3
 MIN_CONCLUSION_SCORE = 0.55
 CONCLUSION_TOKEN_RE = re.compile(r"\[C:([^\]\s]+)\]")
+GENERIC_EVENT_SUBJECT_RE = re.compile(
+    r"\b(?:the|this|that|observed|source)\s+event\b",
+    flags=re.IGNORECASE,
+)
 
 
 @dataclass(frozen=True)
@@ -151,6 +155,19 @@ def _event_text_label(event: Any) -> str:
     return "post_text:" if _event_source_label(event) == "X POST" else "source_text:"
 
 
+def _event_subject_guidance(event: Any) -> str:
+    if _event_source_label(event) == "X POST":
+        return (
+            "Refer to this source as the post, the X post, the author, or the "
+            "claim. Do not use 'the event', 'this event', 'that event', or "
+            "'the observed event' as the subject of the opinion."
+        )
+    return (
+        "Refer to this source item concretely by its author, source, title, "
+        "claim, or text when the analysis needs a subject."
+    )
+
+
 def _opinion_user_prompt(event: Any, hits: list[Any]) -> str:
     source_label = _event_source_label(event)
     return "\n\n".join(
@@ -174,6 +191,7 @@ def _opinion_user_prompt(event: Any, hits: list[Any]) -> str:
                 "name the post, its author, or its claim when the analysis needs "
                 "a subject."
             ),
+            _event_subject_guidance(event),
             "RETRIEVED THESEUS SOURCES",
             _source_blocks(hits),
             "Return the strict JSON object specified by the system prompt.",
@@ -329,6 +347,18 @@ def _inline_conclusion_errors(
     return errors
 
 
+def _source_subject_errors(event: Any, headline: str, body_markdown: str) -> list[str]:
+    if _event_source_label(event) != "X POST":
+        return []
+    haystack = "\n".join([headline, body_markdown])
+    if GENERIC_EVENT_SUBJECT_RE.search(haystack):
+        return [
+            "X-post opinions must refer to the observed source as a post, "
+            "X post, author, or claim, not as a generic event"
+        ]
+    return []
+
+
 async def generate_opinion(
     store: Any,
     event_id: str,
@@ -425,6 +455,20 @@ async def generate_opinion(
             )
             continue
 
+        headline = str(payload.get("headline") or "Theseus opinion")[:140]
+        body_markdown = str(payload.get("body_markdown") or "")
+        subject_errors = _source_subject_errors(event, headline, body_markdown)
+        if subject_errors:
+            json_failures += 1
+            corrective = (
+                "\n\nCorrection: the previous response described the observed "
+                "source too abstractly: "
+                + "; ".join(subject_errors)
+                + ". Rewrite the headline and body so the X post, its author, "
+                "or its claim is the object being analyzed."
+            )
+            continue
+
         citations, citation_errors = validate_citations(
             payload.get("citations"),
             hits,
@@ -455,8 +499,8 @@ async def generate_opinion(
             event_id=event_id,
             stance=stance,
             confidence=_confidence(payload.get("confidence")),
-            headline=str(payload.get("headline") or "Theseus opinion")[:140],
-            body_markdown=str(payload.get("body_markdown") or ""),
+            headline=headline,
+            body_markdown=body_markdown,
             uncertainty_notes=_uncertainty_notes(payload.get("uncertainty_notes")),
             topic_hint=payload.get("topic_hint") or getattr(event, "topic_hint", None),
             model_name=model_name or "claude-haiku-4-5",

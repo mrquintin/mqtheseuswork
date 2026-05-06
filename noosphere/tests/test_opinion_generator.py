@@ -159,15 +159,16 @@ def test_opinion_user_prompt_frames_x_posts_as_observed_posts() -> None:
     assert "post_text:" in prompt
     assert "event_text:" not in prompt
     assert "Do not refer to an undefined event" in prompt
+    assert "Do not use 'the event'" in prompt
 
 
 def _payload(**overrides: Any) -> str:
     payload: dict[str, Any] = {
         "stance": "COMPLICATES",
         "confidence": 0.73,
-        "headline": "The event complicates a compounding thesis",
+        "headline": "The post complicates a compounding thesis",
         "body_markdown": (
-            "The firm can comment only within durable evidence "
+            "The post can be assessed only within durable evidence "
             "[C:conclusion_opinion_1], "
             "actual memory [C:conclusion_opinion_2], and applicable recorded reasoning "
             "[C:conclusion_opinion_3]."
@@ -233,6 +234,81 @@ def test_generate_opinion_happy_path_writes_opinion_and_citations(monkeypatch) -
     }.issubset(inline_ids)
     assert st.get_current_event(event_id).status == CurrentEventStatus.OPINED  # type: ignore[union-attr]
     assert budget.charges == [(321, 123)]
+
+
+def test_generate_opinion_retries_x_post_copy_that_says_the_event(
+    monkeypatch,
+) -> None:
+    st = _store()
+    for conclusion_id, text in SOURCE_TEXTS.items():
+        st.put_conclusion(Conclusion(id=conclusion_id, text=text))
+    event = CurrentEvent(
+        id="event_x_subject",
+        organization_id=ORG_ID,
+        source=CurrentEventSource.X_TWITTER,
+        external_id="1900000000000000000",
+        author_handle="@policy_feed",
+        text="A policy feed reports that a new school plan passed.",
+        url="https://x.com/policy_feed/status/1900000000000000000",
+        observed_at=datetime(2026, 4, 29, 12, 0, 0),
+        topic_hint="education",
+        dedupe_hash="event_x_subject_hash",
+    )
+    event_id = st.add_current_event(event)
+    hits = [
+        Hit(
+            source_kind="conclusion",
+            source_id=conclusion_id,
+            text=text,
+            score=0.92,
+            topic_hint="education",
+            origin=None,
+        )
+        for conclusion_id, text in SOURCE_TEXTS.items()
+    ]
+    budget = RecordingBudget()
+    client = ScriptedClient(
+        [
+            LLMResponse(
+                text=_payload(
+                    headline="The event complicates a school thesis",
+                    body_markdown=(
+                        "The event can be assessed within durable evidence "
+                        "[C:conclusion_opinion_1], actual memory "
+                        "[C:conclusion_opinion_2], and recorded reasoning "
+                        "[C:conclusion_opinion_3]."
+                    ),
+                ),
+                prompt_tokens=100,
+                completion_tokens=50,
+                model="claude-haiku-4-5-test",
+            ),
+            LLMResponse(
+                text=_payload(
+                    headline="The post complicates a school thesis",
+                    body_markdown=(
+                        "The post can be assessed within durable evidence "
+                        "[C:conclusion_opinion_1], actual memory "
+                        "[C:conclusion_opinion_2], and recorded reasoning "
+                        "[C:conclusion_opinion_3]."
+                    ),
+                ),
+                prompt_tokens=110,
+                completion_tokens=55,
+                model="claude-haiku-4-5-test",
+            ),
+        ]
+    )
+    monkeypatch.setattr(subject, "retrieve_for_event", lambda *_args, **_kwargs: hits)
+    monkeypatch.setattr(subject, "make_client", lambda: client)
+
+    outcome = asyncio.run(subject.generate_opinion(st, event_id, budget=budget))
+
+    assert outcome == OpinionOutcome.PUBLISHED
+    opinion = st.list_recent_opinions(ORG_ID, datetime(2026, 1, 1), 10)[0]
+    assert "The event" not in opinion.headline
+    assert "The event" not in opinion.body_markdown
+    assert "X-post opinions must refer" in client.calls[1]["system"]
 
 
 def test_generate_opinion_retries_then_abstains_on_citation_fabrication(

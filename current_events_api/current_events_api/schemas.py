@@ -6,6 +6,7 @@ FastAPI output byte-for-byte and UI components do their own casing transforms.
 
 from __future__ import annotations
 
+import re
 from datetime import datetime
 from typing import Any
 
@@ -410,6 +411,32 @@ def public_current_event(event: CurrentEvent | None) -> PublicCurrentEvent | Non
     )
 
 
+X_SOURCE_VALUES = {"X", "X_TWITTER", "TWITTER"}
+GENERIC_X_EVENT_REPLACEMENTS = (
+    (re.compile(r"\bThe event\b"), "The post"),
+    (re.compile(r"\bthe event\b"), "the post"),
+    (re.compile(r"\bThis event\b"), "This post"),
+    (re.compile(r"\bthis event\b"), "this post"),
+    (re.compile(r"\bThat event\b"), "That post"),
+    (re.compile(r"\bthat event\b"), "that post"),
+    (re.compile(r"\bThe observed event\b"), "The observed post"),
+    (re.compile(r"\bthe observed event\b"), "the observed post"),
+)
+
+
+def _is_x_event(event: CurrentEvent | None) -> bool:
+    return (_enum_value(getattr(event, "source", None)) or "").upper() in X_SOURCE_VALUES
+
+
+def _source_specific_copy(event: CurrentEvent | None, text: str) -> str:
+    if not _is_x_event(event):
+        return text
+    revised = text
+    for pattern, replacement in GENERIC_X_EVENT_REPLACEMENTS:
+        revised = pattern.sub(replacement, revised)
+    return revised
+
+
 def public_opinion(
     *,
     opinion: EventOpinion,
@@ -423,8 +450,8 @@ def public_opinion(
         event_id=opinion.event_id,
         stance=_enum_value(opinion.stance) or "",
         confidence=float(opinion.confidence),
-        headline=opinion.headline,
-        body_markdown=opinion.body_markdown,
+        headline=_source_specific_copy(event, opinion.headline),
+        body_markdown=_source_specific_copy(event, opinion.body_markdown),
         uncertainty_notes=list(opinion.uncertainty_notes or []),
         topic_hint=opinion.topic_hint,
         model_name=opinion.model_name,

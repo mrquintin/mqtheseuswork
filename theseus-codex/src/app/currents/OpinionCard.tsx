@@ -59,20 +59,20 @@ function sourceKind(rawSource: string | null | undefined): "x" | "rss" | "source
 function observedSourceTitle(opinion: PublicOpinion): string {
   switch (sourceKind(opinion.event?.source)) {
     case "x":
-      return "Observed X post";
+      return "Source X post";
     case "rss":
-      return "Observed RSS item";
+      return "Source RSS item";
     default:
-      return "Observed source item";
+      return "Source item";
   }
 }
 
 function sourceDisplayName(opinion: PublicOpinion): string {
   switch (sourceKind(opinion.event?.source)) {
     case "x":
-      return "X post";
+      return "source X post";
     case "rss":
-      return "RSS item";
+      return "source RSS item";
     default:
       return opinion.event?.source || "external source";
   }

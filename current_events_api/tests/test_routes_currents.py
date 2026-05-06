@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from datetime import datetime
+
 from current_events_api_tests_support import (
     CONCLUSION_ID,
     OPINION_ID,
@@ -8,6 +10,14 @@ from current_events_api_tests_support import (
 )
 
 from noosphere.currents.status import write_status
+from noosphere.models import (
+    Conclusion,
+    CurrentEvent,
+    CurrentEventSource,
+    EventOpinion,
+    OpinionCitation,
+    OpinionStance,
+)
 
 
 def test_healthz_returns_ok(client) -> None:
@@ -83,6 +93,60 @@ def test_list_currents_strips_internal_fields_and_keeps_revoked_count(client) ->
     assert "client_fingerprint" not in item
     assert "revoked_reason" not in item
     assert "revoked_reason" not in item["citations"][0]
+
+
+def test_list_currents_repairs_legacy_event_copy_for_x_posts(client) -> None:
+    store = client.app.state.store
+    conclusion = Conclusion(
+        id="conclusion_x_copy",
+        text="Theseus says source items should be analyzed concretely.",
+    )
+    store.put_conclusion(conclusion)
+    event = CurrentEvent(
+        id="event_x_copy",
+        organization_id="org_currents_api",
+        source=CurrentEventSource.X_TWITTER,
+        external_id="1900000000000000000",
+        author_handle="@source",
+        text="A source account reports that a policy passed.",
+        url="https://x.com/source/status/1900000000000000000",
+        observed_at=datetime(2026, 4, 29, 12, 0, 0),
+        topic_hint="policy",
+        dedupe_hash="event_x_copy_hash",
+    )
+    store.add_current_event(event)
+    opinion = EventOpinion(
+        id="opinion_x_copy",
+        organization_id="org_currents_api",
+        event_id="event_x_copy",
+        stance=OpinionStance.COMPLICATES,
+        confidence=0.72,
+        headline="The event complicates the policy story",
+        body_markdown="The event should be evaluated through the firm's sources.",
+        uncertainty_notes=[],
+        topic_hint="policy",
+        model_name="claude-haiku-4-5-test",
+    )
+    store.add_event_opinion(
+        opinion,
+        [
+            OpinionCitation(
+                opinion_id="",
+                source_kind="conclusion",
+                conclusion_id=conclusion.id,
+                quoted_span="analyzed concretely",
+                retrieval_score=0.91,
+            )
+        ],
+    )
+
+    response = client.get("/v1/currents", params={"limit": 1})
+
+    assert response.status_code == 200
+    item = response.json()["items"][0]
+    assert item["event"]["source"] == "X_TWITTER"
+    assert item["headline"] == "The post complicates the policy story"
+    assert item["body_markdown"] == "The post should be evaluated through the firm's sources."
 
 
 def test_get_current_sources_returns_full_source_detail(client) -> None:

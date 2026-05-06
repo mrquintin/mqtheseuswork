@@ -55,11 +55,11 @@ function eventAuthorHandle(event: PublicOpinion["event"]): string | null {
 function observedEventTitle(event: PublicOpinion["event"]): string {
   switch (eventSourceKind(event)) {
     case "x":
-      return "Observed X post";
+      return "Source X post";
     case "rss":
-      return "Observed RSS item";
+      return "Source RSS item";
     default:
-      return "Observed source item";
+      return "Source item";
   }
 }
 
@@ -287,6 +287,7 @@ export default function DetailClient({ canPublish = false, opinion, sources }: D
             }}
           >
             Firm analysis
+            {eventSourceKind(opinion.event) === "x" ? " of the source post" : ""}
           </div>
           <div
             style={{

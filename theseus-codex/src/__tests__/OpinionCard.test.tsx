@@ -88,11 +88,11 @@ describe("OpinionCard", () => {
   it("renders the observed X post as the object being analyzed", () => {
     const html = renderToStaticMarkup(<OpinionCard opinion={opinion()} />);
 
-    expect(html).toContain("Observed X post");
+    expect(html).toContain("Source X post");
     expect(html).toContain("@analyst");
     expect(html).toContain("The mayor announced a new transit funding plan on X.");
     expect(html).toContain("Open on X");
-    expect(html).toContain("X post");
+    expect(html).toContain("source X post");
   });
 
   it("renders at most three citation chips and a +N more marker", () => {

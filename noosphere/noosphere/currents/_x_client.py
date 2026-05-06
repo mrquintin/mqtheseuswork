@@ -59,8 +59,9 @@ class XClient:
         max_results: int = 20,
     ) -> list[XPost]:
         params: dict[str, str | int] = {
+            "exclude": "replies,retweets",
             "max_results": max_results,
-            "tweet.fields": "id,text,author_id,created_at",
+            "tweet.fields": "id,text,author_id,created_at,referenced_tweets",
             "expansions": "author_id",
             "user.fields": "username",
         }
@@ -74,9 +75,9 @@ class XClient:
             "GET",
             "/tweets/search/recent",
             params={
-                "query": query,
+                "query": _source_post_query(query),
                 "max_results": max_results,
-                "tweet.fields": "id,text,author_id,created_at",
+                "tweet.fields": "id,text,author_id,created_at,referenced_tweets",
                 "expansions": "author_id",
                 "user.fields": "username",
             },
@@ -139,6 +140,8 @@ def _normalize_posts(payload: dict[str, Any]) -> list[XPost]:
     }
     posts: list[XPost] = []
     for item in payload.get("data", []) or []:
+        if _is_reply_or_retweet(item):
+            continue
         tweet_id = str(item.get("id", ""))
         if not tweet_id:
             continue
@@ -158,6 +161,42 @@ def _normalize_posts(payload: dict[str, Any]) -> list[XPost]:
     return posts
 
 
+def _source_post_query(query: str) -> str:
+    """Constrain search ingestion to original source posts by default.
+
+    Currents needs a concrete X post to analyze, not reply-thread fragments or
+    retweets that point at an unstored antecedent. Operators already present in
+    the configured query are respected so deployment config can intentionally
+    override this default.
+    """
+
+    trimmed = query.strip()
+    additions: list[str] = []
+    lowered = f" {trimmed.lower()} "
+    if " is:reply " not in lowered and " -is:reply " not in lowered:
+        additions.append("-is:reply")
+    if " is:retweet " not in lowered and " -is:retweet " not in lowered:
+        additions.append("-is:retweet")
+    if " lang:" not in lowered:
+        additions.append("lang:en")
+    return " ".join([trimmed, *additions]).strip()
+
+
+def _is_reply_or_retweet(item: dict[str, Any]) -> bool:
+    text = str(item.get("text") or "").lstrip()
+    if text.startswith("RT @"):
+        return True
+    referenced = item.get("referenced_tweets") or []
+    if not isinstance(referenced, list):
+        return False
+    for ref in referenced:
+        if not isinstance(ref, dict):
+            continue
+        if str(ref.get("type") or "").lower() in {"replied_to", "retweeted"}:
+            return True
+    return False
+
+
 def _tweet_url(tweet_id: str, username: str) -> str:
     if username:
         return f"https://x.com/{username}/status/{tweet_id}"
@@ -166,4 +205,3 @@ def _tweet_url(tweet_id: str, username: str) -> str:
 
 def _utc_iso() -> str:
     return datetime.now(UTC).isoformat()
-
