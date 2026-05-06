@@ -448,12 +448,13 @@ describe("forecasts smoke fallback", () => {
     });
   });
 
-  it("renders the homepage dual-window block", async () => {
+  it("renders the homepage signal links without loading the Forecasts feed", async () => {
     const html = await htmlFor(await PublicBlogIndex());
 
-    expect(html).toContain("CURRENTS - live opinion");
-    expect(html).toContain("FORECASTS - live predictions");
-    expect(html).toContain("Forecast smoke headline");
+    expect(html).toContain("LIVE PUBLIC SURFACES");
+    expect(html).toContain("Opinion smoke 1");
+    expect(html).toContain("Prediction-market forecasts");
+    expect(listForecasts).not.toHaveBeenCalled();
   });
 
   it("renders the forecasts index with at least one ForecastCard", async () => {

@@ -21,6 +21,7 @@ from current_events_api.schemas import (
     PublicMarket,
     PublicResolution,
     public_bet,
+    public_forecast,
     public_forecast_from_store,
     public_forecast_source_from_citation,
     public_market,
@@ -29,6 +30,7 @@ from current_events_api.schemas import (
 
 from noosphere.models import (
     ForecastBetMode,
+    ForecastCitation,
     ForecastMarket,
     ForecastMarketStatus,
     ForecastPrediction,
@@ -205,8 +207,59 @@ def list_forecasts(
     elif requested_status == "PUBLISHED":
         rows = [row for row in rows if row.id not in resolved_ids]
 
+    rows = rows[:limit]
+    prediction_ids = [row.id for row in rows]
+    market_ids = [row.market_id for row in rows]
+    citations_by_prediction: dict[str, list[ForecastCitation]] = {
+        prediction_id: [] for prediction_id in prediction_ids
+    }
+    markets_by_id: dict[str, ForecastMarket] = {}
+    resolutions_by_prediction: dict[str, ForecastResolution] = {}
+
+    with store.session() as db:
+        if prediction_ids:
+            citations = list(
+                db.exec(
+                    select(ForecastCitation)
+                    .where(ForecastCitation.prediction_id.in_(prediction_ids))
+                    .order_by(ForecastCitation.created_at)
+                ).all()
+            )
+            for citation in citations:
+                citations_by_prediction.setdefault(
+                    citation.prediction_id,
+                    [],
+                ).append(citation)
+            resolutions = list(
+                db.exec(
+                    select(ForecastResolution).where(
+                        ForecastResolution.prediction_id.in_(prediction_ids),
+                    )
+                ).all()
+            )
+            resolutions_by_prediction = {
+                resolution.prediction_id: resolution for resolution in resolutions
+            }
+        if market_ids:
+            markets = list(
+                db.exec(
+                    select(ForecastMarket).where(ForecastMarket.id.in_(market_ids)),
+                ).all()
+            )
+            markets_by_id = {market.id: market for market in markets}
+
     metrics.inc("forecasts_read_requests_total", {"route": "list_forecasts"})
-    return {"items": [public_forecast_from_store(store, row) for row in rows[:limit]]}
+    return {
+        "items": [
+            public_forecast(
+                prediction=row,
+                citations=citations_by_prediction.get(row.id, []),
+                market=markets_by_id.get(row.market_id),
+                resolution=resolutions_by_prediction.get(row.id),
+            )
+            for row in rows
+        ]
+    }
 
 
 @router.get("/v1/forecasts/{prediction_id}", dependencies=[Depends(enforce_read_rate_limit)])

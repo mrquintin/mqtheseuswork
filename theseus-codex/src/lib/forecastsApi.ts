@@ -48,6 +48,19 @@ export interface ListBetsParams {
 }
 
 type StreamingRequestInit = RequestInit & { duplex?: "half" };
+type NextFetchOptions = {
+  revalidate?: number | false;
+  tags?: string[];
+};
+
+export interface ForecastsFetchOptions {
+  cache?: RequestCache;
+  next?: NextFetchOptions;
+  signal?: AbortSignal;
+  timeoutMs?: number;
+}
+
+type NextRequestInit = RequestInit & { next?: NextFetchOptions };
 
 function serializeParam(value: string | Date | number | boolean): string {
   if (value instanceof Date) return value.toISOString();
@@ -128,15 +141,30 @@ function timeoutFor(signal: AbortSignal, timeoutMs: number) {
   };
 }
 
-async function fetchJson<T>(path: string, search?: URLSearchParams): Promise<T> {
-  const timeout = timeoutFor(new AbortController().signal, FORECASTS_PROXY_TIMEOUT_MS);
+async function fetchJson<T>(
+  path: string,
+  search?: URLSearchParams,
+  options: ForecastsFetchOptions = {},
+): Promise<T> {
+  const timeout = timeoutFor(
+    options.signal ?? new AbortController().signal,
+    options.timeoutMs ?? FORECASTS_PROXY_TIMEOUT_MS,
+  );
   try {
-    const res = await fetch(forecastsBackendUrl(path, search), {
+    const init: NextRequestInit = {
       method: "GET",
       headers: { accept: "application/json" },
-      cache: "no-store",
       signal: timeout.signal,
-    });
+    };
+
+    if (options.next) init.next = options.next;
+    if (options.cache) {
+      init.cache = options.cache;
+    } else if (!options.next) {
+      init.cache = "no-store";
+    }
+
+    const res = await fetch(forecastsBackendUrl(path, search), init);
     if (!res.ok) {
       const detail = await res.text().catch(() => "");
       throw new Error(`Forecasts API ${res.status}${detail ? `: ${detail}` : ""}`);
@@ -283,8 +311,11 @@ export async function proxyToForecasts(
   }
 }
 
-export async function listForecasts(params: ListForecastsParams = {}): Promise<ForecastListResponse> {
-  return fetchJson<ForecastListResponse>("/v1/forecasts", searchParamsFor(params));
+export async function listForecasts(
+  params: ListForecastsParams = {},
+  options?: ForecastsFetchOptions,
+): Promise<ForecastListResponse> {
+  return fetchJson<ForecastListResponse>("/v1/forecasts", searchParamsFor(params), options);
 }
 
 export async function getForecast(id: string): Promise<PublicForecast> {
@@ -322,8 +353,8 @@ export async function getMarket(id: string): Promise<PublicMarket> {
   return fetchJson<PublicMarket>(`/v1/markets/${encodeURIComponent(id)}`);
 }
 
-export async function getPortfolioSummary(): Promise<PortfolioSummary> {
-  return fetchJson<PortfolioSummary>("/v1/portfolio");
+export async function getPortfolioSummary(options?: ForecastsFetchOptions): Promise<PortfolioSummary> {
+  return fetchJson<PortfolioSummary>("/v1/portfolio", undefined, options);
 }
 
 export async function getPortfolioCalibration(): Promise<CalibrationResponse> {

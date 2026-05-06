@@ -1,11 +1,11 @@
 import type { Metadata } from "next";
 
 import ForecastGridClient from "@/app/forecasts/ForecastGridClient";
-import { getPortfolioSummary, listForecasts } from "@/lib/forecastsApi";
+import { listForecasts } from "@/lib/forecastsApi";
 import type { PublicForecast } from "@/lib/forecastsTypes";
 import { SITE } from "@/lib/site";
 
-export const dynamic = "force-dynamic";
+export const revalidate = 15;
 
 function meanBrierDescription(value: number | null | undefined): string {
   if (value === null || value === undefined || !Number.isFinite(value)) {
@@ -15,17 +15,8 @@ function meanBrierDescription(value: number | null | undefined): string {
 }
 
 export async function generateMetadata(): Promise<Metadata> {
-  let meanBrier: number | null = null;
-
-  try {
-    const summary = await getPortfolioSummary();
-    meanBrier = summary.mean_brier_90d;
-  } catch {
-    meanBrier = null;
-  }
-
   const title = "Theseus — Forecasts";
-  const description = meanBrierDescription(meanBrier);
+  const description = meanBrierDescription(null);
 
   return {
     title,
@@ -58,7 +49,10 @@ export default async function ForecastsPage() {
   let seed: PublicForecast[] = [];
 
   try {
-    const resp = await listForecasts({ limit: 50, seeded: true });
+    const resp = await listForecasts(
+      { limit: 20, seeded: true },
+      { next: { revalidate: 15, tags: ["forecasts-seed"] } },
+    );
     seed = Array.isArray(resp.items) ? resp.items : [];
   } catch (err) {
     console.error("forecasts_seed_fetch_failed", err);

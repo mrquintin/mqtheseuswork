@@ -3,13 +3,9 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 
-import LivePulse from "@/app/forecasts/LivePulse";
-import { useLiveForecasts } from "@/lib/useLiveForecasts";
-
 export function ForecastsNavPulse({ label = "Forecasts" }: { label?: string }) {
   const pathname = usePathname();
   const active = pathname?.startsWith("/forecasts");
-  const { connected } = useLiveForecasts([]);
 
   return (
     <Link
@@ -25,9 +21,7 @@ export function ForecastsNavPulse({ label = "Forecasts" }: { label?: string }) {
       }}
     >
       {label}
-      {connected ? (
-        <LivePulse active color="var(--forecasts-cool-gold)" />
-      ) : null}
+      <span aria-hidden className="currents-pulse" />
     </Link>
   );
 }

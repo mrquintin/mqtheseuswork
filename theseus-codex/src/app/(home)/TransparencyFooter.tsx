@@ -1,4 +1,3 @@
-import { getPortfolioSummary } from "@/lib/forecastsApi";
 import type { PortfolioSummary } from "@/lib/forecastsTypes";
 
 type PublicTradingPosture = "DISABLED" | "ENABLED";
@@ -43,16 +42,8 @@ export function liveTradingPostureFor(
     : "DISABLED";
 }
 
-export default async function TransparencyFooter() {
-  let summary: PortfolioSummaryLike | null = null;
-
-  try {
-    summary = await getPortfolioSummary();
-  } catch (error) {
-    console.error("homepage_portfolio_summary_failed", error);
-  }
-
-  const posture = liveTradingPostureFor(summary);
+export default function TransparencyFooter() {
+  const posture = liveTradingPostureFor(null);
 
   return (
     <footer

@@ -1,13 +1,11 @@
 import Link from "next/link";
 
-import DualPulseSection from "@/app/(home)/DualPulseSection";
 import TransparencyFooter from "@/app/(home)/TransparencyFooter";
 import PublicHeader from "@/components/PublicHeader";
 import {
   getTheseusContactEmail,
   theseusIdentity,
 } from "@/content/theseusIdentity";
-import { getFounder } from "@/lib/auth";
 import {
   listPublishedArticles,
   type PublishedConclusion,
@@ -15,12 +13,15 @@ import {
 import { listCurrents } from "@/lib/currentsApi";
 import type { PublicOpinion } from "@/lib/currentsTypes";
 
-export const dynamic = "force-dynamic";
+export const dynamic = "force-static";
 export const revalidate = 60;
 
 async function latestCurrents(): Promise<PublicOpinion[]> {
   try {
-    const response = await listCurrents({ limit: 3 });
+    const response = await listCurrents(
+      { limit: 3 },
+      { next: { revalidate: 60, tags: ["public-home-currents"] } },
+    );
     return Array.isArray(response.items) ? response.items.slice(0, 3) : [];
   } catch (error) {
     console.error("homepage_currents_preview_failed", error);
@@ -38,8 +39,7 @@ async function latestArticles(): Promise<PublishedConclusion[]> {
 }
 
 export default async function PublicHomePage() {
-  const [founder, currents, articles] = await Promise.all([
-    getFounder(),
+  const [currents, articles] = await Promise.all([
     latestCurrents(),
     latestArticles(),
   ]);
@@ -53,7 +53,7 @@ export default async function PublicHomePage() {
         position: "relative",
       }}
     >
-      <PublicHeader authed={Boolean(founder)} />
+      <PublicHeader authed={false} />
 
       <div
         style={{
@@ -71,9 +71,7 @@ export default async function PublicHomePage() {
         <CurrentsPreviewRail currents={currents} />
         <PublicationsRail articles={articles} />
 
-        <div aria-label="Live public pulse" style={{ margin: "2rem 0" }}>
-          <DualPulseSection />
-        </div>
+        <PublicSignalSurface />
 
         <ManifestoPreview />
         <ContactLine email={email} />
@@ -355,6 +353,98 @@ function PublicationsRail({ articles }: { articles: PublishedConclusion[] }) {
         <RailEmpty>No essays or memos are public yet.</RailEmpty>
       )}
     </section>
+  );
+}
+
+function PublicSignalSurface() {
+  return (
+    <section
+      aria-labelledby="home-signal-title"
+      style={{
+        borderBottom: "1px solid var(--stroke)",
+        marginBottom: "2rem",
+        paddingBottom: "1.75rem",
+      }}
+    >
+      <h2
+        className="mono"
+        id="home-signal-title"
+        style={{
+          color: "var(--amber-dim)",
+          fontSize: "0.72rem",
+          letterSpacing: "0.3em",
+          margin: "0 0 0.85rem",
+          textTransform: "uppercase",
+        }}
+      >
+        LIVE PUBLIC SURFACES
+      </h2>
+      <div
+        style={{
+          display: "grid",
+          gap: "0.85rem",
+          gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
+        }}
+      >
+        <SignalCard
+          body="Real-world X posts and other observed events, with the firm's source-grounded response."
+          href="/currents"
+          title="Currents"
+        />
+        <SignalCard
+          body="Prediction-market forecasts with evidence, uncertainty, and eventual calibration."
+          href="/forecasts"
+          title="Forecasts"
+        />
+      </div>
+    </section>
+  );
+}
+
+function SignalCard({
+  body,
+  href,
+  title,
+}: {
+  body: string;
+  href: string;
+  title: string;
+}) {
+  return (
+    <Link
+      href={href}
+      style={{
+        background: "rgba(232, 225, 211, 0.035)",
+        border: "1px solid rgba(232, 225, 211, 0.14)",
+        borderRadius: "6px",
+        color: "inherit",
+        display: "block",
+        padding: "1rem",
+        textDecoration: "none",
+      }}
+    >
+      <strong
+        style={{
+          color: "var(--amber)",
+          display: "block",
+          fontFamily: "'Cinzel', serif",
+          letterSpacing: "0.03em",
+          marginBottom: "0.5rem",
+        }}
+      >
+        {title}
+      </strong>
+      <span
+        style={{
+          color: "var(--parchment-dim)",
+          display: "block",
+          fontSize: "0.94rem",
+          lineHeight: 1.5,
+        }}
+      >
+        {body}
+      </span>
+    </Link>
   );
 }
 

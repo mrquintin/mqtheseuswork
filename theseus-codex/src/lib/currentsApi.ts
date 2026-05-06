@@ -29,6 +29,18 @@ export interface CurrentsHealth {
 }
 
 type StreamingRequestInit = RequestInit & { duplex?: "half" };
+type NextFetchOptions = {
+  revalidate?: number | false;
+  tags?: string[];
+};
+
+export interface CurrentsFetchOptions {
+  cache?: RequestCache;
+  next?: NextFetchOptions;
+  signal?: AbortSignal;
+}
+
+type NextRequestInit = RequestInit & { next?: NextFetchOptions };
 
 function serializeParam(value: string | Date | number | boolean): string {
   if (value instanceof Date) return value.toISOString();
@@ -55,12 +67,25 @@ export function currentsBackendUrl(path: string, search?: string | URLSearchPara
   return url.toString();
 }
 
-async function fetchJson<T>(path: string, search?: URLSearchParams): Promise<T> {
-  const res = await fetch(currentsBackendUrl(path, search), {
+async function fetchJson<T>(
+  path: string,
+  search?: URLSearchParams,
+  options: CurrentsFetchOptions = {},
+): Promise<T> {
+  const init: NextRequestInit = {
     method: "GET",
     headers: { accept: "application/json" },
-    cache: "no-store",
-  });
+  };
+
+  if (options.signal) init.signal = options.signal;
+  if (options.next) init.next = options.next;
+  if (options.cache) {
+    init.cache = options.cache;
+  } else if (!options.next) {
+    init.cache = "no-store";
+  }
+
+  const res = await fetch(currentsBackendUrl(path, search), init);
   if (!res.ok) {
     const detail = await res.text().catch(() => "");
     throw new Error(`Currents API ${res.status}${detail ? `: ${detail}` : ""}`);
@@ -68,12 +93,19 @@ async function fetchJson<T>(path: string, search?: URLSearchParams): Promise<T> 
   return res.json() as Promise<T>;
 }
 
-export async function listCurrents(params: ListCurrentsParams): Promise<{ items: PublicOpinion[] }> {
-  return fetchJson<{ items: PublicOpinion[] }>("/v1/currents", searchParamsFor(params));
+export async function listCurrents(
+  params: ListCurrentsParams,
+  options?: CurrentsFetchOptions,
+): Promise<{ items: PublicOpinion[] }> {
+  return fetchJson<{ items: PublicOpinion[] }>(
+    "/v1/currents",
+    searchParamsFor(params),
+    options,
+  );
 }
 
-export async function getCurrentsHealth(): Promise<CurrentsHealth> {
-  return fetchJson<CurrentsHealth>("/v1/currents/health");
+export async function getCurrentsHealth(options?: CurrentsFetchOptions): Promise<CurrentsHealth> {
+  return fetchJson<CurrentsHealth>("/v1/currents/health", undefined, options);
 }
 
 export async function getCurrent(id: string): Promise<PublicOpinion> {
