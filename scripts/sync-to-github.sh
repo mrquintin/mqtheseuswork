@@ -445,22 +445,17 @@ echo ""
 echo "Release page: https://github.com/mrquintin/mqtheseuswork/releases/tag/latest-main"
 
 # ──────────────────────────────────────────────────────────────────────────────
-# Verify the Theseus Codex website link in README.md still resolves. The URL
-# in the README is Vercel's stable production alias and auto-repoints to the
-# latest deploy — but if someone ever renames the Vercel project or adds a
-# custom domain, the hardcoded README string will drift from reality. A quick
-# HEAD request here catches that.
+# Verify the Theseus Codex website link in README.md still resolves. The README
+# may point either at the custom production domain or Vercel's production alias.
+# If that hardcoded public URL drifts from reality, a quick HEAD request catches
+# it before the sync is reported as complete.
 # ──────────────────────────────────────────────────────────────────────────────
 codex_url=""
 codex_status="unchecked"
 if [ -f README.md ] && command -v curl >/dev/null 2>&1; then
-  # Extract the first *.vercel.app origin from the README. We match only
-  # the scheme + host and stop there, so markdown-link syntax like
-  # `[https://foo.vercel.app](https://foo.vercel.app)` doesn't cause us to
-  # capture `https://foo.vercel.app](https://foo.vercel.app` as a single
-  # "URL" (as happened before this regex was tightened — exit code 000).
-  # A path after the host isn't needed for a health check.
-  codex_url=$(grep -oE 'https://[A-Za-z0-9.-]+\.vercel\.app' README.md 2>/dev/null | head -n1 || true)
+  # Extract the first public Codex origin from the README. Match only the
+  # scheme + host so markdown syntax cannot get folded into the URL.
+  codex_url=$(grep -oE 'https://(([A-Za-z0-9.-]+\.vercel\.app)|(www\.)?theseuscodex\.com)' README.md 2>/dev/null | head -n1 || true)
   if [ -n "$codex_url" ]; then
     http_status=$(curl -sS -o /dev/null -w '%{http_code}' -L --max-time 15 "$codex_url" 2>/dev/null || echo "000")
     if [ "$http_status" = "200" ]; then

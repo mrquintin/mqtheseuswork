@@ -17,7 +17,7 @@ If a direct link returns 404, the latest CI run may still be in progress or that
 
 The **Theseus Codex** is a web application, not a downloadable installer. Access it in your browser:
 
-> **→ [https://mqtheseuswork-qiw6.vercel.app](https://mqtheseuswork-qiw6.vercel.app)**
+> **→ [https://www.theseuscodex.com](https://www.theseuscodex.com)**
 
 **New here?** Read the [**Theseus Codex User Guide (PDF)**](docs/Theseus_Codex_User_Guide.pdf) — 10 pages, covers every page, the underlying data pipeline, and four concrete workflows. The same PDF is linked from the **Help** button in the app's top nav.
 
