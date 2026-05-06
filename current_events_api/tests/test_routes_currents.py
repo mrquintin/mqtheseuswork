@@ -73,6 +73,9 @@ def test_list_currents_strips_internal_fields_and_keeps_revoked_count(client) ->
     assert item["id"] == OPINION_ID
     assert item["stance"] == "COMPLICATES"
     assert item["event"]["author_handle"] == "theseus"
+    assert item["event"]["text"] == "A public event raises questions about compounding."
+    assert item["event"]["url"] == "https://example.test/event"
+    assert item["event"]["external_id"] == "external_currents_api"
     assert item["citations"][0]["source_id"] == CONCLUSION_ID
     assert item["revoked_sources_count"] == 1
     assert "prompt_tokens" not in item

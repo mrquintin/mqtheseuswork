@@ -39,6 +39,131 @@ function topicFor(opinion: PublicOpinion): string {
   return opinion.topic_hint || opinion.event?.topic_hint || "untagged";
 }
 
+function eventSourceKind(event: PublicOpinion["event"]): "x" | "rss" | "source" {
+  const normalized = (event?.source || "").trim().toUpperCase();
+  if (["X", "X_TWITTER", "TWITTER"].includes(normalized)) return "x";
+  if (normalized === "RSS") return "rss";
+  return "source";
+}
+
+function eventAuthorHandle(event: PublicOpinion["event"]): string | null {
+  const handle = event?.author_handle?.trim();
+  if (!handle) return null;
+  return handle.startsWith("@") ? handle : `@${handle}`;
+}
+
+function observedEventTitle(event: PublicOpinion["event"]): string {
+  switch (eventSourceKind(event)) {
+    case "x":
+      return "Observed X post";
+    case "rss":
+      return "Observed RSS item";
+    default:
+      return "Observed source item";
+  }
+}
+
+function sourceActionLabel(event: PublicOpinion["event"]): string {
+  return eventSourceKind(event) === "x" ? "Open on X" : "Open source";
+}
+
+function formatObservedAt(value: string): string {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return `${date.toLocaleString("en-US", {
+    dateStyle: "medium",
+    timeStyle: "short",
+    timeZone: "UTC",
+  })} UTC`;
+}
+
+function ObservedEventPanel({ opinion }: { opinion: PublicOpinion }) {
+  const event = opinion.event;
+  const text = event?.text?.trim();
+  if (!event || !text) return null;
+
+  const title = observedEventTitle(event);
+  const handle = eventAuthorHandle(event);
+
+  return (
+    <section
+      aria-label={title}
+      style={{
+        background: "rgba(232, 225, 211, 0.045)",
+        border: "1px solid var(--currents-border)",
+        borderRadius: "6px",
+        margin: "0.6rem 0 1.15rem",
+        padding: "0.9rem 1rem",
+      }}
+    >
+      <div
+        style={{
+          alignItems: "center",
+          color: "var(--currents-muted)",
+          display: "flex",
+          flexWrap: "wrap",
+          fontFamily: "'IBM Plex Mono', monospace",
+          fontSize: "0.72rem",
+          gap: "0.55rem",
+          justifyContent: "space-between",
+          letterSpacing: "0.08em",
+          marginBottom: "0.65rem",
+          textTransform: "uppercase",
+        }}
+      >
+        <span>{title}</span>
+        <span
+          style={{
+            alignItems: "center",
+            display: "inline-flex",
+            flexWrap: "wrap",
+            gap: "0.45rem",
+          }}
+        >
+          {handle ? <span>{handle}</span> : null}
+          <span>{formatObservedAt(event.observed_at)}</span>
+        </span>
+      </div>
+      <blockquote
+        style={{
+          borderLeft: "3px solid var(--currents-gold)",
+          color: "var(--currents-parchment)",
+          fontSize: "1rem",
+          lineHeight: 1.6,
+          margin: 0,
+          paddingLeft: "0.85rem",
+          whiteSpace: "pre-wrap",
+        }}
+      >
+        {text}
+      </blockquote>
+      <div
+        style={{
+          alignItems: "center",
+          color: "var(--currents-muted)",
+          display: "flex",
+          flexWrap: "wrap",
+          fontSize: "0.82rem",
+          gap: "0.65rem",
+          marginTop: "0.75rem",
+        }}
+      >
+        {event.external_id ? <span>source id {event.external_id}</span> : null}
+        {event.url ? (
+          <a
+            href={event.url}
+            rel="noopener nofollow ugc"
+            target="_blank"
+            style={{ color: "var(--currents-gold)", textDecoration: "none" }}
+          >
+            {sourceActionLabel(event)}
+          </a>
+        ) : null}
+      </div>
+    </section>
+  );
+}
+
 export default function DetailClient({ canPublish = false, opinion, sources }: DetailClientProps) {
   const sourceIds = useMemo(
     () => new Set(sources.map((source) => source.source_id)),
@@ -148,6 +273,21 @@ export default function DetailClient({ canPublish = false, opinion, sources }: D
           >
             {opinion.headline}
           </h1>
+
+          <ObservedEventPanel opinion={opinion} />
+
+          <div
+            style={{
+              color: "var(--currents-muted)",
+              fontFamily: "'IBM Plex Mono', monospace",
+              fontSize: "0.74rem",
+              letterSpacing: "0.08em",
+              marginBottom: "0.45rem",
+              textTransform: "uppercase",
+            }}
+          >
+            Firm analysis
+          </div>
           <div
             style={{
               color: "var(--currents-parchment)",

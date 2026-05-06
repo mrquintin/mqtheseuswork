@@ -50,11 +50,11 @@ function opinion(overrides: Partial<PublicOpinion> = {}): PublicOpinion {
     revoked_sources_count: 0,
     event: {
       id: "event-1",
-      source: "X",
+      source: "X_TWITTER",
       external_id: "external-1",
       author_handle: "analyst",
-      text: "event text",
-      url: "https://example.com/event",
+      text: "The mayor announced a new transit funding plan on X.",
+      url: "https://x.com/analyst/status/external-1",
       captured_at: "2026-04-29T12:00:00.000Z",
       observed_at: "2026-04-29T11:59:00.000Z",
       topic_hint: "macro",
@@ -83,6 +83,16 @@ describe("OpinionCard", () => {
     expect(html).toContain(">code</code>");
     expect(html).toContain('rel="noopener nofollow ugc"');
     expect(html).toContain('target="_blank"');
+  });
+
+  it("renders the observed X post as the object being analyzed", () => {
+    const html = renderToStaticMarkup(<OpinionCard opinion={opinion()} />);
+
+    expect(html).toContain("Observed X post");
+    expect(html).toContain("@analyst");
+    expect(html).toContain("The mayor announced a new transit funding plan on X.");
+    expect(html).toContain("Open on X");
+    expect(html).toContain("X post");
   });
 
   it("renders at most three citation chips and a +N more marker", () => {

@@ -124,6 +124,43 @@ def _seed(st: Store) -> tuple[str, list[Hit]]:
     return event_id, hits
 
 
+def test_opinion_user_prompt_frames_x_posts_as_observed_posts() -> None:
+    event = CurrentEvent(
+        id="event_x_prompt",
+        organization_id=ORG_ID,
+        source=CurrentEventSource.X_TWITTER,
+        external_id="1900000000000000000",
+        author_handle="policy_feed",
+        text="A city council member posted that a new school plan passed.",
+        url="https://x.com/policy_feed/status/1900000000000000000",
+        observed_at=datetime(2026, 4, 29, 12, 0, 0),
+        topic_hint="education",
+        dedupe_hash="event_x_prompt_hash",
+    )
+    hits = [
+        Hit(
+            source_kind="conclusion",
+            source_id=conclusion_id,
+            text=text,
+            score=0.92,
+            topic_hint="education",
+            origin=None,
+        )
+        for conclusion_id, text in SOURCE_TEXTS.items()
+    ]
+
+    prompt = subject._opinion_user_prompt(event, hits)
+
+    assert "OBSERVED X POST" in prompt
+    assert "source: X_TWITTER" in prompt
+    assert "external_id: 1900000000000000000" in prompt
+    assert "author_handle: policy_feed" in prompt
+    assert "source_url: https://x.com/policy_feed/status/1900000000000000000" in prompt
+    assert "post_text:" in prompt
+    assert "event_text:" not in prompt
+    assert "Do not refer to an undefined event" in prompt
+
+
 def _payload(**overrides: Any) -> str:
     payload: dict[str, Any] = {
         "stance": "COMPLICATES",

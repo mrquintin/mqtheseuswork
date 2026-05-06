@@ -49,6 +49,46 @@ function authorHandle(opinion: PublicOpinion): string | null {
   return handle.startsWith("@") ? handle : `@${handle}`;
 }
 
+function sourceKind(rawSource: string | null | undefined): "x" | "rss" | "source" {
+  const normalized = (rawSource || "").trim().toUpperCase();
+  if (["X", "X_TWITTER", "TWITTER"].includes(normalized)) return "x";
+  if (normalized === "RSS") return "rss";
+  return "source";
+}
+
+function observedSourceTitle(opinion: PublicOpinion): string {
+  switch (sourceKind(opinion.event?.source)) {
+    case "x":
+      return "Observed X post";
+    case "rss":
+      return "Observed RSS item";
+    default:
+      return "Observed source item";
+  }
+}
+
+function sourceDisplayName(opinion: PublicOpinion): string {
+  switch (sourceKind(opinion.event?.source)) {
+    case "x":
+      return "X post";
+    case "rss":
+      return "RSS item";
+    default:
+      return opinion.event?.source || "external source";
+  }
+}
+
+function sourceLinkLabel(opinion: PublicOpinion): string {
+  switch (sourceKind(opinion.event?.source)) {
+    case "x":
+      return "Open on X";
+    case "rss":
+      return "Open source";
+    default:
+      return "Open source";
+  }
+}
+
 const cardStyle: CSSProperties = {
   background: "var(--currents-bg-elevated)",
   border: "1px solid var(--currents-border)",
@@ -91,6 +131,38 @@ const bodyStyle: CSSProperties = {
   lineHeight: 1.6,
 };
 
+const observedSourceStyle: CSSProperties = {
+  background: "rgba(232, 225, 211, 0.045)",
+  border: "1px solid var(--currents-border)",
+  borderRadius: "6px",
+  marginBottom: "0.85rem",
+  padding: "0.72rem 0.78rem",
+};
+
+const observedSourceMetaStyle: CSSProperties = {
+  alignItems: "center",
+  color: "var(--currents-muted)",
+  display: "flex",
+  flexWrap: "wrap",
+  fontFamily: "'IBM Plex Mono', monospace",
+  fontSize: "0.68rem",
+  gap: "0.42rem",
+  letterSpacing: "0.08em",
+  marginBottom: "0.45rem",
+  textTransform: "uppercase",
+};
+
+const observedSourceTextStyle: CSSProperties = {
+  color: "var(--currents-parchment-dim)",
+  display: "-webkit-box",
+  fontSize: "0.86rem",
+  lineHeight: 1.45,
+  margin: 0,
+  overflow: "hidden",
+  WebkitBoxOrient: "vertical",
+  WebkitLineClamp: 3,
+};
+
 const sourceStripStyle: CSSProperties = {
   alignItems: "center",
   borderTop: "1px solid var(--currents-border)",
@@ -112,6 +184,42 @@ interface OpinionCardProps {
   detailBasePath?: string;
 }
 
+function ObservedSourceExcerpt({ opinion }: { opinion: PublicOpinion }) {
+  const event = opinion.event;
+  const text = event?.text?.trim();
+  if (!event || !text) return null;
+
+  const handle = authorHandle(opinion);
+  const title = observedSourceTitle(opinion);
+
+  return (
+    <section aria-label={title} style={observedSourceStyle}>
+      <div style={observedSourceMetaStyle}>
+        <span>{title}</span>
+        {handle ? <span>{handle}</span> : null}
+        <span>{relativeTime(event.observed_at)}</span>
+      </div>
+      <p style={observedSourceTextStyle}>"{text}"</p>
+      {event.url ? (
+        <a
+          href={event.url}
+          rel="noopener nofollow ugc"
+          target="_blank"
+          style={{
+            color: "var(--currents-gold)",
+            display: "inline-block",
+            fontSize: "0.78rem",
+            marginTop: "0.5rem",
+            textDecoration: "none",
+          }}
+        >
+          {sourceLinkLabel(opinion)}
+        </a>
+      ) : null}
+    </section>
+  );
+}
+
 export default function OpinionCard({
   opinion,
   className,
@@ -125,7 +233,7 @@ export default function OpinionCard({
   const shownCitations = opinion.citations.slice(0, 3);
   const hiddenCitationCount = Math.max(0, opinion.citations.length - shownCitations.length);
   const handle = authorHandle(opinion);
-  const sourceName = opinion.event?.source || "external source";
+  const sourceName = sourceDisplayName(opinion);
 
   return (
     <article
@@ -158,6 +266,8 @@ export default function OpinionCard({
         <span>{topic}</span>
         <span>· {relativeTime(opinion.generated_at)}</span>
       </div>
+
+      <ObservedSourceExcerpt opinion={opinion} />
 
       <h2 style={headlineStyle}>
         <Link

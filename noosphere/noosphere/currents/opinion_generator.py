@@ -133,15 +133,47 @@ def _source_blocks(hits: list[Any]) -> str:
     return "\n\n".join(blocks)
 
 
+def _event_source_value(event: Any) -> str:
+    source = getattr(event, "source", "")
+    return str(getattr(source, "value", source) or "")
+
+
+def _event_source_label(event: Any) -> str:
+    normalized = _event_source_value(event).strip().upper()
+    if normalized in {"X", "X_TWITTER", "TWITTER"}:
+        return "X POST"
+    if normalized == "RSS":
+        return "RSS ITEM"
+    return "SOURCE ITEM"
+
+
+def _event_text_label(event: Any) -> str:
+    return "post_text:" if _event_source_label(event) == "X POST" else "source_text:"
+
+
 def _opinion_user_prompt(event: Any, hits: list[Any]) -> str:
+    source_label = _event_source_label(event)
     return "\n\n".join(
         [
-            "CURRENT EVENT",
+            f"OBSERVED {source_label}",
             f"event_id: {getattr(event, 'id', '')}",
             f"organization_id: {getattr(event, 'organization_id', '')}",
+            f"source: {_event_source_value(event)}",
+            f"external_id: {getattr(event, 'external_id', '')}",
+            f"author_handle: {getattr(event, 'author_handle', '') or ''}",
+            f"source_url: {getattr(event, 'url', '') or ''}",
+            f"observed_at: {getattr(event, 'observed_at', '') or ''}",
+            f"captured_at: {getattr(event, 'captured_at', '') or ''}",
             f"topic_hint: {getattr(event, 'topic_hint', '') or ''}",
-            "event_text:",
+            _event_text_label(event),
             getattr(event, "text", ""),
+            "ANALYSIS TASK",
+            (
+                "Write the firm's response to this specific observed "
+                f"{source_label.lower()}. Do not refer to an undefined event; "
+                "name the post, its author, or its claim when the analysis needs "
+                "a subject."
+            ),
             "RETRIEVED THESEUS SOURCES",
             _source_blocks(hits),
             "Return the strict JSON object specified by the system prompt.",
