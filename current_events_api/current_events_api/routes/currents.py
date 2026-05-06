@@ -15,12 +15,18 @@ from current_events_api.metrics import Metrics
 from current_events_api.schemas import (
     PublicOpinion,
     PublicSource,
+    public_opinion,
     public_opinion_from_store,
     public_source_from_citation,
 )
 from noosphere.currents.config import IngestorConfig
 from noosphere.currents.status import read_status
-from noosphere.models import CurrentEvent, EventOpinion, OpinionStance
+from noosphere.models import (
+    CurrentEvent,
+    EventOpinion,
+    OpinionCitation,
+    OpinionStance,
+)
 from noosphere.store import Store
 
 router = APIRouter(prefix="/v1/currents", tags=["currents"])
@@ -104,8 +110,42 @@ def list_currents(
         rows = list(
             db.exec(stmt.order_by(desc(EventOpinion.generated_at)).limit(limit)).all()
         )
+        opinion_ids = [row.id for row in rows]
+        event_ids = [row.event_id for row in rows]
+        citations_by_opinion: dict[str, list[OpinionCitation]] = {
+            opinion_id: [] for opinion_id in opinion_ids
+        }
+        events_by_id: dict[str, CurrentEvent] = {}
+        if opinion_ids:
+            citations = list(
+                db.exec(
+                    select(OpinionCitation).where(
+                        OpinionCitation.opinion_id.in_(opinion_ids),
+                    )
+                ).all()
+            )
+            for citation in citations:
+                citations_by_opinion.setdefault(citation.opinion_id, []).append(
+                    citation,
+                )
+        if event_ids:
+            events = list(
+                db.exec(
+                    select(CurrentEvent).where(CurrentEvent.id.in_(event_ids)),
+                ).all()
+            )
+            events_by_id = {event.id: event for event in events}
     metrics.inc("currents_read_requests_total", {"route": "list_currents"})
-    return {"items": [public_opinion_from_store(store, row) for row in rows]}
+    return {
+        "items": [
+            public_opinion(
+                opinion=row,
+                citations=citations_by_opinion.get(row.id, []),
+                event=events_by_id.get(row.event_id),
+            )
+            for row in rows
+        ]
+    }
 
 
 @router.get("/{opinion_id}", dependencies=[Depends(enforce_read_rate_limit)])
