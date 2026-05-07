@@ -387,7 +387,7 @@ function PublicSignalSurface() {
         }}
       >
         <SignalCard
-          body="Real-world X posts and other observed events, with the firm's source-grounded response."
+          body="Real-world X posts and other live signals, with the firm's public opinion in response."
           href="/currents"
           title="Currents"
         />

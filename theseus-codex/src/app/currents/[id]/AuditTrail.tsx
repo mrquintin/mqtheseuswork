@@ -62,7 +62,7 @@ function percent(value: number): string {
 }
 
 function sourceLabel(source: PublicSource, index: number): string {
-  const kind = source.source_kind.trim().toLowerCase() || "source";
+  const kind = source.source_kind.trim().toLowerCase() || "rationale";
   return `${index + 1}. ${kind}`;
 }
 
@@ -88,7 +88,7 @@ export default function AuditTrail({ opinion, sources, onSourceSelect }: AuditTr
       <p style={rowStyle}>confidence {percent(opinion.confidence)}</p>
       {revokedCount > 0 ? (
         <p style={{ ...rowStyle, color: "var(--currents-amber)" }}>
-          {revokedCount} {plural(revokedCount, "source")} revoked
+          {revokedCount} {plural(revokedCount, "rationale")} revoked
         </p>
       ) : null}
       <a

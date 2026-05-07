@@ -58,7 +58,7 @@ const textStyle: CSSProperties = {
 function normalizedKind(source: PublicSource): string {
   const kind = source.source_kind.trim().toLowerCase();
   if (kind === "conclusion" || kind === "claim") return kind;
-  return kind || "source";
+  return kind || "rationale";
 }
 
 function fallbackCanonicalPath(source: PublicSource): string {
@@ -81,8 +81,8 @@ function retrievalPercent(score: number): string {
 
 export default function SourceCard({ source, onSelect }: SourceCardProps) {
   const kind = normalizedKind(source);
-  const reason = source.revoked_reason?.trim() || "source revoked";
-  const sourceText = source.source_text || "[source text unavailable]";
+  const reason = source.revoked_reason?.trim() || "rationale revoked";
+  const sourceText = source.source_text || "[internal rationale unavailable]";
 
   return (
     <article

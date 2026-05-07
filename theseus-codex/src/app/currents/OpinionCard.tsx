@@ -5,6 +5,8 @@ import type { PublicCitation, PublicOpinion } from "@/lib/currentsTypes";
 import { relativeTime } from "@/lib/relativeTime";
 import { renderSafeMarkdown } from "@/lib/safeMarkdown";
 
+import XPostEmbed from "./XPostEmbed";
+
 type StanceKey = "agrees" | "disagrees" | "complicates" | "abstained";
 type ConfidenceBand = "low" | "mid" | "high";
 
@@ -40,7 +42,7 @@ function sourceLabel(citation: PublicCitation): string {
   const normalized = citation.source_kind.trim().toLowerCase();
   if (normalized === "conclusion") return "conclusion";
   if (normalized === "claim") return "claim";
-  return normalized || "source";
+  return normalized || "rationale";
 }
 
 function authorHandle(opinion: PublicOpinion): string | null {
@@ -59,33 +61,33 @@ function sourceKind(rawSource: string | null | undefined): "x" | "rss" | "source
 function observedSourceTitle(opinion: PublicOpinion): string {
   switch (sourceKind(opinion.event?.source)) {
     case "x":
-      return "Source X post";
+      return "X post";
     case "rss":
-      return "Source RSS item";
+      return "RSS item";
     default:
-      return "Source item";
+      return "Observed item";
   }
 }
 
-function sourceDisplayName(opinion: PublicOpinion): string {
+function observedItemDisplayName(opinion: PublicOpinion): string {
   switch (sourceKind(opinion.event?.source)) {
     case "x":
-      return "source X post";
+      return "X post";
     case "rss":
-      return "source RSS item";
+      return "RSS item";
     default:
-      return opinion.event?.source || "external source";
+      return opinion.event?.source || "observed item";
   }
 }
 
-function sourceLinkLabel(opinion: PublicOpinion): string {
+function observedItemLinkLabel(opinion: PublicOpinion): string {
   switch (sourceKind(opinion.event?.source)) {
     case "x":
       return "Open on X";
     case "rss":
-      return "Open source";
+      return "Open item";
     default:
-      return "Open source";
+      return "Open item";
   }
 }
 
@@ -190,6 +192,18 @@ function ObservedSourceExcerpt({ opinion }: { opinion: PublicOpinion }) {
   if (!event || !text) return null;
 
   const handle = authorHandle(opinion);
+  if (sourceKind(event.source) === "x" && event.url) {
+    return (
+      <XPostEmbed
+        authorHandle={handle}
+        compact
+        fallbackText={text}
+        observedAt={event.observed_at}
+        url={event.url}
+      />
+    );
+  }
+
   const title = observedSourceTitle(opinion);
 
   return (
@@ -213,7 +227,7 @@ function ObservedSourceExcerpt({ opinion }: { opinion: PublicOpinion }) {
             textDecoration: "none",
           }}
         >
-          {sourceLinkLabel(opinion)}
+          {observedItemLinkLabel(opinion)}
         </a>
       ) : null}
     </section>
@@ -233,7 +247,7 @@ export default function OpinionCard({
   const shownCitations = opinion.citations.slice(0, 3);
   const hiddenCitationCount = Math.max(0, opinion.citations.length - shownCitations.length);
   const handle = authorHandle(opinion);
-  const sourceName = sourceDisplayName(opinion);
+  const observedItemName = observedItemDisplayName(opinion);
 
   return (
     <article
@@ -302,7 +316,7 @@ export default function OpinionCard({
       ) : null}
 
       {shownCitations.length ? (
-        <div aria-label="Source citations" style={sourceStripStyle}>
+        <div aria-label="Firm rationale links" style={sourceStripStyle}>
           {shownCitations.map((citation) => (
             <Link
               key={citation.id}
@@ -316,7 +330,7 @@ export default function OpinionCard({
                 textDecoration: "none",
               }}
             >
-              ⸺ {sourceLabel(citation)}
+              {sourceLabel(citation)}
             </Link>
           ))}
           {hiddenCitationCount ? (
@@ -356,10 +370,10 @@ export default function OpinionCard({
               target="_blank"
               style={{ color: "var(--currents-muted)" }}
             >
-              {sourceName}
+              {observedItemName}
             </a>
           ) : (
-            sourceName
+            observedItemName
           )}
         </span>
       </div>

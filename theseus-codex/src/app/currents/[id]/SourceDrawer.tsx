@@ -23,7 +23,7 @@ const drawerStyle: CSSProperties = {
 
 function kindLabel(source: PublicSource): string {
   const kind = source.source_kind.trim().toLowerCase();
-  return kind === "conclusion" || kind === "claim" ? kind : kind || "source";
+  return kind === "conclusion" || kind === "claim" ? kind : kind || "rationale";
 }
 
 function percent(score: number): string {
@@ -38,7 +38,7 @@ export default function SourceDrawer({
   onSelect,
 }: SourceDrawerProps) {
   return (
-    <aside aria-label="Source drawer" style={drawerStyle}>
+    <aside aria-label="Rationale drawer" style={drawerStyle}>
       <h2
         style={{
           color: "var(--currents-parchment)",
@@ -49,7 +49,7 @@ export default function SourceDrawer({
           textTransform: "uppercase",
         }}
       >
-        Source drawer
+        Rationale drawer
       </h2>
 
       <div
@@ -116,7 +116,7 @@ export default function SourceDrawer({
                 padding: "0.5rem",
               }}
             >
-              Revoked: {selectedSource.revoked_reason?.trim() || "source revoked"}
+              Revoked: {selectedSource.revoked_reason?.trim() || "rationale revoked"}
             </div>
           ) : null}
 
@@ -136,7 +136,7 @@ export default function SourceDrawer({
             }}
           >
             {highlightSubstring(
-              selectedSource.source_text || "[source text unavailable]",
+              selectedSource.source_text || "[internal rationale unavailable]",
               selectedSource.quoted_span,
             )}
           </p>
@@ -161,7 +161,7 @@ export default function SourceDrawer({
             margin: 0,
           }}
         >
-          Select a source citation to inspect the quoted span, retrieval score,
+          Select a rationale citation to inspect the quoted span, retrieval score,
           and canonical target.
         </p>
       )}

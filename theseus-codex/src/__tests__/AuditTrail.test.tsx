@@ -42,17 +42,16 @@ function source(overrides: Partial<PublicSource> = {}): PublicSource {
 }
 
 describe("AuditTrail", () => {
-  it("omits the revoked-source count when no sources are revoked", () => {
+  it("omits the revoked-rationale count when no rationale is revoked", () => {
     const html = renderToStaticMarkup(
       <AuditTrail opinion={opinion()} sources={[source()]} />,
     );
 
     expect(html).toContain("confidence 78%");
-    expect(html).not.toContain("source revoked");
-    expect(html).not.toContain("sources revoked");
+    expect(html).not.toContain("rationale revoked");
   });
 
-  it("shows the revoked-source count when at least one source is revoked", () => {
+  it("shows the revoked-rationale count when at least one rationale entry is revoked", () => {
     const html = renderToStaticMarkup(
       <AuditTrail
         opinion={opinion()}
@@ -63,6 +62,6 @@ describe("AuditTrail", () => {
       />,
     );
 
-    expect(html).toContain("1 source revoked");
+    expect(html).toContain("1 rationale revoked");
   });
 });

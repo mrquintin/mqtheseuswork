@@ -412,11 +412,12 @@ def public_current_event(event: CurrentEvent | None) -> PublicCurrentEvent | Non
 
 
 X_SOURCE_VALUES = {"X", "X_TWITTER", "TWITTER"}
+INLINE_CONCLUSION_TOKEN_RE = re.compile(r"\s*\[C:[^\]\s]+\]")
 GENERIC_X_EVENT_REPLACEMENTS = (
-    (re.compile(r"\bThe current event\b"), "The source post"),
-    (re.compile(r"\bthe current event\b"), "the source post"),
-    (re.compile(r"\bCurrent event\b"), "Source post"),
-    (re.compile(r"\bcurrent event\b"), "source post"),
+    (re.compile(r"\bThe current event\b"), "The X post"),
+    (re.compile(r"\bthe current event\b"), "the X post"),
+    (re.compile(r"\bCurrent event\b"), "X post"),
+    (re.compile(r"\bcurrent event\b"), "X post"),
     (re.compile(r"\bThe event's\b"), "The post's"),
     (re.compile(r"\bthe event's\b"), "the post's"),
     (re.compile(r"\bThis event's\b"), "This post's"),
@@ -433,20 +434,62 @@ GENERIC_X_EVENT_REPLACEMENTS = (
     (re.compile(r"\bthat event\b"), "that post"),
     (re.compile(r"\bThe observed event\b"), "The observed post"),
     (re.compile(r"\bthe observed event\b"), "the observed post"),
+    (re.compile(r"\bThe source post\b"), "The X post"),
+    (re.compile(r"\bthe source post\b"), "the X post"),
+    (re.compile(r"\bsource post\b"), "X post"),
+)
+PUBLIC_SOURCE_LANGUAGE_REPLACEMENTS = (
+    (
+        re.compile(r"\bthrough the firm's sources\b", re.IGNORECASE),
+        "through the firm's judgment",
+    ),
+    (
+        re.compile(r"\bbased on the firm's sources\b", re.IGNORECASE),
+        "as the firm's opinion",
+    ),
+    (re.compile(r"\bthe firm's sources\b", re.IGNORECASE), "the firm's judgment"),
+    (re.compile(r"\bfirm sources\b", re.IGNORECASE), "firm reasoning"),
+    (
+        re.compile(r"\bretrieved firm conclusions\b", re.IGNORECASE),
+        "the firm's recorded conclusions",
+    ),
+    (
+        re.compile(r"\bretrieved conclusions\b", re.IGNORECASE),
+        "the firm's recorded conclusions",
+    ),
+    (
+        re.compile(r"\bretrieved sources\b", re.IGNORECASE),
+        "the firm's recorded reasoning",
+    ),
+    (
+        re.compile(r"\bsource material\b", re.IGNORECASE),
+        "the firm's internal reasoning",
+    ),
+    (re.compile(r"\bthe sources\b", re.IGNORECASE), "the firm's reasoning"),
+    (re.compile(r"\bthose sources\b", re.IGNORECASE), "that reasoning"),
+    (re.compile(r"\bits sources\b", re.IGNORECASE), "its judgment"),
+    (re.compile(r"\bsingle source\b", re.IGNORECASE), "limited firm confidence"),
+    (re.compile(r"\bthe data\b", re.IGNORECASE), "the firm's judgment"),
 )
 
 
 def _is_x_event(event: CurrentEvent | None) -> bool:
-    return (_enum_value(getattr(event, "source", None)) or "").upper() in X_SOURCE_VALUES
+    return (
+        _enum_value(getattr(event, "source", None)) or ""
+    ).upper() in X_SOURCE_VALUES
 
 
 def _source_specific_copy(event: CurrentEvent | None, text: str) -> str:
-    if not _is_x_event(event):
-        return text
     revised = text
-    for pattern, replacement in GENERIC_X_EVENT_REPLACEMENTS:
+    if _is_x_event(event):
+        for pattern, replacement in GENERIC_X_EVENT_REPLACEMENTS:
+            revised = pattern.sub(replacement, revised)
+    for pattern, replacement in PUBLIC_SOURCE_LANGUAGE_REPLACEMENTS:
         revised = pattern.sub(replacement, revised)
-    return revised
+    revised = INLINE_CONCLUSION_TOKEN_RE.sub("", revised)
+    revised = re.sub(r"[ \t]{2,}", " ", revised)
+    revised = re.sub(r"\s+([,.;:!?])", r"\1", revised)
+    return revised.strip()
 
 
 def public_opinion(
@@ -464,7 +507,10 @@ def public_opinion(
         confidence=float(opinion.confidence),
         headline=_source_specific_copy(event, opinion.headline),
         body_markdown=_source_specific_copy(event, opinion.body_markdown),
-        uncertainty_notes=list(opinion.uncertainty_notes or []),
+        uncertainty_notes=[
+            _source_specific_copy(event, note)
+            for note in (opinion.uncertainty_notes or [])
+        ],
         topic_hint=opinion.topic_hint,
         model_name=opinion.model_name,
         generated_at=opinion.generated_at,
@@ -589,7 +635,9 @@ def public_forecast(
     market: ForecastMarket | None,
     resolution: ForecastResolution | None = None,
 ) -> PublicForecast:
-    status_value = "RESOLVED" if resolution is not None else (_enum_value(prediction.status) or "")
+    status_value = (
+        "RESOLVED" if resolution is not None else (_enum_value(prediction.status) or "")
+    )
     revoked_count = sum(1 for citation in citations if citation.is_revoked)
     return PublicForecast(
         id=prediction.id,
@@ -614,7 +662,9 @@ def public_forecast(
     )
 
 
-def public_forecast_from_store(store: Any, prediction: ForecastPrediction) -> PublicForecast:
+def public_forecast_from_store(
+    store: Any, prediction: ForecastPrediction
+) -> PublicForecast:
     citations = store.list_forecast_citations(prediction.id)
     market = store.get_forecast_market(prediction.market_id)
     resolution = store.get_forecast_resolution(prediction.id)

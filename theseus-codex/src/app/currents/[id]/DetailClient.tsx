@@ -12,6 +12,7 @@ import { CopyLinkButton } from "./CopyLinkButton";
 import FollowupChat from "./FollowupChat";
 import SourceCard from "./SourceCard";
 import SourceDrawer from "./SourceDrawer";
+import XPostEmbed from "../XPostEmbed";
 
 interface DetailClientProps {
   canPublish?: boolean;
@@ -55,16 +56,16 @@ function eventAuthorHandle(event: PublicOpinion["event"]): string | null {
 function observedEventTitle(event: PublicOpinion["event"]): string {
   switch (eventSourceKind(event)) {
     case "x":
-      return "Source X post";
+      return "X post";
     case "rss":
-      return "Source RSS item";
+      return "RSS item";
     default:
-      return "Source item";
+      return "Observed item";
   }
 }
 
 function sourceActionLabel(event: PublicOpinion["event"]): string {
-  return eventSourceKind(event) === "x" ? "Open on X" : "Open source";
+  return eventSourceKind(event) === "x" ? "Open on X" : "Open item";
 }
 
 function formatObservedAt(value: string): string {
@@ -84,6 +85,17 @@ function ObservedEventPanel({ opinion }: { opinion: PublicOpinion }) {
 
   const title = observedEventTitle(event);
   const handle = eventAuthorHandle(event);
+
+  if (eventSourceKind(event) === "x" && event.url) {
+    return (
+      <XPostEmbed
+        authorHandle={handle}
+        fallbackText={text}
+        observedAt={event.observed_at}
+        url={event.url}
+      />
+    );
+  }
 
   return (
     <section
@@ -148,7 +160,7 @@ function ObservedEventPanel({ opinion }: { opinion: PublicOpinion }) {
           marginTop: "0.75rem",
         }}
       >
-        {event.external_id ? <span>source id {event.external_id}</span> : null}
+        {event.external_id ? <span>item id {event.external_id}</span> : null}
         {event.url ? (
           <a
             href={event.url}
@@ -286,8 +298,7 @@ export default function DetailClient({ canPublish = false, opinion, sources }: D
               textTransform: "uppercase",
             }}
           >
-            Firm analysis
-            {eventSourceKind(opinion.event) === "x" ? " of the source post" : ""}
+            The firm's opinion
           </div>
           <div
             style={{
@@ -362,7 +373,7 @@ export default function DetailClient({ canPublish = false, opinion, sources }: D
           ) : null}
 
           <section
-            aria-label="Expanded sources"
+            aria-label="Internal rationale"
             style={{
               display: "grid",
               gap: "0.9rem",
@@ -379,7 +390,7 @@ export default function DetailClient({ canPublish = false, opinion, sources }: D
                 textTransform: "uppercase",
               }}
             >
-              Sources
+              Internal rationale
             </h2>
             {sources.length ? (
               sources.map((source) => (
@@ -393,7 +404,7 @@ export default function DetailClient({ canPublish = false, opinion, sources }: D
               ))
             ) : (
               <p style={{ color: "var(--currents-muted)", margin: 0 }}>
-                No sources returned for this opinion.
+                No internal rationale returned for this opinion.
               </p>
             )}
           </section>

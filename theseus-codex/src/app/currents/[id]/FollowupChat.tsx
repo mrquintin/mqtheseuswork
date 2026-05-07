@@ -41,7 +41,7 @@ interface FollowupChatProps {
 function normalizedKind(value: string | null | undefined): string {
   const normalized = value?.trim().toLowerCase() ?? "";
   if (normalized === "conclusion" || normalized === "claim") return normalized;
-  return normalized || "source";
+  return normalized || "rationale";
 }
 
 function fallbackCanonicalPath(source: PublicSource): string {
@@ -392,7 +392,7 @@ export default function FollowupChat({
                 <span aria-label="Follow-up citations">
                   {message.citations.map((citation) => (
                     <a key={citation.id} href={citation.href} style={chipStyle}>
-                      ⸺ {citation.sourceKind}
+                      {citation.sourceKind}
                     </a>
                   ))}
                 </span>
@@ -408,7 +408,7 @@ export default function FollowupChat({
           maxLength={QUESTION_MAX_LENGTH}
           onChange={(event) => setQuestion(event.target.value)}
           onKeyDown={handleKeyDown}
-          placeholder="Ask about the evidence, uncertainty, or implications."
+          placeholder="Ask about the firm's reasoning, uncertainty, or implications."
           ref={textareaRef}
           rows={4}
           style={{

@@ -195,7 +195,7 @@ def _opinion_user_prompt(event: Any, hits: list[Any]) -> str:
                 "a subject."
             ),
             _event_subject_guidance(event),
-            "RETRIEVED THESEUS SOURCES",
+            "FIRM REASONING MATERIAL FOR INTERNAL VALIDATION",
             _source_blocks(hits),
             "Return the strict JSON object specified by the system prompt.",
         ]
@@ -401,8 +401,7 @@ async def generate_opinion(
     client = None
 
     while (
-        json_failures < MAX_JSON_FAILURES
-        and citation_failures < MAX_CITATION_FAILURES
+        json_failures < MAX_JSON_FAILURES and citation_failures < MAX_CITATION_FAILURES
     ):
         system_prompt = base_system + corrective
         try:

@@ -22,7 +22,6 @@ from noosphere.currents.opinion_generator import (
 from noosphere.mitigations.prompt_separator import PromptSeparator
 from noosphere.models import FollowUpMessage, FollowUpRole, FollowUpSession
 
-
 RATE_LIMIT_PER_FINGERPRINT_PER_DAY = 20
 RATE_LIMIT_PER_SESSION = 8
 MIN_INTERVAL_BETWEEN_MESSAGES_SECONDS = 2
@@ -58,7 +57,9 @@ class _QuestionEvent:
 
 def retrieve_for_event(store: Any, event: Any, top_k: int = DEFAULT_TOP_K) -> list[Any]:
     """Lazy wrapper so mocked follow-up tests do not import NumPy eagerly."""
-    from noosphere.currents.retrieval_adapter import retrieve_for_event as _retrieve_for_event
+    from noosphere.currents.retrieval_adapter import (
+        retrieve_for_event as _retrieve_for_event,
+    )
 
     return _retrieve_for_event(store, event, top_k=top_k)
 
@@ -90,7 +91,9 @@ def _user_message_count_for_session(store: Any, session_id: str) -> int:
         return len(rows)
 
 
-def _last_user_message_for_session(store: Any, session_id: str) -> FollowUpMessage | None:
+def _last_user_message_for_session(
+    store: Any, session_id: str
+) -> FollowUpMessage | None:
     with store.session() as db:
         return db.exec(
             select(FollowUpMessage)
@@ -161,7 +164,7 @@ def _followup_prompt(
             f"headline: {getattr(opinion, 'headline', '')}",
             "body_markdown:",
             getattr(opinion, "body_markdown", ""),
-            "FRESHLY RETRIEVED THESEUS SOURCES",
+            "FIRM REASONING MATERIAL FOR INTERNAL VALIDATION",
             _source_blocks(hits),
             "UNTRUSTED USER QUESTION",
             wrapped_question,
@@ -214,12 +217,12 @@ def _parse_followup_response(raw_text: str) -> tuple[str, Any]:
         payload = _extract_json_object(raw_text)
     except (json.JSONDecodeError, ValueError):
         return (
-            "I cannot answer that with validated retrieved sources.",
+            "The firm cannot answer that responsibly from its current judgment.",
             [],
         )
     answer = str(payload.get("answer_markdown") or "").strip()
     if not answer:
-        answer = "I cannot answer that with validated retrieved sources."
+        answer = "The firm cannot answer that responsibly from its current judgment."
     return answer, payload.get("citations", [])
 
 
@@ -307,7 +310,9 @@ async def answer_followup(
         "model": response.model,
         "source_count": len(hits),
     }
-    yield FollowupAnswerChunk(kind="meta", text=json.dumps(meta, sort_keys=True), citation=None)
+    yield FollowupAnswerChunk(
+        kind="meta", text=json.dumps(meta, sort_keys=True), citation=None
+    )
     for chunk in _text_chunks(answer_text):
         yield FollowupAnswerChunk(kind="token", text=chunk, citation=None)
     for citation in citations:
