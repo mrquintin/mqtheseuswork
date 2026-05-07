@@ -49,6 +49,28 @@ def _coerce_vector(value: Any) -> list[float]:
     return [float(item) for item in value]
 
 
+def _upsert_domain_locality(
+    store: Any,
+    *,
+    source_kind: str,
+    source_id: str,
+    vector: list[float],
+) -> None:
+    if source_kind not in {"claim", "conclusion"}:
+        return
+    try:
+        from noosphere.coherence.locality import DomainLocalityIndex
+
+        DomainLocalityIndex(store=store).upsert(source_id, vector)
+    except Exception as exc:
+        LOGGER.warning(
+            "locality_index_upsert_failed source_kind=%s source_id=%s error=%s",
+            source_kind,
+            source_id,
+            exc,
+        )
+
+
 def embed_text_and_store_with_store(
     store: Any,
     *,
@@ -86,6 +108,12 @@ def embed_text_and_store_with_store(
         )
         if source_kind == "conclusion":
             store.update_prisma_conclusion_embedding_json(source_id, vector)
+        _upsert_domain_locality(
+            store,
+            source_kind=source_kind,
+            source_id=source_id,
+            vector=vector,
+        )
         store.clear_embedding_retry(
             source_kind=source_kind,
             source_id=source_id,

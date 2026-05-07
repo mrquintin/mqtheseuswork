@@ -1,0 +1,130 @@
+You are operating in /Users/michaelquintin/Desktop/Theseus.
+
+Goal: when Noosphere ingests a new conclusion or claim, do not test its
+coherence against every conclusion in the corpus. As the corpus grows that
+is O(n) per ingest and quadratic over time. Instead, locate the *domain
+neighborhood* of the new idea via approximate nearest-neighbor (ANN) search
+in the embedding space and run coherence/contradiction tests only against
+the local cluster, plus a small random sample from outside the cluster as a
+safety check.
+
+Two concrete failure modes to fix:
+- Today's coherence pipeline either iterates the corpus or batches
+  arbitrarily. There is no formal notion of "the local domain of an idea."
+- The contradiction surface explodes once the corpus passes a few thousand
+  conclusions because every layer of the six-layer engine runs on the full
+  context.
+
+Background — read current state:
+1. Read `noosphere/noosphere/coherence/engine.py`. Identify the entry points
+   that take a `Set[Proposition]` and run them through layers S1–S6.
+2. Read `noosphere/noosphere/coherence/cache.py`. Whatever caching exists is
+   the substrate the locality index will piggyback on.
+3. Read `noosphere/noosphere/embeddings.py` and `noosphere/noosphere/embed_pass.py`
+   to learn how conclusions/claims get their vectors today and where the
+   vectors are persisted.
+4. Read `noosphere/noosphere/methods/contradiction_geometry.py`. This is the
+   registered method whose Hoyer sparsity analysis lets us *predict* where a
+   contradiction would lie — prompt 06 builds on it; this prompt only stands
+   up the locality substrate.
+5. Read `noosphere/alembic/versions/` and `noosphere/noosphere/models.py` to
+   understand the existing `Conclusion` / `Claim` tables and which already
+   carry an embedding column.
+6. Read `ideologicalOntology/Embedding_Geometry_Conjecture/` (especially
+   `experiment_contradiction_direction.py`) and
+   `ideologicalOntology/Contradiction_Geometry/contradiction_pairs.py` for
+   the empirical basis: contradiction tends to point along sparse,
+   dimension-concentrated directions in embedding space. The locality probe
+   plus a contradiction-direction probe is what makes the coherence test
+   tractable at scale.
+
+Implement or repair:
+
+A. A locality index module.
+   - Create `noosphere/noosphere/coherence/locality.py`. It exposes:
+     ```
+     class DomainLocalityIndex:
+         def upsert(self, proposition_id: str, embedding: np.ndarray) -> None
+         def remove(self, proposition_id: str) -> None
+         def neighbors(
+             self,
+             query_embedding: np.ndarray,
+             *,
+             k: int = 64,
+             radius: float | None = None,
+             include_outside_sample: int = 8,
+         ) -> NeighborResult
+     ```
+     `NeighborResult` distinguishes `local_ids` (top-k or in-radius) from
+     `outside_sample_ids` (a small random sample drawn from the rest of the
+     corpus to keep the test honest about distant contradictions).
+   - The implementation must be ANN-based, not brute-force. Prefer hnswlib
+     (already permitted in the project — verify by reading
+     `noosphere/pyproject.toml` and `requirements.txt`); fall back to a
+     dense-numpy cosine search guarded by `len(corpus) < 5_000` only as a
+     safety net. Document the fallback clearly. If hnswlib is not yet a
+     dependency, add it to `noosphere/pyproject.toml` with a defended pin.
+   - Persistence: serialize the ANN index to
+     `noosphere_data/coherence/locality.bin` and track the contained id set
+     alongside it as JSON for cheap consistency checks. Index loads
+     lazily; if the file is missing the index reconstructs from the
+     existing embedding column on first use and writes itself out.
+   - Idempotency: `upsert` is safe to call repeatedly with the same id and
+     the same vector (no duplicate entries; vector replacement is allowed).
+
+B. Wire the index into the existing coherence pipeline.
+   - In `noosphere/noosphere/coherence/engine.py`, add a new entry point
+     `coherence_check_local(proposition: Proposition, *, store) -> CoherenceReport`
+     that calls `DomainLocalityIndex.neighbors` and runs the existing
+     six-layer engine ONLY against the union of `local_ids` ∪
+     `outside_sample_ids`. The existing global entry point stays callable
+     for back-compat tests and explicit "audit the whole corpus" jobs.
+   - The local check returns a `CoherenceReport` whose
+     `methodology` field records which locality config was used (`k`,
+     `radius`, `outside_sample`) — without that record the report is not
+     reproducible.
+   - The existing `embed_pass.py` / `embedding_pipeline.py` must call
+     `DomainLocalityIndex.upsert` whenever a new embedding is written. Do
+     not duplicate the embedding-write logic; insert one call site and add a
+     test that proves new conclusions land in the index without an explicit
+     reindex job.
+
+C. Tooling and tests.
+   - `noosphere/scripts/rebuild_locality_index.py`: a CLI script that walks
+     every embedded conclusion/claim and rebuilds the index from scratch.
+     Idempotent. Prints the number of vectors indexed and the file size.
+   - `noosphere/tests/test_domain_locality_index.py`:
+     (a) upsert/remove/idempotent upsert,
+     (b) `neighbors` returns roughly cosine-nearest k for a synthetic
+         spherical-cap embedding distribution,
+     (c) `outside_sample_ids` is disjoint from `local_ids` and respects
+         `include_outside_sample`,
+     (d) persistence round-trip: write, throw the in-memory index away,
+         load, get the same neighbors back.
+   - `noosphere/tests/test_coherence_local_entry.py`: integration test
+     showing that for a corpus of N=1000 synthetic propositions the
+     six-layer engine is invoked on ≤ k+sample propositions, and that a
+     planted contradiction inside the local cluster is detected.
+
+Constraints:
+- Do not change the six-layer engine's per-layer math.
+- The outside-sample is mandatory — it is the "is the corpus drifting away
+  from this idea anywhere far?" check the founder asked for, and removing
+  it would let a contradiction in a distant cluster silently slip through.
+- The locality index must be deterministic given the same inputs and the
+  same hnswlib parameters; record those parameters alongside the file.
+- Prompt 06 will add contradiction-direction probing on top of this. Do not
+  pre-build that here; just leave a clean extension point in `neighbors`'
+  return type.
+
+If the work already exists, inspect it and only repair gaps. Do not write a
+parallel coherence engine.
+
+SCOPE
+- `noosphere/noosphere/coherence/locality.py` CREATE
+- `noosphere/noosphere/coherence/engine.py` MODIFY
+- `noosphere/noosphere/embed_pass.py` MODIFY
+- `noosphere/noosphere/embedding_pipeline.py` MODIFY
+- `noosphere/scripts/rebuild_locality_index.py` CREATE
+- `noosphere/tests/test_domain_locality_index.py` CREATE
+- `noosphere/tests/test_coherence_local_entry.py` CREATE

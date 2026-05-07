@@ -1,0 +1,120 @@
+You are operating in /Users/michaelquintin/Desktop/Theseus.
+
+Goal: invert the Currents pipeline. The current shape (KB-anchored search
+seeds → fetch X posts that match those seeds) is wrong. The intended shape
+is: discover what's *trending* on X right now → keep only events whose subject
+matter resonates with our knowledge base → use the knowledge base only to
+generate the COMMENTARY, never to seed the discovery.
+
+Concrete failure to fix:
+- The KB never opines on a real-world event unless one of its own search
+  queries already matched something. That collapses the pipeline into "find
+  posts about topics we already know about" which is a vanity feed, not a
+  newsroom.
+- Tiny accounts with low-engagement posts pass relevance just because they
+  used a keyword. Significance is currently zero-weighted.
+
+Background — read current state before editing:
+1. Read `noosphere/noosphere/currents/x_ingestor.py`. Note the two ingestion
+   sources: `cfg.curated_accounts` (good for personal Founder follows) and
+   `cfg.search_queries` (currently typed for our domain — this is the
+   reversal target). The function pipes posts straight into persistence.
+2. Read `noosphere/noosphere/currents/config.py`. Note `curated_accounts`,
+   `search_queries`, `max_events_per_cycle`, `disabled_reasons`. Add fields
+   here, do not invent a parallel config.
+3. Read `noosphere/noosphere/currents/relevance.py`. Today it asks: do we have
+   ≥2 KB sources scoring ≥0.55 against this event? That gate stays, but it
+   must execute *after* a new significance gate, not as the primary filter.
+4. Read `noosphere/noosphere/currents/scheduler.py` to see the cycle order
+   `ingest → enrich → relevance → opinion`.
+5. Read prompt `02_x_significance_metrics_capture.txt` and confirm that
+   `XPost.metrics` and `CurrentEvent.metrics.significance_score` exist before
+   you start. If prompt 02 has not yet been applied, halt with a clear error
+   message in your run-report.
+
+Implement or repair:
+
+A. Add a `discovery` ingestion mode that pulls *trending* candidates first,
+   not topical ones.
+   - In `_x_client.py` add `async def fetch_trending_candidates(self, *,
+     locale: str = "en", max_results: int = 50) -> list[XPost]` — use the
+     `tweets/search/recent` endpoint with a permissive query that biases for
+     virality (e.g. `-is:retweet -is:reply lang:en min_faves:1000` or the
+     equivalent for the project's API tier; document the query in a
+     module-level constant `DISCOVERY_QUERY`). Always request
+     `public_metrics`. If the project has access to the X "Trends" endpoint,
+     prefer that and degrade to the engagement-thresholded search query. The
+     decision tree must be in code, not in the prompt.
+   - In `config.py` add: `discovery_enabled: bool = True`,
+     `discovery_max_candidates: int = 100`,
+     `min_significance_score: float` (default a value calibrated against the
+     weights chosen in prompt 02 — write a one-paragraph comment defending
+     the floor),
+     `min_likes`, `min_retweets`, `min_impressions` integer floors so the
+     deployment can override either the score or the raw counts.
+   - Refactor `ingest_once` so the cycle is: (1) discovery fetch, (2) drop
+     posts below the significance floor, (3) curated-accounts fetch
+     (UNCHANGED — Founder's personally vetted authors bypass the
+     significance floor), (4) per-cycle de-dupe and persistence. Keep
+     `cfg.search_queries` available but mark it as a *targeted-augmentation*
+     channel, not the primary one — and emit a `LOGGER.info` line when it
+     runs so we can see if it ever fires.
+
+B. Move the KB relevance step LATER in the cycle and rename what it filters.
+   - In `relevance.py`, leave `check_relevance` callable but rename the
+     decision values to make the new semantics legible: keep
+     `OPINE` and `ABSTAIN_INSUFFICIENT_SOURCES`, add
+     `ABSTAIN_BELOW_SIGNIFICANCE_FLOOR` and
+     `ABSTAIN_OFF_DOMAIN`. Where the existing code returned
+     `ABSTAIN_INSUFFICIENT_SOURCES` for off-domain events, classify those as
+     `ABSTAIN_OFF_DOMAIN` instead — distinguish "the event is significant
+     but our corpus has nothing relevant to say" from "the event itself is
+     not significant."
+   - Add `def gate_significance(event, *, floor: float) -> bool` that reads
+     the `metrics.significance_score` written by prompt 02 and rejects below
+     `floor`. The relevance check must call it first.
+   - Update `noosphere/noosphere/currents/scheduler.py` so the cycle order
+     becomes: ingest → enrich (embeddings, near-dup) → significance gate →
+     KB relevance (only for events that survived significance). Curated
+     posts skip the significance gate (Founder-trusted) but still go through
+     KB relevance.
+
+C. Tests
+   - `noosphere/tests/test_currents_pipeline_inversion.py` proves:
+     (a) discovery mode pulls candidates with high `significance_score`
+         first; a low-score post is rejected before KB relevance ever runs;
+     (b) curated-account posts ALWAYS reach KB relevance regardless of
+         metrics (Founder override path);
+     (c) when both gates pass we still cap at `max_events_per_cycle`;
+     (d) the new `ABSTAIN_OFF_DOMAIN` decision is emitted exactly when the
+         event is significant but no KB sources score ≥ MIN_TOP_SCORE;
+     (e) disabled discovery (`discovery_enabled=False`) reverts to the
+         previous behavior so we have a kill switch.
+   - Update existing currents tests where the cycle order changed.
+
+D. Documentation
+   - Update `docs/currents/PIPELINE.md` if it exists, or create it, with a
+     two-paragraph note on the inversion: discovery first, KB relevance
+     second, KB never *seeds* discovery. Include an ASCII diagram.
+
+Constraints:
+- Do not delete `cfg.search_queries`. Keep it as targeted augmentation.
+- Do not change the persistence schema except as required to surface the new
+  `ABSTAIN_OFF_DOMAIN` status — and that surfacing must reuse
+  `CurrentEventStatus`, not invent a parallel enum.
+- The discovery query string is a deployment-time concern; expose it via env
+  with a sane default.
+- This prompt depends on prompt 02. Refuse to proceed if `XPost.metrics` is
+  absent.
+
+If the work already exists, inspect it and only repair gaps. Do not duplicate
+the discovery path or fork the scheduler.
+
+SCOPE
+- `noosphere/noosphere/currents/_x_client.py` MODIFY
+- `noosphere/noosphere/currents/x_ingestor.py` MODIFY
+- `noosphere/noosphere/currents/config.py` MODIFY
+- `noosphere/noosphere/currents/relevance.py` MODIFY
+- `noosphere/noosphere/currents/scheduler.py` MODIFY
+- `noosphere/tests/test_currents_pipeline_inversion.py` CREATE
+- `docs/currents/PIPELINE.md` CREATE

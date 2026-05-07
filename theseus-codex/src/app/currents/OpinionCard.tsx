@@ -199,6 +199,7 @@ function ObservedSourceExcerpt({ opinion }: { opinion: PublicOpinion }) {
         compact
         fallbackText={text}
         observedAt={event.observed_at}
+        surface="card"
         url={event.url}
       />
     );

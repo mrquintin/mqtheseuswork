@@ -1,0 +1,75 @@
+You are operating in /Users/michaelquintin/Desktop/Theseus.
+
+Goal: eliminate the visible white corners that flash around the curved edges of
+the embedded X (Twitter) post on the Currents surface. The card itself
+(`twitter-tweet`) renders inside an iframe that platform.twitter.com injects
+with rounded corners and a non-transparent fill; on the dark
+`--currents-bg` / `--currents-bg-elevated` palette, the corners of that
+iframe leak white because the iframe's chrome does not match the page bg.
+
+Before you start — read current state:
+1. Read `theseus-codex/src/app/currents/XPostEmbed.tsx` end-to-end. Note that
+   the embed uses platform.twitter.com's `widgets.js` and renders a
+   `<blockquote class="twitter-tweet" data-theme="dark">` that
+   widgets.js replaces with an iframe in-place.
+2. Read `theseus-codex/src/app/currents/OpinionCard.tsx` around line 197 — the
+   only consumer of `XPostEmbed`.
+3. Read `theseus-codex/src/app/currents/[id]/DetailClient.tsx` around line 91 —
+   the second consumer.
+4. Read the relevant token block in
+   `theseus-codex/src/app/globals.css` (search `--currents-bg`); the embed must
+   match `--currents-bg-elevated` (#1c1916) when nested inside an OpinionCard
+   and `--currents-bg` (#141210) when standalone.
+5. Read `theseus-codex/src/__tests__/OpinionCard.test.tsx` — it asserts the
+   embed still emits `twitter-tweet`. Don't break that.
+
+What's actually happening:
+- platform.twitter.com renders the iframe with its own border-radius, but the
+  area OUTSIDE the iframe's rounded clip path is the wrapper element's
+  background. When the wrapper's background is unset (transparent), the user's
+  OS-default white shows through at the four corners.
+- A safe, dependency-free fix is to: (a) clip the wrapper itself with
+  `border-radius` matching the iframe's radius, (b) paint the wrapper with the
+  same background token as the surrounding card so any sub-pixel anti-alias
+  fringe blends in, and (c) `overflow: hidden` so nothing renders past the
+  clip. The Twitter widget renders one direct iframe child whose own rounded
+  corners match — clipping the wrapper at the same or slightly larger radius
+  hides the leaks without touching widget internals.
+
+Implement or repair:
+- `XPostEmbed` accepts an optional `surface` prop (`"card" | "page"`,
+  default `"card"`) that selects which currents background token paints the
+  wrapper. Existing callers in `OpinionCard.tsx` and `[id]/DetailClient.tsx`
+  pass the appropriate value; default keeps the current behavior on the
+  Currents grid.
+- The wrapper `<div>` gets: `background: var(--currents-bg-elevated)` (or
+  `--currents-bg` when `surface="page"`), `borderRadius: "16px"` to match
+  Twitter's widget radius, and `overflow: "hidden"`.
+- Add a fallback `:has(iframe)` color rule in the same component (inline
+  `<style>` is acceptable, but a `globals.css` block scoped to
+  `[data-theseus-x-embed]` is cleaner) so the iframe's parent paints the same
+  bg token even before widgets.js finishes loading.
+- Mirror the same wrapper treatment for the pre-iframe blockquote so the
+  unhydrated state already matches the dark palette (no flash of white during
+  the widget script load).
+- Do not change the underlying Twitter widget call surface, the dedupe hash
+  format, or the fallback link copy. The visual change is the only behavior
+  change.
+
+Verification you must run:
+- `pnpm --filter theseus-codex test -- OpinionCard` (or the project's
+  equivalent — inspect `theseus-codex/package.json`).
+- `pnpm --filter theseus-codex lint` over the touched files.
+- Manual: open `/currents` in dev with the dark theme; inspect each card with
+  devtools while widgets.js loads; the four wrapper corners must paint the
+  same color as the surrounding card at all times.
+
+If the work already exists, inspect it and only repair gaps; do not duplicate
+the wrapper or revert tokens.
+
+SCOPE
+- `theseus-codex/src/app/currents/XPostEmbed.tsx` MODIFY
+- `theseus-codex/src/app/currents/OpinionCard.tsx` MODIFY
+- `theseus-codex/src/app/currents/[id]/DetailClient.tsx` MODIFY
+- `theseus-codex/src/app/globals.css` MODIFY
+- `theseus-codex/src/__tests__/OpinionCard.test.tsx` MODIFY

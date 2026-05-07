@@ -31,8 +31,19 @@ class Hit:
 
 def test_non_verbatim_citation_retries_then_abstains(monkeypatch) -> None:
     store = Store.from_database_url("sqlite:///:memory:")
-    conclusion = Conclusion(id="conclusion_citation", text=SOURCE_TEXT)
-    store.put_conclusion(conclusion)
+    conclusions = [
+        Conclusion(id="conclusion_citation_1", text=SOURCE_TEXT),
+        Conclusion(
+            id="conclusion_citation_2",
+            text="Theseus says evidence quality matters before scale.",
+        ),
+        Conclusion(
+            id="conclusion_citation_3",
+            text="Theseus says durable judgment depends on source discipline.",
+        ),
+    ]
+    for conclusion in conclusions:
+        store.put_conclusion(conclusion)
     event_id = store.add_current_event(
         CurrentEvent(
             id="event_citation",
@@ -44,7 +55,10 @@ def test_non_verbatim_citation_retries_then_abstains(monkeypatch) -> None:
             dedupe_hash="event_citation_hash",
         )
     )
-    hit = Hit("conclusion", conclusion.id, SOURCE_TEXT, 0.91)
+    hits = [
+        Hit("conclusion", conclusion.id, conclusion.text, 0.91)
+        for conclusion in conclusions
+    ]
     invalid = {
         "stance": "COMPLICATES",
         "confidence": 0.7,
@@ -54,14 +68,18 @@ def test_non_verbatim_citation_retries_then_abstains(monkeypatch) -> None:
         "citations": [
             {
                 "source_kind": "conclusion",
-                "source_id": conclusion.id,
+                "source_id": conclusions[0].id,
                 "quoted_span": "this span is not in the source",
             }
         ],
         "topic_hint": "markets",
     }
     fake_llm = FakeAnthropicClient(script=[invalid, invalid])
-    monkeypatch.setattr(subject, "retrieve_for_event", lambda *_args, **_kwargs: [hit])
+    monkeypatch.setattr(
+        subject,
+        "retrieve_for_event",
+        lambda *_args, **_kwargs: hits,
+    )
     monkeypatch.setattr(subject, "make_client", lambda: fake_llm)
 
     outcome = asyncio.run(subject.generate_opinion(store, event_id, budget=object()))

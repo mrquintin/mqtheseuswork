@@ -15,6 +15,7 @@ from noosphere.models import (
     CurrentEventSource,
     CurrentEventStatus,
     Topic,
+    XSignificanceMetrics,
 )
 from noosphere.store import Store
 
@@ -34,6 +35,7 @@ def _event(event_id: str, text: str, dedupe_hash: str) -> CurrentEvent:
         external_id=event_id,
         text=text,
         observed_at=datetime.now(),
+        metrics=XSignificanceMetrics(like_count=2_000),
         dedupe_hash=dedupe_hash,
     )
 
@@ -126,7 +128,7 @@ def test_relevance_abstains_when_event_is_orthogonal_to_seeded_conclusion(
     decision = relevance.check_relevance(st, "event_orthogonal")
 
     loaded = st.get_current_event("event_orthogonal")
-    assert decision == RelevanceDecision.ABSTAIN_INSUFFICIENT_SOURCES
+    assert decision == RelevanceDecision.ABSTAIN_OFF_DOMAIN
     assert loaded is not None
     assert loaded.status == CurrentEventStatus.ABSTAINED
 

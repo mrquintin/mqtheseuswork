@@ -22,6 +22,7 @@ CURRENT_EVENT_SOURCE = ("X_TWITTER", "RSS", "MANUAL")
 OPINION_STANCE = ("AGREES", "DISAGREES", "COMPLICATES", "ABSTAINED")
 ABSTENTION_REASON = (
     "INSUFFICIENT_SOURCES",
+    "ABSTAIN_OFF_DOMAIN",
     "NEAR_DUPLICATE",
     "BUDGET",
     "CITATION_FABRICATION",
@@ -156,6 +157,12 @@ def _create_tables() -> None:
             sa.Column("claimId", sa.Text(), nullable=True),
             sa.Column("quotedSpan", sa.Text(), nullable=False),
             sa.Column("retrievalScore", sa.Float(), nullable=False),
+            sa.Column(
+                "justificationMetadata",
+                _json_type(),
+                nullable=False,
+                server_default="{}",
+            ),
             sa.Column("isRevoked", sa.Boolean(), nullable=False, server_default=sa.false()),
             sa.Column("revokedReason", sa.Text(), nullable=True),
         )

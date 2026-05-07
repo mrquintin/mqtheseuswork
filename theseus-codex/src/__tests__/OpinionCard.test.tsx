@@ -3,6 +3,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
 
 import OpinionCard from "@/app/currents/OpinionCard";
+import XPostEmbed from "@/app/currents/XPostEmbed";
 import type { PublicCitation, PublicOpinion } from "@/lib/currentsTypes";
 
 vi.mock("next/link", () => ({
@@ -90,11 +91,30 @@ describe("OpinionCard", () => {
 
     expect(html).toContain("twitter-tweet");
     expect(html).toContain('data-theme="dark"');
+    expect(html).toContain('data-theseus-x-embed="card"');
+    expect(html).toContain("background:var(--currents-bg-elevated)");
+    expect(html).toContain("border-radius:16px");
+    expect(html).toContain("overflow:hidden");
     expect(html).toContain("https://twitter.com/analyst/status/external-1");
     expect(html).toContain("@analyst");
     expect(html).toContain("The mayor announced a new transit funding plan on X.");
     expect(html).toContain("X post");
     expect(html).not.toContain("source X post");
+  });
+
+  it("paints standalone X embeds against the Currents page surface", () => {
+    const html = renderToStaticMarkup(
+      <XPostEmbed
+        fallbackText="Standalone post copy."
+        surface="page"
+        url="https://x.com/analyst/status/external-2"
+      />,
+    );
+
+    expect(html).toContain("twitter-tweet");
+    expect(html).toContain('data-theseus-x-embed="page"');
+    expect(html).toContain("background:var(--currents-bg)");
+    expect(html).toContain("https://twitter.com/analyst/status/external-2");
   });
 
   it("renders at most three citation chips and a +N more marker", () => {

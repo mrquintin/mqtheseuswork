@@ -11,7 +11,12 @@ from noosphere.currents.budget import HourlyBudgetGuard
 from noosphere.currents.config import IngestorConfig
 from noosphere.currents.opinion_generator import OpinionOutcome
 from noosphere.currents.x_ingestor import IngestReport
-from noosphere.models import CurrentEvent, CurrentEventSource, CurrentEventStatus
+from noosphere.models import (
+    CurrentEvent,
+    CurrentEventSource,
+    CurrentEventStatus,
+    XSignificanceMetrics,
+)
 from noosphere.store import Store
 
 ORG_ID = "org_scheduler_cycle"
@@ -43,6 +48,7 @@ def test_run_cycle_happy_path_ingests_enriches_and_opines(monkeypatch) -> None:
                 external_id="external_scheduler_cycle",
                 text="A fake event enters the scheduler.",
                 observed_at=datetime(2026, 4, 29, 12, 0, 0),
+                metrics=XSignificanceMetrics(like_count=2_000),
                 dedupe_hash="scheduler_cycle_hash",
             )
         )
@@ -72,7 +78,7 @@ def test_run_cycle_happy_path_ingests_enriches_and_opines(monkeypatch) -> None:
     monkeypatch.setattr(
         scheduler,
         "check_relevance",
-        lambda _store, event_id: "OPINE",
+        lambda _store, event_id, **_kwargs: "OPINE",
     )
     monkeypatch.setattr(scheduler, "generate_opinion", fake_generate_opinion)
 
@@ -106,6 +112,7 @@ def test_run_cycle_resumes_observed_backlog(monkeypatch) -> None:
             external_id="external_scheduler_backlog",
             text="A fake event survived a prior scheduler failure.",
             observed_at=datetime(2026, 4, 29, 12, 0, 0),
+            metrics=XSignificanceMetrics(like_count=2_000),
             dedupe_hash="scheduler_backlog_hash",
             status=CurrentEventStatus.OBSERVED,
         )
@@ -138,7 +145,7 @@ def test_run_cycle_resumes_observed_backlog(monkeypatch) -> None:
     monkeypatch.setattr(
         scheduler,
         "check_relevance",
-        lambda _store, event_id: "OPINE",
+        lambda _store, event_id, **_kwargs: "OPINE",
     )
     monkeypatch.setattr(scheduler, "generate_opinion", fake_generate_opinion)
 

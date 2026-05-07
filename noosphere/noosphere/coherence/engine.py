@@ -18,16 +18,72 @@ coherence score Coh(Γ) using configurable weights.
 
 from __future__ import annotations
 from dataclasses import dataclass, field
-from datetime import datetime
-from typing import Optional, Callable, Literal
+from datetime import date, datetime
+from types import SimpleNamespace
+from typing import Any, Optional, Callable, Literal, Sequence
 import gzip
 import json
 from collections import defaultdict
+import math
 
 import numpy as np
-import networkx as nx
-from scipy.special import expit
-from scipy.spatial.distance import cosine
+try:
+    import networkx as nx
+except ImportError:  # pragma: no cover - exercised in minimal local envs.
+    class _MiniDiGraph:
+        def __init__(self) -> None:
+            self._nodes: set[str] = set()
+            self._edges: set[tuple[str, str]] = set()
+
+        def add_node(self, node: str) -> None:
+            self._nodes.add(node)
+
+        def add_edge(self, source: str, target: str, **_attrs: object) -> None:
+            self._nodes.add(source)
+            self._nodes.add(target)
+            self._edges.add((source, target))
+
+        def nodes(self) -> list[str]:
+            return list(self._nodes)
+
+        def in_degree(self, node: str | None = None):
+            if node is not None:
+                return sum(1 for _source, target in self._edges if target == node)
+            return [
+                (item, sum(1 for _source, target in self._edges if target == item))
+                for item in self._nodes
+            ]
+
+        def has_edge(self, source: str, target: str) -> bool:
+            return (source, target) in self._edges
+
+        def remove_edges_from(self, edges: list[tuple[str, str]]) -> None:
+            for edge in edges:
+                self._edges.discard(edge)
+
+    class _MiniNetworkX:
+        DiGraph = _MiniDiGraph
+
+    nx = _MiniNetworkX()  # type: ignore[assignment]
+
+try:
+    from scipy.special import expit
+except ImportError:  # pragma: no cover - exercised in minimal local envs.
+    def expit(value: float) -> float:
+        return 1.0 / (1.0 + math.exp(-float(value)))
+
+try:
+    from scipy.spatial.distance import cosine
+except ImportError:  # pragma: no cover - exercised in minimal local envs.
+    def cosine(a: np.ndarray, b: np.ndarray) -> float:
+        va = np.asarray(a, dtype=float)
+        vb = np.asarray(b, dtype=float)
+        if va.shape != vb.shape or va.size == 0:
+            return 1.0
+        denom = float(np.linalg.norm(va) * np.linalg.norm(vb))
+        if denom <= 1e-12:
+            return 1.0
+        return float(1.0 - np.dot(va, vb) / denom)
 
 try:
     from transformers import pipeline, AutoTokenizer, AutoModel
@@ -37,12 +93,15 @@ except ImportError:
     TRANSFORMERS_AVAILABLE = False
 
 from noosphere.llm import LLMClient, llm_client_from_settings
+from noosphere.coherence.locality import DomainLocalityIndex
 from noosphere.models import (
     Claim,
     CoherenceReport,
+    CoherenceVerdict,
     ContradictionFinding,
     Principle,
     SixLayerScore,
+    Speaker,
 )
 from noosphere.observability import get_logger
 
@@ -885,6 +944,428 @@ def score_claims(claims: list[Claim], weights: Optional[dict] = None) -> Coheren
 
     engine = CoherenceEngine(propositions, weights=weights)
     return engine.compute()
+
+
+def _claim_to_proposition(
+    claim: Claim, embedding: np.ndarray | None = None
+) -> Proposition:
+    vector = embedding
+    if vector is None and claim.embedding:
+        vector = np.asarray(claim.embedding, dtype=float)
+    return Proposition(
+        id=claim.id,
+        text=claim.text,
+        embedding=vector,
+        conviction_score=claim.confidence,
+    )
+
+
+def _object_to_local_proposition(
+    obj: Any,
+    *,
+    embedding: np.ndarray | None = None,
+) -> Proposition | None:
+    text = getattr(obj, "text", None)
+    pid = getattr(obj, "id", None)
+    if not text or not pid:
+        return None
+    if isinstance(obj, Claim):
+        return _claim_to_proposition(obj, embedding=embedding)
+    score = float(getattr(obj, "confidence", 0.5) or 0.5)
+    return Proposition(
+        id=str(pid),
+        text=str(text),
+        embedding=embedding,
+        conviction_score=score,
+    )
+
+
+def _load_local_proposition(
+    store: Any,
+    proposition_id: str,
+    *,
+    index: DomainLocalityIndex,
+) -> Proposition | None:
+    claim = None
+    if hasattr(store, "get_claim"):
+        try:
+            claim = store.get_claim(proposition_id)
+        except Exception:
+            claim = None
+    vector = index.vector_for(proposition_id)
+    if claim is not None:
+        return _claim_to_proposition(claim, embedding=vector)
+
+    conclusion = None
+    if hasattr(store, "get_conclusion"):
+        try:
+            conclusion = store.get_conclusion(proposition_id)
+        except Exception:
+            conclusion = None
+    if conclusion is not None:
+        return _object_to_local_proposition(conclusion, embedding=vector)
+    return None
+
+
+def _finding_pair_key(id_a: str, id_b: str) -> frozenset[str]:
+    return frozenset((str(id_a), str(id_b)))
+
+
+def _nli_scores_for_probe(
+    query: Proposition,
+    candidate: Proposition,
+    nli_engine: Optional[NLIEngine],
+) -> dict[str, float]:
+    if nli_engine is not None and hasattr(nli_engine, "entailment_score"):
+        raw = nli_engine.entailment_score(query.text, candidate.text)
+    else:
+        try:
+            from noosphere.coherence.nli import NLIScorer
+
+            probs, _partial, _verdict = NLIScorer().score_pair(
+                query.text, candidate.text
+            )
+            raw = {
+                "entailment": probs.entailment,
+                "neutral": probs.neutral,
+                "contradiction": probs.contradiction,
+            }
+        except Exception as exc:
+            logger.warning(
+                "contradiction_probe_nli_unavailable",
+                proposition_id=query.id,
+                candidate_id=candidate.id,
+                error=str(exc),
+            )
+            raw = {"entailment": 0.33, "neutral": 0.34, "contradiction": 0.33}
+    return {
+        "entailment": float(raw.get("entailment", 0.0)),
+        "neutral": float(raw.get("neutral", 0.0)),
+        "contradiction": float(raw.get("contradiction", 0.0)),
+    }
+
+
+def _nli_confirms_contradiction(scores: dict[str, float]) -> bool:
+    contradiction = scores.get("contradiction", 0.0)
+    return contradiction >= 0.55 and contradiction > max(
+        scores.get("entailment", 0.0),
+        scores.get("neutral", 0.0),
+    )
+
+
+def _nli_is_uncertain(scores: dict[str, float]) -> bool:
+    if _nli_confirms_contradiction(scores):
+        return False
+    contradiction = scores.get("contradiction", 0.0)
+    non_contradiction = max(scores.get("entailment", 0.0), scores.get("neutral", 0.0))
+    if non_contradiction >= 0.55 and contradiction < 0.45:
+        return False
+    return True
+
+
+def _probe_claim(prop: Proposition) -> Claim:
+    embedding = None
+    if prop.embedding is not None:
+        embedding = np.asarray(prop.embedding, dtype=float).reshape(-1).tolist()
+    return Claim(
+        id=prop.id,
+        text=prop.text,
+        speaker=Speaker(name="coherence_probe"),
+        episode_id="coherence_probe",
+        episode_date=date(1970, 1, 1),
+        embedding=embedding,
+        confidence=prop.conviction_score,
+    )
+
+
+def _run_probe_llm_tiebreaker(
+    query: Proposition,
+    candidate: Proposition,
+    candidate_row: Any,
+    nli_scores: dict[str, float],
+    llm_client: LLMClient | None,
+) -> Any | None:
+    if llm_client is None:
+        return None
+    try:
+        from noosphere.coherence.judge import run_llm_judge
+
+        prior_scores = SimpleNamespace(
+            s1_consistency=float(1.0 - nli_scores.get("contradiction", 0.0)),
+            s2_argumentation=0.5,
+            s3_probabilistic=0.5,
+            s4_geometric=float(getattr(candidate_row, "sparsity", 0.0)),
+            s5_compression=0.5,
+        )
+        return run_llm_judge(
+            llm_client,
+            _probe_claim(query),
+            _probe_claim(candidate),
+            prior_scores,
+            neighbor_note=(
+                "This pair was nominated by contradiction_probe near the "
+                "predicted negation-direction neighborhood."
+            ),
+        )
+    except Exception as exc:
+        logger.warning(
+            "contradiction_probe_llm_tiebreaker_failed",
+            proposition_id=query.id,
+            candidate_id=candidate.id,
+            error=str(exc),
+        )
+        return None
+
+
+def _tentative_probe_row(
+    query: Proposition,
+    candidate: Proposition,
+    candidate_row: Any,
+    *,
+    verdict_layer: str,
+    nli_scores: dict[str, float],
+    llm_verdict: Any | None = None,
+) -> dict[str, Any]:
+    row = {
+        "source": "contradiction_probe",
+        "query_proposition_id": query.id,
+        "proposition_id": candidate.id,
+        "predicted_distance": float(getattr(candidate_row, "predicted_distance", 1.0)),
+        "sparsity": float(getattr(candidate_row, "sparsity", 0.0)),
+        "cosine_similarity": float(getattr(candidate_row, "cosine_similarity", 0.0)),
+        "verdict_layer": verdict_layer,
+        "nli_scores": nli_scores,
+    }
+    if llm_verdict is not None:
+        row["llm_verdict"] = {
+            "verdict": str(getattr(llm_verdict, "verdict", "")),
+            "confidence": float(getattr(llm_verdict, "confidence", 0.0)),
+        }
+    return row
+
+
+def _verify_probe_candidates(
+    query: Proposition,
+    candidates: Sequence[Any],
+    *,
+    store: Any,
+    index: DomainLocalityIndex,
+    nli_engine: Optional[NLIEngine],
+    llm_client: LLMClient | None,
+    existing_findings: list[ContradictionFinding],
+) -> tuple[list[ContradictionFinding], list[dict[str, Any]], list[str]]:
+    existing_pairs = {
+        _finding_pair_key(finding.id_a, finding.id_b)
+        for finding in existing_findings
+    }
+    confirmed: list[ContradictionFinding] = []
+    tentative: list[dict[str, Any]] = []
+    loaded_ids: list[str] = []
+
+    for candidate_row in candidates:
+        candidate_id = str(getattr(candidate_row, "proposition_id", ""))
+        if not candidate_id or candidate_id == query.id:
+            continue
+        candidate = _load_local_proposition(store, candidate_id, index=index)
+        if candidate is None:
+            continue
+        loaded_ids.append(candidate_id)
+        nli_scores = _nli_scores_for_probe(query, candidate, nli_engine)
+        if _nli_confirms_contradiction(nli_scores):
+            pair_key = _finding_pair_key(query.id, candidate.id)
+            finding = ContradictionFinding(
+                id_a=query.id,
+                id_b=candidate.id,
+                severity=float(nli_scores["contradiction"]),
+            )
+            if pair_key not in existing_pairs:
+                confirmed.append(finding)
+                existing_pairs.add(pair_key)
+            continue
+
+        if _nli_is_uncertain(nli_scores):
+            llm_verdict = _run_probe_llm_tiebreaker(
+                query,
+                candidate,
+                candidate_row,
+                nli_scores,
+                llm_client,
+            )
+            if (
+                llm_verdict is not None
+                and getattr(llm_verdict, "verdict", None) == CoherenceVerdict.CONTRADICT
+                and float(getattr(llm_verdict, "confidence", 0.0)) >= 0.5
+            ):
+                pair_key = _finding_pair_key(query.id, candidate.id)
+                if pair_key not in existing_pairs:
+                    confirmed.append(
+                        ContradictionFinding(
+                            id_a=query.id,
+                            id_b=candidate.id,
+                            severity=float(getattr(llm_verdict, "confidence", 0.5)),
+                        )
+                    )
+                    existing_pairs.add(pair_key)
+                continue
+            tentative.append(
+                _tentative_probe_row(
+                    query,
+                    candidate,
+                    candidate_row,
+                    verdict_layer="llm_unconfirmed"
+                    if llm_verdict is not None
+                    else "nli_uncertain",
+                    nli_scores=nli_scores,
+                    llm_verdict=llm_verdict,
+                )
+            )
+            continue
+
+        tentative.append(
+            _tentative_probe_row(
+                query,
+                candidate,
+                candidate_row,
+                verdict_layer="nli_rejected",
+                nli_scores=nli_scores,
+            )
+        )
+
+    return confirmed, tentative, loaded_ids
+
+
+def coherence_check_local(
+    proposition: Proposition,
+    *,
+    store: Any,
+    k: int = 64,
+    radius: float | None = None,
+    include_outside_sample: int = 8,
+    index: DomainLocalityIndex | None = None,
+    weights: Optional[dict[str, float]] = None,
+    nli_engine: Optional[NLIEngine] = None,
+    enable_layers: Optional[set[str]] = None,
+    llm_client: LLMClient | None = None,
+    contradiction_probe_k: int = 64,
+    contradiction_probe_radius: float | None = None,
+    contradiction_exemplar_pairs: Sequence[tuple[np.ndarray, np.ndarray]] | None = None,
+) -> CoherenceReport:
+    """
+    Run the six-layer engine on the new proposition's domain neighborhood.
+
+    The global ``CoherenceEngine`` remains available for whole-corpus audits.
+    This entry point uses ANN locality to choose the existing propositions that
+    are compared with the query proposition: top-k/in-radius local neighbors
+    plus a deterministic outside sample.
+    """
+    if proposition.embedding is None:
+        raise ValueError("coherence_check_local requires proposition.embedding")
+
+    locality = index or DomainLocalityIndex(store=store)
+    neighbor_result = locality.neighbors(
+        np.asarray(proposition.embedding, dtype=float),
+        k=k,
+        radius=radius,
+        include_outside_sample=include_outside_sample,
+    )
+    from noosphere.methods.contradiction_probe import (
+        ContradictionProbeInput,
+        contradiction_probe,
+    )
+
+    probe_output = contradiction_probe(
+        ContradictionProbeInput(
+            embedding=np.asarray(proposition.embedding, dtype=float).tolist(),
+            locality_index=locality,
+            k=contradiction_probe_k,
+            radius=contradiction_probe_radius,
+            exclude_ids=[proposition.id],
+            exemplar_pairs=contradiction_exemplar_pairs,
+        )
+    )
+    local_ids = [pid for pid in neighbor_result.local_ids if pid != proposition.id]
+    outside_ids = [
+        pid for pid in neighbor_result.outside_sample_ids if pid != proposition.id
+    ]
+    probe_candidate_ids = [
+        row.proposition_id
+        for row in probe_output.candidates
+        if row.proposition_id != proposition.id
+    ]
+    candidate_ids = list(
+        dict.fromkeys([*local_ids, *outside_ids, *probe_candidate_ids])
+    )
+    scoped: list[Proposition] = [proposition]
+    for pid in candidate_ids:
+        loaded = _load_local_proposition(store, pid, index=locality)
+        if loaded is not None:
+            scoped.append(loaded)
+
+    engine = CoherenceEngine(
+        scoped,
+        weights=weights,
+        nli_engine=nli_engine,
+        enable_layers=enable_layers,
+        llm_client=llm_client,
+    )
+    report = engine.compute()
+    confirmed_probe, tentative_probe, loaded_probe_ids = _verify_probe_candidates(
+        proposition,
+        probe_output.candidates,
+        store=store,
+        index=locality,
+        nli_engine=nli_engine,
+        llm_client=llm_client,
+        existing_findings=report.contradictions_found,
+    )
+    if confirmed_probe:
+        report.contradictions_found.extend(confirmed_probe)
+        report.contradictions_found.sort(key=lambda x: x.severity, reverse=True)
+    report.tentative_contradictions.extend(tentative_probe)
+    report.methodology = {
+        "coherence_scope": "domain_locality",
+        "query_proposition_id": proposition.id,
+        "k": int(k),
+        "radius": radius,
+        "outside_sample": int(include_outside_sample),
+        "local_ids": local_ids,
+        "outside_sample_ids": outside_ids,
+        "candidate_ids": candidate_ids,
+        "candidate_count": len(candidate_ids),
+        "engine_proposition_count": len(scoped),
+        "locality": neighbor_result.methodology,
+        "contradiction_probe": {
+            "candidate_ids": [row.proposition_id for row in probe_output.candidates],
+            "candidates": [
+                row.model_dump()
+                if hasattr(row, "model_dump")
+                else {
+                    "proposition_id": row.proposition_id,
+                    "predicted_distance": row.predicted_distance,
+                }
+                for row in probe_output.candidates
+            ],
+            "mean_predicted_distance": (
+                float(
+                    sum(row.predicted_distance for row in probe_output.candidates)
+                    / len(probe_output.candidates)
+                )
+                if probe_output.candidates
+                else None
+            ),
+            "loaded_candidate_ids": loaded_probe_ids,
+            "confirmed_ids": [finding.id_b for finding in confirmed_probe],
+            "tentative_count": len(tentative_probe),
+            "probe_k": int(contradiction_probe_k),
+            "probe_radius": contradiction_probe_radius,
+            "alpha": probe_output.alpha,
+            "direction_low_confidence": probe_output.direction_low_confidence,
+            "direction_method": probe_output.direction_method,
+            "exemplar_count": probe_output.exemplar_count,
+            "methodology": probe_output.methodology,
+        },
+    }
+    return report
 
 
 if __name__ == "__main__":

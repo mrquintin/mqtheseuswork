@@ -11,6 +11,7 @@ import numpy as np
 from sentence_transformers import SentenceTransformer
 
 from noosphere.config import get_settings
+from noosphere.embedding_pipeline import _upsert_domain_locality
 from noosphere.store import Store
 
 
@@ -64,6 +65,12 @@ def run_embedding_pass(
             if cl is not None:
                 cl.embedding = vec
                 store.put_claim(cl)
+            _upsert_domain_locality(
+                store,
+                source_kind="claim",
+                source_id=cid,
+                vector=vec,
+            )
         total += len(batch_ids)
         batch.clear()
         batch_ids.clear()

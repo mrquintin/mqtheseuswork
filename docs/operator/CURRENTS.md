@@ -16,14 +16,36 @@ Current public contract: public Currents and articles should be written in the f
 
 Set `X_BEARER_TOKEN` only in the deployment secret store or local untracked env file used by the Currents runtime. Do not commit it and do not paste it into logs. For the existing local-hosted runtime, the secret belongs in the same untracked environment path used by the launchd `currents-api` and `currents-scheduler` services.
 
-Seed at least one of these:
+Discovery is the primary X source. By default it searches recent source posts
+with broad engagement filters, then the scheduler applies the significance and
+KB relevance gates:
+
+```dotenv
+CURRENTS_X_DISCOVERY_ENABLED=true
+CURRENTS_X_DISCOVERY_QUERY="-is:retweet -is:reply lang:en min_faves:1000"
+CURRENTS_X_DISCOVERY_MAX_CANDIDATES=100
+CURRENTS_MIN_SIGNIFICANCE_SCORE=1.35
+CURRENTS_X_MIN_LIKES=1000
+CURRENTS_X_MIN_RETWEETS=100
+CURRENTS_X_MIN_IMPRESSIONS=25000
+```
+
+Curated accounts are still useful for founder-vetted follows. They bypass the
+significance floor but not KB relevance:
 
 ```dotenv
 CURRENTS_X_CURATED_ACCOUNTS=44196397,783214
+```
+
+Configured searches remain available only as targeted augmentation. Use them for
+narrow operator investigations, not as the normal discovery seed:
+
+```dotenv
 CURRENTS_X_SEARCH_QUERIES="higher education truth -is:retweet","rationality learning -is:retweet"
 ```
 
-Use queries that overlap the actual Conclusion corpus. A query can be newsworthy and still produce no opinion if the firm has no relevant recorded reasoning.
+A post can be newsworthy and still produce no opinion if the firm has no
+relevant recorded reasoning.
 
 Run the non-writing diagnostic before blaming the UI:
 
@@ -33,7 +55,7 @@ python noosphere/scripts/diagnose_currents_pipeline.py
 
 Read the table from top to bottom. `X recent search` proves the X API returned posts. `Relevance gate` proves the returned posts overlap the firm memory. `Opinion prompt` proves the opinion generator would inject at least 3 Conclusion citations into the prompt. The script prints only booleans, counts, and errors; it never prints the bearer token and never writes production rows.
 
-The founder dashboard includes an `OperatorPulse` card. Green means the token and source lists are configured, a scheduler cycle has reported, and the last 24 hours contain both events and opinions. Red lists the precise missing link. The public `/currents` page also shows a disabled banner when the health endpoint reports missing X credentials or missing X sources.
+The founder dashboard includes an `OperatorPulse` card. Green means the token and at least one ingestion path are configured, a scheduler cycle has reported, and the last 24 hours contain both events and opinions. Red lists the precise missing link. The public `/currents` page also shows a disabled banner when the health endpoint reports missing X credentials or missing X sources.
 
 Article generation is controlled separately from opinion generation:
 
@@ -54,4 +76,4 @@ Kill switch path:
 CURRENTS_X_INGESTION_DISABLED=true
 ```
 
-That setting makes `ingest_once` log `currents.x_ingestion.disabled reason=manual_kill_switch` once per cycle and return no new events. Clearing `X_BEARER_TOKEN` or clearing both `CURRENTS_X_CURATED_ACCOUNTS` and `CURRENTS_X_SEARCH_QUERIES` also disables ingestion and surfaces the disabled reason through `/api/currents/health`.
+That setting makes `ingest_once` log `currents.x_ingestion.disabled reason=manual_kill_switch` once per cycle and return no new events. Clearing `X_BEARER_TOKEN` also disables ingestion. Clearing both `CURRENTS_X_CURATED_ACCOUNTS` and `CURRENTS_X_SEARCH_QUERIES` disables ingestion only when `CURRENTS_X_DISCOVERY_ENABLED=false`; the disabled reason surfaces through `/api/currents/health`.

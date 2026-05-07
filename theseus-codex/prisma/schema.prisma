@@ -40,6 +40,7 @@ enum OpinionStance {
 
 enum AbstentionReason {
   INSUFFICIENT_SOURCES
+  ABSTAIN_OFF_DOMAIN
   NEAR_DUPLICATE
   BUDGET
   CITATION_FABRICATION
@@ -633,6 +634,7 @@ model CurrentEvent {
   topicHint       String?
   isNearDuplicate Boolean            @default(false)
   embedding       Bytes?
+  metrics         Json?
   status          CurrentEventStatus @default(OBSERVED)
   dedupeHash      String             @unique
   createdAt       DateTime           @default(now())
@@ -680,6 +682,7 @@ model OpinionCitation {
   claimId        String?
   quotedSpan     String    @db.Text
   retrievalScore Float
+  justificationMetadata Json      @default("{}")
   isRevoked      Boolean   @default(false)
   revokedAt      DateTime?
   revokedReason  String?

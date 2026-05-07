@@ -10,11 +10,13 @@ from noosphere.coherence.engine import (
     LayerScores,
     NLIEngine,
     Proposition,
+    coherence_check_local,
     cosine_similarity,
     hoyer_sparsity,
     score_claims,
     score_principles,
 )
+from noosphere.coherence.locality import DomainLocalityIndex, NeighborResult
 from noosphere.coherence.nli import NLIScorer, NLIProbabilities, StubNLIScorer
 from noosphere.coherence.argumentation import ArgumentationResult, evaluate_pair_with_neighbors
 from noosphere.coherence.probabilistic import ProbabilisticAudit, check_kolmogorov_for_pair
@@ -31,7 +33,11 @@ from noosphere.coherence.aggregator import (
     pair_content_hash,
 )
 from noosphere.coherence.cache import evaluate_pair_cached, get_cached_evaluation, put_cached_evaluation
-from noosphere.coherence.scheduler import schedule_pairs_for_new_claim, conclusion_to_claim
+from noosphere.coherence.scheduler import (
+    conclusion_to_claim,
+    run_scaled_coherence_check,
+    schedule_pairs_for_new_claim,
+)
 from noosphere.coherence.calibration import (
     CoherenceCalibrationBundle,
     apply_layer_calibration,
@@ -57,6 +63,7 @@ __all__ = [
     "NLIEngine",
     "NLIProbabilities",
     "NLIScorer",
+    "NeighborResult",
     "ProbabilisticAudit",
     "Proposition",
     "StubNLIScorer",
@@ -64,7 +71,9 @@ __all__ = [
     "apply_layer_calibration",
     "augment_gold_rows_with_constant_scores",
     "check_kolmogorov_for_pair",
+    "coherence_check_local",
     "cosine_similarity",
+    "DomainLocalityIndex",
     "evaluate_pair_cached",
     "evaluate_pair_with_neighbors",
     "evaluation_cache_key",
@@ -81,6 +90,7 @@ __all__ = [
     "put_cached_evaluation",
     "regression_delta",
     "run_llm_judge",
+    "run_scaled_coherence_check",
     "save_calibration",
     "schedule_pairs_for_new_claim",
     "conclusion_to_claim",

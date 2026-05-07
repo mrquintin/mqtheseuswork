@@ -8,12 +8,16 @@ positioned in embedding space.
 """
 
 from __future__ import annotations
+
 import json
+import math
+import uuid
 from datetime import date, datetime
 from decimal import Decimal
 from enum import Enum
-from typing import Optional, Any, Literal, NewType
-from pydantic import BaseModel, Field, ConfigDict
+from typing import Any, Literal, NewType, Optional
+
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 from sqlalchemy import (
     Boolean as SABoolean,
     CheckConstraint,
@@ -31,8 +35,6 @@ from sqlalchemy import (
 from sqlalchemy.dialects import postgresql
 from sqlalchemy.types import JSON, TypeDecorator
 from sqlmodel import Field as SQLField, SQLModel
-import uuid
-
 
 # ── Enums ────────────────────────────────────────────────────────────────────
 
@@ -108,6 +110,7 @@ class OpinionStance(str, Enum):
 
 class AbstentionReason(str, Enum):
     INSUFFICIENT_SOURCES = "INSUFFICIENT_SOURCES"
+    ABSTAIN_OFF_DOMAIN = "ABSTAIN_OFF_DOMAIN"
     NEAR_DUPLICATE = "NEAR_DUPLICATE"
     BUDGET = "BUDGET"
     CITATION_FABRICATION = "CITATION_FABRICATION"
@@ -222,6 +225,48 @@ class _StringListType(TypeDecorator):
                 return [str(v) for v in decoded]
             return []
         return [str(v) for v in value]
+
+
+class _PydanticJSONType(TypeDecorator):
+    """JSON storage for small Pydantic value objects used by SQLModel rows."""
+
+    impl = JSON
+    cache_ok = True
+
+    def __init__(self, model_cls: type[BaseModel]) -> None:
+        super().__init__()
+        self.model_cls = model_cls
+
+    def load_dialect_impl(self, dialect):
+        if dialect.name == "postgresql":
+            return dialect.type_descriptor(postgresql.JSONB())
+        return dialect.type_descriptor(JSON())
+
+    def process_bind_param(self, value, dialect):
+        del dialect
+        if value is None:
+            return None
+        if isinstance(value, self.model_cls):
+            return value.model_dump(mode="json")
+        if isinstance(value, dict):
+            return self.model_cls.model_validate(value).model_dump(mode="json")
+        return None
+
+    def process_result_value(self, value, dialect):
+        del dialect
+        if value is None:
+            return None
+        if isinstance(value, str):
+            try:
+                value = json.loads(value)
+            except json.JSONDecodeError:
+                return None
+        if isinstance(value, dict):
+            try:
+                return self.model_cls.model_validate(value)
+            except Exception:
+                return None
+        return value if isinstance(value, self.model_cls) else None
 
 
 # ── Pre-existing enums (needed by store / coherence) ────────────────────────
@@ -767,8 +812,10 @@ class CoherenceReport(BaseModel):
     composite_score: float                      # Coh(Γ) ∈ [0, 1]
     layer_scores: dict[str, float]              # S₁ through S₆
     contradictions_found: list[ContradictionFinding] = []
+    tentative_contradictions: list[dict[str, Any]] = []  # Unconfirmed geometry-probe candidates
     weakest_links: list[str] = []               # Principle IDs with lowest support
     six_layer: Optional[SixLayerScore] = None   # Full six-layer breakdown
+    methodology: dict[str, Any] = Field(default_factory=dict)  # Reproducibility metadata
     generated_at: datetime = Field(default_factory=datetime.now)
 
 
@@ -837,6 +884,78 @@ class Conclusion(BaseModel):
     last_validated_at: Optional[datetime] = None
 
 
+SIGNIFICANCE_WEIGHTS: dict[str, float] = {
+    "impressions": 0.4,
+    "retweets": 0.3,
+    "likes": 0.2,
+    "replies": 0.05,
+    "quotes_bookmarks": 0.1,
+}
+# These weights deliberately privilege impressions as reach, retweets as
+# endorsement-led amplification, likes as broad reaction volume, replies as
+# public conversational activity, and quotes/bookmarks as deeper engagement
+# signals; the resulting log-sum is monotonic while dampening raw-count
+# outliers until prompt 03 adds ranking.
+
+
+def _metric_count(value: Any) -> int:
+    if value is None:
+        return 0
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return 0
+    if not math.isfinite(number) or number < 0:
+        return 0
+    return int(number)
+
+
+class XSignificanceMetrics(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    like_count: int = 0
+    retweet_count: int = 0
+    reply_count: int = 0
+    quote_count: int = 0
+    bookmark_count: int = 0
+    impression_count: int = 0
+    significance_score: float = 0.0
+
+    @field_validator(
+        "like_count",
+        "retweet_count",
+        "reply_count",
+        "quote_count",
+        "bookmark_count",
+        "impression_count",
+        mode="before",
+    )
+    @classmethod
+    def _coerce_counts(cls, value: Any) -> int:
+        return _metric_count(value)
+
+    @field_validator("significance_score", mode="before")
+    @classmethod
+    def _coerce_score(cls, value: Any) -> float:
+        try:
+            score = float(value)
+        except (TypeError, ValueError):
+            return 0.0
+        return score if math.isfinite(score) else 0.0
+
+    @model_validator(mode="after")
+    def _compute_score(self) -> XSignificanceMetrics:
+        self.significance_score = (
+            SIGNIFICANCE_WEIGHTS["impressions"] * math.log1p(self.impression_count)
+            + SIGNIFICANCE_WEIGHTS["retweets"] * math.log1p(self.retweet_count)
+            + SIGNIFICANCE_WEIGHTS["likes"] * math.log1p(self.like_count)
+            + SIGNIFICANCE_WEIGHTS["replies"] * math.log1p(self.reply_count)
+            + SIGNIFICANCE_WEIGHTS["quotes_bookmarks"]
+            * math.log1p(self.quote_count + self.bookmark_count)
+        )
+        return self
+
+
 class CurrentEvent(SQLModel, table=True):
     """External event observed by the Currents pipeline.
 
@@ -863,6 +982,14 @@ class CurrentEvent(SQLModel, table=True):
     topic_hint: Optional[str] = SQLField(default=None, sa_column=Column("topicHint", String, nullable=True))
     is_near_duplicate: bool = SQLField(default=False, sa_column=Column("isNearDuplicate", SABoolean, nullable=False))
     embedding: Optional[bytes] = SQLField(default=None, sa_column=Column("embedding", LargeBinary, nullable=True))
+    metrics: Optional[XSignificanceMetrics] = SQLField(
+        default=None,
+        sa_column=Column(
+            "metrics",
+            _PydanticJSONType(XSignificanceMetrics),
+            nullable=True,
+        ),
+    )
     status: CurrentEventStatus = SQLField(
         default=CurrentEventStatus.OBSERVED,
         sa_column=Column("status", String, nullable=False),
@@ -922,6 +1049,10 @@ class OpinionCitation(SQLModel, table=True):
     claim_id: Optional[str] = SQLField(default=None, sa_column=Column("claimId", String, nullable=True))
     quoted_span: str = SQLField(sa_column=Column("quotedSpan", Text, nullable=False))
     retrieval_score: float = SQLField(sa_column=Column("retrievalScore", SAFloat, nullable=False))
+    justification_metadata: dict[str, Any] = SQLField(
+        default_factory=dict,
+        sa_column=Column("justificationMetadata", JSON, nullable=False, default=dict),
+    )
     is_revoked: bool = SQLField(default=False, sa_column=Column("isRevoked", SABoolean, nullable=False))
     revoked_at: Optional[datetime] = SQLField(default=None, sa_column=Column("revokedAt", SADateTime, nullable=True))
     revoked_reason: Optional[str] = SQLField(default=None, sa_column=Column("revokedReason", String, nullable=True))

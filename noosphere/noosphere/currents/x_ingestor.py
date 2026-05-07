@@ -4,14 +4,19 @@ from __future__ import annotations
 
 import logging
 import uuid
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Any
 
 from noosphere.currents._x_client import MissingCredentials, XClient, XPost
 from noosphere.currents.config import IngestorConfig
 from noosphere.currents.dedupe import dedupe_hash
-from noosphere.models import CurrentEvent, CurrentEventSource, CurrentEventStatus
+from noosphere.models import (
+    CurrentEvent,
+    CurrentEventSource,
+    CurrentEventStatus,
+    XSignificanceMetrics,
+)
 
 LOGGER = logging.getLogger(__name__)
 
@@ -23,6 +28,8 @@ class IngestReport:
     new_event_ids: list[str]
     duplicates: int
     errors: list[str]
+    significance_bypass_event_ids: list[str] = field(default_factory=list)
+    rejected_below_significance: int = 0
 
     @property
     def dedupe_collision_rate(self) -> float:
@@ -38,6 +45,7 @@ def make_client(cfg: IngestorConfig) -> XClient:
         bearer_token=cfg.bearer_token,
         base_url=cfg.base_url,
         request_timeout_s=cfg.request_timeout_s,
+        discovery_query=cfg.discovery_query,
     )
 
 
@@ -61,7 +69,37 @@ async def ingest_once(store: Any, cfg: IngestorConfig) -> IngestReport:
     errors: list[str] = []
     fetched = 0
     duplicates = 0
+    rejected_below_significance = 0
+    significance_bypass_event_ids: list[str] = []
+    seen_hashes: set[str] = set()
     try:
+        if cfg.discovery_enabled and cfg.discovery_max_candidates > 0:
+            try:
+                posts = await client.fetch_trending_candidates(
+                    locale=cfg.discovery_locale,
+                    max_results=cfg.discovery_max_candidates,
+                )
+                fetched += len(posts)
+                for post in _sort_posts_by_significance(posts):
+                    if len(new_ids) >= cfg.max_events_per_cycle:
+                        break
+                    metrics = _significance_metrics(post.metrics)
+                    if not _passes_significance_filters(metrics, cfg):
+                        rejected_below_significance += 1
+                        continue
+                    if _persist_or_skip(
+                        store,
+                        cfg,
+                        post,
+                        "X_TWITTER",
+                        new_ids,
+                        seen_hashes=seen_hashes,
+                    ):
+                        continue
+                    duplicates += 1
+            except Exception as exc:
+                errors.append(f"discovery:{type(exc).__name__}: {exc}")
+
         for user_id in cfg.curated_accounts:
             if len(new_ids) >= cfg.max_events_per_cycle:
                 break
@@ -71,7 +109,17 @@ async def ingest_once(store: Any, cfg: IngestorConfig) -> IngestReport:
                 for post in posts:
                     if len(new_ids) >= cfg.max_events_per_cycle:
                         break
-                    if _persist_or_skip(store, cfg, post, "X_TWITTER", new_ids):
+                    before = len(new_ids)
+                    if _persist_or_skip(
+                        store,
+                        cfg,
+                        post,
+                        "X_TWITTER",
+                        new_ids,
+                        seen_hashes=seen_hashes,
+                    ):
+                        if len(new_ids) > before:
+                            significance_bypass_event_ids.append(new_ids[-1])
                         continue
                     duplicates += 1
             except Exception as exc:
@@ -81,12 +129,23 @@ async def ingest_once(store: Any, cfg: IngestorConfig) -> IngestReport:
             if len(new_ids) >= cfg.max_events_per_cycle:
                 break
             try:
+                LOGGER.info(
+                    "currents.x_ingestion.targeted_augmentation query=%r",
+                    query,
+                )
                 posts = await client.search_recent(query)
                 fetched += len(posts)
                 for post in posts:
                     if len(new_ids) >= cfg.max_events_per_cycle:
                         break
-                    if _persist_or_skip(store, cfg, post, "X_TWITTER", new_ids):
+                    if _persist_or_skip(
+                        store,
+                        cfg,
+                        post,
+                        "X_TWITTER",
+                        new_ids,
+                        seen_hashes=seen_hashes,
+                    ):
                         continue
                     duplicates += 1
             except Exception as exc:
@@ -102,6 +161,8 @@ async def ingest_once(store: Any, cfg: IngestorConfig) -> IngestReport:
         new_event_ids=new_ids,
         duplicates=duplicates,
         errors=errors,
+        significance_bypass_event_ids=significance_bypass_event_ids,
+        rejected_below_significance=rejected_below_significance,
     )
 
 
@@ -111,12 +172,16 @@ def _persist_or_skip(
     post: XPost,
     source: str,
     out: list[str],
+    *,
+    seen_hashes: set[str] | None = None,
 ) -> bool:
     """Return True if the post was persisted, False if skipped as a duplicate."""
 
     h = dedupe_hash(post.text, post.url)
     if not h:
         raise ValueError("dedupe hash must not be empty")
+    if seen_hashes is not None and h in seen_hashes:
+        return False
     if store.find_current_event_by_dedupe(h):
         return False
 
@@ -129,6 +194,7 @@ def _persist_or_skip(
         url=post.url,
         observed_at=_parse_created_at(post.created_at),
         dedupe_hash=h,
+        metrics=_significance_metrics(post.metrics),
         status=CurrentEventStatus.OBSERVED,
     )
     expected_event_id = event.id
@@ -136,7 +202,63 @@ def _persist_or_skip(
     if event_id != expected_event_id:
         return False
     out.append(event_id)
+    if seen_hashes is not None:
+        seen_hashes.add(h)
     return True
+
+
+def _significance_metrics(value: Any) -> XSignificanceMetrics | None:
+    if value is None:
+        return None
+    if isinstance(value, XSignificanceMetrics):
+        return value
+    if isinstance(value, dict):
+        try:
+            return XSignificanceMetrics.model_validate(value)
+        except Exception:
+            return None
+    return XSignificanceMetrics(
+        like_count=getattr(value, "like_count", 0),
+        retweet_count=getattr(value, "retweet_count", 0),
+        reply_count=getattr(value, "reply_count", 0),
+        quote_count=getattr(value, "quote_count", 0),
+        bookmark_count=getattr(value, "bookmark_count", 0),
+        impression_count=getattr(value, "impression_count", 0),
+    )
+
+
+def _passes_significance_filters(
+    metrics: XSignificanceMetrics | None,
+    cfg: IngestorConfig,
+) -> bool:
+    if metrics is None:
+        return False
+    if metrics.significance_score >= cfg.min_significance_score:
+        return True
+    return (
+        (cfg.min_likes > 0 and metrics.like_count >= cfg.min_likes)
+        or (cfg.min_retweets > 0 and metrics.retweet_count >= cfg.min_retweets)
+        or (
+            cfg.min_impressions > 0
+            and metrics.impression_count >= cfg.min_impressions
+        )
+    )
+
+
+def _sort_posts_by_significance(posts: list[XPost]) -> list[XPost]:
+    return sorted(posts, key=_significance_sort_key, reverse=True)
+
+
+def _significance_sort_key(post: XPost) -> tuple[float, int, int, int]:
+    metrics = _significance_metrics(post.metrics)
+    if metrics is None:
+        return (0.0, 0, 0, 0)
+    return (
+        metrics.significance_score,
+        metrics.impression_count,
+        metrics.retweet_count,
+        metrics.like_count,
+    )
 
 
 def _parse_created_at(value: str) -> datetime:

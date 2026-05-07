@@ -1,0 +1,57 @@
+You are operating in /Users/michaelquintin/Desktop/Theseus.
+
+Goal: realign the Currents opinion generator with the inverted pipeline from
+prompt 03. The generator must treat the X event as the *subject* and the KB
+as the *commentator's voice*, not the other way around. Today the prompt
+templates lean on KB-first phrasing, which leaks the methodological bias the
+inversion was meant to remove.
+
+Background — read current state:
+1. Read `noosphere/noosphere/currents/opinion_generator.py` end-to-end.
+2. Read every prompt under `noosphere/noosphere/currents/_prompts/`. Note the
+   templated lines that order the LLM context as `[KB sources] then [event]`.
+3. Read `noosphere/noosphere/currents/retrieval_adapter.py` —
+   `retrieve_for_event` is the function that returns KB hits scored against
+   an event's embedding. The opinion generator currently consumes that.
+4. Read `noosphere/tests/` files matching `test_currents_opinion*` so you
+   know the existing assertion surface.
+5. Confirm prompts 02 and 03 have been applied (significance_score,
+   ABSTAIN_OFF_DOMAIN). If either is missing, stop with an error.
+
+Implement or repair:
+- The opinion-generation prompt must lead with the *event*: a short factual
+  recap of what's trending (text, author, observed-at, significance metrics),
+  followed by the KB excerpts framed as "what THIS firm has previously
+  argued that may be relevant to that event." Make the framing explicit:
+  "Comment on the event using the firm's prior conclusions; do not pretend
+  the conclusions caused the event."
+- The opinion generator must refuse to opine when the only KB hits are
+  generic / off-topic — reuse the `ABSTAIN_OFF_DOMAIN` path from prompt 03
+  and propagate the abstention reason through to whatever DB column carries
+  it today.
+- Citations: every KB excerpt the model uses must be attached to the
+  generated opinion as a verbatim citation row (the Conclusion id and the
+  exact quoted span). The generator already has a citation channel — extend
+  it so each citation row records *which event metric* (significance_score,
+  retweet_count, etc.) was the primary justification for surfacing the
+  event. This makes the audit trail honest about what triggered the comment.
+- Update or create unit tests in
+  `noosphere/tests/test_currents_opinion_inverted.py` proving:
+  (a) the prompt sent to the LLM leads with event metadata and metrics;
+  (b) when the retrieval adapter returns zero hits ≥ threshold, the
+      generator emits abstention with reason `ABSTAIN_OFF_DOMAIN`;
+  (c) every persisted opinion has at least one citation row whose Conclusion
+      id corresponds to a hit that was actually included in the prompt;
+  (d) significance_score is included in the citation justification metadata.
+
+Adjust the public surface (`current_events_api/...routes/...`) only if
+field names referenced by the React UI change. Do not rename existing fields
+gratuitously.
+
+If the work already exists, inspect it and only repair gaps. Do not fork the
+generator or duplicate the prompt templates.
+
+SCOPE
+- `noosphere/noosphere/currents/opinion_generator.py` MODIFY
+- `noosphere/noosphere/currents/_prompts/opinion_system.md` MODIFY
+- `noosphere/tests/test_currents_opinion_inverted.py` CREATE

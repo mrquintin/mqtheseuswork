@@ -92,6 +92,7 @@ function ObservedEventPanel({ opinion }: { opinion: PublicOpinion }) {
         authorHandle={handle}
         fallbackText={text}
         observedAt={event.observed_at}
+        surface="page"
         url={event.url}
       />
     );

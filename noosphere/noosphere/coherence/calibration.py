@@ -12,7 +12,32 @@ from pathlib import Path
 from typing import Sequence
 
 import numpy as np
-from sklearn.linear_model import LogisticRegression
+try:
+    from sklearn.linear_model import LogisticRegression
+except ImportError:  # pragma: no cover - exercised in minimal local envs.
+    class LogisticRegression:
+        """Tiny one-feature fallback used when scikit-learn is unavailable."""
+
+        def __init__(self, max_iter: int = 200) -> None:
+            self.max_iter = max_iter
+            self.coef_ = np.asarray([[0.0]], dtype=float)
+            self.intercept_ = np.asarray([0.0], dtype=float)
+
+        def fit(self, xs, ys):
+            x = np.asarray(xs, dtype=float).reshape(-1)
+            y = np.asarray(ys, dtype=float).reshape(-1)
+            if x.size == 0 or y.size == 0 or np.all(y == y[0]):
+                return self
+            pos = x[y >= 0.5]
+            neg = x[y < 0.5]
+            pos_mean = float(np.mean(pos)) if pos.size else float(np.mean(x))
+            neg_mean = float(np.mean(neg)) if neg.size else float(np.mean(x))
+            weight = pos_mean - neg_mean
+            prevalence = float(np.clip(np.mean(y), 1e-6, 1.0 - 1e-6))
+            bias = float(np.log(prevalence / (1.0 - prevalence)))
+            self.coef_ = np.asarray([[weight]], dtype=float)
+            self.intercept_ = np.asarray([bias], dtype=float)
+            return self
 
 from noosphere.config import get_settings
 from noosphere.models import CoherenceVerdict

@@ -12,10 +12,36 @@ from typing import Any, Optional
 from pydantic import BaseModel, ConfigDict, Field
 
 from noosphere.llm import LLMClient, llm_client_from_settings
-from noosphere.models import Chunk, Claim, ClaimOrigin, ClaimType, Speaker
+from noosphere.conclusions import scaled_coherence_auto_enabled
+from noosphere.models import Chunk, Claim, ClaimOrigin, ClaimType, CoherenceReport, Speaker
 from noosphere.observability import get_logger
 
 logger = get_logger(__name__)
+
+
+def run_scaled_coherence_for_claim(
+    claim: Claim,
+    store: Any,
+    *,
+    locality_cfg: dict[str, Any] | None = None,
+) -> CoherenceReport | None:
+    """Run scaled coherence for a newly persisted claim after it has an embedding."""
+    if not scaled_coherence_auto_enabled():
+        return None
+    if not claim.embedding:
+        logger.info("coherence.scaled.claim_skipped_no_embedding", claim_id=claim.id)
+        return None
+    try:
+        from noosphere.coherence.scheduler import run_scaled_coherence_check
+
+        return run_scaled_coherence_check(claim, store, locality_cfg=locality_cfg)
+    except Exception as exc:
+        logger.warning(
+            "coherence.scaled.claim_failed",
+            claim_id=claim.id,
+            error=str(exc),
+        )
+        return None
 
 
 class ClaimExtractionItem(BaseModel):

@@ -926,6 +926,12 @@ class Store:
             else:
                 s.add(row)
             s.commit()
+        try:
+            from noosphere.claim_extractor import run_scaled_coherence_for_claim
+
+            run_scaled_coherence_for_claim(c, self)
+        except Exception:
+            pass
 
     def get_claim(self, claim_id: str) -> Optional[Claim]:
         with self.session() as s:
@@ -1203,14 +1209,22 @@ class Store:
             else:
                 s.add(row)
             s.commit()
+        embedded = False
         try:
             from noosphere.embedding_pipeline import embed_conclusion_with_store
 
-            embed_conclusion_with_store(self, c)
+            embedded = embed_conclusion_with_store(self, c)
         except Exception:
             # Embedding is best-effort; the nightly backfill treats a missing
             # current-model embedding as the durable retry queue.
             pass
+        if embedded:
+            try:
+                from noosphere.conclusions import run_scaled_coherence_for_conclusion
+
+                run_scaled_coherence_for_conclusion(c, self)
+            except Exception:
+                pass
 
     def get_conclusion(self, conclusion_id: str) -> Optional[Conclusion]:
         with self.session() as s:

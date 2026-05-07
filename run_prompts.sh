@@ -1,8 +1,9 @@
 #!/bin/bash
-# Methodology prompt batch - sequentially run every active top-level numbered
+# Active prompt batch runner — sequentially run every active top-level numbered
 # prompt in coding_prompts/ via the OpenAI Codex CLI (`codex exec`). Streams
 # each session's stdout to the terminal AND saves the full text log to
-# .codex_runs/<timestamp>_<prompt>.log for review.
+# .codex_runs/<timestamp>_<prompt>.log for review. The current batch's
+# scope and dependencies are documented in coding_prompts/README.md.
 #
 # This uses the installed Codex CLI's existing login/subscription auth. It does
 # NOT read or require an OpenAI API key, and it scrubs OpenAI API-key env vars
@@ -173,7 +174,7 @@ for f in ${PROMPTS[@]+"${PROMPTS[@]}"}; do
   if should_run "$num"; then SELECTED=$((SELECTED + 1)); fi
 done
 
-echo "${BOLD}Plan:${NC} ${#PROMPTS[@]} methodology prompts total (${SELECTED} selected; Codex CLI login runner)"
+echo "${BOLD}Plan:${NC} ${#PROMPTS[@]} active prompts total (${SELECTED} selected; Codex CLI login runner)"
 [ -n "$MODEL" ] && echo "${BOLD}Model:${NC} $MODEL"
 [ -z "$MODEL" ] && echo "${BOLD}Model:${NC} (codex default - pass --model to override)"
 if [ "$FROM_N" -gt 0 ] || [ "$TO_N" -gt 0 ] || [ -n "$ONLY" ]; then
@@ -391,13 +392,13 @@ fi
 echo
 if [ "$failed" -eq 0 ]; then
   echo "${BLUE}──────────────────────────────────────────────────────────────${NC}"
-  printf "${GREEN}${BOLD}✓ Methodology batch complete${NC}   %s   ${GREEN}%d/%d ok${NC}   ${BLUE}%dm %02ds${NC}\n" \
+  printf "${GREEN}${BOLD}✓ Active batch complete${NC}        %s   ${GREEN}%d/%d ok${NC}   ${BLUE}%dm %02ds${NC}\n" \
     "$final_bar" "$ok" "$SELECTED" "$total_mins" "$total_secs"
   echo "${BLUE}Logs:${NC} $LOG_DIR"
   echo "${BLUE}──────────────────────────────────────────────────────────────${NC}"
 else
   echo "${BLUE}──────────────────────────────────────────────────────────────${NC}"
-  printf "${RED}${BOLD}✗ Methodology batch halted${NC}     %s   ${RED}%d/%d ran, %d fail${NC}   ${BLUE}%dm %02ds${NC}\n" \
+  printf "${RED}${BOLD}✗ Active batch halted${NC}          %s   ${RED}%d/%d ran, %d fail${NC}   ${BLUE}%dm %02ds${NC}\n" \
     "$final_bar" "$ran" "$SELECTED" "$failed" "$total_mins" "$total_secs"
   echo "${BLUE}Logs:${NC} $LOG_DIR"
   echo "${BLUE}──────────────────────────────────────────────────────────────${NC}"

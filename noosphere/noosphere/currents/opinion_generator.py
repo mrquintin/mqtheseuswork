@@ -12,6 +12,7 @@ from typing import Any
 from noosphere.currents._llm_client import LLMResponse, make_client
 from noosphere.currents.budget import BudgetExhausted
 from noosphere.models import (
+    AbstentionReason,
     CurrentEventStatus,
     EventOpinion,
     OpinionCitation,
@@ -21,6 +22,7 @@ from noosphere.models import (
 
 class OpinionOutcome(str, Enum):
     PUBLISHED = "PUBLISHED"
+    ABSTAINED_OFF_DOMAIN = "ABSTAIN_OFF_DOMAIN"
     ABSTAINED_BUDGET = "ABSTAINED_BUDGET"
     ABSTAINED_INSUFFICIENT_SOURCES = "ABSTAINED_INSUFFICIENT_SOURCES"
     ABSTAINED_NEAR_DUPLICATE = "ABSTAINED_NEAR_DUPLICATE"
@@ -34,6 +36,15 @@ DEFAULT_TOP_K = 12
 MIN_CONCLUSIONS_FOR_OPINION = 3
 MIN_CORPUS_SOURCES_FOR_OPINION = 3
 MIN_CONCLUSION_SCORE = 0.55
+EVENT_METRIC_FIELDS = (
+    "significance_score",
+    "retweet_count",
+    "like_count",
+    "reply_count",
+    "quote_count",
+    "bookmark_count",
+    "impression_count",
+)
 CONCLUSION_TOKEN_RE = re.compile(r"\[C:([^\]\s]+)\]")
 GENERIC_EVENT_SUBJECT_RE = re.compile(
     (
@@ -58,7 +69,7 @@ class OpinionDryRun:
 def retrieve_for_event(store: Any, event: Any, top_k: int = DEFAULT_TOP_K) -> list[Any]:
     """Lazy wrapper so tests that mock retrieval do not import NumPy eagerly."""
     from noosphere.currents.retrieval_adapter import (
-        retrieve_conclusions_for_event as _retrieve_for_event,
+        retrieve_for_event as _retrieve_for_event,
     )
 
     return _retrieve_for_event(store, event, top_k=top_k)
@@ -146,6 +157,78 @@ def _source_blocks(hits: list[Any]) -> str:
     return "\n\n".join(blocks)
 
 
+def _event_metrics(event: Any) -> dict[str, float | int]:
+    raw = getattr(event, "metrics", None)
+    if raw is None:
+        return {}
+    if hasattr(raw, "model_dump"):
+        data = raw.model_dump(mode="json")
+    elif isinstance(raw, dict):
+        data = raw
+    else:
+        data = {
+            field: getattr(raw, field)
+            for field in EVENT_METRIC_FIELDS
+            if hasattr(raw, field)
+        }
+
+    metrics: dict[str, float | int] = {}
+    for field in EVENT_METRIC_FIELDS:
+        value = data.get(field) if isinstance(data, dict) else None
+        if isinstance(value, bool) or value is None:
+            continue
+        try:
+            number = float(value)
+        except (TypeError, ValueError):
+            continue
+        if field == "significance_score":
+            metrics[field] = round(number, 6)
+        else:
+            metrics[field] = int(number)
+    return metrics
+
+
+def _event_metrics_block(event: Any) -> str:
+    metrics = _event_metrics(event)
+    if not metrics:
+        return "event_metrics: unavailable"
+    return "\n".join(
+        ["event_metrics:"]
+        + [
+            f"{field}: {metrics[field]}"
+            for field in EVENT_METRIC_FIELDS
+            if field in metrics
+        ]
+    )
+
+
+def _primary_event_metric(
+    metrics: dict[str, float | int],
+) -> tuple[str, float | int | None]:
+    significance = metrics.get("significance_score")
+    if isinstance(significance, int | float) and significance > 0:
+        return "significance_score", significance
+    count_fields = [
+        field for field in EVENT_METRIC_FIELDS if field != "significance_score"
+    ]
+    present = [(field, metrics[field]) for field in count_fields if field in metrics]
+    if not present:
+        return "unavailable", None
+    return max(present, key=lambda item: float(item[1]))
+
+
+def _citation_justification_metadata(event: Any) -> dict[str, Any]:
+    metrics = _event_metrics(event)
+    primary_metric, primary_value = _primary_event_metric(metrics)
+    return {
+        "event_id": str(getattr(event, "id", "") or ""),
+        "event_source": _event_source_value(event),
+        "primary_event_metric": primary_metric,
+        "primary_event_metric_value": primary_value,
+        "event_metrics": metrics,
+    }
+
+
 def _event_source_value(event: Any) -> str:
     source = getattr(event, "source", "")
     return str(getattr(source, "value", source) or "")
@@ -181,7 +264,8 @@ def _opinion_user_prompt(event: Any, hits: list[Any]) -> str:
     source_label = _event_source_label(event)
     return "\n\n".join(
         [
-            f"OBSERVED {source_label}",
+            f"TRENDING EVENT SUBJECT ({source_label})",
+            f"observed_item: OBSERVED {source_label}",
             f"event_id: {getattr(event, 'id', '')}",
             f"organization_id: {getattr(event, 'organization_id', '')}",
             f"source: {_event_source_value(event)}",
@@ -191,18 +275,26 @@ def _opinion_user_prompt(event: Any, hits: list[Any]) -> str:
             f"observed_at: {getattr(event, 'observed_at', '') or ''}",
             f"captured_at: {getattr(event, 'captured_at', '') or ''}",
             f"topic_hint: {getattr(event, 'topic_hint', '') or ''}",
+            _event_metrics_block(event),
             _event_text_label(event),
             getattr(event, "text", ""),
+            "FIRM PRIOR CONCLUSIONS AS COMMENTARY VOICE",
+            (
+                "The excerpts below are what this firm has previously argued "
+                "that may be relevant to the event. Comment on the event using "
+                "the firm's prior conclusions; do not pretend the conclusions "
+                "caused the event."
+            ),
+            _source_blocks(hits),
             "ANALYSIS TASK",
             (
                 "Write the firm's response to this specific observed "
-                f"{source_label.lower()}. Do not refer to an undefined event; "
-                "name the post, its author, or its claim when the analysis needs "
-                "a subject."
+                f"{source_label.lower()}. The event is the subject; the firm's "
+                "prior conclusions are the commentator's voice. Do not refer to "
+                "an undefined event; name the post, its author, or its claim when "
+                "the analysis needs a subject."
             ),
             _event_subject_guidance(event),
-            "FIRM REASONING MATERIAL FOR INTERNAL VALIDATION",
-            _source_blocks(hits),
             "Return the strict JSON object specified by the system prompt.",
         ]
     )
@@ -273,8 +365,13 @@ def validate_citations(
     return normalized, errors
 
 
-def _citation_rows(citations: list[dict[str, Any]]) -> list[OpinionCitation]:
+def _citation_rows(
+    citations: list[dict[str, Any]],
+    *,
+    event: Any,
+) -> list[OpinionCitation]:
     rows: list[OpinionCitation] = []
+    justification_metadata = _citation_justification_metadata(event)
     for citation in citations:
         source_kind = citation["source_kind"]
         source_id = citation["source_id"]
@@ -286,6 +383,7 @@ def _citation_rows(citations: list[dict[str, Any]]) -> list[OpinionCitation]:
                 claim_id=source_id if source_kind == "claim" else None,
                 quoted_span=citation["quoted_span"],
                 retrieval_score=float(citation["retrieval_score"]),
+                justification_metadata=dict(justification_metadata),
             )
         )
     return rows
@@ -327,11 +425,47 @@ def _insufficient_context_reason(hits: list[Any]) -> str | None:
     return None
 
 
-def _opinion_dry_run(event: Any, hits: list[Any]) -> OpinionDryRun:
+def _off_domain_hits(retrieved_hits: list[Any], eligible_hits: list[Any]) -> bool:
+    return bool(retrieved_hits) and not eligible_hits
+
+
+def _write_abstention_opinion(
+    store: Any,
+    event: Any,
+    *,
+    reason: AbstentionReason,
+) -> None:
+    opinion = EventOpinion(
+        organization_id=getattr(event, "organization_id"),
+        event_id=str(getattr(event, "id")),
+        stance=OpinionStance.ABSTAINED,
+        confidence=0.0,
+        headline="No firm opinion",
+        body_markdown="",
+        uncertainty_notes=[],
+        topic_hint=getattr(event, "topic_hint", None),
+        model_name="retrieval-gate",
+        prompt_tokens=0,
+        completion_tokens=0,
+        abstention_reason=reason,
+    )
+    store.add_event_opinion(opinion, [])
+
+
+def _opinion_dry_run(
+    event: Any,
+    hits: list[Any],
+    *,
+    retrieved_hits: list[Any],
+) -> OpinionDryRun:
     base_system = _read_system_prompt("opinion_system.md")
     user_prompt = _opinion_user_prompt(event, hits)
     inline_ids = set(CONCLUSION_TOKEN_RE.findall(user_prompt))
-    reason = _insufficient_context_reason(hits)
+    reason = (
+        OpinionOutcome.ABSTAINED_OFF_DOMAIN.value
+        if _off_domain_hits(retrieved_hits, hits)
+        else _insufficient_context_reason(hits)
+    )
     return OpinionDryRun(
         event_id=str(getattr(event, "id", "")),
         eligible=reason is None,
@@ -402,7 +536,16 @@ async def generate_opinion(
     retrieved_hits = retrieve_for_event(store, event, top_k=DEFAULT_TOP_K)
     hits = _eligible_conclusion_hits(retrieved_hits)
     if dry_run:
-        return _opinion_dry_run(event, hits)
+        return _opinion_dry_run(event, hits, retrieved_hits=retrieved_hits)
+
+    if _off_domain_hits(retrieved_hits, hits):
+        _write_abstention_opinion(
+            store,
+            event,
+            reason=AbstentionReason.ABSTAIN_OFF_DOMAIN,
+        )
+        _set_event_status(store, event_id, CurrentEventStatus.ABSTAINED)
+        return OpinionOutcome.ABSTAINED_OFF_DOMAIN
 
     if _insufficient_context_reason(hits) is not None:
         _set_event_status(store, event_id, CurrentEventStatus.ABSTAINED)
@@ -528,7 +671,7 @@ async def generate_opinion(
             completion_tokens=total_completion_tokens,
         )
         try:
-            store.add_event_opinion(opinion, _citation_rows(citations))
+            store.add_event_opinion(opinion, _citation_rows(citations, event=event))
         except ValueError as exc:
             if "verbatim substring" not in str(exc):
                 raise

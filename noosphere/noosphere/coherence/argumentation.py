@@ -8,7 +8,29 @@ from dataclasses import dataclass, field
 from itertools import combinations
 from typing import Iterable
 
-import networkx as nx
+try:
+    import networkx as nx
+except ImportError:  # pragma: no cover - exercised in minimal local envs.
+    class _MiniDiGraph:
+        def __init__(self) -> None:
+            self._nodes: set[str] = set()
+            self._edges: set[tuple[str, str]] = set()
+
+        def add_node(self, node: str) -> None:
+            self._nodes.add(node)
+
+        def add_edge(self, source: str, target: str) -> None:
+            self._nodes.add(source)
+            self._nodes.add(target)
+            self._edges.add((source, target))
+
+        def has_edge(self, source: str, target: str) -> bool:
+            return (source, target) in self._edges
+
+    class _MiniNetworkX:
+        DiGraph = _MiniDiGraph
+
+    nx = _MiniNetworkX()  # type: ignore[assignment]
 
 from noosphere.models import Claim
 from noosphere.observability import get_logger

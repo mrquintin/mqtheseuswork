@@ -1,0 +1,96 @@
+You are operating in /Users/michaelquintin/Desktop/Theseus.
+
+Goal: replace the existing "test the new idea against everything" coherence
+path with the scaled pipeline composed by prompts 05 and 06. After this
+prompt, every ingest of a new conclusion or claim runs:
+
+  embed → upsert into DomainLocalityIndex → coherence_check_local
+       → locality neighbors + outside-sample
+       → contradiction_probe candidates
+       → six-layer engine on the union, with NLI + LLM verification only
+         for probe candidates
+
+…and produces one `CoherenceReport` per insert.
+
+Background — read current state:
+1. Read `noosphere/noosphere/cascade/` to understand how new conclusions
+   propagate today (the cascade is downstream of coherence — do not break
+   it).
+2. Read `noosphere/noosphere/conclusions.py` and `claim_extractor.py` to
+   find the call sites that currently trigger any existing coherence check
+   (or that should trigger one but don't).
+3. Read `noosphere/noosphere/observability.py` and the existing logging
+   conventions; the new pipeline must emit structured events for every
+   stage so we can debug regressions.
+4. Confirm prompts 05 and 06 have produced their files; refuse to proceed
+   if either `coherence/locality.py` or `methods/contradiction_probe.py` is
+   missing.
+
+Implement or repair:
+
+A. Single composed entry point.
+   - In `noosphere/noosphere/coherence/scheduler.py` add
+     `def run_scaled_coherence_check(proposition, store, *, locality_cfg=None)
+        -> CoherenceReport`.
+     It composes locality + probe + verification per the pipeline above and
+     returns one report. Existing schedulers call it instead of the global
+     entry point.
+
+B. Wire ingest paths.
+   - Update `noosphere/noosphere/conclusions.py` (and any sibling that
+     persists a new `Conclusion`) so each new row triggers
+     `run_scaled_coherence_check` once, post-embedding. The trigger must be
+     idempotent — a re-run for the same id must reuse the cached
+     `CoherenceReport` if `methodology` matches and the embedding has not
+     changed.
+   - Update `noosphere/noosphere/claim_extractor.py` similarly for new
+     `Claim` rows.
+
+C. Operator surface.
+   - Extend `noosphere/noosphere/cli.py` with
+     `noosphere coherence audit-local --conclusion-id <id>` that runs
+     `run_scaled_coherence_check` on demand and prints the report. Do not
+     duplicate existing CLI scaffolding — register the subcommand using the
+     same dispatcher the file already uses.
+
+D. Observability.
+   - Every invocation logs:
+     `coherence.scaled.start` (proposition_id, locality_cfg),
+     `coherence.locality.neighbors` (k_local, k_outside),
+     `coherence.probe.candidates` (count, mean_predicted_distance),
+     `coherence.verify.layers` (per-layer pass/fail counts),
+     `coherence.scaled.complete` (duration_ms, contradictions_found,
+       tentative_contradictions_found).
+   - Wall-clock budget: the entire scaled check must complete in
+     < 1.0 second on a corpus of ≤ 10⁴ propositions on a developer laptop.
+     Add a regression test that asserts this on a synthetic 10⁴-row index.
+
+E. Tests
+   - `noosphere/tests/test_scaled_coherence_pipeline.py`:
+     (a) inserting a contradicting claim into a 10³-row synthetic corpus
+         flags it as a contradiction, identifies the offending neighbor,
+         and emits the probe and locality stages in the structured log;
+     (b) inserting a non-contradicting claim produces an empty
+         `contradictions` list and a non-empty `methodology` field;
+     (c) re-running the check on an unchanged proposition reuses the cache;
+     (d) the pipeline degrades gracefully when the locality index file is
+         missing — it rebuilds and proceeds.
+
+Constraints:
+- Do not delete the global entry point. Keep it for explicit "audit the
+  whole corpus" jobs.
+- Do not change the cascade. Coherence findings flow into the cascade via
+  whatever channel exists today; this prompt does not edit that channel.
+- The cache key for memoization must include the `locality_cfg`,
+  the `methodology` version, and the embedding hash — anything weaker
+  invites silent staleness.
+
+If the work already exists, inspect it and only repair gaps. Do not fork
+the scheduler.
+
+SCOPE
+- `noosphere/noosphere/coherence/scheduler.py` MODIFY
+- `noosphere/noosphere/conclusions.py` MODIFY
+- `noosphere/noosphere/claim_extractor.py` MODIFY
+- `noosphere/noosphere/cli.py` MODIFY
+- `noosphere/tests/test_scaled_coherence_pipeline.py` CREATE

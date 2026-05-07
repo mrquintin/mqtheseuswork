@@ -65,6 +65,12 @@ def test_currents_health_reports_disabled_reasons(client, monkeypatch) -> None:
     assert payload["x_bearer_present"] is False
     assert payload["curated_count"] == 0
     assert payload["search_count"] == 0
+    assert payload["disabled_reasons"] == ["missing_x_bearer_token"]
+
+    monkeypatch.setenv("CURRENTS_X_DISCOVERY_ENABLED", "false")
+    response = client.get("/v1/currents/health")
+    assert response.status_code == 200
+    payload = response.json()
     assert payload["disabled_reasons"] == [
         "missing_x_bearer_token",
         "missing_x_sources",

@@ -1,0 +1,49 @@
+You are operating in /Users/michaelquintin/Desktop/Theseus.
+
+Goal: verify the work landed by prompts 01–08 with a single regression pass
+and produce a report file the next agent can read instead of re-running every
+unit test from scratch. This prompt does not write any new feature code; it
+runs verification and writes one report.
+
+Before you start:
+1. Confirm prompts 01–07 left their declared SCOPE files on disk; flag any
+   missing path before running tests so the report names the gap.
+2. Confirm prompt 08's scripts exist and are executable.
+
+Run, in order, and capture each command's exit status and a 20-line tail
+into the report:
+
+A. Static checks
+   - `pnpm --filter theseus-codex lint`
+   - `pnpm --filter theseus-codex tsc --noEmit`
+   - `ruff check noosphere`
+   - `ruff format --check noosphere`
+
+B. Unit + integration
+   - `pytest noosphere/tests -q -k "currents or coherence or contradiction or methodology"`
+   - `pnpm --filter theseus-codex test -- OpinionCard XPostEmbed`
+
+C. Smoke
+   - `python coding_prompts/_audit_implementation.py` — every active
+     top-level prompt MUST report IMPLEMENTED. If any reports
+     PARTIAL/NOT_IMPLEMENTED, list which scope files are missing.
+   - `bash scripts/migrate_production_dry_run.sh --allow-localhost` —
+     should report zero pending migrations on a clean checkout. Skip if no
+     local Postgres is available, but record the skip reason.
+
+D. Visual
+   - Boot the theseus-codex dev server, navigate to `/currents`, screenshot
+     a card showing an X embed, and verify visually that the wrapper
+     corners match the card background. Save the screenshot to
+     `docs/regression/2026-05-07_x_post_corners.png` and reference it in
+     the report.
+
+Write the report to
+`docs/regression/2026-05-07_round15_currents_and_coherence_at_scale.md`
+with sections matching A–D, the exit status of every command, and a final
+"go / no-go" line. Do not edit production code in this prompt — if a check
+fails, file the gap in the report and stop.
+
+SCOPE
+- `docs/regression/2026-05-07_round15_currents_and_coherence_at_scale.md` CREATE
+- `docs/regression/2026-05-07_x_post_corners.png` CREATE

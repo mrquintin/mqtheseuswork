@@ -92,8 +92,13 @@ Podcast talks/
 # Experiment results (regenerable)
 noosphere/noosphere_data/
 # Local runtime ledger and blob store for Noosphere when run from the repo
-# root; never committed — pure per-session state.
-noosphere_data/
+# root; never committed — pure per-session state. Keep the curated
+# contradiction exemplar seed file tracked; all other runtime data stays local.
+noosphere_data/*
+!noosphere_data/noosphere_config.json
+!noosphere_data/coherence/
+noosphere_data/coherence/*
+!noosphere_data/coherence/contradiction_exemplars.jsonl
 
 # Prisma
 theseus-codex/prisma/*.db

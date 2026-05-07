@@ -3,10 +3,23 @@
 from __future__ import annotations
 
 import asyncio
+import math
 import time
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any
+
+DISCOVERY_QUERY = "-is:retweet -is:reply lang:en min_faves:1000"
+_TRENDS_ENDPOINT_UNAVAILABLE_STATUSES = {400, 401, 403, 404}
+_TREND_WOEID_BY_LOCALE = {
+    "en": 1,
+    "global": 1,
+    "worldwide": 1,
+    "us": 23424977,
+    "usa": 23424977,
+    "gb": 23424975,
+    "uk": 23424975,
+}
 
 
 class MissingCredentials(RuntimeError):
@@ -23,6 +36,16 @@ class XAPIError(RuntimeError):
 
 
 @dataclass(frozen=True)
+class XPostMetrics:
+    like_count: int = 0
+    retweet_count: int = 0
+    reply_count: int = 0
+    quote_count: int = 0
+    bookmark_count: int = 0
+    impression_count: int = 0
+
+
+@dataclass(frozen=True)
 class XPost:
     id: str
     text: str
@@ -30,6 +53,10 @@ class XPost:
     author_handle: str
     created_at: str
     url: str
+    metrics: XPostMetrics | None = None
+
+
+_TWEET_FIELDS = "id,text,author_id,created_at,referenced_tweets,public_metrics"
 
 
 class XClient:
@@ -39,12 +66,14 @@ class XClient:
         bearer_token: str,
         base_url: str = "https://api.x.com/2",
         request_timeout_s: float = 15.0,
+        discovery_query: str = DISCOVERY_QUERY,
     ) -> None:
         if not bearer_token:
             raise MissingCredentials("X_BEARER_TOKEN not set")
         self._bearer_token = bearer_token
         self._base_url = base_url.rstrip("/")
         self._request_timeout_s = request_timeout_s
+        self._discovery_query = discovery_query.strip() or DISCOVERY_QUERY
         self._client: Any | None = None
 
     async def aclose(self) -> None:
@@ -61,7 +90,7 @@ class XClient:
         params: dict[str, str | int] = {
             "exclude": "replies,retweets",
             "max_results": max_results,
-            "tweet.fields": "id,text,author_id,created_at,referenced_tweets",
+            "tweet.fields": _TWEET_FIELDS,
             "expansions": "author_id",
             "user.fields": "username",
         }
@@ -77,12 +106,82 @@ class XClient:
             params={
                 "query": _source_post_query(query),
                 "max_results": max_results,
-                "tweet.fields": "id,text,author_id,created_at,referenced_tweets",
+                "tweet.fields": _TWEET_FIELDS,
                 "expansions": "author_id",
                 "user.fields": "username",
             },
         )
         return _normalize_posts(payload)
+
+    async def fetch_trending_candidates(
+        self,
+        *,
+        locale: str = "en",
+        max_results: int = 50,
+    ) -> list[XPost]:
+        """Return high-engagement posts for discovery-first Currents ingestion.
+
+        The preferred path asks X for trend terms and then searches recent
+        source posts inside those trends. API tiers without Trends access fall
+        back to DISCOVERY_QUERY, an engagement-thresholded recent-search query:
+        "-is:retweet -is:reply lang:en min_faves:1000".
+        """
+
+        limit = max(1, max_results)
+        trend_terms = await self._fetch_trend_terms(locale)
+        if trend_terms:
+            posts: list[XPost] = []
+            per_trend = max(10, min(100, math.ceil(limit / len(trend_terms))))
+            for trend in trend_terms:
+                if len(posts) >= limit:
+                    break
+                try:
+                    payload = await self._request(
+                        "GET",
+                        "/tweets/search/recent",
+                        params={
+                            "query": _trend_discovery_query(
+                                trend,
+                                self._discovery_query,
+                            ),
+                            "max_results": per_trend,
+                            "tweet.fields": _TWEET_FIELDS,
+                            "expansions": "author_id",
+                            "user.fields": "username",
+                        },
+                    )
+                except XAPIError:
+                    continue
+                posts.extend(_normalize_posts(payload))
+            deduped = _dedupe_posts(posts)
+            if deduped:
+                return deduped[:limit]
+
+        payload = await self._request(
+            "GET",
+            "/tweets/search/recent",
+            params={
+                "query": _source_post_query(self._discovery_query),
+                "max_results": limit,
+                "tweet.fields": _TWEET_FIELDS,
+                "expansions": "author_id",
+                "user.fields": "username",
+            },
+        )
+        return _normalize_posts(payload)
+
+    async def _fetch_trend_terms(self, locale: str) -> list[str]:
+        try:
+            payload = await self._request(
+                "GET",
+                f"/trends/by/woeid/{_trend_woeid(locale)}",
+                params={"max_trends": 10},
+            )
+        except XAPIError as exc:
+            if exc.status_code in _TRENDS_ENDPOINT_UNAVAILABLE_STATUSES:
+                return []
+            raise
+        return _normalize_trend_terms(payload)
 
     async def _request(
         self,
@@ -156,9 +255,83 @@ def _normalize_posts(payload: dict[str, Any]) -> list[XPost]:
                 author_handle=f"@{username}" if username else "",
                 created_at=created_at,
                 url=_tweet_url(tweet_id, username),
+                metrics=_normalize_metrics(item.get("public_metrics")),
             )
         )
     return posts
+
+
+def _normalize_metrics(value: Any) -> XPostMetrics | None:
+    if not isinstance(value, dict):
+        return None
+    return XPostMetrics(
+        like_count=_metric_count(value.get("like_count")),
+        retweet_count=_metric_count(value.get("retweet_count")),
+        reply_count=_metric_count(value.get("reply_count")),
+        quote_count=_metric_count(value.get("quote_count")),
+        bookmark_count=_metric_count(value.get("bookmark_count")),
+        impression_count=_metric_count(value.get("impression_count")),
+    )
+
+
+def _metric_count(value: Any) -> int:
+    if value is None:
+        return 0
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return 0
+    if not math.isfinite(number) or number < 0:
+        return 0
+    return int(number)
+
+
+def _normalize_trend_terms(payload: dict[str, Any]) -> list[str]:
+    data = payload.get("data", [])
+    if isinstance(data, dict):
+        data = data.get("trends", [])
+    if not isinstance(data, list):
+        return []
+
+    terms: list[str] = []
+    for item in data:
+        if isinstance(item, str):
+            term = item
+        elif isinstance(item, dict):
+            term = str(
+                item.get("query")
+                or item.get("name")
+                or item.get("trend_name")
+                or ""
+            )
+        else:
+            continue
+        term = term.strip()
+        if term and term not in terms:
+            terms.append(term)
+    return terms
+
+
+def _trend_woeid(locale: str) -> int:
+    return _TREND_WOEID_BY_LOCALE.get(locale.strip().lower(), 1)
+
+
+def _trend_discovery_query(trend: str, discovery_query: str) -> str:
+    term = trend.strip()
+    if " " in term and not (term.startswith('"') and term.endswith('"')):
+        term = f'"{term}"'
+    return _source_post_query(f"{term} {discovery_query}".strip())
+
+
+def _dedupe_posts(posts: list[XPost]) -> list[XPost]:
+    seen: set[str] = set()
+    deduped: list[XPost] = []
+    for post in posts:
+        if post.id in seen:
+            continue
+        seen.add(post.id)
+        deduped.append(post)
+    return deduped
 
 
 def _source_post_query(query: str) -> str:

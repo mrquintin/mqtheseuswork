@@ -82,8 +82,8 @@ function DisabledBanner({ health }: { health: CurrentsHealth | null }) {
         padding: "0.75rem 0.9rem",
       }}
     >
-      Currents disabled — set X_BEARER_TOKEN and at least one of
-      CURRENTS_X_CURATED_ACCOUNTS / CURRENTS_X_SEARCH_QUERIES.
+      Currents disabled — set X_BEARER_TOKEN. If discovery is disabled, also
+      set CURRENTS_X_CURATED_ACCOUNTS or CURRENTS_X_SEARCH_QUERIES.
       <span style={{ color: "var(--currents-parchment-dim)" }}>
         {" "}
         Reason: {reasons}.

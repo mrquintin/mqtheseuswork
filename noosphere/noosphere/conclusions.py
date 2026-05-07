@@ -17,6 +17,7 @@ methodological decision-making over time.
 """
 
 import json
+import os
 from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Optional, List, Dict, Tuple
@@ -26,10 +27,51 @@ import uuid
 from pydantic import BaseModel, ConfigDict, Field
 
 from noosphere.llm import LLMClient, llm_client_from_settings
-from noosphere.models import Claim, Principle
+from noosphere.models import Claim, CoherenceReport, Conclusion, Principle
 from noosphere.observability import get_logger
 
 logger = get_logger(__name__)
+
+
+def scaled_coherence_auto_enabled() -> bool:
+    """Production default is on; pytest defaults off unless explicitly enabled."""
+    raw = os.environ.get("THESEUS_SCALED_COHERENCE_AUTO", "1").strip().lower()
+    if raw in {"0", "false", "no", "off"}:
+        return False
+    if "PYTEST_CURRENT_TEST" in os.environ:
+        return (
+            os.environ.get("THESEUS_AUTO_COHERENCE_IN_TESTS", "")
+            .strip()
+            .lower()
+            in {"1", "true", "yes", "on"}
+        )
+    return True
+
+
+def run_scaled_coherence_for_conclusion(
+    conclusion: Conclusion,
+    store,
+    *,
+    locality_cfg: dict | None = None,
+) -> CoherenceReport | None:
+    """Run scaled coherence for a newly persisted, embedded conclusion."""
+    if not scaled_coherence_auto_enabled():
+        return None
+    try:
+        from noosphere.coherence.scheduler import run_scaled_coherence_check
+
+        return run_scaled_coherence_check(
+            conclusion,
+            store,
+            locality_cfg=locality_cfg,
+        )
+    except Exception as exc:
+        logger.warning(
+            "coherence.scaled.conclusion_failed",
+            conclusion_id=conclusion.id,
+            error=str(exc),
+        )
+        return None
 
 
 # ── Enums ────────────────────────────────────────────────────────────────────

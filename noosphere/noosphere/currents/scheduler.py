@@ -40,6 +40,8 @@ LOGGER = logging.getLogger(__name__)
 
 RELEVANCE_OPINE = "OPINE"
 RELEVANCE_ABSTAIN_INSUFFICIENT = "ABSTAIN_INSUFFICIENT_SOURCES"
+RELEVANCE_ABSTAIN_BELOW_SIGNIFICANCE = "ABSTAIN_BELOW_SIGNIFICANCE_FLOOR"
+RELEVANCE_ABSTAIN_OFF_DOMAIN = "ABSTAIN_OFF_DOMAIN"
 RELEVANCE_ABSTAIN_NEAR_DUPLICATE = "ABSTAIN_NEAR_DUPLICATE"
 BACKLOG_STATUSES = [CurrentEventStatus.OBSERVED, CurrentEventStatus.ENRICHED]
 
@@ -52,6 +54,8 @@ class CycleReport:
     ingested: int
     enriched: int
     abstained_insufficient: int
+    abstained_below_significance: int
+    abstained_off_domain: int
     abstained_near_duplicate: int
     abstained_budget: int
     opined: int
@@ -107,10 +111,30 @@ def enrich_event(store, event_id: str):
     return _enrich_event(store, event_id)
 
 
-def check_relevance(store, event_id: str):
+def gate_significance(store, event_id: str, *, floor: float) -> bool:
+    from noosphere.currents.relevance import gate_significance as _gate_significance
+
+    event = store.get_current_event(event_id)
+    if event is None:
+        raise KeyError(f"unknown current event: {event_id}")
+    return _gate_significance(event, floor=floor)
+
+
+def check_relevance(
+    store,
+    event_id: str,
+    *,
+    significance_floor: float = 0.0,
+    require_significance: bool = True,
+):
     from noosphere.currents.relevance import check_relevance as _check_relevance
 
-    return _check_relevance(store, event_id)
+    return _check_relevance(
+        store,
+        event_id,
+        significance_floor=significance_floor,
+        require_significance=require_significance,
+    )
 
 
 def _event_ids_for_cycle(store: Store, new_event_ids: list[str]) -> list[str]:
@@ -128,14 +152,17 @@ def _event_ids_for_cycle(store: Store, new_event_ids: list[str]) -> list[str]:
 async def run_cycle(
     store, ingestor_cfg, budget, *, publish_articles: bool = False
 ) -> CycleReport:
-    """Run one ingest -> enrich -> relevance -> opinion pass."""
+    """Run one ingest -> enrich -> significance -> KB relevance -> opinion pass."""
     monotonic_start = time.monotonic()
     started_at = _utc_now_iso()
     cycle_id = uuid.uuid4().hex
     errors: list[str] = []
     new_event_ids: list[str] = []
+    significance_bypass_event_ids: set[str] = set()
     enriched = 0
     abstained_insufficient = 0
+    abstained_below_significance = 0
+    abstained_off_domain = 0
     abstained_near_duplicate = 0
     abstained_budget = 0
     opined = 0
@@ -157,9 +184,15 @@ async def run_cycle(
         cycle_id = ingest_report.cycle_id or cycle_id
         errors.extend(ingest_report.errors)
         new_event_ids = list(ingest_report.new_event_ids[:MAX_EVENTS_PER_CYCLE])
+        significance_bypass_event_ids = set(
+            getattr(ingest_report, "significance_bypass_event_ids", [])
+        )
     except Exception as exc:
         errors.append(f"ingest:{type(exc).__name__}: {exc}")
 
+    significance_floor = float(
+        getattr(ingestor_cfg, "min_significance_score", 0.0) or 0.0
+    )
     for event_id in _event_ids_for_cycle(store, new_event_ids):
         if opinion_attempts >= MAX_OPINIONS_PER_CYCLE:
             errors.append(
@@ -169,14 +202,36 @@ async def run_cycle(
         try:
             enrichment = enrich_event(store, event_id)
             enriched += 1
-            decision = check_relevance(store, event_id)
+            if enrichment.is_near_duplicate:
+                abstained_near_duplicate += 1
+                continue
+
+            requires_significance = event_id not in significance_bypass_event_ids
+            if requires_significance and not gate_significance(
+                store,
+                event_id,
+                floor=significance_floor,
+            ):
+                store.set_event_status(event_id, CurrentEventStatus.ABSTAINED)
+                abstained_below_significance += 1
+                continue
+
+            decision = check_relevance(
+                store,
+                event_id,
+                significance_floor=significance_floor,
+                require_significance=False,
+            )
             decision_value = _decision_value(decision)
 
-            if (
-                enrichment.is_near_duplicate
-                or decision_value == RELEVANCE_ABSTAIN_NEAR_DUPLICATE
-            ):
+            if decision_value == RELEVANCE_ABSTAIN_NEAR_DUPLICATE:
                 abstained_near_duplicate += 1
+                continue
+            if decision_value == RELEVANCE_ABSTAIN_BELOW_SIGNIFICANCE:
+                abstained_below_significance += 1
+                continue
+            if decision_value == RELEVANCE_ABSTAIN_OFF_DOMAIN:
+                abstained_off_domain += 1
                 continue
             if decision_value == RELEVANCE_ABSTAIN_INSUFFICIENT:
                 abstained_insufficient += 1
@@ -212,6 +267,8 @@ async def run_cycle(
                 break
             elif outcome == OpinionOutcome.ABSTAINED_INSUFFICIENT_SOURCES:
                 abstained_insufficient += 1
+            elif outcome == OpinionOutcome.ABSTAINED_OFF_DOMAIN:
+                abstained_off_domain += 1
             elif outcome == OpinionOutcome.ABSTAINED_NEAR_DUPLICATE:
                 abstained_near_duplicate += 1
             else:
@@ -234,6 +291,8 @@ async def run_cycle(
         ingested=len(new_event_ids),
         enriched=enriched,
         abstained_insufficient=abstained_insufficient,
+        abstained_below_significance=abstained_below_significance,
+        abstained_off_domain=abstained_off_domain,
         abstained_near_duplicate=abstained_near_duplicate,
         abstained_budget=abstained_budget,
         opined=opined,
@@ -249,6 +308,7 @@ def _log_cycle(report: CycleReport) -> None:
     LOGGER.info(
         "currents_cycle cycle_id=%s started_at=%s duration_ms=%d "
         "ingested=%d enriched=%d abstained_insufficient=%d "
+        "abstained_below_significance=%d abstained_off_domain=%d "
         "abstained_near_duplicate=%d abstained_budget=%d opined=%d "
         "articles_published=%d remaining_prompt_tokens=%d "
         "remaining_completion_tokens=%d article_errors=%s errors=%s",
@@ -258,6 +318,8 @@ def _log_cycle(report: CycleReport) -> None:
         report.ingested,
         report.enriched,
         report.abstained_insufficient,
+        report.abstained_below_significance,
+        report.abstained_off_domain,
         report.abstained_near_duplicate,
         report.abstained_budget,
         report.opined,

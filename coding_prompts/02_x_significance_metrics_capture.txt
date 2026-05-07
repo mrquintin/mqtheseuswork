@@ -1,0 +1,89 @@
+You are operating in /Users/michaelquintin/Desktop/Theseus.
+
+Goal: capture per-post significance metrics from the X v2 API so the
+Currents pipeline can later filter for events that are actually trending —
+many views, many likes, many retweets — instead of treating every fetched
+tweet as equally newsworthy. This prompt only ADDS the data path; the
+ranking and gating logic that consumes it land in prompt 03.
+
+Background — current state:
+1. Read `noosphere/noosphere/currents/_x_client.py`. The `tweet.fields` query
+   list does not include `public_metrics`, and `XPost` carries no metric
+   fields. The X v2 API exposes `like_count`, `retweet_count`, `reply_count`,
+   `quote_count`, `bookmark_count`, and `impression_count` under
+   `public_metrics`; documented at developer.x.com.
+2. Read `noosphere/noosphere/currents/x_ingestor.py`. `_persist_or_skip`
+   builds a `CurrentEvent` from `XPost` and dedupes on text+url. There is no
+   significance check anywhere in the cycle.
+3. Read `noosphere/noosphere/models.py` — locate the `CurrentEvent` model and
+   the existing column set. We need a new optional metrics column without
+   breaking existing rows.
+4. Read `noosphere/alembic/versions/` — find the most recent currents
+   migration so you know which revision to base the new one on.
+5. Read `theseus-codex/prisma/schema.prisma` — find the `CurrentEvent` model
+   (or whatever it is called there) and add the mirrored optional column.
+6. Read every test file under `noosphere/tests/` whose name matches
+   `*currents*` or `*x_ingest*` so you know which fixtures must learn the new
+   field shape.
+
+Implement or repair:
+- Extend `XPost` (still a `@dataclass(frozen=True)`) with an optional
+  `metrics: XPostMetrics | None = None` field, where `XPostMetrics` is a tiny
+  frozen dataclass holding `like_count`, `retweet_count`, `reply_count`,
+  `quote_count`, `bookmark_count`, and `impression_count` as ints (default 0
+  when the field is absent in the API response — note `impression_count` is
+  only available for tweets posted under the authenticated app).
+- Add `public_metrics` to the `tweet.fields` parameter list in BOTH
+  `fetch_user_tweets` and `search_recent`. Update `_normalize_posts` (or the
+  equivalent helper) to copy the metrics dict into the new dataclass.
+- In `noosphere/noosphere/models.py` add an optional `XSignificanceMetrics`
+  pydantic submodel and a `metrics: XSignificanceMetrics | None = None`
+  field on `CurrentEvent`. Persist `like_count`, `retweet_count`,
+  `reply_count`, `quote_count`, `bookmark_count`, `impression_count` plus a
+  computed `significance_score: float` (see below).
+- Compute `significance_score` deterministically inside the model
+  (`@field_validator` or `@model_validator`): a simple weighted log-sum that
+  is monotonic in each metric — e.g.
+  `0.4 * log1p(impressions) + 0.3 * log1p(retweets) + 0.2 * log1p(likes)
+   + 0.1 * log1p(quotes + bookmarks)`. Store the exact weights in a module
+  constant `SIGNIFICANCE_WEIGHTS` so prompt 03 can tune without rewriting the
+  formula. The weights must be defended in a one-paragraph comment that names
+  each rationale explicitly (impressions = reach, retweets = endorsement-led
+  amplification, likes = reaction volume, quotes/bookmarks = engagement
+  depth).
+- Wire `_persist_or_skip` in `x_ingestor.py` to copy `post.metrics` into the
+  `CurrentEvent` it builds. Existing dedupe behavior must not change.
+- Add an Alembic migration that adds the JSON metrics column on
+  `current_events` (nullable). It must NOT block on a backfill — old rows
+  stay NULL. Add the matching Prisma migration.
+- Add `noosphere/tests/test_x_significance_metrics.py` proving:
+  (a) the client sends `public_metrics` in `tweet.fields`,
+  (b) `_normalize_posts` populates the dataclass when the API returns the
+      block,
+  (c) absent block ⇒ `metrics is None`, persistence still works,
+  (d) `significance_score` is monotonic in each input,
+  (e) NaN/None resilience — a malformed metrics block must not crash the
+      ingestor.
+- Update existing currents tests that build `XPost` fixtures so they still
+  type-check (most can keep `metrics=None`).
+
+If the work already exists, inspect it and only repair gaps. Do not introduce
+a new ingestor wrapper, a new client class, or a parallel persistence path —
+extend the existing ones.
+
+Definition of done:
+- `pytest noosphere/tests -k currents` is green.
+- `alembic upgrade head` applies the new revision against a fresh sqlite
+  database without errors.
+- `pnpm --filter theseus-codex prisma:generate` produces no diff after the
+  schema change is committed.
+- `noosphere.currents._x_client.XPost` has a `metrics` attribute and the
+  ingestor populates it whenever the upstream API returns `public_metrics`.
+
+SCOPE
+- `noosphere/noosphere/currents/_x_client.py` MODIFY
+- `noosphere/noosphere/currents/x_ingestor.py` MODIFY
+- `noosphere/noosphere/models.py` MODIFY
+- `noosphere/alembic/versions/005_currents_significance_metrics.py` CREATE
+- `theseus-codex/prisma/schema.prisma` MODIFY
+- `noosphere/tests/test_x_significance_metrics.py` CREATE

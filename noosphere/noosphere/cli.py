@@ -30,11 +30,74 @@ from pathlib import Path
 from typing import Optional, List
 
 import click
-from rich.console import Console
-from rich.table import Table
-from rich.panel import Panel
-from rich.progress import Progress, SpinnerColumn, TextColumn
-from rich.text import Text
+try:
+    from rich.console import Console
+    from rich.table import Table
+    from rich.panel import Panel
+    from rich.progress import Progress, SpinnerColumn, TextColumn
+    from rich.text import Text
+except ImportError:  # pragma: no cover - exercised in minimal local envs.
+    class Console:
+        def print(self, *args, **_kwargs) -> None:
+            click.echo(" ".join(str(arg) for arg in args))
+
+        def status(self, *_args, **_kwargs):
+            class _Status:
+                def __enter__(self):
+                    return self
+
+                def __exit__(self, *_exc):
+                    return False
+
+            return _Status()
+
+    class Table:
+        def __init__(self, title: str = "", show_header: bool = True, **_kwargs) -> None:
+            self.title = title
+            self.rows: list[tuple[str, ...]] = []
+
+        def add_column(self, *_args, **_kwargs) -> None:
+            return None
+
+        def add_row(self, *args, **_kwargs) -> None:
+            self.rows.append(tuple(str(arg) for arg in args))
+
+        def __str__(self) -> str:
+            lines = [self.title] if self.title else []
+            lines.extend(" | ".join(row) for row in self.rows)
+            return "\n".join(lines)
+
+    class Panel:
+        def __init__(self, renderable, title: str = "", **_kwargs) -> None:
+            self.renderable = renderable
+            self.title = title
+
+        def __str__(self) -> str:
+            return f"{self.title}\n{self.renderable}" if self.title else str(self.renderable)
+
+    class SpinnerColumn:
+        def __init__(self, *_args, **_kwargs) -> None:
+            pass
+
+    class TextColumn:
+        def __init__(self, *_args, **_kwargs) -> None:
+            pass
+
+    class Progress:
+        def __init__(self, *_args, **_kwargs) -> None:
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_exc):
+            return False
+
+        def add_task(self, *_args, **_kwargs) -> int:
+            return 0
+
+    class Text(str):
+        pass
 
 # ── Setup ────────────────────────────────────────────────────────────────────
 
@@ -673,19 +736,26 @@ def graph(format, output_path, data_dir):
 
 # ── Command: coherence ──────────────────────────────────────────────────────
 
-@cli.command()
+@cli.group("coherence", invoke_without_command=True)
 @click.option("--report", is_flag=True,
               help="Show detailed coherence report")
 @click.option("--principle-id", type=str, default=None,
               help="Analyze specific principle by ID")
 @click.option("--data-dir", type=click.Path(), default=None,
               help="Data directory override")
-def coherence(report, principle_id, data_dir):
+@click.pass_context
+def coherence(ctx, report, principle_id, data_dir):
     """Run coherence analysis on the knowledge graph.
 
     Example:
         noosphere coherence --report
     """
+    if ctx.invoked_subcommand is not None:
+        return
+    _run_global_coherence(report, principle_id, data_dir)
+
+
+def _run_global_coherence(report, principle_id, data_dir):
     try:
         with console.status(
             "[bold green]Running 6-layer coherence analysis...",
@@ -750,6 +820,34 @@ def coherence(report, principle_id, data_dir):
 
     except Exception as e:
         console.print(f"[bold red]Coherence analysis failed: {e}[/bold red]")
+        raise SystemExit(1)
+
+
+@coherence.command("audit-local")
+@click.option("--conclusion-id", required=True, type=str,
+              help="Stored Conclusion id to audit through scaled coherence")
+def coherence_audit_local(conclusion_id):
+    """Run the scaled local coherence check for one stored conclusion."""
+    try:
+        from noosphere.coherence.scheduler import run_scaled_coherence_check
+
+        store = _store_from_settings()
+        conclusion = store.get_conclusion(conclusion_id)
+        if conclusion is None:
+            click.echo(
+                json.dumps(
+                    {"ok": False, "error": f"Unknown conclusion: {conclusion_id}"},
+                    indent=2,
+                ),
+                err=True,
+            )
+            raise SystemExit(2)
+        report = run_scaled_coherence_check(conclusion, store)
+        click.echo(report.model_dump_json(indent=2))
+    except SystemExit:
+        raise
+    except Exception as e:
+        console.print(f"[bold red]Local coherence audit failed: {e}[/bold red]")
         raise SystemExit(1)
 
 

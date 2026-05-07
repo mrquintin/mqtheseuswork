@@ -1,0 +1,100 @@
+You are operating in /Users/michaelquintin/Desktop/Theseus.
+
+Goal: ship the production migration runner that has been outstanding since
+Round 11. The runner must apply Prisma + Alembic migrations against
+`$DATABASE_URL` only after an interactive, typo-protected confirmation that
+names the host. Aborted Codex runs and dev-DB collisions have repeatedly
+shown that an unguarded `prisma migrate deploy` is unsafe in this repo.
+
+This prompt re-issues `coding_prompts/archive_round11_originals/02_production_database_migration.txt`,
+which the audit script flagged NOT_IMPLEMENTED on 2026-05-07. Verify that
+flag is still accurate before doing the work — `find theseus -maxdepth 4
+-name 'migrate_production*'` should return nothing.
+
+Background — read current state:
+1. Read every Prisma migration under `theseus-codex/prisma/migrations/` —
+   confirm the chain is intact and the latest migration's prerequisites
+   exist on disk.
+2. Read every Alembic revision under `noosphere/alembic/versions/` — confirm
+   the revision DAG ends in a single `head` (multiple heads break
+   `alembic upgrade head`).
+3. Read `theseus-codex/prisma/schema.prisma` for the active provider and
+   `directUrl` setup; deploy mode requires `DATABASE_URL`.
+4. Read `noosphere/alembic.ini` for the script_location and version_locations
+   config. The runner must `cd` into `noosphere/` before invoking alembic,
+   not rely on PYTHONPATH.
+
+Implement or repair:
+
+A. `scripts/migrate_production.sh`
+   - Bash, `set -euo pipefail`, header comment listing the contract.
+   - Pre-flight refuses to run unless:
+     1. `$DATABASE_URL` is set and parses to `postgresql://` or
+        `postgres://`.
+     2. Hostname is NOT `localhost`, `127.0.0.1`, or `0.0.0.0` UNLESS
+        `--allow-localhost` is passed (rehearsal path).
+     3. `command -v psql` succeeds (we use it for the post-migration row
+        counts).
+     4. `command -v npx` and `command -v alembic` succeed.
+   - Echoes the connection target as `host:port + db only` — never
+     `username:password`.
+   - Asks the operator to type the hostname back; aborts on mismatch.
+   - Lists the pending migrations from BOTH migrators:
+     - `npx prisma migrate status` (parsed for the "X migrations not yet
+       applied" line),
+     - `alembic current` + `alembic history --indicate-current`.
+   - Final confirm prompt: `apply N pending migrations? (yes/no)`. Anything
+     other than literal `yes` aborts.
+   - Runs `npx prisma migrate deploy` from `theseus-codex/`.
+   - Runs `alembic upgrade head` from `noosphere/`.
+   - Re-queries both migrators; refuses success if either still reports
+     pending work.
+   - Prints a row-count summary (`SELECT count(*) FROM "ForecastMarket"`,
+     `"ForecastPrediction"`, `"CurrentEvent"`, `"Conclusion"`, `"Claim"`)
+     via `psql $DATABASE_URL -t -c …`.
+   - Exit codes: 0 success, 1 pre-flight failure, 2 Prisma failed, 3
+     Alembic failed (Prisma already applied — surface this clearly).
+
+B. `scripts/migrate_production_dry_run.sh`
+   - Wraps the same pre-flight + plan listing without executing the
+     `deploy` / `upgrade head` steps. CI runs this against `main` to fail
+     loud if a migration is unintentionally pending.
+
+C. Documentation
+   - Add `docs/operations/PRODUCTION_MIGRATION.md` explaining when to run
+     each script, what the failure modes look like, and the recovery
+     playbook (revert via `alembic downgrade <prev>`; for Prisma — restore
+     from snapshot, since Prisma has no symmetric downgrade in deploy
+     mode).
+
+D. CI hook (read-only)
+   - In `.github/workflows/` find the existing CI workflow for
+     theseus-codex / noosphere; add a job that runs
+     `scripts/migrate_production_dry_run.sh --allow-localhost` against the
+     ephemeral CI Postgres and asserts zero pending migrations on `main`.
+   - Do NOT add a job that actually runs `migrate deploy` in CI.
+
+E. Tests / verification
+   - `tests/scripts/test_migrate_production_preflight.bats` (or pytest if
+     bats isn't present — check the repo's test convention) covers the
+     pre-flight branches: missing var, malformed URL, localhost without
+     flag, hostname typo. Each must abort with a non-zero exit and a
+     specific message we can grep for.
+
+Constraints:
+- The script never prints credentials. Even if the URL parser is given a
+  URL containing username:password, only host/port/db reach stdout.
+- The script never assumes Postgres extensions or roles beyond what
+  `prisma migrate deploy` and `alembic upgrade head` require.
+- If `$DATABASE_URL` points to Supabase or a managed provider, the runner
+  defers to provider-specific migration semantics ONLY through the standard
+  Prisma/Alembic CLI — do not invoke vendor APIs.
+
+If the work already exists, inspect it and only repair gaps; do not fork the
+script.
+
+SCOPE
+- `scripts/migrate_production.sh` CREATE
+- `scripts/migrate_production_dry_run.sh` CREATE
+- `docs/operations/PRODUCTION_MIGRATION.md` CREATE
+- `.github/workflows/migrate_dry_run.yml` CREATE

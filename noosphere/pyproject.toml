@@ -4,6 +4,12 @@ version = "0.1.0"
 description = "The Brain of the Firm — epistemological engine for Theseus"
 requires-python = ">=3.11"
 license = {text = "Proprietary"}
+dependencies = [
+    # HNSW ANN is the production locality substrate. Pin exactly because
+    # serialization compatibility and recall determinism depend on hnswlib's
+    # binary index format and construction parameters.
+    "hnswlib==0.8.0",
+]
 
 [project.scripts]
 noosphere = "noosphere.__main__:main"

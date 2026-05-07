@@ -1,0 +1,77 @@
+name: Production migration dry run
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "theseus-codex/prisma/**"
+      - "noosphere/alembic/**"
+      - "scripts/migrate_production*.sh"
+      - "docs/operations/PRODUCTION_MIGRATION.md"
+      - ".github/workflows/migrate_dry_run.yml"
+  pull_request:
+    paths:
+      - "theseus-codex/prisma/**"
+      - "noosphere/alembic/**"
+      - "scripts/migrate_production*.sh"
+      - "docs/operations/PRODUCTION_MIGRATION.md"
+      - ".github/workflows/migrate_dry_run.yml"
+  workflow_dispatch:
+
+jobs:
+  dry-run:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: theseus
+        ports:
+          - "5432:5432"
+        options: >-
+          --health-cmd "pg_isready -U postgres -d theseus"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/theseus
+      THESEUS_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/theseus
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: theseus-codex/package-lock.json
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+          cache-dependency-path: noosphere/requirements.txt
+
+      - name: Install CLI dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y postgresql-client
+          python -m pip install --upgrade pip
+          pip install -r noosphere/requirements.txt
+          npm ci --prefix theseus-codex --legacy-peer-deps
+
+      - name: Stamp ephemeral database at repository heads without applying migrations
+        run: |
+          cd theseus-codex
+          for migration in prisma/migrations/[0-9]*/; do
+            npx prisma migrate resolve --applied "$(basename "$migration")"
+          done
+          cd ../noosphere
+          alembic stamp head
+
+      - name: Assert dry run reports no pending migrations
+        run: |
+          printf 'localhost\n' | scripts/migrate_production_dry_run.sh --allow-localhost

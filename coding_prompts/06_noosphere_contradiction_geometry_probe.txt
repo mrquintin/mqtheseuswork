@@ -1,0 +1,119 @@
+You are operating in /Users/michaelquintin/Desktop/Theseus.
+
+Goal: at insert-time, *predict* where a logical contradiction of the new
+proposition would lie in embedding space, then look in that predicted
+neighborhood for any existing conclusion. This complements the domain-locality
+gate from prompt 05: locality finds neighbors of the new idea; the
+contradiction probe finds neighbors of the new idea's *negation-direction*.
+
+Empirical basis (read first):
+1. Read `ideologicalOntology/Embedding_Geometry_Conjecture/experiment_contradiction_direction.py`
+   and `ideologicalOntology/Contradiction_Geometry/contradiction_detector.py`.
+   These document the working hypothesis: the difference vector between a
+   proposition and its negation tends to be sparse (high Hoyer sparsity) and
+   to point in a stable direction within a local manifold.
+2. Read `noosphere/noosphere/methods/contradiction_geometry.py` — the
+   registered method already evaluates Hoyer sparsity between two
+   embeddings. It returns `(is_contradiction, sparsity, cosine_similarity)`.
+3. Read `noosphere/noosphere/coherence/geometry.py` — the in-engine module
+   that owns layer S4 (embedding-geometric) of the six-layer engine.
+4. Read `noosphere/noosphere/methods/_legacy/contradiction_geometry.py` for
+   the EmbeddingAnalyzer that drives the metric. Do not modify the legacy
+   helper — wrap it.
+5. Re-read `coding_prompts/05_noosphere_domain_locality_index.txt` and the
+   resulting `coherence/locality.py`. Halt if `DomainLocalityIndex` is
+   absent — this prompt depends on it.
+
+Implement or repair:
+
+A. A contradiction-direction estimator.
+   - Create `noosphere/noosphere/coherence/contradiction_direction.py`.
+     Expose:
+     ```
+     def estimate_contradiction_direction(
+         embedding: np.ndarray,
+         *,
+         exemplar_pairs: Sequence[tuple[np.ndarray, np.ndarray]] | None = None,
+     ) -> np.ndarray
+     ```
+     The estimator either uses a local PCA over known
+     proposition→negation pairs (preferred when ≥ N exemplars are
+     available — N is a tunable, default 32) or falls back to a registered
+     antonym-style symbolic flip. The exemplar set lives at
+     `noosphere_data/coherence/contradiction_exemplars.jsonl` and is
+     bootstrapped from the existing fixtures under
+     `noosphere/tests/fixtures/port_parity/contradiction_geometry/` plus
+     `ideologicalOntology/Contradiction_Geometry/contradiction_pairs.py`.
+   - Output is a unit-norm direction vector; the predicted location of a
+     contradiction of `embedding` is `embedding + α * direction` for a
+     calibrated `α` that you compute from the exemplars (median norm of the
+     exemplar difference vectors).
+
+B. A registered method that runs the probe.
+   - Create `noosphere/noosphere/methods/contradiction_probe.py` registering
+     `contradiction_probe` under `MethodType.JUDGMENT`. Input: the new
+     proposition's embedding plus a `DomainLocalityIndex` reference.
+     Output: a list of `ContradictionCandidate` rows
+     (`{proposition_id, predicted_distance, sparsity, cosine_similarity,
+       verdict_layer}`) for every existing proposition that lies near the
+     predicted contradiction location. The verdict is "candidate", not
+     "confirmed" — actual contradiction is decided downstream.
+   - Add `noosphere/noosphere/methods/contradiction_probe.RATIONALE.md`
+     documenting the empirical basis and the limits (high false-positive
+     rate is acceptable; false negatives are the failure mode).
+
+C. Verification of candidate contradictions.
+   - Update `noosphere/noosphere/coherence/engine.py` so the local
+     coherence entry point produced in prompt 05 invokes
+     `contradiction_probe` after the locality lookup, then verifies each
+     candidate via the existing layer pipeline:
+     (i) the existing NLI judge in `coherence/nli.py` for formal
+         contradiction,
+     (ii) the existing `coherence/judge.py` LLM judge as a tiebreaker when
+         NLI is uncertain.
+     Probe candidates that survive both layers are upgraded to
+     `ContradictionFinding` rows on the `CoherenceReport`.
+   - The probe is *additive*: a contradiction the probe missed but the
+     direct-locality NLI sweep found is still recorded. Probe-only
+     candidates without NLI/LLM confirmation are recorded as
+     `tentative_contradictions` so an operator can review them.
+
+D. Tests
+   - `noosphere/tests/test_contradiction_direction.py`:
+     (a) on a synthetic dataset of antonym pairs, the estimator recovers a
+         direction with cosine ≥ 0.7 against the held-out true direction;
+     (b) Hoyer sparsity of the recovered direction beats a random
+         baseline by a fixed margin on the bundled fixtures;
+     (c) graceful degradation when the exemplar pool is empty (returns a
+         null vector and a `low_confidence=True` sentinel).
+   - `noosphere/tests/test_contradiction_probe_method.py`:
+     (a) on a corpus that includes a planted opposite of a new idea, the
+         probe surfaces it as a candidate; layer verification keeps it;
+     (b) on a corpus without an opposite, no candidate survives layer
+         verification (NLI returns `entailment_or_neutral` for all
+         neighbors of the predicted location);
+     (c) the probe never crashes when the locality index returns zero
+         neighbors of the predicted location.
+
+Constraints:
+- This is a probabilistic probe. Layer verification (NLI + LLM judge) is
+  what makes the final call — do not let geometry alone produce a
+  `CoherenceReport.contradictions` row.
+- The exemplar file is data, not code; check it into the repo, but write a
+  CLI script `noosphere/scripts/refresh_contradiction_exemplars.py` that
+  rebuilds the exemplar set from the fixture directories and refuses to
+  overwrite by default.
+- Do not modify the registered `contradiction_geometry` method — extend
+  with a new method, do not edit the old one.
+
+If the work already exists, inspect it and only repair gaps; do not
+duplicate the registered method.
+
+SCOPE
+- `noosphere/noosphere/coherence/contradiction_direction.py` CREATE
+- `noosphere/noosphere/methods/contradiction_probe.py` CREATE
+- `noosphere/noosphere/methods/contradiction_probe.RATIONALE.md` CREATE
+- `noosphere/noosphere/coherence/engine.py` MODIFY
+- `noosphere/scripts/refresh_contradiction_exemplars.py` CREATE
+- `noosphere/tests/test_contradiction_direction.py` CREATE
+- `noosphere/tests/test_contradiction_probe_method.py` CREATE
