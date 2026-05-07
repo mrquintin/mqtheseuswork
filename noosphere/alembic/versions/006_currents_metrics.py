@@ -1,6 +1,6 @@
 """Current event significance metrics and opinion audit metadata.
 
-Revision ID: 005_currents_significance_metrics
+Revision ID: 006_currents_metrics
 Revises: 005_opinion_citation_revoked_at
 Create Date: 2026-05-07
 """
@@ -12,7 +12,7 @@ from alembic import op
 from sqlalchemy import inspect as sa_inspect
 from sqlalchemy.dialects import postgresql
 
-revision = "005_currents_significance_metrics"
+revision = "006_currents_metrics"
 down_revision = "005_opinion_citation_revoked_at"
 branch_labels = None
 depends_on = None
@@ -53,7 +53,7 @@ def _ensure_pg_enum_value(enum_name: str, value: str) -> None:
         {"enum_name": enum_name, "value": value},
     ).first()
     if exists is None:
-        op.execute(sa.text(f'ALTER TYPE "{enum_name}" ADD VALUE \'{value}\''))
+        op.execute(sa.text(f"ALTER TYPE \"{enum_name}\" ADD VALUE '{value}'"))
 
 
 def upgrade() -> None:

@@ -29,7 +29,10 @@ def test_search_recent_constrains_queries_to_original_english_posts() -> None:
     params = client.calls[0]["params"]
     assert isinstance(params, dict)
     assert params["query"] == "education reform -is:reply -is:retweet lang:en"
-    assert params["tweet.fields"] == "id,text,author_id,created_at,referenced_tweets"
+    assert (
+        params["tweet.fields"]
+        == "id,text,author_id,created_at,referenced_tweets,public_metrics"
+    )
 
 
 def test_fetch_user_tweets_excludes_replies_and_retweets() -> None:
@@ -40,7 +43,10 @@ def test_fetch_user_tweets_excludes_replies_and_retweets() -> None:
     params = client.calls[0]["params"]
     assert isinstance(params, dict)
     assert params["exclude"] == "replies,retweets"
-    assert params["tweet.fields"] == "id,text,author_id,created_at,referenced_tweets"
+    assert (
+        params["tweet.fields"]
+        == "id,text,author_id,created_at,referenced_tweets,public_metrics"
+    )
 
 
 def test_normalize_posts_skips_reply_and_retweet_payloads() -> None:

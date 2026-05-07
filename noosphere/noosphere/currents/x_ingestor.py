@@ -73,9 +73,14 @@ async def ingest_once(store: Any, cfg: IngestorConfig) -> IngestReport:
     significance_bypass_event_ids: list[str] = []
     seen_hashes: set[str] = set()
     try:
-        if cfg.discovery_enabled and cfg.discovery_max_candidates > 0:
+        fetch_trending = getattr(client, "fetch_trending_candidates", None)
+        if (
+            cfg.discovery_enabled
+            and cfg.discovery_max_candidates > 0
+            and callable(fetch_trending)
+        ):
             try:
-                posts = await client.fetch_trending_candidates(
+                posts = await fetch_trending(
                     locale=cfg.discovery_locale,
                     max_results=cfg.discovery_max_candidates,
                 )
@@ -238,10 +243,7 @@ def _passes_significance_filters(
     return (
         (cfg.min_likes > 0 and metrics.like_count >= cfg.min_likes)
         or (cfg.min_retweets > 0 and metrics.retweet_count >= cfg.min_retweets)
-        or (
-            cfg.min_impressions > 0
-            and metrics.impression_count >= cfg.min_impressions
-        )
+        or (cfg.min_impressions > 0 and metrics.impression_count >= cfg.min_impressions)
     )
 
 

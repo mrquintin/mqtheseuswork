@@ -5,7 +5,6 @@ import stat
 import subprocess
 from pathlib import Path
 
-
 REPO_ROOT = Path(__file__).resolve().parents[2]
 SCRIPT = REPO_ROOT / "scripts" / "migrate_production.sh"
 
@@ -75,11 +74,11 @@ def _fake_clean_plan_command_dir(tmp_path: Path) -> Path:
             [
                 "#!/usr/bin/env bash",
                 'if [[ "$*" == "current" ]]; then',
-                '  echo "005_currents_significance_metrics (head)"',
+                '  echo "006_currents_metrics (head)"',
                 "  exit 0",
                 "fi",
                 'if [[ "$*" == "history --indicate-current" ]]; then',
-                '  echo "005_opinion_citation_revoked_at -> 005_currents_significance_metrics (head) (current), Current event significance metrics"',
+                '  echo "005_opinion_citation_revoked_at -> 006_currents_metrics (head) (current), Current event significance metrics"',
                 '  echo "004_forecasts_data_model -> 005_opinion_citation_revoked_at, Opinion citation revocation timestamp"',
                 "  exit 0",
                 "fi",

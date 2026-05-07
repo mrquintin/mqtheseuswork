@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import json
 import math
+import re
 import uuid
 from datetime import date, datetime
 from decimal import Decimal
@@ -38,20 +39,23 @@ from sqlmodel import Field as SQLField, SQLModel
 
 # ── Enums ────────────────────────────────────────────────────────────────────
 
+
 class RelationType(str, Enum):
     """Semantic relationship between two claims or principles."""
-    SUPPORTS = "supports"           # A provides evidence/reasoning for B
-    CONTRADICTS = "contradicts"     # A is logically incompatible with B
-    REFINES = "refines"             # A is a more precise version of B
-    INSTANTIATES = "instantiates"   # A is a specific case of general B
-    EXTENDS = "extends"             # A adds new scope to B
-    ANALOGIZES = "analogizes"       # A draws structural parallel to B
-    PRESUPPOSES = "presupposes"     # A requires B to be true
-    QUALIFIES = "qualifies"         # A limits or conditions B
+
+    SUPPORTS = "supports"  # A provides evidence/reasoning for B
+    CONTRADICTS = "contradicts"  # A is logically incompatible with B
+    REFINES = "refines"  # A is a more precise version of B
+    INSTANTIATES = "instantiates"  # A is a specific case of general B
+    EXTENDS = "extends"  # A adds new scope to B
+    ANALOGIZES = "analogizes"  # A draws structural parallel to B
+    PRESUPPOSES = "presupposes"  # A requires B to be true
+    QUALIFIES = "qualifies"  # A limits or conditions B
 
 
 class Discipline(str, Enum):
     """Knowledge domains tracked by Theseus."""
+
     PHILOSOPHY = "Philosophy"
     PHYSICS = "Physics"
     AI = "AI"
@@ -70,17 +74,20 @@ class Discipline(str, Enum):
 
 class ConvictionLevel(str, Enum):
     """How strongly a principle is held, inferred from discourse patterns."""
-    AXIOM = "axiom"                 # Foundational, never questioned
-    STRONG = "strong"               # Consistently asserted with emphasis
-    MODERATE = "moderate"           # Asserted but open to refinement
-    EXPLORATORY = "exploratory"     # Tentatively proposed, being tested
-    CONTESTED = "contested"         # Actively debated among founders
+
+    AXIOM = "axiom"  # Foundational, never questioned
+    STRONG = "strong"  # Consistently asserted with emphasis
+    MODERATE = "moderate"  # Asserted but open to refinement
+    EXPLORATORY = "exploratory"  # Tentatively proposed, being tested
+    CONTESTED = "contested"  # Actively debated among founders
 
 
 # ── Round 3: Freshness & Decay (defined early for use in existing models) ────
 
+
 class Freshness(str, Enum):
     """Freshness status for revalidation tracking."""
+
     FRESH = "fresh"
     AGING = "aging"
     STALE = "stale"
@@ -271,6 +278,7 @@ class _PydanticJSONType(TypeDecorator):
 
 # ── Pre-existing enums (needed by store / coherence) ────────────────────────
 
+
 class CoherenceVerdict(str, Enum):
     COHERE = "cohere"
     CONTRADICT = "contradict"
@@ -278,11 +286,21 @@ class CoherenceVerdict(str, Enum):
 
 
 class ConfidenceTier(str, Enum):
+    OPEN = "open"
     FOUNDER = "founder"
+    FIRM = "firm"
     HIGH = "high"
     MODERATE = "moderate"
     LOW = "low"
     SPECULATIVE = "speculative"
+
+
+class ConclusionKind(str, Enum):
+    FOUNDER = "founder"
+    FIRM = "firm"
+    METHOD = "method"
+    SYNTHESIS = "synthesis"
+    ARTICLE = "article"
 
 
 class AdversarialChallengeStatus(str, Enum):
@@ -305,15 +323,60 @@ class PredictiveClaimStatus(str, Enum):
 
 
 class SixLayerScore(BaseModel):
-    consistency: float = 0.0
-    argumentation: float = 0.0
-    probabilistic: float = 0.0
-    geometric: float = 0.0
-    information: float = 0.0
-    judge: float = 0.0
+    s1_consistency: float = 0.0
+    s2_argumentation: float = 0.0
+    s3_probabilistic: float = 0.0
+    s4_geometric: float = 0.0
+    s5_compression: float = 0.0
+    s6_llm_judge: float = 0.0
+
+    @model_validator(mode="before")
+    @classmethod
+    def _normalize_legacy_layer_names(cls, data: Any) -> Any:
+        if not isinstance(data, dict):
+            return data
+        aliases = {
+            "consistency": "s1_consistency",
+            "argumentation": "s2_argumentation",
+            "probabilistic": "s3_probabilistic",
+            "geometric": "s4_geometric",
+            "information": "s5_compression",
+            "judge": "s6_llm_judge",
+        }
+        normalized = dict(data)
+        for legacy, canonical in aliases.items():
+            if canonical not in normalized and legacy in normalized:
+                normalized[canonical] = normalized[legacy]
+        return normalized
+
+    @property
+    def consistency(self) -> float:
+        return self.s1_consistency
+
+    @property
+    def argumentation(self) -> float:
+        return self.s2_argumentation
+
+    @property
+    def probabilistic(self) -> float:
+        return self.s3_probabilistic
+
+    @property
+    def geometric(self) -> float:
+        return self.s4_geometric
+
+    @property
+    def information(self) -> float:
+        return self.s5_compression
+
+    @property
+    def judge(self) -> float:
+        return self.s6_llm_judge
 
 
 class Artifact(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     uri: str = ""
     mime_type: str = ""
@@ -344,6 +407,12 @@ class CoherenceEvaluationPayload(BaseModel):
     aggregator_verdict: CoherenceVerdict = CoherenceVerdict.UNRESOLVED
     prior_scores: SixLayerScore = Field(default_factory=SixLayerScore)
     layer_verdicts: dict[str, str] = Field(default_factory=dict)
+    confidence: float = 0.0
+    explanation: str = ""
+    unresolved_reason: str = ""
+    judge_override: bool = False
+    judge_override_rationale: str = ""
+    judge_cited_layers: list[str] = Field(default_factory=list)
 
 
 class DriftEvent(BaseModel):
@@ -351,6 +420,7 @@ class DriftEvent(BaseModel):
     target_id: str = ""
     observed_at: date = Field(default_factory=date.today)
     drift_score: float = 0.0
+    notes: str = ""
 
 
 class Entity(BaseModel):
@@ -364,6 +434,8 @@ class ResearchSuggestion(BaseModel):
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     title: str = ""
     summary: str = ""
+    rationale: str = ""
+    reading_uris: list[str] = Field(default_factory=list)
 
 
 class ReviewItem(BaseModel):
@@ -380,6 +452,20 @@ class AdversarialChallenge(BaseModel):
     conclusion_id: str = ""
     cluster_fingerprint: str = ""
     content_hash: str = ""
+    tradition: str = ""
+    primary_attack_vector: str = ""
+    objection_text: str = ""
+    cited_thinkers: list[str] = Field(default_factory=list)
+    citation_style: str = ""
+    atomic_claim_ids: list[str] = Field(default_factory=list)
+    prior_engagement: list[EngagementPointer] = Field(default_factory=list)
+    status: AdversarialChallengeStatus = AdversarialChallengeStatus.PENDING
+    stale_after: Optional[datetime] = None
+    six_layer_json: str = "{}"
+    final_verdict: str = ""
+    confidence: float = 0.0
+    judge_overturned_contradict: bool = False
+    human_override: Optional[HumanAdversarialOverride] = None
     created_at: datetime = Field(default_factory=datetime.now)
     updated_at: datetime = Field(default_factory=datetime.now)
 
@@ -387,6 +473,10 @@ class AdversarialChallenge(BaseModel):
 class VoiceProfile(BaseModel):
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     canonical_name: str = ""
+    aliases: list[str] = Field(default_factory=list)
+    traditions: list[str] = Field(default_factory=list)
+    copyright_status: str = "unknown"
+    corpus_artifact_ids: list[str] = Field(default_factory=list)
     created_at: datetime = Field(default_factory=datetime.now)
     updated_at: datetime = Field(default_factory=datetime.now)
 
@@ -404,6 +494,9 @@ class CitationRecord(BaseModel):
 
 class RelativePositionMap(BaseModel):
     conclusion_id: str = ""
+    closest_agreeing_voice_id: str = ""
+    closest_opposing_voice_id: str = ""
+    entries: list[RelativePositionEntry] = Field(default_factory=list)
 
 
 class ReadingQueueEntry(BaseModel):
@@ -421,17 +514,34 @@ class PredictiveClaim(BaseModel):
     status: PredictiveClaimStatus = PredictiveClaimStatus.DRAFT
     source_claim_id: str = ""
     voice_id: str = ""
+    domains: list[str] = Field(default_factory=list)
+    event_text: str = ""
+    resolution_date: Optional[date] = None
+    resolution_criteria_true: str = ""
+    resolution_criteria_false: str = ""
+    prob_low: float = 0.5
+    prob_high: float = 0.5
+    honest_uncertainty: bool = False
+    scoring_eligible: bool = False
+    extraction_human_confirmed: bool = False
     created_at: datetime = Field(default_factory=datetime.now)
+    updated_at: datetime = Field(default_factory=datetime.now)
 
 
 class PredictionResolution(BaseModel):
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     predictive_claim_id: str = ""
+    outcome: int | bool = 0
     resolved_at: datetime = Field(default_factory=datetime.now)
+    justification: str = ""
+    evidence_artifact_ids: list[str] = Field(default_factory=list)
+    mode: str = "manual"
+    resolver_founder_id: str = ""
 
 
 def voice_canonical_key(name: str) -> str:
-    return name.lower().strip().replace(" ", "_")
+    cleaned = re.sub(r"[^a-z0-9]+", "_", name.lower().strip())
+    return cleaned.strip("_")
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -459,7 +569,8 @@ class StrictModel(BaseModel):
     validate LLM output — the goal there is to catch hallucinated fields
     rather than silently accept them.
     """
-    model_config = ConfigDict(strict=True, extra='forbid')
+
+    model_config = ConfigDict(strict=True, extra="forbid")
 
 
 class ClaimType(str, Enum):
@@ -470,6 +581,7 @@ class ClaimType(str, Enum):
     are intentionally plain English adjectives the classifier can reason
     about ("This statement is {factual}.").
     """
+
     FACTUAL = "factual"
     METHODOLOGICAL = "methodological"
     NORMATIVE = "normative"
@@ -484,6 +596,7 @@ class ClaimOrigin(str, Enum):
     Values are derived from the set of origins referenced throughout the
     codebase (see adversarial.py, voices.py, literature.py, retrieval.py).
     """
+
     FOUNDER = "founder"
     # Text in the upload that isn't the founder's own assertion —
     # interview prompts, debate positions being argued against, quoted
@@ -504,6 +617,7 @@ class JudgePriorScoreRef(BaseModel):
     consulted when arriving at its verdict. `coherence.redteam` asserts
     the judge's explanation actually cites these layers by name + value.
     """
+
     layer: str
     value: float
 
@@ -515,6 +629,7 @@ class LLMJudgeVerdictPacket(BaseModel):
     ``cited_prior_scores`` feeds the rationalisation check in
     ``coherence.redteam.explanation_cites_prior_layers``.
     """
+
     verdict: CoherenceVerdict
     confidence: float
     explanation: str
@@ -529,6 +644,7 @@ class EngagementPointer(BaseModel):
     founders can quickly jump from a critique to the material they
     already wrote on the same topic.
     """
+
     claim_id: str
     artifact_uri: str = ""
     excerpt: str = ""
@@ -537,7 +653,8 @@ class EngagementPointer(BaseModel):
 
 class _AtomicObjectionClaim(BaseModel):
     """Individual stripped-down claim within an AdversarialObjectionDraft."""
-    model_config = ConfigDict(extra='allow')
+
+    model_config = ConfigDict(extra="allow")
     text: str = ""
 
 
@@ -548,7 +665,8 @@ class AdversarialObjectionDraft(BaseModel):
     Round-3 AdversarialChallenge builder. ``extra='allow'`` so we don't
     reject extra fields the model adds for its own bookkeeping.
     """
-    model_config = ConfigDict(extra='allow')
+
+    model_config = ConfigDict(extra="allow")
     tradition: str = ""
     primary_attack_vector: str = ""
     objection_text: str = ""
@@ -564,7 +682,8 @@ class AdversarialGeneratorBundle(BaseModel):
     to the LLM as the expected output shape, so changes here change the
     prompt contract.
     """
-    model_config = ConfigDict(extra='allow')
+
+    model_config = ConfigDict(extra="allow")
     objections: list[AdversarialObjectionDraft] = []
 
 
@@ -576,7 +695,8 @@ class HumanAdversarialOverride(BaseModel):
     is used rather than an enum to match the existing on-disk audit
     payloads.
     """
-    model_config = ConfigDict(extra='allow')
+
+    model_config = ConfigDict(extra="allow")
     kind: str = ""
     rationale: str = ""
     author: str = ""
@@ -589,6 +709,7 @@ class RelativePositionEntry(BaseModel):
     Built by ``voices.compute_relative_positions`` — one entry per voice
     we could score against the current principles.
     """
+
     voice_id: str
     voice_name: str
     verdict_vs_firm: str
@@ -604,7 +725,8 @@ class FounderIntellectualView(BaseModel):
     model — stored as JSON, not relational — so structural drift is
     tolerated via ``extra='allow'``.
     """
-    model_config = ConfigDict(extra='allow')
+
+    model_config = ConfigDict(extra="allow")
     founder_id: str
     founder_name: str = ""
     positions_by_topic: dict[str, Any] = {}
@@ -615,8 +737,10 @@ class FounderIntellectualView(BaseModel):
 
 # ── Core Data Models ─────────────────────────────────────────────────────────
 
+
 class Speaker(BaseModel):
     """A participant in the podcast."""
+
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     name: str
     role: str = "founder"  # founder | guest | moderator
@@ -624,6 +748,7 @@ class Speaker(BaseModel):
 
 class InputSourceType(str, Enum):
     """Type of input source."""
+
     TRANSCRIPT = "transcript"
     WRITTEN = "written"
     EXTERNAL = "external"
@@ -631,6 +756,7 @@ class InputSourceType(str, Enum):
 
 class InputSource(BaseModel):
     """An input source (transcript, written document, etc.)."""
+
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     source_type: InputSourceType = InputSourceType.TRANSCRIPT
     title: str = ""
@@ -641,11 +767,12 @@ class InputSource(BaseModel):
     author_name: str = ""
     description: str = ""
 
-    model_config = ConfigDict(extra='forbid')
+    model_config = ConfigDict(extra="forbid")
 
 
 class FounderProfile(BaseModel):
     """A stable identity for a podcast founder, persisted across episodes."""
+
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     name: str
     speaker_id: Optional[str] = None
@@ -661,14 +788,15 @@ class FounderProfile(BaseModel):
     created_at: datetime = Field(default_factory=datetime.now)
     updated_at: datetime = Field(default_factory=datetime.now)
 
-    model_config = ConfigDict(extra='forbid')
+    model_config = ConfigDict(extra="forbid")
 
 
 class TranscriptSegment(BaseModel):
     """A contiguous segment of speech from one speaker."""
+
     speaker: Speaker
     text: str
-    start_time: Optional[float] = None   # seconds from episode start
+    start_time: Optional[float] = None  # seconds from episode start
     end_time: Optional[float] = None
     episode_id: str = ""
 
@@ -681,18 +809,27 @@ class Claim(BaseModel):
     assertoric sentence that can be true or false, attributed to a
     speaker, and positioned in embedding space.
     """
+
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
-    text: str                                   # The proposition itself
-    speaker: Speaker                            # Who said it
-    episode_id: str                             # Which episode
-    episode_date: date                          # When
-    segment_context: str = ""                   # Surrounding paragraph for disambiguation
-    disciplines: list[Discipline] = []          # Relevant domains
-    embedding: Optional[list[float]] = None     # SBERT embedding vector
-    confidence: float = 1.0                     # Extraction confidence (0-1)
-    timestamp_seconds: Optional[float] = None   # Position in episode
-    source_id: str = ""                         # Source artifact or chunk ID
-    voice_id: str = ""                          # Voice profile ID
+    text: str  # The proposition itself
+    speaker: Speaker  # Who said it
+    episode_id: str  # Which episode
+    episode_date: date  # When
+    segment_context: str = ""  # Surrounding paragraph for disambiguation
+    disciplines: list[Discipline] = []  # Relevant domains
+    embedding: Optional[list[float]] = None  # SBERT embedding vector
+    confidence: float = 1.0  # Extraction confidence (0-1)
+    timestamp_seconds: Optional[float] = None  # Position in episode
+    source_id: str = ""  # Source artifact or chunk ID
+    source_type: Optional[InputSourceType] = None
+    source_span_start: Optional[int] = None
+    source_span_end: Optional[int] = None
+    voice_id: str = ""  # Voice profile ID
+    founder_id: str = ""
+    author_key: str = ""
+    effective_at: Optional[datetime] = None
+    effective_at_inferred: bool = True
+    superseded_at: Optional[datetime] = None
     # Round 3 additions
     freshness: Freshness = Freshness.FRESH
     last_validated_at: Optional[datetime] = None
@@ -714,6 +851,7 @@ class Claim(BaseModel):
     # passing `evidence_pointers=…` to this constructor, but pydantic v2
     # drops unknown fields by default, so the round-trip lost them.
     evidence_pointers: list[str] = []
+    confidence_hedges: list[str] = []
     # Transcript alignment — used by ingest_papers and ingest_dialectic
     # to thread claims back to their source chunks for traceability.
     chunk_id: str = ""
@@ -727,27 +865,28 @@ class Principle(BaseModel):
     They represent the firm's enduring intellectual commitments — the things
     the founders believe deeply enough to act on repeatedly.
     """
+
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
-    text: str                                   # Canonical statement
-    description: str = ""                       # Elaborated explanation
+    text: str  # Canonical statement
+    description: str = ""  # Elaborated explanation
     disciplines: list[Discipline] = []
     conviction: ConvictionLevel = ConvictionLevel.MODERATE
-    conviction_score: float = 0.5               # Continuous 0-1
+    conviction_score: float = 0.5  # Continuous 0-1
     embedding: Optional[list[float]] = None
 
     # Evidence trail
-    supporting_claims: list[str] = []           # Claim IDs
+    supporting_claims: list[str] = []  # Claim IDs
     first_appeared: Optional[date] = None
     last_reinforced: Optional[date] = None
     mention_count: int = 0
 
     # Coherence metrics (from the 6-layer engine)
-    coherence_score: Optional[float] = None     # Composite Coh(Γ)
-    consistency_score: Optional[float] = None   # S₁: formal consistency
-    argumentation_score: Optional[float] = None # S₂: grounded extension ratio
-    probabilistic_score: Optional[float] = None # S₃: Roche's measure
-    geometric_score: Optional[float] = None     # S₄: embedding coherence
-    compression_score: Optional[float] = None   # S₅: information-theoretic
+    coherence_score: Optional[float] = None  # Composite Coh(Γ)
+    consistency_score: Optional[float] = None  # S₁: formal consistency
+    argumentation_score: Optional[float] = None  # S₂: grounded extension ratio
+    probabilistic_score: Optional[float] = None  # S₃: Roche's measure
+    geometric_score: Optional[float] = None  # S₄: embedding coherence
+    compression_score: Optional[float] = None  # S₅: information-theoretic
 
     # Metadata
     created_at: datetime = Field(default_factory=datetime.now)
@@ -757,18 +896,20 @@ class Principle(BaseModel):
 
 class Relationship(BaseModel):
     """A directed edge in the knowledge graph."""
+
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
-    source_id: str                              # Principle or Claim ID
+    source_id: str  # Principle or Claim ID
     target_id: str
     relation: RelationType
-    strength: float = 1.0                       # 0-1, how strong the relationship
-    evidence: str = ""                          # Why this relationship exists
-    detected_by: str = "extraction"             # extraction | coherence | geometric | manual
+    strength: float = 1.0  # 0-1, how strong the relationship
+    evidence: str = ""  # Why this relationship exists
+    detected_by: str = "extraction"  # extraction | coherence | geometric | manual
     created_at: datetime = Field(default_factory=datetime.now)
 
 
 class Episode(BaseModel):
     """Metadata for a single podcast episode."""
+
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     number: int
     date: date
@@ -777,8 +918,8 @@ class Episode(BaseModel):
     transcript_path: str = ""
     speakers: list[Speaker] = []
     claim_count: int = 0
-    new_principles: list[str] = []              # Principle IDs first appearing
-    reinforced_principles: list[str] = []       # Principle IDs mentioned again
+    new_principles: list[str] = []  # Principle IDs first appearing
+    reinforced_principles: list[str] = []  # Principle IDs mentioned again
 
 
 class ContradictionFinding(BaseModel):
@@ -791,9 +932,10 @@ class ContradictionFinding(BaseModel):
     Kept intentionally minimal — if callers need more context they can
     look up the underlying propositions by id.
     """
-    id_a: str                                   # proposition / claim id (first)
-    id_b: str                                   # proposition / claim id (second)
-    severity: float                             # contradiction score ∈ [0, 1]
+
+    id_a: str  # proposition / claim id (first)
+    id_b: str  # proposition / claim id (second)
+    severity: float  # contradiction score ∈ [0, 1]
 
 
 class CoherenceReport(BaseModel):
@@ -808,51 +950,61 @@ class CoherenceReport(BaseModel):
     ``ContradictionFinding`` from this module, so the whole package was
     un-importable. Both ends are now aligned.
     """
+
     principle_ids: list[str]
-    composite_score: float                      # Coh(Γ) ∈ [0, 1]
-    layer_scores: dict[str, float]              # S₁ through S₆
+    composite_score: float  # Coh(Γ) ∈ [0, 1]
+    layer_scores: dict[str, float]  # S₁ through S₆
     contradictions_found: list[ContradictionFinding] = []
-    tentative_contradictions: list[dict[str, Any]] = []  # Unconfirmed geometry-probe candidates
-    weakest_links: list[str] = []               # Principle IDs with lowest support
-    six_layer: Optional[SixLayerScore] = None   # Full six-layer breakdown
-    methodology: dict[str, Any] = Field(default_factory=dict)  # Reproducibility metadata
+    tentative_contradictions: list[dict[str, Any]] = (
+        []
+    )  # Unconfirmed geometry-probe candidates
+    weakest_links: list[str] = []  # Principle IDs with lowest support
+    six_layer: Optional[SixLayerScore] = None  # Full six-layer breakdown
+    methodology: dict[str, Any] = Field(
+        default_factory=dict
+    )  # Reproducibility metadata
     generated_at: datetime = Field(default_factory=datetime.now)
 
 
 class InferenceQuery(BaseModel):
     """A question posed to the inference engine."""
+
     question: str
-    context: str = ""                           # Additional context
-    disciplines: list[Discipline] = []          # Scope the answer
-    require_coherence: bool = True              # Must be consistent with principles
+    context: str = ""  # Additional context
+    disciplines: list[Discipline] = []  # Scope the answer
+    require_coherence: bool = True  # Must be consistent with principles
 
 
 class InferenceResult(BaseModel):
     """The inference engine's response."""
+
     query: InferenceQuery
     answer: str
-    reasoning_chain: list[str] = []             # Step-by-step from principles
-    principles_used: list[str] = []             # Principle IDs grounding the answer
-    confidence: float = 0.0                     # How well-grounded in principles
-    coherence_with_corpus: float = 0.0          # Alignment score
-    caveats: list[str] = []                     # Where principles are silent or ambiguous
+    reasoning_chain: list[str] = []  # Step-by-step from principles
+    principles_used: list[str] = []  # Principle IDs grounding the answer
+    confidence: float = 0.0  # How well-grounded in principles
+    coherence_with_corpus: float = 0.0  # Alignment score
+    caveats: list[str] = []  # Where principles are silent or ambiguous
 
 
 class TemporalSnapshot(BaseModel):
     """State of a principle at a point in time."""
+
     principle_id: str
     episode_id: str
     date: date
     conviction_score: float
     mention_count_cumulative: int
-    embedding: Optional[list[float]] = None     # For tracking drift
-    drift_from_origin: Optional[float] = None   # Cosine distance from first embedding
+    embedding: Optional[list[float]] = None  # For tracking drift
+    drift_from_origin: Optional[float] = None  # Cosine distance from first embedding
 
 
 # ── Round 3: New models (Conclusion, Topic) ──────────────────────────────────
 
+
 class Topic(BaseModel):
     """A topic in the knowledge graph."""
+
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     name: str = ""
     label: str = ""
@@ -869,19 +1021,42 @@ class Topic(BaseModel):
 
 class Conclusion(BaseModel):
     """A reasoned conclusion drawn from principles and claims."""
+
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     text: str
     reasoning: str = ""
+    rationale: str = ""
+    kind: ConclusionKind = ConclusionKind.FIRM
     confidence_tier: ConfidenceTier = ConfidenceTier.MODERATE
     principles_used: list[str] = []
     claims_used: list[str] = []
+    supporting_principle_ids: list[str] = Field(default_factory=list)
+    evidence_chain_claim_ids: list[str] = Field(default_factory=list)
+    dissent_claim_ids: list[str] = Field(default_factory=list)
     confidence: float = 0.0
     disciplines: list[Discipline] = []
     created_at: datetime = Field(default_factory=datetime.now)
     updated_at: datetime = Field(default_factory=datetime.now)
+    superseded_at: Optional[datetime] = None
     # Round 3 additions
     freshness: Freshness = Freshness.FRESH
     last_validated_at: Optional[datetime] = None
+
+    @model_validator(mode="after")
+    def _sync_legacy_aliases(self) -> Conclusion:
+        if not self.rationale and self.reasoning:
+            self.rationale = self.reasoning
+        if not self.reasoning and self.rationale:
+            self.reasoning = self.rationale
+        if not self.supporting_principle_ids and self.principles_used:
+            self.supporting_principle_ids = list(self.principles_used)
+        if not self.principles_used and self.supporting_principle_ids:
+            self.principles_used = list(self.supporting_principle_ids)
+        if not self.evidence_chain_claim_ids and self.claims_used:
+            self.evidence_chain_claim_ids = list(self.claims_used)
+        if not self.claims_used and self.evidence_chain_claim_ids:
+            self.claims_used = list(self.evidence_chain_claim_ids)
+        return self
 
 
 SIGNIFICANCE_WEIGHTS: dict[str, float] = {
@@ -966,22 +1141,42 @@ class CurrentEvent(SQLModel, table=True):
     __tablename__ = "CurrentEvent"
     __table_args__ = (
         UniqueConstraint("dedupeHash", name="CurrentEvent_dedupeHash_key"),
-        Index("CurrentEvent_organizationId_observedAt_idx", "organizationId", "observedAt"),
+        Index(
+            "CurrentEvent_organizationId_observedAt_idx", "organizationId", "observedAt"
+        ),
         Index("CurrentEvent_organizationId_status_idx", "organizationId", "status"),
     )
 
     id: str = SQLField(default_factory=_new_cuid, primary_key=True)
-    organization_id: str = SQLField(sa_column=Column("organizationId", String, nullable=False))
-    source: CurrentEventSource = SQLField(sa_column=Column("source", String, nullable=False))
+    organization_id: str = SQLField(
+        sa_column=Column("organizationId", String, nullable=False)
+    )
+    source: CurrentEventSource = SQLField(
+        sa_column=Column("source", String, nullable=False)
+    )
     external_id: str = SQLField(sa_column=Column("externalId", String, nullable=False))
-    author_handle: Optional[str] = SQLField(default=None, sa_column=Column("authorHandle", String, nullable=True))
+    author_handle: Optional[str] = SQLField(
+        default=None, sa_column=Column("authorHandle", String, nullable=True)
+    )
     text: str = SQLField(sa_column=Column("text", Text, nullable=False))
-    url: Optional[str] = SQLField(default=None, sa_column=Column("url", String, nullable=True))
-    captured_at: datetime = SQLField(default_factory=_now, sa_column=Column("capturedAt", SADateTime, nullable=False))
-    observed_at: datetime = SQLField(sa_column=Column("observedAt", SADateTime, nullable=False))
-    topic_hint: Optional[str] = SQLField(default=None, sa_column=Column("topicHint", String, nullable=True))
-    is_near_duplicate: bool = SQLField(default=False, sa_column=Column("isNearDuplicate", SABoolean, nullable=False))
-    embedding: Optional[bytes] = SQLField(default=None, sa_column=Column("embedding", LargeBinary, nullable=True))
+    url: Optional[str] = SQLField(
+        default=None, sa_column=Column("url", String, nullable=True)
+    )
+    captured_at: datetime = SQLField(
+        default_factory=_now, sa_column=Column("capturedAt", SADateTime, nullable=False)
+    )
+    observed_at: datetime = SQLField(
+        sa_column=Column("observedAt", SADateTime, nullable=False)
+    )
+    topic_hint: Optional[str] = SQLField(
+        default=None, sa_column=Column("topicHint", String, nullable=True)
+    )
+    is_near_duplicate: bool = SQLField(
+        default=False, sa_column=Column("isNearDuplicate", SABoolean, nullable=False)
+    )
+    embedding: Optional[bytes] = SQLField(
+        default=None, sa_column=Column("embedding", LargeBinary, nullable=True)
+    )
     metrics: Optional[XSignificanceMetrics] = SQLField(
         default=None,
         sa_column=Column(
@@ -995,8 +1190,12 @@ class CurrentEvent(SQLModel, table=True):
         sa_column=Column("status", String, nullable=False),
     )
     dedupe_hash: str = SQLField(sa_column=Column("dedupeHash", String, nullable=False))
-    created_at: datetime = SQLField(default_factory=_now, sa_column=Column("createdAt", SADateTime, nullable=False))
-    updated_at: datetime = SQLField(default_factory=_now, sa_column=Column("updatedAt", SADateTime, nullable=False))
+    created_at: datetime = SQLField(
+        default_factory=_now, sa_column=Column("createdAt", SADateTime, nullable=False)
+    )
+    updated_at: datetime = SQLField(
+        default_factory=_now, sa_column=Column("updatedAt", SADateTime, nullable=False)
+    )
 
 
 class EventOpinion(SQLModel, table=True):
@@ -1004,32 +1203,55 @@ class EventOpinion(SQLModel, table=True):
 
     __tablename__ = "EventOpinion"
     __table_args__ = (
-        Index("EventOpinion_organizationId_generatedAt_idx", "organizationId", "generatedAt"),
+        Index(
+            "EventOpinion_organizationId_generatedAt_idx",
+            "organizationId",
+            "generatedAt",
+        ),
         Index("EventOpinion_eventId_idx", "eventId"),
     )
 
     id: str = SQLField(default_factory=_new_cuid, primary_key=True)
-    organization_id: str = SQLField(sa_column=Column("organizationId", String, nullable=False))
+    organization_id: str = SQLField(
+        sa_column=Column("organizationId", String, nullable=False)
+    )
     event_id: str = SQLField(sa_column=Column("eventId", String, nullable=False))
     stance: OpinionStance = SQLField(sa_column=Column("stance", String, nullable=False))
-    confidence: float = SQLField(sa_column=Column("confidence", SAFloat, nullable=False))
+    confidence: float = SQLField(
+        sa_column=Column("confidence", SAFloat, nullable=False)
+    )
     headline: str = SQLField(sa_column=Column("headline", String(140), nullable=False))
-    body_markdown: str = SQLField(sa_column=Column("bodyMarkdown", Text, nullable=False))
+    body_markdown: str = SQLField(
+        sa_column=Column("bodyMarkdown", Text, nullable=False)
+    )
     uncertainty_notes: list[str] = SQLField(
         default_factory=list,
         sa_column=Column("uncertaintyNotes", _StringListType(), nullable=False),
     )
-    topic_hint: Optional[str] = SQLField(default=None, sa_column=Column("topicHint", String, nullable=True))
+    topic_hint: Optional[str] = SQLField(
+        default=None, sa_column=Column("topicHint", String, nullable=True)
+    )
     model_name: str = SQLField(sa_column=Column("modelName", String, nullable=False))
-    prompt_tokens: int = SQLField(default=0, sa_column=Column("promptTokens", SAInteger, nullable=False))
-    completion_tokens: int = SQLField(default=0, sa_column=Column("completionTokens", SAInteger, nullable=False))
+    prompt_tokens: int = SQLField(
+        default=0, sa_column=Column("promptTokens", SAInteger, nullable=False)
+    )
+    completion_tokens: int = SQLField(
+        default=0, sa_column=Column("completionTokens", SAInteger, nullable=False)
+    )
     abstention_reason: Optional[AbstentionReason] = SQLField(
         default=None,
         sa_column=Column("abstentionReason", String, nullable=True),
     )
-    generated_at: datetime = SQLField(default_factory=_now, sa_column=Column("generatedAt", SADateTime, nullable=False))
-    revoked_at: Optional[datetime] = SQLField(default=None, sa_column=Column("revokedAt", SADateTime, nullable=True))
-    revoked_reason: Optional[str] = SQLField(default=None, sa_column=Column("revokedReason", String, nullable=True))
+    generated_at: datetime = SQLField(
+        default_factory=_now,
+        sa_column=Column("generatedAt", SADateTime, nullable=False),
+    )
+    revoked_at: Optional[datetime] = SQLField(
+        default=None, sa_column=Column("revokedAt", SADateTime, nullable=True)
+    )
+    revoked_reason: Optional[str] = SQLField(
+        default=None, sa_column=Column("revokedReason", String, nullable=True)
+    )
 
 
 class OpinionCitation(SQLModel, table=True):
@@ -1045,17 +1267,29 @@ class OpinionCitation(SQLModel, table=True):
     id: str = SQLField(default_factory=_new_cuid, primary_key=True)
     opinion_id: str = SQLField(sa_column=Column("opinionId", String, nullable=False))
     source_kind: str = SQLField(sa_column=Column("sourceKind", String, nullable=False))
-    conclusion_id: Optional[str] = SQLField(default=None, sa_column=Column("conclusionId", String, nullable=True))
-    claim_id: Optional[str] = SQLField(default=None, sa_column=Column("claimId", String, nullable=True))
+    conclusion_id: Optional[str] = SQLField(
+        default=None, sa_column=Column("conclusionId", String, nullable=True)
+    )
+    claim_id: Optional[str] = SQLField(
+        default=None, sa_column=Column("claimId", String, nullable=True)
+    )
     quoted_span: str = SQLField(sa_column=Column("quotedSpan", Text, nullable=False))
-    retrieval_score: float = SQLField(sa_column=Column("retrievalScore", SAFloat, nullable=False))
+    retrieval_score: float = SQLField(
+        sa_column=Column("retrievalScore", SAFloat, nullable=False)
+    )
     justification_metadata: dict[str, Any] = SQLField(
         default_factory=dict,
         sa_column=Column("justificationMetadata", JSON, nullable=False, default=dict),
     )
-    is_revoked: bool = SQLField(default=False, sa_column=Column("isRevoked", SABoolean, nullable=False))
-    revoked_at: Optional[datetime] = SQLField(default=None, sa_column=Column("revokedAt", SADateTime, nullable=True))
-    revoked_reason: Optional[str] = SQLField(default=None, sa_column=Column("revokedReason", String, nullable=True))
+    is_revoked: bool = SQLField(
+        default=False, sa_column=Column("isRevoked", SABoolean, nullable=False)
+    )
+    revoked_at: Optional[datetime] = SQLField(
+        default=None, sa_column=Column("revokedAt", SADateTime, nullable=True)
+    )
+    revoked_reason: Optional[str] = SQLField(
+        default=None, sa_column=Column("revokedReason", String, nullable=True)
+    )
 
 
 class PublishedConclusion(SQLModel, table=True):
@@ -1063,25 +1297,49 @@ class PublishedConclusion(SQLModel, table=True):
 
     __tablename__ = "PublishedConclusion"
     __table_args__ = (
-        UniqueConstraint("slug", "version", name="PublishedConclusion_slug_version_key"),
+        UniqueConstraint(
+            "slug", "version", name="PublishedConclusion_slug_version_key"
+        ),
         Index("PublishedConclusion_organizationId_idx", "organizationId"),
         Index("PublishedConclusion_slug_idx", "slug"),
         Index("PublishedConclusion_kind_publishedAt_idx", "kind", "publishedAt"),
     )
 
     id: str = SQLField(default_factory=_new_cuid, primary_key=True)
-    organization_id: str = SQLField(sa_column=Column("organizationId", String, nullable=False))
-    source_conclusion_id: str = SQLField(sa_column=Column("sourceConclusionId", String, nullable=False))
+    organization_id: str = SQLField(
+        sa_column=Column("organizationId", String, nullable=False)
+    )
+    source_conclusion_id: str = SQLField(
+        sa_column=Column("sourceConclusionId", String, nullable=False)
+    )
     slug: str = SQLField(sa_column=Column("slug", String, nullable=False))
-    version: int = SQLField(default=1, sa_column=Column("version", SAInteger, nullable=False))
-    kind: str = SQLField(default="CONCLUSION", sa_column=Column("kind", String, nullable=False))
-    discounted_confidence: float = SQLField(sa_column=Column("discountedConfidence", SAFloat, nullable=False))
-    stated_confidence: float = SQLField(default=0.0, sa_column=Column("statedConfidence", SAFloat, nullable=False))
-    calibration_discount_reason: str = SQLField(default="", sa_column=Column("calibrationDiscountReason", String, nullable=False))
-    payload_json: str = SQLField(default="{}", sa_column=Column("payloadJson", Text, nullable=False))
+    version: int = SQLField(
+        default=1, sa_column=Column("version", SAInteger, nullable=False)
+    )
+    kind: str = SQLField(
+        default="CONCLUSION", sa_column=Column("kind", String, nullable=False)
+    )
+    discounted_confidence: float = SQLField(
+        sa_column=Column("discountedConfidence", SAFloat, nullable=False)
+    )
+    stated_confidence: float = SQLField(
+        default=0.0, sa_column=Column("statedConfidence", SAFloat, nullable=False)
+    )
+    calibration_discount_reason: str = SQLField(
+        default="",
+        sa_column=Column("calibrationDiscountReason", String, nullable=False),
+    )
+    payload_json: str = SQLField(
+        default="{}", sa_column=Column("payloadJson", Text, nullable=False)
+    )
     doi: str = SQLField(default="", sa_column=Column("doi", String, nullable=False))
-    zenodo_record_id: str = SQLField(default="", sa_column=Column("zenodoRecordId", String, nullable=False))
-    published_at: datetime = SQLField(default_factory=_now, sa_column=Column("publishedAt", SADateTime, nullable=False))
+    zenodo_record_id: str = SQLField(
+        default="", sa_column=Column("zenodoRecordId", String, nullable=False)
+    )
+    published_at: datetime = SQLField(
+        default_factory=_now,
+        sa_column=Column("publishedAt", SADateTime, nullable=False),
+    )
 
 
 class MethodologyProfile(SQLModel, table=True):
@@ -1089,30 +1347,68 @@ class MethodologyProfile(SQLModel, table=True):
 
     __tablename__ = "MethodologyProfile"
     __table_args__ = (
-        UniqueConstraint("organizationId", "dedupeKey", name="MethodologyProfile_organizationId_dedupeKey_key"),
-        Index("MethodologyProfile_organizationId_createdAt_idx", "organizationId", "createdAt"),
-        Index("MethodologyProfile_organizationId_patternType_idx", "organizationId", "patternType"),
+        UniqueConstraint(
+            "organizationId",
+            "dedupeKey",
+            name="MethodologyProfile_organizationId_dedupeKey_key",
+        ),
+        Index(
+            "MethodologyProfile_organizationId_createdAt_idx",
+            "organizationId",
+            "createdAt",
+        ),
+        Index(
+            "MethodologyProfile_organizationId_patternType_idx",
+            "organizationId",
+            "patternType",
+        ),
         Index("MethodologyProfile_uploadId_idx", "uploadId"),
         Index("MethodologyProfile_conclusionId_idx", "conclusionId"),
     )
 
     id: str = SQLField(default_factory=_new_cuid, primary_key=True)
-    organization_id: str = SQLField(sa_column=Column("organizationId", String, nullable=False))
-    upload_id: Optional[str] = SQLField(default=None, sa_column=Column("uploadId", String, nullable=True))
-    conclusion_id: Optional[str] = SQLField(default=None, sa_column=Column("conclusionId", String, nullable=True))
-    source_kind: str = SQLField(default="UPLOAD", sa_column=Column("sourceKind", String, nullable=False))
-    pattern_type: str = SQLField(sa_column=Column("patternType", String, nullable=False))
+    organization_id: str = SQLField(
+        sa_column=Column("organizationId", String, nullable=False)
+    )
+    upload_id: Optional[str] = SQLField(
+        default=None, sa_column=Column("uploadId", String, nullable=True)
+    )
+    conclusion_id: Optional[str] = SQLField(
+        default=None, sa_column=Column("conclusionId", String, nullable=True)
+    )
+    source_kind: str = SQLField(
+        default="UPLOAD", sa_column=Column("sourceKind", String, nullable=False)
+    )
+    pattern_type: str = SQLField(
+        sa_column=Column("patternType", String, nullable=False)
+    )
     title: str = SQLField(sa_column=Column("title", String, nullable=False))
     summary: str = SQLField(sa_column=Column("summary", Text, nullable=False))
-    reasoning_moves: Any = SQLField(default_factory=list, sa_column=Column("reasoningMoves", JSON, nullable=False))
-    transfer_targets: Any = SQLField(default_factory=list, sa_column=Column("transferTargets", JSON, nullable=False))
-    assumptions: Any = SQLField(default_factory=list, sa_column=Column("assumptions", JSON, nullable=False))
-    failure_modes: Any = SQLField(default_factory=list, sa_column=Column("failureModes", JSON, nullable=False))
-    evidence_anchors: Any = SQLField(default_factory=list, sa_column=Column("evidenceAnchors", JSON, nullable=False))
-    confidence: float = SQLField(default=0.5, sa_column=Column("confidence", SAFloat, nullable=False))
+    reasoning_moves: Any = SQLField(
+        default_factory=list, sa_column=Column("reasoningMoves", JSON, nullable=False)
+    )
+    transfer_targets: Any = SQLField(
+        default_factory=list, sa_column=Column("transferTargets", JSON, nullable=False)
+    )
+    assumptions: Any = SQLField(
+        default_factory=list, sa_column=Column("assumptions", JSON, nullable=False)
+    )
+    failure_modes: Any = SQLField(
+        default_factory=list, sa_column=Column("failureModes", JSON, nullable=False)
+    )
+    evidence_anchors: Any = SQLField(
+        default_factory=list, sa_column=Column("evidenceAnchors", JSON, nullable=False)
+    )
+    confidence: float = SQLField(
+        default=0.5, sa_column=Column("confidence", SAFloat, nullable=False)
+    )
     dedupe_key: str = SQLField(sa_column=Column("dedupeKey", String, nullable=False))
-    created_at: datetime = SQLField(default_factory=_now, sa_column=Column("createdAt", SADateTime, nullable=False))
-    updated_at: datetime = SQLField(default_factory=_now, sa_column=Column("updatedAt", SADateTime, nullable=False))
+    created_at: datetime = SQLField(
+        default_factory=_now, sa_column=Column("createdAt", SADateTime, nullable=False)
+    )
+    updated_at: datetime = SQLField(
+        default_factory=_now, sa_column=Column("updatedAt", SADateTime, nullable=False)
+    )
 
 
 class FollowUpSession(SQLModel, table=True):
@@ -1120,15 +1416,30 @@ class FollowUpSession(SQLModel, table=True):
 
     __tablename__ = "FollowUpSession"
     __table_args__ = (
-        Index("FollowUpSession_opinionId_lastActivityAt_idx", "opinionId", "lastActivityAt"),
-        Index("FollowUpSession_clientFingerprint_createdAt_idx", "clientFingerprint", "createdAt"),
+        Index(
+            "FollowUpSession_opinionId_lastActivityAt_idx",
+            "opinionId",
+            "lastActivityAt",
+        ),
+        Index(
+            "FollowUpSession_clientFingerprint_createdAt_idx",
+            "clientFingerprint",
+            "createdAt",
+        ),
     )
 
     id: str = SQLField(default_factory=_new_cuid, primary_key=True)
     opinion_id: str = SQLField(sa_column=Column("opinionId", String, nullable=False))
-    client_fingerprint: str = SQLField(sa_column=Column("clientFingerprint", String, nullable=False))
-    created_at: datetime = SQLField(default_factory=_now, sa_column=Column("createdAt", SADateTime, nullable=False))
-    last_activity_at: datetime = SQLField(default_factory=_now, sa_column=Column("lastActivityAt", SADateTime, nullable=False))
+    client_fingerprint: str = SQLField(
+        sa_column=Column("clientFingerprint", String, nullable=False)
+    )
+    created_at: datetime = SQLField(
+        default_factory=_now, sa_column=Column("createdAt", SADateTime, nullable=False)
+    )
+    last_activity_at: datetime = SQLField(
+        default_factory=_now,
+        sa_column=Column("lastActivityAt", SADateTime, nullable=False),
+    )
 
 
 class FollowUpMessage(SQLModel, table=True):
@@ -1143,8 +1454,12 @@ class FollowUpMessage(SQLModel, table=True):
     session_id: str = SQLField(sa_column=Column("sessionId", String, nullable=False))
     role: FollowUpRole = SQLField(sa_column=Column("role", String, nullable=False))
     content: str = SQLField(sa_column=Column("content", Text, nullable=False))
-    citations: Optional[Any] = SQLField(default=None, sa_column=Column("citations", JSON, nullable=True))
-    created_at: datetime = SQLField(default_factory=_now, sa_column=Column("createdAt", SADateTime, nullable=False))
+    citations: Optional[Any] = SQLField(
+        default=None, sa_column=Column("citations", JSON, nullable=True)
+    )
+    created_at: datetime = SQLField(
+        default_factory=_now, sa_column=Column("createdAt", SADateTime, nullable=False)
+    )
 
 
 class SocialPost(SQLModel, table=True):
@@ -1152,29 +1467,60 @@ class SocialPost(SQLModel, table=True):
 
     __tablename__ = "SocialPost"
     __table_args__ = (
-        Index("SocialPost_organizationId_status_createdAt_idx", "organizationId", "status", "createdAt"),
-        Index("SocialPost_platform_status_postedAt_idx", "platform", "status", "postedAt"),
+        Index(
+            "SocialPost_organizationId_status_createdAt_idx",
+            "organizationId",
+            "status",
+            "createdAt",
+        ),
+        Index(
+            "SocialPost_platform_status_postedAt_idx", "platform", "status", "postedAt"
+        ),
         Index("SocialPost_source_sourceId_idx", "source", "sourceId"),
         Index("SocialPost_bundleId_idx", "bundleId"),
     )
 
     id: str = SQLField(default_factory=_new_cuid, primary_key=True)
-    organization_id: str = SQLField(sa_column=Column("organizationId", String, nullable=False))
-    created_at: datetime = SQLField(default_factory=_now, sa_column=Column("createdAt", SADateTime, nullable=False))
+    organization_id: str = SQLField(
+        sa_column=Column("organizationId", String, nullable=False)
+    )
+    created_at: datetime = SQLField(
+        default_factory=_now, sa_column=Column("createdAt", SADateTime, nullable=False)
+    )
     source: str = SQLField(sa_column=Column("source", String, nullable=False))
-    source_id: Optional[str] = SQLField(default=None, sa_column=Column("sourceId", String, nullable=True))
+    source_id: Optional[str] = SQLField(
+        default=None, sa_column=Column("sourceId", String, nullable=True)
+    )
     platform: str = SQLField(sa_column=Column("platform", String, nullable=False))
-    bundle_id: Optional[str] = SQLField(default=None, sa_column=Column("bundleId", String, nullable=True))
+    bundle_id: Optional[str] = SQLField(
+        default=None, sa_column=Column("bundleId", String, nullable=True)
+    )
     body: str = SQLField(sa_column=Column("body", Text, nullable=False))
-    markdown_body: Optional[str] = SQLField(default=None, sa_column=Column("markdownBody", Text, nullable=True))
-    subject: Optional[str] = SQLField(default=None, sa_column=Column("subject", String, nullable=True))
-    media: Optional[Any] = SQLField(default=None, sa_column=Column("media", JSON, nullable=True))
+    markdown_body: Optional[str] = SQLField(
+        default=None, sa_column=Column("markdownBody", Text, nullable=True)
+    )
+    subject: Optional[str] = SQLField(
+        default=None, sa_column=Column("subject", String, nullable=True)
+    )
+    media: Optional[Any] = SQLField(
+        default=None, sa_column=Column("media", JSON, nullable=True)
+    )
     status: str = SQLField(sa_column=Column("status", String, nullable=False))
-    approved_by: Optional[str] = SQLField(default=None, sa_column=Column("approvedBy", String, nullable=True))
-    approved_at: Optional[datetime] = SQLField(default=None, sa_column=Column("approvedAt", SADateTime, nullable=True))
-    posted_at: Optional[datetime] = SQLField(default=None, sa_column=Column("postedAt", SADateTime, nullable=True))
-    external_id: Optional[str] = SQLField(default=None, sa_column=Column("externalId", String, nullable=True))
-    failure_reason: Optional[str] = SQLField(default=None, sa_column=Column("failureReason", String, nullable=True))
+    approved_by: Optional[str] = SQLField(
+        default=None, sa_column=Column("approvedBy", String, nullable=True)
+    )
+    approved_at: Optional[datetime] = SQLField(
+        default=None, sa_column=Column("approvedAt", SADateTime, nullable=True)
+    )
+    posted_at: Optional[datetime] = SQLField(
+        default=None, sa_column=Column("postedAt", SADateTime, nullable=True)
+    )
+    external_id: Optional[str] = SQLField(
+        default=None, sa_column=Column("externalId", String, nullable=True)
+    )
+    failure_reason: Optional[str] = SQLField(
+        default=None, sa_column=Column("failureReason", String, nullable=True)
+    )
 
 
 class OperatorState(SQLModel, table=True):
@@ -1182,16 +1528,26 @@ class OperatorState(SQLModel, table=True):
 
     __tablename__ = "OperatorState"
     __table_args__ = (
-        UniqueConstraint("organizationId", "key", name="OperatorState_organizationId_key_key"),
+        UniqueConstraint(
+            "organizationId", "key", name="OperatorState_organizationId_key_key"
+        ),
         Index("OperatorState_key_idx", "key"),
     )
 
     id: str = SQLField(default_factory=_new_cuid, primary_key=True)
-    organization_id: str = SQLField(sa_column=Column("organizationId", String, nullable=False))
+    organization_id: str = SQLField(
+        sa_column=Column("organizationId", String, nullable=False)
+    )
     key: str = SQLField(sa_column=Column("key", String, nullable=False))
-    value: Any = SQLField(default_factory=dict, sa_column=Column("value", JSON, nullable=False))
-    created_at: datetime = SQLField(default_factory=_now, sa_column=Column("createdAt", SADateTime, nullable=False))
-    updated_at: datetime = SQLField(default_factory=_now, sa_column=Column("updatedAt", SADateTime, nullable=False))
+    value: Any = SQLField(
+        default_factory=dict, sa_column=Column("value", JSON, nullable=False)
+    )
+    created_at: datetime = SQLField(
+        default_factory=_now, sa_column=Column("createdAt", SADateTime, nullable=False)
+    )
+    updated_at: datetime = SQLField(
+        default_factory=_now, sa_column=Column("updatedAt", SADateTime, nullable=False)
+    )
 
 
 class ForecastMarket(SQLModel, table=True):
@@ -1199,34 +1555,71 @@ class ForecastMarket(SQLModel, table=True):
 
     __tablename__ = "ForecastMarket"
     __table_args__ = (
-        UniqueConstraint("source", "externalId", name="ForecastMarket_source_externalId_key"),
-        Index("ForecastMarket_organizationId_status_closeTime_idx", "organizationId", "status", "closeTime"),
+        UniqueConstraint(
+            "source", "externalId", name="ForecastMarket_source_externalId_key"
+        ),
+        Index(
+            "ForecastMarket_organizationId_status_closeTime_idx",
+            "organizationId",
+            "status",
+            "closeTime",
+        ),
         Index("ForecastMarket_source_category_idx", "source", "category"),
         Index("ForecastMarket_updatedAt_idx", "updatedAt"),
     )
 
     id: str = SQLField(default_factory=_new_cuid, primary_key=True)
-    organization_id: str = SQLField(sa_column=Column("organizationId", String, nullable=False))
-    source: ForecastSource = SQLField(sa_column=Column("source", String, nullable=False))
+    organization_id: str = SQLField(
+        sa_column=Column("organizationId", String, nullable=False)
+    )
+    source: ForecastSource = SQLField(
+        sa_column=Column("source", String, nullable=False)
+    )
     external_id: str = SQLField(sa_column=Column("externalId", String, nullable=False))
     title: str = SQLField(sa_column=Column("title", String(280), nullable=False))
-    description: Optional[str] = SQLField(default=None, sa_column=Column("description", Text, nullable=True))
-    resolution_criteria: Optional[str] = SQLField(default=None, sa_column=Column("resolutionCriteria", Text, nullable=True))
-    category: Optional[str] = SQLField(default=None, sa_column=Column("category", String, nullable=True))
-    current_yes_price: Optional[Decimal] = SQLField(default=None, sa_column=Column("currentYesPrice", Numeric(8, 6), nullable=True))
-    current_no_price: Optional[Decimal] = SQLField(default=None, sa_column=Column("currentNoPrice", Numeric(8, 6), nullable=True))
-    volume: Optional[Decimal] = SQLField(default=None, sa_column=Column("volume", Numeric(18, 4), nullable=True))
-    open_time: Optional[datetime] = SQLField(default=None, sa_column=Column("openTime", SADateTime, nullable=True))
-    close_time: Optional[datetime] = SQLField(default=None, sa_column=Column("closeTime", SADateTime, nullable=True))
-    resolved_at: Optional[datetime] = SQLField(default=None, sa_column=Column("resolvedAt", SADateTime, nullable=True))
-    resolved_outcome: Optional[ForecastOutcome] = SQLField(default=None, sa_column=Column("resolvedOutcome", String, nullable=True))
-    raw_payload: dict[str, Any] = SQLField(default_factory=dict, sa_column=Column("rawPayload", JSON, nullable=False))
+    description: Optional[str] = SQLField(
+        default=None, sa_column=Column("description", Text, nullable=True)
+    )
+    resolution_criteria: Optional[str] = SQLField(
+        default=None, sa_column=Column("resolutionCriteria", Text, nullable=True)
+    )
+    category: Optional[str] = SQLField(
+        default=None, sa_column=Column("category", String, nullable=True)
+    )
+    current_yes_price: Optional[Decimal] = SQLField(
+        default=None, sa_column=Column("currentYesPrice", Numeric(8, 6), nullable=True)
+    )
+    current_no_price: Optional[Decimal] = SQLField(
+        default=None, sa_column=Column("currentNoPrice", Numeric(8, 6), nullable=True)
+    )
+    volume: Optional[Decimal] = SQLField(
+        default=None, sa_column=Column("volume", Numeric(18, 4), nullable=True)
+    )
+    open_time: Optional[datetime] = SQLField(
+        default=None, sa_column=Column("openTime", SADateTime, nullable=True)
+    )
+    close_time: Optional[datetime] = SQLField(
+        default=None, sa_column=Column("closeTime", SADateTime, nullable=True)
+    )
+    resolved_at: Optional[datetime] = SQLField(
+        default=None, sa_column=Column("resolvedAt", SADateTime, nullable=True)
+    )
+    resolved_outcome: Optional[ForecastOutcome] = SQLField(
+        default=None, sa_column=Column("resolvedOutcome", String, nullable=True)
+    )
+    raw_payload: dict[str, Any] = SQLField(
+        default_factory=dict, sa_column=Column("rawPayload", JSON, nullable=False)
+    )
     status: ForecastMarketStatus = SQLField(
         default=ForecastMarketStatus.OPEN,
         sa_column=Column("status", String, nullable=False),
     )
-    created_at: datetime = SQLField(default_factory=_now, sa_column=Column("createdAt", SADateTime, nullable=False))
-    updated_at: datetime = SQLField(default_factory=_now, sa_column=Column("updatedAt", SADateTime, nullable=False))
+    created_at: datetime = SQLField(
+        default_factory=_now, sa_column=Column("createdAt", SADateTime, nullable=False)
+    )
+    updated_at: datetime = SQLField(
+        default_factory=_now, sa_column=Column("updatedAt", SADateTime, nullable=False)
+    )
 
 
 class WatchedMarket(SQLModel, table=True):
@@ -1234,21 +1627,44 @@ class WatchedMarket(SQLModel, table=True):
 
     __tablename__ = "WatchedMarket"
     __table_args__ = (
-        UniqueConstraint("organizationId", "url", name="WatchedMarket_organizationId_url_key"),
-        Index("WatchedMarket_organizationId_status_createdAt_idx", "organizationId", "status", "createdAt"),
+        UniqueConstraint(
+            "organizationId", "url", name="WatchedMarket_organizationId_url_key"
+        ),
+        Index(
+            "WatchedMarket_organizationId_status_createdAt_idx",
+            "organizationId",
+            "status",
+            "createdAt",
+        ),
         Index("WatchedMarket_source_status_idx", "source", "status"),
     )
 
     id: str = SQLField(default_factory=_new_cuid, primary_key=True)
-    organization_id: str = SQLField(sa_column=Column("organizationId", String, nullable=False))
-    source: ForecastSource = SQLField(sa_column=Column("source", String, nullable=False))
+    organization_id: str = SQLField(
+        sa_column=Column("organizationId", String, nullable=False)
+    )
+    source: ForecastSource = SQLField(
+        sa_column=Column("source", String, nullable=False)
+    )
     url: str = SQLField(sa_column=Column("url", Text, nullable=False))
-    external_id: Optional[str] = SQLField(default=None, sa_column=Column("externalId", String, nullable=True))
-    status: str = SQLField(default="ACTIVE", sa_column=Column("status", String, nullable=False))
-    notes: Optional[str] = SQLField(default=None, sa_column=Column("notes", Text, nullable=True))
-    last_considered_at: Optional[datetime] = SQLField(default=None, sa_column=Column("lastConsideredAt", SADateTime, nullable=True))
-    created_at: datetime = SQLField(default_factory=_now, sa_column=Column("createdAt", SADateTime, nullable=False))
-    updated_at: datetime = SQLField(default_factory=_now, sa_column=Column("updatedAt", SADateTime, nullable=False))
+    external_id: Optional[str] = SQLField(
+        default=None, sa_column=Column("externalId", String, nullable=True)
+    )
+    status: str = SQLField(
+        default="ACTIVE", sa_column=Column("status", String, nullable=False)
+    )
+    notes: Optional[str] = SQLField(
+        default=None, sa_column=Column("notes", Text, nullable=True)
+    )
+    last_considered_at: Optional[datetime] = SQLField(
+        default=None, sa_column=Column("lastConsideredAt", SADateTime, nullable=True)
+    )
+    created_at: datetime = SQLField(
+        default_factory=_now, sa_column=Column("createdAt", SADateTime, nullable=False)
+    )
+    updated_at: datetime = SQLField(
+        default_factory=_now, sa_column=Column("updatedAt", SADateTime, nullable=False)
+    )
 
 
 class ForecastPrediction(SQLModel, table=True):
@@ -1256,29 +1672,60 @@ class ForecastPrediction(SQLModel, table=True):
 
     __tablename__ = "ForecastPrediction"
     __table_args__ = (
-        Index("ForecastPrediction_organizationId_status_createdAt_idx", "organizationId", "status", "createdAt"),
+        Index(
+            "ForecastPrediction_organizationId_status_createdAt_idx",
+            "organizationId",
+            "status",
+            "createdAt",
+        ),
         Index("ForecastPrediction_marketId_createdAt_idx", "marketId", "createdAt"),
         Index("ForecastPrediction_liveAuthorizedAt_idx", "liveAuthorizedAt"),
     )
 
     id: str = SQLField(default_factory=_new_cuid, primary_key=True)
     market_id: str = SQLField(sa_column=Column("marketId", String, nullable=False))
-    organization_id: str = SQLField(sa_column=Column("organizationId", String, nullable=False))
-    probability_yes: Optional[Decimal] = SQLField(default=None, sa_column=Column("probabilityYes", Numeric(8, 6), nullable=True))
-    confidence_low: Optional[Decimal] = SQLField(default=None, sa_column=Column("confidenceLow", Numeric(8, 6), nullable=True))
-    confidence_high: Optional[Decimal] = SQLField(default=None, sa_column=Column("confidenceHigh", Numeric(8, 6), nullable=True))
+    organization_id: str = SQLField(
+        sa_column=Column("organizationId", String, nullable=False)
+    )
+    probability_yes: Optional[Decimal] = SQLField(
+        default=None, sa_column=Column("probabilityYes", Numeric(8, 6), nullable=True)
+    )
+    confidence_low: Optional[Decimal] = SQLField(
+        default=None, sa_column=Column("confidenceLow", Numeric(8, 6), nullable=True)
+    )
+    confidence_high: Optional[Decimal] = SQLField(
+        default=None, sa_column=Column("confidenceHigh", Numeric(8, 6), nullable=True)
+    )
     headline: str = SQLField(sa_column=Column("headline", String(140), nullable=False))
     reasoning: str = SQLField(sa_column=Column("reasoning", Text, nullable=False))
-    status: ForecastPredictionStatus = SQLField(sa_column=Column("status", String, nullable=False))
-    abstention_reason: Optional[str] = SQLField(default=None, sa_column=Column("abstentionReason", String, nullable=True))
-    topic_hint: Optional[str] = SQLField(default=None, sa_column=Column("topicHint", String, nullable=True))
+    status: ForecastPredictionStatus = SQLField(
+        sa_column=Column("status", String, nullable=False)
+    )
+    abstention_reason: Optional[str] = SQLField(
+        default=None, sa_column=Column("abstentionReason", String, nullable=True)
+    )
+    topic_hint: Optional[str] = SQLField(
+        default=None, sa_column=Column("topicHint", String, nullable=True)
+    )
     model_name: str = SQLField(sa_column=Column("modelName", String, nullable=False))
-    prompt_tokens: int = SQLField(default=0, sa_column=Column("promptTokens", SAInteger, nullable=False))
-    completion_tokens: int = SQLField(default=0, sa_column=Column("completionTokens", SAInteger, nullable=False))
-    live_authorized_at: Optional[datetime] = SQLField(default=None, sa_column=Column("liveAuthorizedAt", SADateTime, nullable=True))
-    live_authorized_by: Optional[str] = SQLField(default=None, sa_column=Column("liveAuthorizedBy", String, nullable=True))
-    created_at: datetime = SQLField(default_factory=_now, sa_column=Column("createdAt", SADateTime, nullable=False))
-    updated_at: datetime = SQLField(default_factory=_now, sa_column=Column("updatedAt", SADateTime, nullable=False))
+    prompt_tokens: int = SQLField(
+        default=0, sa_column=Column("promptTokens", SAInteger, nullable=False)
+    )
+    completion_tokens: int = SQLField(
+        default=0, sa_column=Column("completionTokens", SAInteger, nullable=False)
+    )
+    live_authorized_at: Optional[datetime] = SQLField(
+        default=None, sa_column=Column("liveAuthorizedAt", SADateTime, nullable=True)
+    )
+    live_authorized_by: Optional[str] = SQLField(
+        default=None, sa_column=Column("liveAuthorizedBy", String, nullable=True)
+    )
+    created_at: datetime = SQLField(
+        default_factory=_now, sa_column=Column("createdAt", SADateTime, nullable=False)
+    )
+    updated_at: datetime = SQLField(
+        default_factory=_now, sa_column=Column("updatedAt", SADateTime, nullable=False)
+    )
 
 
 class ForecastTrace(SQLModel, table=True):
@@ -1288,19 +1735,37 @@ class ForecastTrace(SQLModel, table=True):
     __table_args__ = (
         UniqueConstraint("predictionId", name="ForecastTrace_predictionId_key"),
         Index("ForecastTrace_marketId_idx", "marketId"),
-        Index("ForecastTrace_organizationId_createdAt_idx", "organizationId", "createdAt"),
+        Index(
+            "ForecastTrace_organizationId_createdAt_idx", "organizationId", "createdAt"
+        ),
     )
 
     id: str = SQLField(default_factory=_new_cuid, primary_key=True)
-    prediction_id: str = SQLField(sa_column=Column("predictionId", String, nullable=False))
+    prediction_id: str = SQLField(
+        sa_column=Column("predictionId", String, nullable=False)
+    )
     market_id: str = SQLField(sa_column=Column("marketId", String, nullable=False))
-    organization_id: str = SQLField(sa_column=Column("organizationId", String, nullable=False))
-    market_title: str = SQLField(sa_column=Column("marketTitle", String(280), nullable=False))
-    principles_used: list[dict[str, Any]] = SQLField(default_factory=list, sa_column=Column("principlesUsed", JSON, nullable=False))
-    model_output: dict[str, Any] = SQLField(default_factory=dict, sa_column=Column("modelOutput", JSON, nullable=False))
-    gate_results: list[dict[str, Any]] = SQLField(default_factory=list, sa_column=Column("gateResults", JSON, nullable=False))
-    created_at: datetime = SQLField(default_factory=_now, sa_column=Column("createdAt", SADateTime, nullable=False))
-    updated_at: datetime = SQLField(default_factory=_now, sa_column=Column("updatedAt", SADateTime, nullable=False))
+    organization_id: str = SQLField(
+        sa_column=Column("organizationId", String, nullable=False)
+    )
+    market_title: str = SQLField(
+        sa_column=Column("marketTitle", String(280), nullable=False)
+    )
+    principles_used: list[dict[str, Any]] = SQLField(
+        default_factory=list, sa_column=Column("principlesUsed", JSON, nullable=False)
+    )
+    model_output: dict[str, Any] = SQLField(
+        default_factory=dict, sa_column=Column("modelOutput", JSON, nullable=False)
+    )
+    gate_results: list[dict[str, Any]] = SQLField(
+        default_factory=list, sa_column=Column("gateResults", JSON, nullable=False)
+    )
+    created_at: datetime = SQLField(
+        default_factory=_now, sa_column=Column("createdAt", SADateTime, nullable=False)
+    )
+    updated_at: datetime = SQLField(
+        default_factory=_now, sa_column=Column("updatedAt", SADateTime, nullable=False)
+    )
 
 
 class ForecastCitation(SQLModel, table=True):
@@ -1313,15 +1778,27 @@ class ForecastCitation(SQLModel, table=True):
     )
 
     id: str = SQLField(default_factory=_new_cuid, primary_key=True)
-    prediction_id: str = SQLField(sa_column=Column("predictionId", String, nullable=False))
+    prediction_id: str = SQLField(
+        sa_column=Column("predictionId", String, nullable=False)
+    )
     source_type: str = SQLField(sa_column=Column("sourceType", String, nullable=False))
     source_id: str = SQLField(sa_column=Column("sourceId", String, nullable=False))
     quoted_span: str = SQLField(sa_column=Column("quotedSpan", Text, nullable=False))
-    support_label: ForecastSupportLabel = SQLField(sa_column=Column("supportLabel", String, nullable=False))
-    retrieval_score: Optional[float] = SQLField(default=None, sa_column=Column("retrievalScore", SAFloat, nullable=True))
-    is_revoked: bool = SQLField(default=False, sa_column=Column("isRevoked", SABoolean, nullable=False))
-    revoked_reason: Optional[str] = SQLField(default=None, sa_column=Column("revokedReason", String, nullable=True))
-    created_at: datetime = SQLField(default_factory=_now, sa_column=Column("createdAt", SADateTime, nullable=False))
+    support_label: ForecastSupportLabel = SQLField(
+        sa_column=Column("supportLabel", String, nullable=False)
+    )
+    retrieval_score: Optional[float] = SQLField(
+        default=None, sa_column=Column("retrievalScore", SAFloat, nullable=True)
+    )
+    is_revoked: bool = SQLField(
+        default=False, sa_column=Column("isRevoked", SABoolean, nullable=False)
+    )
+    revoked_reason: Optional[str] = SQLField(
+        default=None, sa_column=Column("revokedReason", String, nullable=True)
+    )
+    created_at: datetime = SQLField(
+        default_factory=_now, sa_column=Column("createdAt", SADateTime, nullable=False)
+    )
 
 
 class ForecastResolution(SQLModel, table=True):
@@ -1335,15 +1812,34 @@ class ForecastResolution(SQLModel, table=True):
     )
 
     id: str = SQLField(default_factory=_new_cuid, primary_key=True)
-    prediction_id: str = SQLField(sa_column=Column("predictionId", String, nullable=False))
-    market_outcome: ForecastOutcome = SQLField(sa_column=Column("marketOutcome", String, nullable=False))
-    brier_score: Optional[float] = SQLField(default=None, sa_column=Column("brierScore", SAFloat, nullable=True))
-    log_loss: Optional[float] = SQLField(default=None, sa_column=Column("logLoss", SAFloat, nullable=True))
-    calibration_bucket: Optional[Decimal] = SQLField(default=None, sa_column=Column("calibrationBucket", Numeric(3, 1), nullable=True))
-    resolved_at: datetime = SQLField(sa_column=Column("resolvedAt", SADateTime, nullable=False))
-    justification: str = SQLField(sa_column=Column("justification", Text, nullable=False))
-    raw_settlement: Optional[Any] = SQLField(default=None, sa_column=Column("rawSettlement", JSON, nullable=True))
-    created_at: datetime = SQLField(default_factory=_now, sa_column=Column("createdAt", SADateTime, nullable=False))
+    prediction_id: str = SQLField(
+        sa_column=Column("predictionId", String, nullable=False)
+    )
+    market_outcome: ForecastOutcome = SQLField(
+        sa_column=Column("marketOutcome", String, nullable=False)
+    )
+    brier_score: Optional[float] = SQLField(
+        default=None, sa_column=Column("brierScore", SAFloat, nullable=True)
+    )
+    log_loss: Optional[float] = SQLField(
+        default=None, sa_column=Column("logLoss", SAFloat, nullable=True)
+    )
+    calibration_bucket: Optional[Decimal] = SQLField(
+        default=None,
+        sa_column=Column("calibrationBucket", Numeric(3, 1), nullable=True),
+    )
+    resolved_at: datetime = SQLField(
+        sa_column=Column("resolvedAt", SADateTime, nullable=False)
+    )
+    justification: str = SQLField(
+        sa_column=Column("justification", Text, nullable=False)
+    )
+    raw_settlement: Optional[Any] = SQLField(
+        default=None, sa_column=Column("rawSettlement", JSON, nullable=True)
+    )
+    created_at: datetime = SQLField(
+        default_factory=_now, sa_column=Column("createdAt", SADateTime, nullable=False)
+    )
 
 
 class ForecastBet(SQLModel, table=True):
@@ -1351,31 +1847,72 @@ class ForecastBet(SQLModel, table=True):
 
     __tablename__ = "ForecastBet"
     __table_args__ = (
-        CheckConstraint('"mode" != \'LIVE\' OR "liveAuthorizedAt" IS NOT NULL', name="ForecastBet_live_requires_authorizedAt_check"),
-        Index("ForecastBet_organizationId_mode_createdAt_idx", "organizationId", "mode", "createdAt"),
+        CheckConstraint(
+            '"mode" != \'LIVE\' OR "liveAuthorizedAt" IS NOT NULL',
+            name="ForecastBet_live_requires_authorizedAt_check",
+        ),
+        Index(
+            "ForecastBet_organizationId_mode_createdAt_idx",
+            "organizationId",
+            "mode",
+            "createdAt",
+        ),
         Index("ForecastBet_predictionId_status_idx", "predictionId", "status"),
         Index("ForecastBet_externalOrderId_idx", "externalOrderId"),
         Index("ForecastBet_clientOrderId_idx", "clientOrderId"),
     )
 
     id: str = SQLField(default_factory=_new_cuid, primary_key=True)
-    prediction_id: str = SQLField(sa_column=Column("predictionId", String, nullable=False))
-    organization_id: str = SQLField(sa_column=Column("organizationId", String, nullable=False))
-    mode: ForecastBetMode = SQLField(default=ForecastBetMode.PAPER, sa_column=Column("mode", String, nullable=False))
-    exchange: ForecastExchange = SQLField(sa_column=Column("exchange", String, nullable=False))
+    prediction_id: str = SQLField(
+        sa_column=Column("predictionId", String, nullable=False)
+    )
+    organization_id: str = SQLField(
+        sa_column=Column("organizationId", String, nullable=False)
+    )
+    mode: ForecastBetMode = SQLField(
+        default=ForecastBetMode.PAPER, sa_column=Column("mode", String, nullable=False)
+    )
+    exchange: ForecastExchange = SQLField(
+        sa_column=Column("exchange", String, nullable=False)
+    )
     side: ForecastBetSide = SQLField(sa_column=Column("side", String, nullable=False))
-    stake_usd: Decimal = SQLField(sa_column=Column("stakeUsd", Numeric(12, 2), nullable=False))
-    entry_price: Decimal = SQLField(sa_column=Column("entryPrice", Numeric(8, 6), nullable=False))
-    exit_price: Optional[Decimal] = SQLField(default=None, sa_column=Column("exitPrice", Numeric(8, 6), nullable=True))
-    status: ForecastBetStatus = SQLField(sa_column=Column("status", String, nullable=False))
-    external_order_id: Optional[str] = SQLField(default=None, sa_column=Column("externalOrderId", String, nullable=True))
-    client_order_id: Optional[str] = SQLField(default=None, sa_column=Column("clientOrderId", String, nullable=True))
-    settlement_pnl_usd: Optional[Decimal] = SQLField(default=None, sa_column=Column("settlementPnlUsd", Numeric(12, 2), nullable=True))
-    live_authorized_at: Optional[datetime] = SQLField(default=None, sa_column=Column("liveAuthorizedAt", SADateTime, nullable=True))
-    confirmed_at: Optional[datetime] = SQLField(default=None, sa_column=Column("confirmedAt", SADateTime, nullable=True))
-    submitted_at: Optional[datetime] = SQLField(default=None, sa_column=Column("submittedAt", SADateTime, nullable=True))
-    created_at: datetime = SQLField(default_factory=_now, sa_column=Column("createdAt", SADateTime, nullable=False))
-    settled_at: Optional[datetime] = SQLField(default=None, sa_column=Column("settledAt", SADateTime, nullable=True))
+    stake_usd: Decimal = SQLField(
+        sa_column=Column("stakeUsd", Numeric(12, 2), nullable=False)
+    )
+    entry_price: Decimal = SQLField(
+        sa_column=Column("entryPrice", Numeric(8, 6), nullable=False)
+    )
+    exit_price: Optional[Decimal] = SQLField(
+        default=None, sa_column=Column("exitPrice", Numeric(8, 6), nullable=True)
+    )
+    status: ForecastBetStatus = SQLField(
+        sa_column=Column("status", String, nullable=False)
+    )
+    external_order_id: Optional[str] = SQLField(
+        default=None, sa_column=Column("externalOrderId", String, nullable=True)
+    )
+    client_order_id: Optional[str] = SQLField(
+        default=None, sa_column=Column("clientOrderId", String, nullable=True)
+    )
+    settlement_pnl_usd: Optional[Decimal] = SQLField(
+        default=None,
+        sa_column=Column("settlementPnlUsd", Numeric(12, 2), nullable=True),
+    )
+    live_authorized_at: Optional[datetime] = SQLField(
+        default=None, sa_column=Column("liveAuthorizedAt", SADateTime, nullable=True)
+    )
+    confirmed_at: Optional[datetime] = SQLField(
+        default=None, sa_column=Column("confirmedAt", SADateTime, nullable=True)
+    )
+    submitted_at: Optional[datetime] = SQLField(
+        default=None, sa_column=Column("submittedAt", SADateTime, nullable=True)
+    )
+    created_at: datetime = SQLField(
+        default_factory=_now, sa_column=Column("createdAt", SADateTime, nullable=False)
+    )
+    settled_at: Optional[datetime] = SQLField(
+        default=None, sa_column=Column("settledAt", SADateTime, nullable=True)
+    )
 
 
 class ForecastPortfolioState(SQLModel, table=True):
@@ -1383,21 +1920,46 @@ class ForecastPortfolioState(SQLModel, table=True):
 
     __tablename__ = "ForecastPortfolioState"
     __table_args__ = (
-        UniqueConstraint("organizationId", name="ForecastPortfolioState_organizationId_key"),
+        UniqueConstraint(
+            "organizationId", name="ForecastPortfolioState_organizationId_key"
+        ),
     )
 
     id: str = SQLField(default_factory=_new_cuid, primary_key=True)
-    organization_id: str = SQLField(sa_column=Column("organizationId", String, nullable=False))
-    paper_balance_usd: Decimal = SQLField(sa_column=Column("paperBalanceUsd", Numeric(12, 2), nullable=False))
-    live_balance_usd: Optional[Decimal] = SQLField(default=None, sa_column=Column("liveBalanceUsd", Numeric(12, 2), nullable=True))
-    daily_loss_usd: Decimal = SQLField(default=Decimal("0"), sa_column=Column("dailyLossUsd", Numeric(12, 2), nullable=False))
-    daily_loss_reset_at: datetime = SQLField(sa_column=Column("dailyLossResetAt", SADateTime, nullable=False))
-    kill_switch_engaged: bool = SQLField(default=False, sa_column=Column("killSwitchEngaged", SABoolean, nullable=False))
-    kill_switch_reason: Optional[str] = SQLField(default=None, sa_column=Column("killSwitchReason", String, nullable=True))
-    total_resolved: int = SQLField(default=0, sa_column=Column("totalResolved", SAInteger, nullable=False))
-    mean_brier_90d: Optional[float] = SQLField(default=None, sa_column=Column("meanBrier90d", SAFloat, nullable=True))
-    mean_log_loss_90d: Optional[float] = SQLField(default=None, sa_column=Column("meanLogLoss90d", SAFloat, nullable=True))
-    updated_at: datetime = SQLField(default_factory=_now, sa_column=Column("updatedAt", SADateTime, nullable=False))
+    organization_id: str = SQLField(
+        sa_column=Column("organizationId", String, nullable=False)
+    )
+    paper_balance_usd: Decimal = SQLField(
+        sa_column=Column("paperBalanceUsd", Numeric(12, 2), nullable=False)
+    )
+    live_balance_usd: Optional[Decimal] = SQLField(
+        default=None, sa_column=Column("liveBalanceUsd", Numeric(12, 2), nullable=True)
+    )
+    daily_loss_usd: Decimal = SQLField(
+        default=Decimal("0"),
+        sa_column=Column("dailyLossUsd", Numeric(12, 2), nullable=False),
+    )
+    daily_loss_reset_at: datetime = SQLField(
+        sa_column=Column("dailyLossResetAt", SADateTime, nullable=False)
+    )
+    kill_switch_engaged: bool = SQLField(
+        default=False, sa_column=Column("killSwitchEngaged", SABoolean, nullable=False)
+    )
+    kill_switch_reason: Optional[str] = SQLField(
+        default=None, sa_column=Column("killSwitchReason", String, nullable=True)
+    )
+    total_resolved: int = SQLField(
+        default=0, sa_column=Column("totalResolved", SAInteger, nullable=False)
+    )
+    mean_brier_90d: Optional[float] = SQLField(
+        default=None, sa_column=Column("meanBrier90d", SAFloat, nullable=True)
+    )
+    mean_log_loss_90d: Optional[float] = SQLField(
+        default=None, sa_column=Column("meanLogLoss90d", SAFloat, nullable=True)
+    )
+    updated_at: datetime = SQLField(
+        default_factory=_now, sa_column=Column("updatedAt", SADateTime, nullable=False)
+    )
 
 
 class ForecastFollowUpSession(SQLModel, table=True):
@@ -1405,15 +1967,32 @@ class ForecastFollowUpSession(SQLModel, table=True):
 
     __tablename__ = "ForecastFollowUpSession"
     __table_args__ = (
-        Index("ForecastFollowUpSession_predictionId_lastActivityAt_idx", "predictionId", "lastActivityAt"),
-        Index("ForecastFollowUpSession_clientFingerprint_createdAt_idx", "clientFingerprint", "createdAt"),
+        Index(
+            "ForecastFollowUpSession_predictionId_lastActivityAt_idx",
+            "predictionId",
+            "lastActivityAt",
+        ),
+        Index(
+            "ForecastFollowUpSession_clientFingerprint_createdAt_idx",
+            "clientFingerprint",
+            "createdAt",
+        ),
     )
 
     id: str = SQLField(default_factory=_new_cuid, primary_key=True)
-    prediction_id: str = SQLField(sa_column=Column("predictionId", String, nullable=False))
-    client_fingerprint: str = SQLField(sa_column=Column("clientFingerprint", String, nullable=False))
-    created_at: datetime = SQLField(default_factory=_now, sa_column=Column("createdAt", SADateTime, nullable=False))
-    last_activity_at: datetime = SQLField(default_factory=_now, sa_column=Column("lastActivityAt", SADateTime, nullable=False))
+    prediction_id: str = SQLField(
+        sa_column=Column("predictionId", String, nullable=False)
+    )
+    client_fingerprint: str = SQLField(
+        sa_column=Column("clientFingerprint", String, nullable=False)
+    )
+    created_at: datetime = SQLField(
+        default_factory=_now, sa_column=Column("createdAt", SADateTime, nullable=False)
+    )
+    last_activity_at: datetime = SQLField(
+        default_factory=_now,
+        sa_column=Column("lastActivityAt", SADateTime, nullable=False),
+    )
 
 
 class ForecastFollowUpMessage(SQLModel, table=True):
@@ -1421,23 +2000,33 @@ class ForecastFollowUpMessage(SQLModel, table=True):
 
     __tablename__ = "ForecastFollowUpMessage"
     __table_args__ = (
-        Index("ForecastFollowUpMessage_sessionId_createdAt_idx", "sessionId", "createdAt"),
+        Index(
+            "ForecastFollowUpMessage_sessionId_createdAt_idx", "sessionId", "createdAt"
+        ),
     )
 
     id: str = SQLField(default_factory=_new_cuid, primary_key=True)
     session_id: str = SQLField(sa_column=Column("sessionId", String, nullable=False))
-    role: ForecastFollowUpRole = SQLField(sa_column=Column("role", String, nullable=False))
+    role: ForecastFollowUpRole = SQLField(
+        sa_column=Column("role", String, nullable=False)
+    )
     content: str = SQLField(sa_column=Column("content", Text, nullable=False))
-    citations: Optional[Any] = SQLField(default=None, sa_column=Column("citations", JSON, nullable=True))
-    created_at: datetime = SQLField(default_factory=_now, sa_column=Column("createdAt", SADateTime, nullable=False))
+    citations: Optional[Any] = SQLField(
+        default=None, sa_column=Column("citations", JSON, nullable=True)
+    )
+    created_at: datetime = SQLField(
+        default_factory=_now, sa_column=Column("createdAt", SADateTime, nullable=False)
+    )
 
 
 # === Round 3 additions ===
 
 # ── Round 3: Methods and Registry ────────────────────────────────────────────
 
+
 class MethodType(str, Enum):
     """Type of method operation."""
+
     EXTRACTION = "extraction"
     JUDGMENT = "judgment"
     AGGREGATION = "aggregation"
@@ -1447,16 +2036,18 @@ class MethodType(str, Enum):
 
 class MethodImplRef(BaseModel):
     """Reference to a method implementation."""
+
     module: str
     fn_name: str
     git_sha: str
     image_digest: Optional[str] = None
 
-    model_config = ConfigDict(strict=True, extra='forbid', frozen=True)
+    model_config = ConfigDict(strict=True, extra="forbid", frozen=True)
 
 
 class Method(BaseModel):
     """A registered method with versioned specification."""
+
     method_id: str
     name: str
     version: str
@@ -1474,19 +2065,21 @@ class Method(BaseModel):
     nondeterministic: bool
     created_at: datetime
 
-    model_config = ConfigDict(strict=True, extra='forbid', frozen=True)
+    model_config = ConfigDict(strict=True, extra="forbid", frozen=True)
 
 
 class MethodRef(BaseModel):
     """Reference to a method by name and version."""
+
     name: str
     version: str
 
-    model_config = ConfigDict(strict=True, extra='forbid', frozen=True)
+    model_config = ConfigDict(strict=True, extra="forbid", frozen=True)
 
 
 class MethodInvocation(BaseModel):
     """Record of a method invocation for audit trail."""
+
     id: str
     method_id: str
     input_hash: str
@@ -1498,31 +2091,35 @@ class MethodInvocation(BaseModel):
     correlation_id: str
     tenant_id: str
 
-    model_config = ConfigDict(strict=True, extra='forbid', frozen=True)
+    model_config = ConfigDict(strict=True, extra="forbid", frozen=True)
 
 
 # ── Round 3: Ledger ──────────────────────────────────────────────────────────
 
+
 class Actor(BaseModel):
     """An actor in the system: human, method, or agent."""
+
     kind: Literal["human", "method", "agent"]
     id: str
     display_name: str
 
-    model_config = ConfigDict(strict=True, extra='forbid', frozen=True)
+    model_config = ConfigDict(strict=True, extra="forbid", frozen=True)
 
 
 class ContextMeta(BaseModel):
     """Context metadata for ledger entries."""
+
     tenant_id: str
     correlation_id: str
     orchestrator_run_id: Optional[str] = None
 
-    model_config = ConfigDict(strict=True, extra='forbid', frozen=True)
+    model_config = ConfigDict(strict=True, extra="forbid", frozen=True)
 
 
 class LedgerEntry(BaseModel):
     """Immutable audit ledger entry."""
+
     entry_id: str
     prev_hash: str
     timestamp: datetime
@@ -1536,13 +2133,15 @@ class LedgerEntry(BaseModel):
     signature: str
     signer_key_id: str
 
-    model_config = ConfigDict(strict=True, extra='forbid', frozen=True)
+    model_config = ConfigDict(strict=True, extra="forbid", frozen=True)
 
 
 # ── Round 3: Cascade ─────────────────────────────────────────────────────────
 
+
 class CascadeNodeKind(str, Enum):
     """Type of node in the cascade graph."""
+
     ARTIFACT = "artifact"
     CHUNK = "chunk"
     CLAIM = "claim"
@@ -1554,16 +2153,18 @@ class CascadeNodeKind(str, Enum):
 
 class CascadeNode(BaseModel):
     """A node in the cascade graph."""
+
     node_id: str
     kind: CascadeNodeKind
     ref: str
     attrs: dict
 
-    model_config = ConfigDict(strict=True, extra='forbid', frozen=True)
+    model_config = ConfigDict(strict=True, extra="forbid", frozen=True)
 
 
 class CascadeEdgeRelation(str, Enum):
     """Relation type for cascade edges."""
+
     EXTRACTED_FROM = "extracted_from"
     COHERES_WITH = "coheres_with"
     CONTRADICTS = "contradicts"
@@ -1580,10 +2181,11 @@ class CascadeEdgeRelation(str, Enum):
 class CascadeEdge(BaseModel):
     """
     A directed edge in the cascade graph.
-    
+
     NOTE: This model is NOT frozen because retracted_at must be mutable
     for retraction operations.
     """
+
     edge_id: str
     src: str
     dst: str
@@ -1594,13 +2196,15 @@ class CascadeEdge(BaseModel):
     established_at: datetime
     retracted_at: Optional[datetime] = None
 
-    model_config = ConfigDict(strict=True, extra='forbid')
+    model_config = ConfigDict(strict=True, extra="forbid")
 
 
 # ── Round 3: Evaluation ──────────────────────────────────────────────────────
 
+
 class OutcomeKind(str, Enum):
     """Type of outcome for evaluation."""
+
     BINARY = "binary"
     INTERVAL = "interval"
     PREFERENCE = "preference"
@@ -1608,6 +2212,7 @@ class OutcomeKind(str, Enum):
 
 class Outcome(BaseModel):
     """A resolved outcome for calibration evaluation."""
+
     outcome_id: str
     kind: OutcomeKind
     event_ref: str
@@ -1615,20 +2220,22 @@ class Outcome(BaseModel):
     resolved_at: datetime
     value: Any
 
-    model_config = ConfigDict(strict=True, extra='forbid', frozen=True)
+    model_config = ConfigDict(strict=True, extra="forbid", frozen=True)
 
 
 class CorpusSelector(BaseModel):
     """Selector for corpus slicing."""
+
     as_of: datetime
     tenant_id_filter: Optional[list[str]] = None
     artifact_kind_filter: Optional[list[str]] = None
 
-    model_config = ConfigDict(strict=True, extra='forbid', frozen=True)
+    model_config = ConfigDict(strict=True, extra="forbid", frozen=True)
 
 
 class TemporalCut(BaseModel):
     """A temporal slice of the corpus for evaluation."""
+
     cut_id: str
     as_of: datetime
     corpus_slice: CorpusSelector
@@ -1636,11 +2243,12 @@ class TemporalCut(BaseModel):
     embedding_version_pin: str
     outcomes: list[Outcome]
 
-    model_config = ConfigDict(strict=True, extra='forbid', frozen=True)
+    model_config = ConfigDict(strict=True, extra="forbid", frozen=True)
 
 
 class CalibrationMetrics(BaseModel):
     """Calibration metrics for evaluation."""
+
     brier: float
     log_loss: float
     ece: float
@@ -1648,11 +2256,12 @@ class CalibrationMetrics(BaseModel):
     resolution: float
     coverage: float
 
-    model_config = ConfigDict(strict=True, extra='forbid', frozen=True)
+    model_config = ConfigDict(strict=True, extra="forbid", frozen=True)
 
 
 class CounterfactualEvalRun(BaseModel):
     """A counterfactual evaluation run."""
+
     run_id: str
     method_ref: MethodRef
     cut_id: str
@@ -1660,13 +2269,15 @@ class CounterfactualEvalRun(BaseModel):
     prediction_refs: list[str]
     created_at: datetime
 
-    model_config = ConfigDict(strict=True, extra='forbid', frozen=True)
+    model_config = ConfigDict(strict=True, extra="forbid", frozen=True)
 
 
 # ── Round 3: External Battery ────────────────────────────────────────────────
 
+
 class LicenseTag(str, Enum):
     """License tags for external corpora."""
+
     GJP_PUBLIC = "gjp_public"
     METACULUS_PUBLIC = "metaculus_public"
     CLAIM_REVIEW = "claim_review"
@@ -1676,17 +2287,19 @@ class LicenseTag(str, Enum):
 
 class CorpusBundle(BaseModel):
     """An external corpus bundle."""
+
     source: str
     content_hash: str
     local_path: str
     license: LicenseTag
     fetched_at: datetime
 
-    model_config = ConfigDict(strict=True, extra='forbid', frozen=True)
+    model_config = ConfigDict(strict=True, extra="forbid", frozen=True)
 
 
 class ExternalItem(BaseModel):
     """An item from an external corpus."""
+
     source: str
     source_id: str
     question_text: str
@@ -1695,11 +2308,12 @@ class ExternalItem(BaseModel):
     outcome_type: OutcomeKind
     metadata: dict
 
-    model_config = ConfigDict(strict=True, extra='forbid', frozen=True)
+    model_config = ConfigDict(strict=True, extra="forbid", frozen=True)
 
 
 class BatteryRunResult(BaseModel):
     """Result of running a battery test."""
+
     run_id: str
     corpus_name: str
     method_ref: MethodRef
@@ -1707,76 +2321,85 @@ class BatteryRunResult(BaseModel):
     metrics: CalibrationMetrics
     failures: dict
 
-    model_config = ConfigDict(strict=True, extra='forbid', frozen=True)
+    model_config = ConfigDict(strict=True, extra="forbid", frozen=True)
 
 
 # ── Round 3: Inverse ─────────────────────────────────────────────────────────
 
+
 class ResolvedEvent(BaseModel):
     """A resolved event for inverse queries."""
+
     event_id: str
     description: str
     resolved_at: datetime
     evidence_refs: list[str]
 
-    model_config = ConfigDict(strict=True, extra='forbid', frozen=True)
+    model_config = ConfigDict(strict=True, extra="forbid", frozen=True)
 
 
 class InverseQuery(BaseModel):
     """An inverse query to find implications."""
+
     event: ResolvedEvent
     as_of: datetime
     methods: list[MethodRef]
     k: int = 50
 
-    model_config = ConfigDict(strict=True, extra='forbid', frozen=True)
+    model_config = ConfigDict(strict=True, extra="forbid", frozen=True)
 
 
 class Implication(BaseModel):
     """An implication found by inverse query."""
+
     corpus_ref: str
     entailment_score: float
     refutation_score: float
     relevance_weight: float
     severity: Literal["mild", "moderate", "severe"]
 
-    model_config = ConfigDict(strict=True, extra='forbid', frozen=True)
+    model_config = ConfigDict(strict=True, extra="forbid", frozen=True)
 
 
 class BlindspotReport(BaseModel):
     """Blindspot analysis for inverse query."""
+
     missing_entities: list[str]
     missing_mechanisms: list[str]
     adjacent_empty_topics: list[str]
 
-    model_config = ConfigDict(strict=True, extra='forbid', frozen=True)
+    model_config = ConfigDict(strict=True, extra="forbid", frozen=True)
 
 
 class InverseResult(BaseModel):
     """Result of an inverse query."""
+
     supporting: list[Implication]
     refuted: list[Implication]
     irrelevant: list[str]
     blindspot: BlindspotReport
 
-    model_config = ConfigDict(strict=True, extra='forbid', frozen=True)
+    model_config = ConfigDict(strict=True, extra="forbid", frozen=True)
 
 
 # ── Round 3: Peer Review ─────────────────────────────────────────────────────
 
+
 class Finding(BaseModel):
     """A finding from peer review."""
+
     severity: Literal["info", "minor", "major", "blocker"]
     category: str
     detail: str
     evidence: list[str]
     suggested_action: str
 
-    model_config = ConfigDict(strict=True, extra='forbid', frozen=True)
+    model_config = ConfigDict(strict=True, extra="forbid", frozen=True)
 
 
 class ReviewReport(BaseModel):
     """A peer review report."""
+
     report_id: str
     reviewer: str
     conclusion_id: str
@@ -1786,27 +2409,29 @@ class ReviewReport(BaseModel):
     completed_at: datetime
     method_invocation_ids: list[str]
 
-    model_config = ConfigDict(strict=True, extra='forbid', frozen=True)
+    model_config = ConfigDict(strict=True, extra="forbid", frozen=True)
 
 
 class Rebuttal(BaseModel):
     """A rebuttal to a review finding."""
+
     finding_id: str
     form: Literal["accept_and_revise", "reject_with_reason", "defer_as_open_question"]
     rationale: str
     attached_edit_ref: Optional[str] = None
     by_actor: Actor
 
-    model_config = ConfigDict(strict=True, extra='forbid', frozen=True)
+    model_config = ConfigDict(strict=True, extra="forbid", frozen=True)
 
 
 class SwarmReport(BaseModel):
     """A swarm review report."""
+
     conclusion_id: str
     reviews: list[ReviewReport]
     rebuttals: list[Rebuttal]
 
-    model_config = ConfigDict(strict=True, extra='forbid', frozen=True)
+    model_config = ConfigDict(strict=True, extra="forbid", frozen=True)
 
 
 # ── Round 3: Transfer / Docs / Interop ───────────────────────────────────────
@@ -1816,14 +2441,16 @@ DomainTag = NewType("DomainTag", str)
 
 class DatasetRef(BaseModel):
     """Reference to a dataset."""
+
     content_hash: str
     path: str
 
-    model_config = ConfigDict(strict=True, extra='forbid', frozen=True)
+    model_config = ConfigDict(strict=True, extra="forbid", frozen=True)
 
 
 class TransferStudy(BaseModel):
     """A transfer learning study."""
+
     study_id: str
     method_ref: MethodRef
     source_domain: DomainTag
@@ -1834,11 +2461,12 @@ class TransferStudy(BaseModel):
     delta: dict
     qualitative_notes: str
 
-    model_config = ConfigDict(strict=True, extra='forbid', frozen=True)
+    model_config = ConfigDict(strict=True, extra="forbid", frozen=True)
 
 
 class MethodDoc(BaseModel):
     """Documentation for a method."""
+
     method_ref: MethodRef
     spec_md_path: str
     rationale_md_path: str
@@ -1850,11 +2478,12 @@ class MethodDoc(BaseModel):
     template_version: str
     signed_by: str
 
-    model_config = ConfigDict(strict=True, extra='forbid', frozen=True)
+    model_config = ConfigDict(strict=True, extra="forbid", frozen=True)
 
 
 class MIPManifest(BaseModel):
     """Method Interchange Package manifest."""
+
     name: str
     version: str
     methods: list[MethodRef]
@@ -1864,13 +2493,15 @@ class MIPManifest(BaseModel):
     content_hash: str
     signature: str
 
-    model_config = ConfigDict(strict=True, extra='forbid', frozen=True)
+    model_config = ConfigDict(strict=True, extra="forbid", frozen=True)
 
 
 # ── Round 3: Decay ───────────────────────────────────────────────────────────
 
+
 class DecayPolicyKind(str, Enum):
     """Type of decay policy."""
+
     FIXED_INTERVAL = "fixed_interval"
     EVIDENCE_CHANGED = "evidence_changed"
     METHOD_VERSION_BUMP = "method_version_bump"
@@ -1883,70 +2514,84 @@ class DecayPolicyKind(str, Enum):
 
 class DecayPolicy(BaseModel):
     """Policy for decay and revalidation."""
+
     policy_kind: DecayPolicyKind
     params: dict
     composition_children: list[DecayPolicy] = []
 
-    model_config = ConfigDict(strict=True, extra='forbid', frozen=True)
+    model_config = ConfigDict(strict=True, extra="forbid", frozen=True)
 
 
 class RevalidationResult(BaseModel):
     """Result of revalidation."""
+
     object_id: str
     outcome: Literal["confirmed", "disagreement", "refuted", "noop"]
     prior_tier: str
     new_tier: str
     ledger_entry_id: str
 
-    model_config = ConfigDict(strict=True, extra='forbid', frozen=True)
+    model_config = ConfigDict(strict=True, extra="forbid", frozen=True)
 
 
 # ── Round 3: Rigor Gate ──────────────────────────────────────────────────────
 
+
 class AuthorAttestation(BaseModel):
     """Author attestation for rigor gate submission."""
+
     author_id: str
     conflict_disclosures: list[str]
     acknowledgments: list[str]
 
-    model_config = ConfigDict(strict=True, extra='forbid', frozen=True)
+    model_config = ConfigDict(strict=True, extra="forbid", frozen=True)
 
 
 class CheckResult(BaseModel):
     """Result of a rigor gate check."""
+
     check_name: str
     pass_: bool
     detail: str
     ledger_entry_id: Optional[str] = None
 
-    model_config = ConfigDict(strict=True, extra='forbid', frozen=True)
+    model_config = ConfigDict(strict=True, extra="forbid", frozen=True)
 
 
 class RigorSubmission(BaseModel):
     """A submission to the rigor gate."""
+
     submission_id: str
-    kind: Literal["conclusion", "method_doc", "eval_report", "dialectic_summary", "press_statement"]
+    kind: Literal[
+        "conclusion",
+        "method_doc",
+        "eval_report",
+        "dialectic_summary",
+        "press_statement",
+    ]
     payload_ref: str
     author: Actor
     intended_venue: Literal["public_site", "rss", "social", "press_release", "api"]
     author_attestation: AuthorAttestation
 
-    model_config = ConfigDict(strict=True, extra='forbid', frozen=True)
+    model_config = ConfigDict(strict=True, extra="forbid", frozen=True)
 
 
 class RigorVerdict(BaseModel):
     """Verdict from the rigor gate."""
+
     verdict: Literal["pass", "fail", "pass_with_conditions"]
     checks_run: list[CheckResult]
     conditions: list[str]
     reviewed_by: list[Actor]
     ledger_entry_id: str
 
-    model_config = ConfigDict(strict=True, extra='forbid', frozen=True)
+    model_config = ConfigDict(strict=True, extra="forbid", frozen=True)
 
 
 class FounderOverride(BaseModel):
     """Founder override for rigor gate."""
+
     override_id: str
     submission_id: str
     founder_id: str
@@ -1954,4 +2599,4 @@ class FounderOverride(BaseModel):
     justification: str
     ledger_entry_id: str
 
-    model_config = ConfigDict(strict=True, extra='forbid', frozen=True)
+    model_config = ConfigDict(strict=True, extra="forbid", frozen=True)

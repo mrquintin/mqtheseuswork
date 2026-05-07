@@ -1,7 +1,7 @@
 import { listPublishedConclusionsForFeed } from "@/lib/conclusionsRead";
 import { SITE } from "@/lib/site";
 
-export const revalidate = 3600;
+export const dynamic = "force-dynamic";
 
 function escXml(s: string) {
   return String(s)
@@ -50,6 +50,7 @@ export async function GET() {
 
   return new Response(atom.trim() + "\n", {
     headers: {
+      "Cache-Control": "public, s-maxage=3600, stale-while-revalidate=86400",
       "Content-Type": "application/atom+xml; charset=utf-8",
     },
   });

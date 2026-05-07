@@ -13,8 +13,7 @@ import {
 import { listCurrents } from "@/lib/currentsApi";
 import type { PublicOpinion } from "@/lib/currentsTypes";
 
-export const dynamic = "force-static";
-export const revalidate = 60;
+export const dynamic = "force-dynamic";
 
 async function latestCurrents(): Promise<PublicOpinion[]> {
   try {

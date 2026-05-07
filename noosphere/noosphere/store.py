@@ -1266,12 +1266,10 @@ class Store:
     @staticmethod
     def _confidence_tier(value: str | None) -> ConfidenceTier:
         raw = (value or "").strip().lower()
-        if raw in {tier.value for tier in ConfidenceTier}:
-            return ConfidenceTier(raw)
         if raw == "firm":
             return ConfidenceTier.HIGH
-        if raw == "open":
-            return ConfidenceTier.LOW
+        if raw in {tier.value for tier in ConfidenceTier}:
+            return ConfidenceTier(raw)
         return ConfidenceTier.MODERATE
 
     def _has_prisma_conclusion_table(self) -> bool:

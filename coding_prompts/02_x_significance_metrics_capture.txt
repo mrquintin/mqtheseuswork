@@ -84,6 +84,6 @@ SCOPE
 - `noosphere/noosphere/currents/_x_client.py` MODIFY
 - `noosphere/noosphere/currents/x_ingestor.py` MODIFY
 - `noosphere/noosphere/models.py` MODIFY
-- `noosphere/alembic/versions/005_currents_significance_metrics.py` CREATE
+- `noosphere/alembic/versions/006_currents_metrics.py` CREATE
 - `theseus-codex/prisma/schema.prisma` MODIFY
 - `noosphere/tests/test_x_significance_metrics.py` CREATE

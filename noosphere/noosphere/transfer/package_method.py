@@ -1,4 +1,5 @@
 """Package a registered method into a self-contained, Docker-reproducible artifact."""
+
 from __future__ import annotations
 
 import importlib
@@ -6,8 +7,12 @@ import inspect
 import json
 import logging
 import shutil
+import ast
+import textwrap
 from pathlib import Path
-from typing import NewType, Optional
+from typing import Any, NewType, Optional
+
+from pydantic import BaseModel
 
 from noosphere.ledger.keys import KeyRing
 from noosphere.methods._registry import REGISTRY
@@ -98,9 +103,11 @@ def _format_cf_runs(runs: list[CounterfactualEvalRun]) -> str:
         return "None recorded."
     lines: list[str] = []
     for r in runs:
-        lines.append(f"- **{r.run_id}** (cut={r.cut_id}): "
-                      f"brier={r.metrics.brier:.4f}, ece={r.metrics.ece:.4f}, "
-                      f"coverage={r.metrics.coverage:.2f}")
+        lines.append(
+            f"- **{r.run_id}** (cut={r.cut_id}): "
+            f"brier={r.metrics.brier:.4f}, ece={r.metrics.ece:.4f}, "
+            f"coverage={r.metrics.coverage:.2f}"
+        )
     return "\n".join(lines)
 
 
@@ -109,9 +116,11 @@ def _format_battery_runs(runs: list[BatteryRunResult]) -> str:
         return "None recorded."
     lines: list[str] = []
     for r in runs:
-        lines.append(f"- **{r.run_id}** ({r.corpus_name}): "
-                      f"brier={r.metrics.brier:.4f}, ece={r.metrics.ece:.4f}, "
-                      f"failures={len(r.failures)}")
+        lines.append(
+            f"- **{r.run_id}** ({r.corpus_name}): "
+            f"brier={r.metrics.brier:.4f}, ece={r.metrics.ece:.4f}, "
+            f"failures={len(r.failures)}"
+        )
     return "\n".join(lines)
 
 
@@ -137,8 +146,87 @@ def _collect_requirements(impl_dir: Path) -> list[str]:
     """Collect requirements.txt entries from the implementation dir (if any)."""
     req_path = impl_dir / "requirements.txt"
     if req_path.exists():
-        return [l.strip() for l in req_path.read_text().splitlines() if l.strip() and not l.startswith("#")]
+        return [
+            l.strip()
+            for l in req_path.read_text().splitlines()
+            if l.strip() and not l.startswith("#")
+        ]
     return []
+
+
+def _is_local_or_test_function(fn: Any, module_path: Path) -> bool:
+    """Return True for functions that cannot be packaged by copying their module.
+
+    Test-local methods are often nested in a pytest module whose top-level imports
+    include pytest/noosphere. Copying that file makes the exported adapter depend
+    on the source repository, defeating the self-contained package contract.
+    """
+
+    original = getattr(fn, "__wrapped__", fn)
+    return "<locals>" in getattr(original, "__qualname__", "") or "/tests/" in (
+        "/" + str(module_path).replace("\\", "/")
+    )
+
+
+def _model_class_source(name: str, model_cls: type[BaseModel]) -> str:
+    lines = [f"class {name}(BaseModel):"]
+    fields = getattr(model_cls, "model_fields", {})
+    if not fields:
+        lines.append("    pass")
+        return "\n".join(lines)
+    for field_name in fields:
+        lines.append(f"    {field_name}: Any = None")
+    return "\n".join(lines)
+
+
+def _write_local_function_shim(
+    *,
+    fn: Any,
+    impl_out: Path,
+    entry_module: str,
+    entry_fn: str,
+) -> None:
+    """Write a minimal implementation module for a local/test-registered method."""
+
+    original = getattr(fn, "__wrapped__", fn)
+    source = textwrap.dedent(inspect.getsource(original))
+    tree = ast.parse(source)
+    function_node = next(
+        (node for node in tree.body if isinstance(node, ast.FunctionDef)),
+        None,
+    )
+    if function_node is None:
+        raise ValueError(f"Could not extract source for packaged method {entry_fn}")
+    function_node.decorator_list = []
+    impl_fn_name = f"_{entry_fn}_impl"
+    function_node.name = impl_fn_name
+    impl_source = ast.unparse(function_node)
+
+    model_sources: list[str] = []
+    globals_map = getattr(original, "__globals__", {})
+    for name, value in sorted(globals_map.items()):
+        if name not in source:
+            continue
+        if inspect.isclass(value) and issubclass(value, BaseModel):
+            model_sources.append(_model_class_source(name, value))
+
+    module_source = "\n\n".join(
+        [
+            "from __future__ import annotations",
+            "from types import SimpleNamespace",
+            "from typing import Any",
+            "from pydantic import BaseModel",
+            *model_sources,
+            impl_source,
+            (
+                f"def {entry_fn}(input_data: Any) -> Any:\n"
+                "    if isinstance(input_data, dict):\n"
+                "        input_data = SimpleNamespace(**input_data)\n"
+                f"    return {impl_fn_name}(input_data)\n"
+            ),
+        ]
+    )
+    (impl_out / f"{entry_module}.py").write_text(module_source + "\n")
 
 
 def package(
@@ -184,9 +272,21 @@ def package(
 
     try:
         source_dir = _resolve_module_source(source_module)
-        for src_file in source_dir.iterdir():
-            if src_file.is_file() and not src_file.name.startswith("__pycache__"):
-                shutil.copy2(src_file, impl_out / src_file.name)
+        module_file = Path(inspect.getfile(getattr(fn, "__wrapped__", fn)))
+        raw_fn = spec.implementation.fn_name
+        bare_fn = raw_fn.rsplit(".", 1)[-1] if "." in raw_fn else raw_fn
+        entry_module = module_parts[-1] if module_parts else spec.implementation.module
+        if _is_local_or_test_function(fn, module_file):
+            _write_local_function_shim(
+                fn=fn,
+                impl_out=impl_out,
+                entry_module=entry_module,
+                entry_fn=bare_fn,
+            )
+        else:
+            for src_file in source_dir.iterdir():
+                if src_file.is_file() and not src_file.name.startswith("__pycache__"):
+                    shutil.copy2(src_file, impl_out / src_file.name)
     except (ImportError, TypeError):
         logger.warning("Could not resolve source for %s", source_module)
 
@@ -196,10 +296,10 @@ def package(
     (impl_out / "requirements.txt").write_text("\n".join(reqs) + "\n")
 
     # adapter.py
-    entry_module = module_parts[-1] if module_parts else spec.implementation.module
     # fn_name from __qualname__ may contain '<locals>.' — extract the bare name
     raw_fn = spec.implementation.fn_name
     bare_fn = raw_fn.rsplit(".", 1)[-1] if "." in raw_fn else raw_fn
+    entry_module = module_parts[-1] if module_parts else spec.implementation.module
     adapter_code = render_adapter(
         method_name=spec.name,
         method_version=spec.version,

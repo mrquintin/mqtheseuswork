@@ -27,9 +27,11 @@ from collections import defaultdict
 import math
 
 import numpy as np
+
 try:
     import networkx as nx
 except ImportError:  # pragma: no cover - exercised in minimal local envs.
+
     class _MiniDiGraph:
         def __init__(self) -> None:
             self._nodes: set[str] = set()
@@ -69,12 +71,15 @@ except ImportError:  # pragma: no cover - exercised in minimal local envs.
 try:
     from scipy.special import expit
 except ImportError:  # pragma: no cover - exercised in minimal local envs.
+
     def expit(value: float) -> float:
         return 1.0 / (1.0 + math.exp(-float(value)))
+
 
 try:
     from scipy.spatial.distance import cosine
 except ImportError:  # pragma: no cover - exercised in minimal local envs.
+
     def cosine(a: np.ndarray, b: np.ndarray) -> float:
         va = np.asarray(a, dtype=float)
         vb = np.asarray(b, dtype=float)
@@ -85,9 +90,11 @@ except ImportError:  # pragma: no cover - exercised in minimal local envs.
             return 1.0
         return float(1.0 - np.dot(va, vb) / denom)
 
+
 try:
     from transformers import pipeline, AutoTokenizer, AutoModel
     import torch
+
     TRANSFORMERS_AVAILABLE = True
 except ImportError:
     TRANSFORMERS_AVAILABLE = False
@@ -110,6 +117,7 @@ logger = get_logger(__name__)
 
 # ── Type Definitions ─────────────────────────────────────────────────────────
 
+
 @dataclass
 class Proposition:
     """
@@ -121,6 +129,7 @@ class Proposition:
         embedding: Vector representation (optional, required for Layer 4)
         conviction_score: Weight in contradiction calculations (0-1)
     """
+
     id: str
     text: str
     embedding: Optional[np.ndarray] = None
@@ -130,26 +139,29 @@ class Proposition:
 @dataclass
 class LayerScores:
     """Results from each of the 6 coherence layers."""
-    s1_consistency: float = 0.0          # Formal Consistency
-    s2_argumentation: float = 0.0        # Argumentation Theory
-    s3_probabilistic: float = 0.0        # Probabilistic Coherence
-    s4_geometric: float = 0.0            # Embedding-Geometric
-    s5_compression: float = 0.0          # Information-Theoretic
-    s6_llm_judge: float = 0.0            # LLM Judge
+
+    s1_consistency: float = 0.0  # Formal Consistency
+    s2_argumentation: float = 0.0  # Argumentation Theory
+    s3_probabilistic: float = 0.0  # Probabilistic Coherence
+    s4_geometric: float = 0.0  # Embedding-Geometric
+    s5_compression: float = 0.0  # Information-Theoretic
+    s6_llm_judge: float = 0.0  # LLM Judge
 
 
 @dataclass
 class ContradictionEdge:
     """Represents a detected contradiction between two propositions."""
+
     source_id: str
     target_id: str
-    nli_score: float                     # Contradiction confidence (0-1)
-    weighted_severity: float             # Severity accounting for conviction weights
+    nli_score: float  # Contradiction confidence (0-1)
+    weighted_severity: float  # Severity accounting for conviction weights
 
 
 @dataclass
 class LayerDebugInfo:
     """Debug information for individual layers."""
+
     layer_name: str
     raw_metrics: dict = field(default_factory=dict)
     intermediate_results: dict = field(default_factory=dict)
@@ -157,6 +169,7 @@ class LayerDebugInfo:
 
 
 # ── Utility Functions ────────────────────────────────────────────────────────
+
 
 def hoyer_sparsity(x: np.ndarray) -> float:
     """
@@ -177,7 +190,7 @@ def hoyer_sparsity(x: np.ndarray) -> float:
 
     n = len(x)
     l1_norm = np.sum(np.abs(x))
-    l2_norm = np.sqrt(np.sum(x ** 2))
+    l2_norm = np.sqrt(np.sum(x**2))
 
     if l2_norm == 0:
         return 0.0
@@ -205,6 +218,7 @@ def cosine_similarity(a: np.ndarray, b: np.ndarray) -> float:
 
 
 # ── NLI Engine (Local or API Fallback) ────────────────────────────────────────
+
 
 class NLIEngine:
     """
@@ -272,15 +286,11 @@ class NLIEngine:
             outputs = self.backend(inputs)[0]
 
             # Local model returns label and score
-            label = outputs['label'].lower()  # 'entailment', 'neutral', 'contradiction'
-            score = outputs['score']
+            label = outputs["label"].lower()  # 'entailment', 'neutral', 'contradiction'
+            score = outputs["score"]
 
             # Distribute confidence around the predicted label
-            result = {
-                "entailment": 0.0,
-                "neutral": 0.0,
-                "contradiction": 0.0
-            }
+            result = {"entailment": 0.0, "neutral": 0.0, "contradiction": 0.0}
             result[label] = score
 
             # Small confidence in alternatives
@@ -328,6 +338,7 @@ Only output the JSON, no other text."""
 
 # ── CoherenceEngine (Main Class) ──────────────────────────────────────────────
 
+
 class CoherenceEngine:
     """
     6-layer coherence scoring engine for proposition sets.
@@ -367,9 +378,7 @@ class CoherenceEngine:
         self.weights = weights or self.DEFAULT_WEIGHTS.copy()
         self._llm = llm_client
         self.nli = nli_engine or NLIEngine(llm=llm_client)
-        self.enable_layers = enable_layers or {
-            "s1", "s2", "s3", "s4", "s5", "s6"
-        }
+        self.enable_layers = enable_layers or {"s1", "s2", "s3", "s4", "s5", "s6"}
 
         # Memoization
         self._contradiction_graph = None
@@ -618,7 +627,7 @@ class CoherenceEngine:
                 # Estimate P(P₁ | ¬P₂) from neutral/contradiction scores
                 p_not_given = 1.0 - p_given
 
-                coherence_sum += (p_given - p_not_given)
+                coherence_sum += p_given - p_not_given
                 pair_count += 1
 
         if pair_count == 0:
@@ -717,7 +726,7 @@ class CoherenceEngine:
         # Individual text compression
         individual_sizes = []
         for p in self.propositions:
-            compressed = gzip.compress(p.text.encode('utf-8'))
+            compressed = gzip.compress(p.text.encode("utf-8"))
             individual_sizes.append(len(compressed))
 
         total_individual = sum(individual_sizes)
@@ -727,7 +736,7 @@ class CoherenceEngine:
 
         # Combined text compression
         combined_text = " ".join(p.text for p in self.propositions)
-        combined_compressed = gzip.compress(combined_text.encode('utf-8'))
+        combined_compressed = gzip.compress(combined_text.encode("utf-8"))
         combined_size = len(combined_compressed)
 
         s5 = 1.0 - (combined_size / total_individual)
@@ -821,12 +830,12 @@ Respond with ONLY a single floating-point number between 0.0 and 1.0, nothing el
             Composite score in [0, 1]
         """
         composite = (
-            self.weights.get("s1_consistency", 0) * layers.s1_consistency +
-            self.weights.get("s2_argumentation", 0) * layers.s2_argumentation +
-            self.weights.get("s3_probabilistic", 0) * layers.s3_probabilistic +
-            self.weights.get("s4_geometric", 0) * layers.s4_geometric +
-            self.weights.get("s5_compression", 0) * layers.s5_compression +
-            self.weights.get("s6_llm_judge", 0) * layers.s6_llm_judge
+            self.weights.get("s1_consistency", 0) * layers.s1_consistency
+            + self.weights.get("s2_argumentation", 0) * layers.s2_argumentation
+            + self.weights.get("s3_probabilistic", 0) * layers.s3_probabilistic
+            + self.weights.get("s4_geometric", 0) * layers.s4_geometric
+            + self.weights.get("s5_compression", 0) * layers.s5_compression
+            + self.weights.get("s6_llm_judge", 0) * layers.s6_llm_judge
         )
 
         return float(np.clip(composite, 0.0, 1.0))
@@ -889,14 +898,19 @@ Respond with ONLY a single floating-point number between 0.0 and 1.0, nothing el
 
         # Nodes with highest in-degree are most attacked
         in_degrees = dict(G.in_degree())
-        weak_links = sorted(in_degrees.keys(), key=lambda x: in_degrees[x], reverse=True)
+        weak_links = sorted(
+            in_degrees.keys(), key=lambda x: in_degrees[x], reverse=True
+        )
 
         return weak_links[:5] if len(weak_links) > 5 else weak_links
 
 
 # ── Convenience Functions ────────────────────────────────────────────────────
 
-def score_principles(principles: list[Principle], weights: Optional[dict] = None) -> CoherenceReport:
+
+def score_principles(
+    principles: list[Principle], weights: Optional[dict] = None
+) -> CoherenceReport:
     """
     Score a list of Principle objects for coherence.
 
@@ -921,7 +935,9 @@ def score_principles(principles: list[Principle], weights: Optional[dict] = None
     return engine.compute()
 
 
-def score_claims(claims: list[Claim], weights: Optional[dict] = None) -> CoherenceReport:
+def score_claims(
+    claims: list[Claim], weights: Optional[dict] = None
+) -> CoherenceReport:
     """
     Score a list of Claim objects for coherence.
 
@@ -1155,8 +1171,7 @@ def _verify_probe_candidates(
     existing_findings: list[ContradictionFinding],
 ) -> tuple[list[ContradictionFinding], list[dict[str, Any]], list[str]]:
     existing_pairs = {
-        _finding_pair_key(finding.id_a, finding.id_b)
-        for finding in existing_findings
+        _finding_pair_key(finding.id_a, finding.id_b) for finding in existing_findings
     }
     confirmed: list[ContradictionFinding] = []
     tentative: list[dict[str, Any]] = []
@@ -1212,9 +1227,11 @@ def _verify_probe_candidates(
                     query,
                     candidate,
                     candidate_row,
-                    verdict_layer="llm_unconfirmed"
-                    if llm_verdict is not None
-                    else "nli_uncertain",
+                    verdict_layer=(
+                        "llm_unconfirmed"
+                        if llm_verdict is not None
+                        else "nli_uncertain"
+                    ),
                     nli_scores=nli_scores,
                     llm_verdict=llm_verdict,
                 )
@@ -1268,12 +1285,11 @@ def coherence_check_local(
         radius=radius,
         include_outside_sample=include_outside_sample,
     )
-    from noosphere.methods.contradiction_probe import (
-        ContradictionProbeInput,
-        contradiction_probe,
-    )
+    from noosphere.methods import REGISTRY
+    from noosphere.methods.contradiction_probe import ContradictionProbeInput
 
-    probe_output = contradiction_probe(
+    _spec, probe_method = REGISTRY.get("contradiction_probe")
+    probe_output = probe_method(
         ContradictionProbeInput(
             embedding=np.asarray(proposition.embedding, dtype=float).tolist(),
             locality_index=locality,
@@ -1337,12 +1353,14 @@ def coherence_check_local(
         "contradiction_probe": {
             "candidate_ids": [row.proposition_id for row in probe_output.candidates],
             "candidates": [
-                row.model_dump()
-                if hasattr(row, "model_dump")
-                else {
-                    "proposition_id": row.proposition_id,
-                    "predicted_distance": row.predicted_distance,
-                }
+                (
+                    row.model_dump()
+                    if hasattr(row, "model_dump")
+                    else {
+                        "proposition_id": row.proposition_id,
+                        "predicted_distance": row.predicted_distance,
+                    }
+                )
                 for row in probe_output.candidates
             ],
             "mean_predicted_distance": (

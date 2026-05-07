@@ -182,6 +182,7 @@ def test_ingest_once_disabled_without_sources_returns_empty_report(
         curated_accounts=[],
         search_queries=[],
         organization_id=ORG_ID,
+        discovery_enabled=False,
     )
 
     def fail_make_client(config: IngestorConfig) -> None:
