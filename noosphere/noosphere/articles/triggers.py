@@ -9,6 +9,7 @@ from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from typing import Any
 
+from sqlalchemy import bindparam, inspect, text
 from sqlmodel import select
 
 from noosphere.articles.generator import (
@@ -32,6 +33,8 @@ DEFAULT_DAILY_ARTICLE_CAP = 4
 DEFAULT_THEMATIC_MIN_OPINIONS = 2
 DEFAULT_THEMATIC_MIN_EVENTS = 5
 DEFAULT_THEMATIC_MAX_SOURCES = 8
+DEFAULT_THEMATIC_MIN_CORPUS_SOURCES = 3
+DEFAULT_THEMATIC_MAX_OPINIONS_PER_CORPUS_SOURCE = 2
 
 
 @dataclass(frozen=True)
@@ -103,16 +106,147 @@ def _thematic_max_sources() -> int:
     )
 
 
-def _representative_opinion_ids(cluster: list[EventOpinion]) -> list[str]:
-    """Pick a bounded recent slice so one article prompt cannot absorb a whole backlog."""
+def _thematic_min_corpus_sources() -> int:
+    return _env_int(
+        "ARTICLES_THEMATIC_MIN_CORPUS_SOURCES",
+        DEFAULT_THEMATIC_MIN_CORPUS_SOURCES,
+        minimum=1,
+    )
+
+
+def _thematic_max_opinions_per_corpus_source() -> int:
+    return _env_int(
+        "ARTICLES_THEMATIC_MAX_OPINIONS_PER_CORPUS_SOURCE",
+        DEFAULT_THEMATIC_MAX_OPINIONS_PER_CORPUS_SOURCE,
+        minimum=1,
+    )
+
+
+def _conclusion_source_upload_map(
+    store: Any,
+    conclusion_ids: list[str],
+) -> dict[str, tuple[str, ...]]:
+    ids = sorted({conclusion_id for conclusion_id in conclusion_ids if conclusion_id})
+    if not ids:
+        return {}
+    engine = getattr(store, "engine", None)
+    if engine is None:
+        return {}
+    try:
+        if not inspect(engine).has_table("ConclusionSource"):
+            return {}
+        stmt = text(
+            'SELECT "conclusionId", "uploadId" '
+            'FROM "ConclusionSource" '
+            'WHERE "conclusionId" IN :ids '
+            'ORDER BY "conclusionId", "createdAt", "uploadId"'
+        ).bindparams(bindparam("ids", expanding=True))
+        with engine.connect() as conn:
+            rows = conn.execute(stmt, {"ids": ids}).fetchall()
+    except Exception:
+        return {}
+
+    out: dict[str, list[str]] = defaultdict(list)
+    for row in rows:
+        data = row._mapping if hasattr(row, "_mapping") else row
+        out[str(data["conclusionId"])].append(str(data["uploadId"]))
+    return {
+        conclusion_id: tuple(dict.fromkeys(upload_ids))
+        for conclusion_id, upload_ids in out.items()
+    }
+
+
+def _opinion_corpus_keys(
+    store: Any,
+    opinion_ids: list[str],
+) -> dict[str, set[str]]:
+    ids = sorted({opinion_id for opinion_id in opinion_ids if opinion_id})
+    if not ids:
+        return {}
+    with store.session() as session:
+        citations = list(
+            session.exec(
+                select(OpinionCitation).where(OpinionCitation.opinion_id.in_(ids))
+            ).all()
+        )
+
+    conclusion_ids = [
+        citation.conclusion_id
+        for citation in citations
+        if citation.conclusion_id and citation.source_kind.lower() == "conclusion"
+    ]
+    upload_map = _conclusion_source_upload_map(store, conclusion_ids)
+    keys_by_opinion: dict[str, set[str]] = defaultdict(set)
+    for citation in citations:
+        if citation.conclusion_id and citation.source_kind.lower() == "conclusion":
+            upload_ids = upload_map.get(citation.conclusion_id, ())
+            if upload_ids:
+                keys_by_opinion[citation.opinion_id].update(
+                    f"upload:{upload_id}" for upload_id in upload_ids
+                )
+            else:
+                keys_by_opinion[citation.opinion_id].add(
+                    f"conclusion:{citation.conclusion_id}"
+                )
+        elif citation.claim_id:
+            keys_by_opinion[citation.opinion_id].add(f"claim:{citation.claim_id}")
+
+    for opinion_id in ids:
+        if not keys_by_opinion[opinion_id]:
+            keys_by_opinion[opinion_id].add(f"opinion:{opinion_id}")
+    return keys_by_opinion
+
+
+def _representative_opinion_ids(
+    store: Any,
+    cluster: list[EventOpinion],
+) -> list[str]:
+    """
+    Pick a bounded recent slice without letting one underlying upload dominate.
+
+    The article input surface is EventOpinion rows, but each opinion has
+    OpinionCitation rows pointing back to firm conclusions. Those conclusions
+    in turn usually point through ConclusionSource to the upload that produced
+    them. Balancing on that upload key is what prevents one long education
+    podcast from becoming the apparent whole corpus.
+    """
 
     max_sources = _thematic_max_sources()
-    selected = sorted(
+    max_per_key = _thematic_max_opinions_per_corpus_source()
+    ordered = sorted(
         cluster,
         key=lambda opinion: (_as_utc(opinion.generated_at), opinion.confidence),
         reverse=True,
-    )[:max_sources]
+    )
+    keys_by_opinion = _opinion_corpus_keys(store, [opinion.id for opinion in ordered])
+    selected: list[EventOpinion] = []
+    deferred: list[EventOpinion] = []
+    counts: defaultdict[str, int] = defaultdict(int)
+    for opinion in ordered:
+        keys = keys_by_opinion.get(opinion.id) or {f"opinion:{opinion.id}"}
+        if any(counts[key] < max_per_key for key in keys):
+            selected.append(opinion)
+            for key in keys:
+                counts[key] += 1
+        else:
+            deferred.append(opinion)
+        if len(selected) >= max_sources:
+            break
+
+    if len(selected) < max_sources:
+        for opinion in deferred:
+            selected.append(opinion)
+            if len(selected) >= max_sources:
+                break
     return [opinion.id for opinion in selected]
+
+
+def _distinct_opinion_corpus_count(
+    store: Any,
+    opinion_ids: list[str],
+) -> int:
+    keys_by_opinion = _opinion_corpus_keys(store, opinion_ids)
+    return len({key for keys in keys_by_opinion.values() for key in keys})
 
 
 def _representative_event_ids(cluster: list[CurrentEvent]) -> list[str]:
@@ -158,11 +292,18 @@ async def _opinion_thematic_clusters(store: Any, since: datetime) -> list[list[s
     clusters: dict[tuple[str, str], list[EventOpinion]] = defaultdict(list)
     for opinion in opinions:
         clusters[_opinion_topic_discipline_key(opinion, event_by_id)].append(opinion)
-    return [
-        _representative_opinion_ids(cluster)
-        for cluster in clusters.values()
-        if len(cluster) >= min_opinions
-    ]
+    out: list[list[str]] = []
+    min_corpus_sources = _thematic_min_corpus_sources()
+    for cluster in clusters.values():
+        if len(cluster) < min_opinions:
+            continue
+        selected = _representative_opinion_ids(store, cluster)
+        if len(selected) < min_opinions:
+            continue
+        if _distinct_opinion_corpus_count(store, selected) < min_corpus_sources:
+            continue
+        out.append(selected)
+    return out
 
 
 async def _event_thematic_clusters(store: Any, since: datetime) -> list[list[str]]:

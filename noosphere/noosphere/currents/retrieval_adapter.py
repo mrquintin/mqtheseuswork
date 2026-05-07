@@ -6,8 +6,10 @@ import math
 import re
 import struct
 from collections import Counter
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Any, Literal
+
+from sqlalchemy import bindparam, inspect, text
 
 try:
     import numpy as np
@@ -27,9 +29,13 @@ class EventRetrievalHit:
     score: float
     topic_hint: str | None
     origin: str | None
+    source_upload_ids: tuple[str, ...] = ()
 
 
 DEFAULT_TOP_K = 8
+RETRIEVAL_OVERSAMPLE = 8
+MAX_CONCLUSION_CANDIDATES = 96
+MAX_HITS_PER_CORPUS_SOURCE = 2
 SUBSUMPTION_COSINE = 0.85
 ALLOWED_CLAIM_ORIGINS = ("FOUNDER", "INTERNAL", "VOICE", "LITERATURE")
 _TOKEN_RE = re.compile(r"[A-Za-z0-9]{3,}")
@@ -136,6 +142,112 @@ def _rank_hits(hits: list[EventRetrievalHit]) -> list[EventRetrievalHit]:
     )
 
 
+def _candidate_limit(top_k: int) -> int:
+    return min(max(top_k * RETRIEVAL_OVERSAMPLE, top_k), MAX_CONCLUSION_CANDIDATES)
+
+
+def _conclusion_source_upload_map(
+    store: Any,
+    conclusion_ids: list[str],
+) -> dict[str, tuple[str, ...]]:
+    """Return Conclusion -> Upload provenance from the Prisma bridge if present."""
+
+    ids = sorted({conclusion_id for conclusion_id in conclusion_ids if conclusion_id})
+    if not ids:
+        return {}
+
+    engine = getattr(store, "engine", None)
+    if engine is None:
+        return {}
+    try:
+        if not inspect(engine).has_table("ConclusionSource"):
+            return {}
+        stmt = text(
+            'SELECT "conclusionId", "uploadId" '
+            'FROM "ConclusionSource" '
+            'WHERE "conclusionId" IN :ids '
+            'ORDER BY "conclusionId", "createdAt", "uploadId"'
+        ).bindparams(bindparam("ids", expanding=True))
+        with engine.connect() as conn:
+            rows = conn.execute(stmt, {"ids": ids}).fetchall()
+    except Exception:
+        return {}
+
+    out: dict[str, list[str]] = {}
+    for row in rows:
+        data = row._mapping if hasattr(row, "_mapping") else row
+        conclusion_id = str(data["conclusionId"])
+        upload_id = str(data["uploadId"])
+        out.setdefault(conclusion_id, []).append(upload_id)
+    return {
+        conclusion_id: tuple(dict.fromkeys(upload_ids))
+        for conclusion_id, upload_ids in out.items()
+    }
+
+
+def _with_conclusion_uploads(
+    store: Any,
+    pairs: list[tuple[EventRetrievalHit, Any | None]],
+) -> list[tuple[EventRetrievalHit, Any | None]]:
+    upload_map = _conclusion_source_upload_map(
+        store,
+        [hit.source_id for hit, _ in pairs if hit.source_kind == "conclusion"],
+    )
+    if not upload_map:
+        return pairs
+    return [
+        (
+            (
+                replace(hit, source_upload_ids=upload_map.get(hit.source_id, ()))
+                if hit.source_kind == "conclusion"
+                else hit
+            ),
+            embedding,
+        )
+        for hit, embedding in pairs
+    ]
+
+
+def corpus_source_key(hit: Any) -> str:
+    upload_ids = tuple(getattr(hit, "source_upload_ids", ()) or ())
+    if upload_ids:
+        return f"upload:{upload_ids[0]}"
+    return f"{getattr(hit, 'source_kind', 'source')}:{getattr(hit, 'source_id', '')}"
+
+
+def distinct_corpus_source_count(hits: list[Any]) -> int:
+    return len({corpus_source_key(hit) for hit in hits})
+
+
+def _diversify_hits(
+    hits: list[EventRetrievalHit],
+    *,
+    top_k: int,
+    max_per_source: int = MAX_HITS_PER_CORPUS_SOURCE,
+) -> list[EventRetrievalHit]:
+    if len(hits) <= top_k:
+        return _rank_hits(hits)[:top_k]
+
+    selected: list[EventRetrievalHit] = []
+    deferred: list[EventRetrievalHit] = []
+    counts: Counter[str] = Counter()
+    for hit in _rank_hits(hits):
+        key = corpus_source_key(hit)
+        if counts[key] < max_per_source:
+            selected.append(hit)
+            counts[key] += 1
+        else:
+            deferred.append(hit)
+        if len(selected) >= top_k:
+            return selected
+
+    for hit in deferred:
+        selected.append(hit)
+        if len(selected) >= top_k:
+            break
+    return selected[:top_k]
+
+
 def _tokens(text: str) -> list[str]:
     return [match.group(0).lower() for match in _TOKEN_RE.finditer(text)]
 
@@ -219,7 +331,10 @@ def _conclusion_hits(
 ) -> list[tuple[EventRetrievalHit, Any | None]]:
     conclusions = list(store.list_conclusions())
     if query_embedding is None:
-        return _bm25_conclusion_hits(conclusions, event, limit=limit)
+        return _with_conclusion_uploads(
+            store,
+            _bm25_conclusion_hits(conclusions, event, limit=limit),
+        )
 
     scored: list[tuple[EventRetrievalHit, Any | None]] = []
     topic_hint = getattr(event, "topic_hint", None)
@@ -252,8 +367,11 @@ def _conclusion_hits(
         )
     )
     if not scored:
-        return _bm25_conclusion_hits(conclusions, event, limit=limit)
-    return scored[:limit]
+        return _with_conclusion_uploads(
+            store,
+            _bm25_conclusion_hits(conclusions, event, limit=limit),
+        )
+    return _with_conclusion_uploads(store, scored[:limit])
 
 
 def _is_subsumed_by_conclusion(
@@ -288,16 +406,26 @@ def retrieve_for_event(
         store,
         event,
         query_embedding,
-        limit=top_k,
+        limit=_candidate_limit(top_k),
     )
-    hits = [hit for hit, _ in conclusion_pairs]
+    selected_conclusions = _diversify_hits(
+        [hit for hit, _ in conclusion_pairs],
+        top_k=top_k,
+    )
+    hits = selected_conclusions
     if len(hits) >= top_k:
-        return _rank_hits(hits)[:top_k]
+        return hits[:top_k]
     if query_embedding is None:
-        return _rank_hits(hits)[:top_k]
+        return hits[:top_k]
 
+    selected_conclusion_keys = {
+        (hit.source_kind, hit.source_id) for hit in selected_conclusions
+    }
     conclusion_embeddings = [
-        embedding for _, embedding in conclusion_pairs if embedding is not None
+        embedding
+        for hit, embedding in conclusion_pairs
+        if (hit.source_kind, hit.source_id) in selected_conclusion_keys
+        and embedding is not None
     ]
     seen = {(hit.source_kind, hit.source_id) for hit in hits}
     allowed_origins = _allowed_claim_origin_enums()
@@ -348,7 +476,7 @@ def retrieve_for_event(
         )
         seen.add(key)
 
-    return _rank_hits(hits)[:top_k]
+    return _diversify_hits(hits, top_k=top_k)
 
 
 def retrieve_conclusions_for_event(
@@ -367,6 +495,6 @@ def retrieve_conclusions_for_event(
         store,
         event,
         query_embedding,
-        limit=top_k,
+        limit=_candidate_limit(top_k),
     )
-    return _rank_hits([hit for hit, _ in conclusion_pairs])[:top_k]
+    return _diversify_hits([hit for hit, _ in conclusion_pairs], top_k=top_k)

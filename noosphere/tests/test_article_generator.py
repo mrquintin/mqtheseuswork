@@ -6,6 +6,7 @@ from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from typing import Any
 
+from sqlalchemy import text
 from sqlmodel import select
 
 from noosphere.articles import generator as subject
@@ -142,6 +143,48 @@ def _seed_opinion(
         session.add(opinion)
         session.commit()
     return opinion_id
+
+
+def _link_opinion_to_corpus_upload(
+    store: Store,
+    opinion_id: str,
+    conclusion_id: str,
+    upload_id: str,
+) -> None:
+    store.put_conclusion(
+        Conclusion(
+            id=conclusion_id,
+            text=f"Corpus fixture {conclusion_id} supports the opinion.",
+        )
+    )
+    with store.engine.begin() as conn:
+        conn.execute(
+            text(
+                'CREATE TABLE IF NOT EXISTS "ConclusionSource" ('
+                '"conclusionId" TEXT NOT NULL, '
+                '"uploadId" TEXT NOT NULL, '
+                '"createdAt" TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, '
+                'PRIMARY KEY ("conclusionId", "uploadId"))'
+            )
+        )
+        conn.execute(
+            text(
+                'INSERT INTO "ConclusionSource" '
+                '("conclusionId", "uploadId") VALUES (:conclusion_id, :upload_id)'
+            ),
+            {"conclusion_id": conclusion_id, "upload_id": upload_id},
+        )
+    with store.session() as session:
+        session.add(
+            OpinionCitation(
+                opinion_id=opinion_id,
+                source_kind="conclusion",
+                conclusion_id=conclusion_id,
+                quoted_span=f"Corpus fixture {conclusion_id}",
+                retrieval_score=0.91,
+            )
+        )
+        session.commit()
 
 
 def _seed_postmortem(store: Store, idx: int, *, brier: float = 0.81) -> str:
@@ -302,6 +345,52 @@ def test_thematic_trigger_caps_large_opinion_cluster(monkeypatch) -> None:
         "opinion_article_2",
         "opinion_article_3",
     }
+
+
+def test_thematic_trigger_requires_distinct_underlying_corpus_sources() -> None:
+    store = _store()
+    for idx in range(4):
+        opinion_id = _seed_opinion(store, idx)
+        _link_opinion_to_corpus_upload(
+            store,
+            opinion_id,
+            f"same_source_conclusion_{idx}",
+            "upload_education_podcast",
+        )
+
+    assert asyncio.run(thematic_trigger_check(store)) == []
+
+
+def test_thematic_trigger_balances_opinions_by_underlying_corpus_source(
+    monkeypatch,
+) -> None:
+    store = _store()
+    monkeypatch.setenv("ARTICLES_THEMATIC_MAX_SOURCES", "4")
+    opinion_uploads = [
+        "upload_education_podcast",
+        "upload_education_podcast",
+        "upload_education_podcast",
+        "upload_markets_memo",
+        "upload_governance_notes",
+    ]
+    for idx, upload_id in enumerate(opinion_uploads):
+        opinion_id = _seed_opinion(store, idx)
+        _link_opinion_to_corpus_upload(
+            store,
+            opinion_id,
+            f"balanced_conclusion_{idx}",
+            upload_id,
+        )
+
+    clusters = asyncio.run(thematic_trigger_check(store))
+
+    assert len(clusters) == 1
+    assert clusters[0] == [
+        "opinion_article_0",
+        "opinion_article_1",
+        "opinion_article_3",
+        "opinion_article_4",
+    ]
 
 
 def test_postmortem_trigger_and_generation_reference_prior_and_outcome(

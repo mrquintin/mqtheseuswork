@@ -6,9 +6,14 @@ from datetime import date, datetime
 from math import sqrt
 
 import numpy as np
+from sqlalchemy import text
 
 from noosphere.currents import enrich
-from noosphere.currents.retrieval_adapter import DEFAULT_TOP_K, retrieve_for_event
+from noosphere.currents.retrieval_adapter import (
+    DEFAULT_TOP_K,
+    retrieve_conclusions_for_event,
+    retrieve_for_event,
+)
 from noosphere.models import (
     Claim,
     ClaimOrigin,
@@ -18,7 +23,6 @@ from noosphere.models import (
     Speaker,
 )
 from noosphere.store import Store
-
 
 ORG_ID = "org_retrieval_adapter"
 
@@ -64,6 +68,26 @@ def _patch_embeddings(monkeypatch, mapping: dict[str, list[float]]) -> None:
         return np.asarray(mapping[text], dtype=float)
 
     monkeypatch.setattr(enrich, "embed_text", fake_embed)
+
+
+def _link_conclusion_source(st: Store, conclusion_id: str, upload_id: str) -> None:
+    with st.engine.begin() as conn:
+        conn.execute(
+            text(
+                'CREATE TABLE IF NOT EXISTS "ConclusionSource" ('
+                '"conclusionId" TEXT NOT NULL, '
+                '"uploadId" TEXT NOT NULL, '
+                '"createdAt" TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, '
+                'PRIMARY KEY ("conclusionId", "uploadId"))'
+            )
+        )
+        conn.execute(
+            text(
+                'INSERT INTO "ConclusionSource" '
+                '("conclusionId", "uploadId") VALUES (:conclusion_id, :upload_id)'
+            ),
+            {"conclusion_id": conclusion_id, "upload_id": upload_id},
+        )
 
 
 def test_default_top_k_matches_currents_adapter_contract() -> None:
@@ -203,7 +227,9 @@ def test_prisma_conclusion_rows_are_normalized_for_currents() -> None:
     assert conclusion.confidence == 0.82
 
 
-def test_store_prisma_conclusions_participate_in_currents_retrieval(monkeypatch) -> None:
+def test_store_prisma_conclusions_participate_in_currents_retrieval(
+    monkeypatch,
+) -> None:
     st = _store()
     prisma_conclusion = st._prisma_conclusion_row_to_model(
         {
@@ -235,3 +261,37 @@ def test_store_prisma_conclusions_participate_in_currents_retrieval(monkeypatch)
     assert [(hit.source_kind, hit.source_id) for hit in hits] == [
         ("conclusion", "prisma_conclusion_currents")
     ]
+
+
+def test_conclusion_retrieval_diversifies_across_source_uploads(monkeypatch) -> None:
+    st = _store()
+    event = _event("event_diversity", "Firm judgment about public education markets.")
+    mapping = {event.text: [1.0, 0.0]}
+    specs = [
+        ("edu_1", "Education conclusion 1", "upload_education", 0.999),
+        ("edu_2", "Education conclusion 2", "upload_education", 0.998),
+        ("edu_3", "Education conclusion 3", "upload_education", 0.997),
+        ("edu_4", "Education conclusion 4", "upload_education", 0.996),
+        ("markets_1", "Markets conclusion 1", "upload_markets", 0.995),
+        ("governance_1", "Governance conclusion 1", "upload_governance", 0.994),
+    ]
+    for conclusion_id, body, upload_id, cosine in specs:
+        text_value = f"{body} says public claims need firm reasoning."
+        st.put_conclusion(Conclusion(id=conclusion_id, text=text_value))
+        _link_conclusion_source(st, conclusion_id, upload_id)
+        mapping[text_value] = [cosine, sqrt(1.0 - cosine**2)]
+    _patch_embeddings(monkeypatch, mapping)
+
+    hits = retrieve_conclusions_for_event(st, event, top_k=4)
+
+    assert [hit.source_id for hit in hits] == [
+        "edu_1",
+        "edu_2",
+        "markets_1",
+        "governance_1",
+    ]
+    assert {hit.source_upload_ids for hit in hits} == {
+        ("upload_education",),
+        ("upload_markets",),
+        ("upload_governance",),
+    }

@@ -32,6 +32,7 @@ MAX_JSON_FAILURES = 3
 MAX_CITATION_FAILURES = 2
 DEFAULT_TOP_K = 12
 MIN_CONCLUSIONS_FOR_OPINION = 3
+MIN_CORPUS_SOURCES_FOR_OPINION = 3
 MIN_CONCLUSION_SCORE = 0.55
 CONCLUSION_TOKEN_RE = re.compile(r"\[C:([^\]\s]+)\]")
 GENERIC_EVENT_SUBJECT_RE = re.compile(
@@ -113,9 +114,12 @@ def _extract_json_object(raw: str) -> dict[str, Any]:
 
 
 def _source_blocks(hits: list[Any]) -> str:
+    from noosphere.currents.retrieval_adapter import corpus_source_key
+
     blocks: list[str] = []
     for idx, hit in enumerate(hits, start=1):
         label = "FIRM CONCLUSION" if hit.source_kind == "conclusion" else "SOURCE"
+        source_upload_ids = tuple(getattr(hit, "source_upload_ids", ()) or ())
         citation_token = (
             [f"citation_token: [C:{hit.source_id}]"]
             if hit.source_kind == "conclusion"
@@ -128,6 +132,8 @@ def _source_blocks(hits: list[Any]) -> str:
                     *citation_token,
                     f"source_kind: {hit.source_kind}",
                     f"source_id: {hit.source_id}",
+                    f"corpus_source_key: {corpus_source_key(hit)}",
+                    f"corpus_upload_ids: {json.dumps(list(source_upload_ids))}",
                     f"retrieval_score: {hit.score:.6f}",
                     f"topic_hint: {hit.topic_hint or ''}",
                     f"origin: {hit.origin or ''}",
@@ -307,13 +313,25 @@ def _eligible_conclusion_hits(hits: list[Any]) -> list[Any]:
     ]
 
 
+def _distinct_corpus_source_count(hits: list[Any]) -> int:
+    from noosphere.currents.retrieval_adapter import distinct_corpus_source_count
+
+    return distinct_corpus_source_count(hits)
+
+
+def _insufficient_context_reason(hits: list[Any]) -> str | None:
+    if len(hits) < MIN_CONCLUSIONS_FOR_OPINION:
+        return "fewer_than_3_relevant_conclusions"
+    if _distinct_corpus_source_count(hits) < MIN_CORPUS_SOURCES_FOR_OPINION:
+        return "fewer_than_3_distinct_corpus_sources"
+    return None
+
+
 def _opinion_dry_run(event: Any, hits: list[Any]) -> OpinionDryRun:
     base_system = _read_system_prompt("opinion_system.md")
     user_prompt = _opinion_user_prompt(event, hits)
     inline_ids = set(CONCLUSION_TOKEN_RE.findall(user_prompt))
-    reason = None
-    if len(hits) < MIN_CONCLUSIONS_FOR_OPINION:
-        reason = "fewer_than_3_relevant_conclusions"
+    reason = _insufficient_context_reason(hits)
     return OpinionDryRun(
         event_id=str(getattr(event, "id", "")),
         eligible=reason is None,
@@ -386,7 +404,7 @@ async def generate_opinion(
     if dry_run:
         return _opinion_dry_run(event, hits)
 
-    if len(hits) < MIN_CONCLUSIONS_FOR_OPINION:
+    if _insufficient_context_reason(hits) is not None:
         _set_event_status(store, event_id, CurrentEventStatus.ABSTAINED)
         return OpinionOutcome.ABSTAINED_INSUFFICIENT_SOURCES
 

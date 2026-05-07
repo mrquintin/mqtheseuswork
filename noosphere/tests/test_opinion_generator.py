@@ -46,6 +46,7 @@ class Hit:
     score: float
     topic_hint: str | None
     origin: str | None
+    source_upload_ids: tuple[str, ...] = ()
 
 
 class ScriptedClient:
@@ -417,6 +418,41 @@ def test_generate_opinion_refuses_fewer_than_three_relevant_conclusions(
 
     def fail_make_client() -> None:
         raise AssertionError("LLM client must not be constructed without 3 Conclusions")
+
+    monkeypatch.setattr(subject, "make_client", fail_make_client)
+
+    outcome = asyncio.run(
+        subject.generate_opinion(st, event_id, budget=RecordingBudget())
+    )
+
+    assert outcome == OpinionOutcome.ABSTAINED_INSUFFICIENT_SOURCES
+    assert st.list_recent_opinions(ORG_ID, datetime(2026, 1, 1), 10) == []
+    assert st.get_current_event(event_id).status == CurrentEventStatus.ABSTAINED  # type: ignore[union-attr]
+
+
+def test_generate_opinion_refuses_three_conclusions_from_one_corpus_source(
+    monkeypatch,
+) -> None:
+    st = _store()
+    event_id, base_hits = _seed(st)
+    hits = [
+        Hit(
+            source_kind=hit.source_kind,
+            source_id=hit.source_id,
+            text=hit.text,
+            score=hit.score,
+            topic_hint=hit.topic_hint,
+            origin=hit.origin,
+            source_upload_ids=("upload_education_podcast",),
+        )
+        for hit in base_hits
+    ]
+    monkeypatch.setattr(subject, "retrieve_for_event", lambda *_args, **_kwargs: hits)
+
+    def fail_make_client() -> None:
+        raise AssertionError(
+            "LLM client must not be constructed from one corpus source"
+        )
 
     monkeypatch.setattr(subject, "make_client", fail_make_client)
 
