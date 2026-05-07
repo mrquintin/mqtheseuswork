@@ -18,6 +18,10 @@ DEFAULT_ALLOWLIST = {
     "example.com",
     "example.org",
     "doi.org",
+    "api.anthropic.com",
+    "github.com",
+    "supabase.com",
+    "theseus.local",
 }
 
 URL_RE = re.compile(

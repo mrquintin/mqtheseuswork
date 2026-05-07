@@ -1,6 +1,5 @@
 """Dispatch-table contract: right extractor fires for each MIME family,
-unsupported types raise, and stubs raise NotImplementedError so downstream
-prompts 02/03 know exactly which signature to fill in."""
+unsupported types raise, and corrupt inputs fail through the routed extractor."""
 
 from __future__ import annotations
 
@@ -9,6 +8,7 @@ import pytest
 from noosphere.extractors import (
     BinaryContent,
     ExtractedText,
+    ExtractionFailed,
     TextContent,
     UnsupportedMimeType,
     dispatch,
@@ -60,13 +60,13 @@ def test_audio_dispatch_routes_to_audio_extractor(monkeypatch):
     assert seen == [b"fake-m4a-bytes"]
 
 
-def test_pdf_stub_raises_not_implemented():
+def test_pdf_dispatch_routes_to_pdf_extractor_for_corrupt_pdf():
     pdf_content = BinaryContent(
         data=b"%PDF-1.4\n", mime="application/pdf", filename="paper.pdf", source="local"
     )
-    with pytest.raises(NotImplementedError) as exc_info:
+    with pytest.raises(ExtractionFailed) as exc_info:
         dispatch(pdf_content)
-    assert "Prompt 03" in str(exc_info.value)
+    assert "pypdf" in str(exc_info.value)
 
 
 def test_text_binary_content_decoded():

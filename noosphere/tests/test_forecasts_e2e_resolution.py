@@ -29,7 +29,7 @@ from noosphere.store import Store
 
 BASE = "https://gamma.e2e.test"
 ORG_ID = "org_forecasts_e2e_resolution"
-NOW = datetime(2026, 4, 30, 12, 0, tzinfo=UTC)
+NOW = datetime.now(UTC).replace(microsecond=0)
 
 
 @dataclass

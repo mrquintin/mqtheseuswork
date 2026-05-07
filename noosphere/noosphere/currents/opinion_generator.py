@@ -547,7 +547,20 @@ async def generate_opinion(
         _set_event_status(store, event_id, CurrentEventStatus.ABSTAINED)
         return OpinionOutcome.ABSTAINED_OFF_DOMAIN
 
-    if _insufficient_context_reason(hits) is not None:
+    insufficient_reason = _insufficient_context_reason(hits)
+    if insufficient_reason is not None:
+        base_system = _read_system_prompt("opinion_system.md")
+        user_prompt = _opinion_user_prompt(event, hits)
+        try:
+            _authorize_budget(
+                budget,
+                system=base_system,
+                user=user_prompt,
+                max_tokens=OPINION_MAX_TOKENS,
+            )
+        except BudgetExhausted:
+            _set_event_status(store, event_id, CurrentEventStatus.ABSTAINED)
+            return OpinionOutcome.ABSTAINED_BUDGET
         _set_event_status(store, event_id, CurrentEventStatus.ABSTAINED)
         return OpinionOutcome.ABSTAINED_INSUFFICIENT_SOURCES
 

@@ -41,7 +41,7 @@ from noosphere.models import (
 from noosphere.store import Store
 
 ORG_ID = "org_articles"
-NOW = datetime(2026, 4, 30, 12, 0, tzinfo=timezone.utc)
+NOW = datetime.now(timezone.utc).replace(microsecond=0)
 
 
 class ScriptedClient:

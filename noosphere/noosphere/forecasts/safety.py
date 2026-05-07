@@ -63,14 +63,16 @@ class GateResult:
     code: GateFailureCode | None = None
 
 
-class GateFailure(Exception):
-    code: GateFailureCode
-    detail: str
+if "GateFailure" not in globals():
 
-    def __init__(self, code: GateFailureCode, detail: str) -> None:
-        self.code = code
-        self.detail = detail
-        super().__init__(f"{code}: {detail}")
+    class GateFailure(Exception):
+        code: GateFailureCode
+        detail: str
+
+        def __init__(self, code: GateFailureCode, detail: str) -> None:
+            self.code = code
+            self.detail = detail
+            super().__init__(f"{code}: {detail}")
 
 
 def gate_context_from_env(state: ForecastPortfolioState | None) -> GateContext:

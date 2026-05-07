@@ -50,6 +50,11 @@ class PdfExtractor:
 
         try:
             pages = extract_pages(content.data)
+        except ImportError as exc:
+            raise ExtractionFailed(
+                "pypdf is required for PDF extraction. Install noosphere "
+                "requirements or upload pre-extracted text."
+            ) from exc
         except ValueError as exc:
             raise ExtractionFailed(str(exc)) from exc
 
