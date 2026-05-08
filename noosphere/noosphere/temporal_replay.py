@@ -10,6 +10,7 @@ Honesty constraints:
 
 from __future__ import annotations
 
+import hashlib
 import json
 from dataclasses import dataclass, field
 from datetime import date, datetime, time, timezone
@@ -257,6 +258,60 @@ def narrative_from_diff(
     if payload["warnings"]:
         lines.append("Imperfections: " + " ".join(payload["warnings"]))
     return " ".join(lines)
+
+
+def ledger_snapshot_id(store: Any, as_of: datetime | date) -> str:
+    """
+    Deterministic identifier for "what the firm could see as of ``as_of``".
+
+    The id hashes the visible claim ids, the visible conclusion ids, and the
+    encoder pin disclaimers — anything that would change the inputs a
+    counterfactual replay can legitimately consume. Stable across runs at the
+    same cutoff; changes when the ledger gains/loses visibility for that
+    cutoff or when the embedding history changes.
+    """
+    if isinstance(as_of, datetime):
+        cutoff = _ensure_utc(as_of)
+        as_of_date = cutoff.date()
+    else:
+        cutoff = cutoff_datetime_inclusive_utc(as_of)
+        as_of_date = as_of
+
+    visible_claims: list[str] = []
+    list_ids = getattr(store, "list_claim_ids", None)
+    if callable(list_ids):
+        for cid in list_ids():
+            cl = store.get_claim(cid)
+            if cl is not None and claim_visible_as_of(store, cl, cutoff):
+                visible_claims.append(cid)
+    visible_claims.sort()
+
+    visible_concls: list[str] = []
+    list_concs = getattr(store, "list_conclusions", None)
+    if callable(list_concs):
+        for con in list_concs():
+            if con.superseded_at is not None and _ensure_utc(con.superseded_at) <= cutoff:
+                continue
+            if _ensure_utc(con.created_at) <= cutoff:
+                visible_concls.append(con.id)
+    visible_concls.sort()
+
+    try:
+        encoder_warns = embedding_model_disclaimer(store, as_of_date)
+    except Exception:
+        encoder_warns = []
+
+    payload = json.dumps(
+        {
+            "as_of": cutoff.isoformat(),
+            "claims": visible_claims,
+            "conclusions": visible_concls,
+            "encoder": list(encoder_warns),
+        },
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+    return "snap_" + hashlib.sha256(payload.encode()).hexdigest()[:24]
 
 
 def run_counterfactual_preview(

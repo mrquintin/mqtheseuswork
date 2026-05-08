@@ -38,6 +38,28 @@ export interface PublicOpinion {
   revoked_sources_count: number;
   event: PublicCurrentEvent | null;
   citations: PublicCitation[];
+  reconciliation?: PublicReconciliation | null;
+}
+
+export interface PublicReconciliation {
+  no_counter_found: boolean;
+  reconciliation_markdown: string;
+  unresolved_tension: boolean;
+  what_we_would_need_to_know: string;
+  strongest_form_of_counter_claim: string;
+  counter_claim: PublicReconciliationCounter | null;
+}
+
+export interface PublicReconciliationCounter {
+  source_kind: string;
+  source_id: string;
+  quoted_span: string;
+  similarity: number;
+  cascade_weight: number | null;
+  conclusion_text: string | null;
+  conclusion_title: string | null;
+  public_url: string | null;
+  is_revoked: boolean;
 }
 
 export interface PublicSource {

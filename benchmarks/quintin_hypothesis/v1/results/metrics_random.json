@@ -1,0 +1,61 @@
+{
+  "benchmark_version": "qh-v1",
+  "runner": "random",
+  "embedder": "hash-det-v1",
+  "git_sha": "b69d7e0760efbe084a2743e933f4e2cab003c125",
+  "timestamp_utc": "2026-05-08T07:41:22Z",
+  "n_items": 1936,
+  "seed": 0,
+  "metrics": {
+    "n": 1936,
+    "accuracy": 0.3352272727272727,
+    "auroc_contradicting_vs_coherent": 0.49637818643136683,
+    "ece_contradicting": 0.25367729747907375,
+    "by_domain": {
+      "economics": {
+        "n": 574,
+        "accuracy": 0.29442508710801396,
+        "auroc_contradicting_vs_coherent": 0.5306434111642484
+      },
+      "ethics": {
+        "n": 344,
+        "accuracy": 0.33430232558139533,
+        "auroc_contradicting_vs_coherent": 0.5285816790241566
+      },
+      "physics": {
+        "n": 1018,
+        "accuracy": 0.35854616895874264,
+        "auroc_contradicting_vs_coherent": 0.4666170766696775
+      }
+    },
+    "confusion": {
+      "coherent": {
+        "contradicting": 208,
+        "coherent": 232,
+        "orthogonal": 194
+      },
+      "contradicting": {
+        "contradicting": 168,
+        "orthogonal": 188,
+        "coherent": 201
+      },
+      "orthogonal": {
+        "orthogonal": 249,
+        "contradicting": 264,
+        "coherent": 232
+      }
+    },
+    "latency_ms_p50": 0.00170909333974123,
+    "latency_ms_p95": 0.0019170111045241356,
+    "label_distribution": {
+      "coherent": 634,
+      "contradicting": 557,
+      "orthogonal": 745
+    },
+    "predicted_distribution": {
+      "contradicting": 640,
+      "orthogonal": 631,
+      "coherent": 665
+    }
+  }
+}

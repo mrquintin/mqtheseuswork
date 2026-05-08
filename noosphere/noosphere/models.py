@@ -1342,6 +1342,46 @@ class PublishedConclusion(SQLModel, table=True):
     )
 
 
+class PublicationSignature(SQLModel, table=True):
+    """Ed25519 signature over a PublishedConclusion's canonical inputs."""
+
+    __tablename__ = "PublicationSignature"
+    __table_args__ = (
+        UniqueConstraint(
+            "publishedConclusionId",
+            name="PublicationSignature_publishedConclusionId_key",
+        ),
+        Index("PublicationSignature_slug_version_idx", "slug", "version"),
+        Index("PublicationSignature_keyFingerprint_idx", "keyFingerprint"),
+    )
+
+    id: str = SQLField(default_factory=_new_cuid, primary_key=True)
+    published_conclusion_id: str = SQLField(
+        sa_column=Column("publishedConclusionId", String, nullable=False)
+    )
+    slug: str = SQLField(sa_column=Column("slug", String, nullable=False))
+    version: int = SQLField(sa_column=Column("version", SAInteger, nullable=False))
+    canonical_hash: str = SQLField(
+        sa_column=Column("canonicalHash", String, nullable=False)
+    )
+    signature_hex: str = SQLField(
+        sa_column=Column("signatureHex", String, nullable=False)
+    )
+    key_fingerprint: str = SQLField(
+        sa_column=Column("keyFingerprint", String, nullable=False)
+    )
+    signed_at: str = SQLField(
+        sa_column=Column("signedAt", String, nullable=False)
+    )
+    payload_json: str = SQLField(
+        default="{}", sa_column=Column("payloadJson", Text, nullable=False)
+    )
+    created_at: datetime = SQLField(
+        default_factory=_now,
+        sa_column=Column("createdAt", SADateTime, nullable=False),
+    )
+
+
 class MethodologyProfile(SQLModel, table=True):
     """How a source reasons: reusable method, transfer frame, and risks."""
 
@@ -1837,6 +1877,122 @@ class ForecastResolution(SQLModel, table=True):
     raw_settlement: Optional[Any] = SQLField(
         default=None, sa_column=Column("rawSettlement", JSON, nullable=True)
     )
+    source: str = SQLField(
+        default="VENUE",
+        sa_column=Column("source", String, nullable=False, server_default="VENUE"),
+    )
+    source_url: Optional[str] = SQLField(
+        default=None, sa_column=Column("sourceUrl", Text, nullable=True)
+    )
+    created_at: datetime = SQLField(
+        default_factory=_now, sa_column=Column("createdAt", SADateTime, nullable=False)
+    )
+
+
+class ResolutionOverride(SQLModel, table=True):
+    """Founder override for a prediction that resolves off-venue."""
+
+    __tablename__ = "ResolutionOverride"
+    __table_args__ = (
+        UniqueConstraint("predictionId", name="ResolutionOverride_predictionId_key"),
+        Index("ResolutionOverride_founderId_idx", "founderId"),
+        Index("ResolutionOverride_resolvedAt_idx", "resolvedAt"),
+    )
+
+    id: str = SQLField(default_factory=_new_cuid, primary_key=True)
+    prediction_id: str = SQLField(
+        sa_column=Column("predictionId", String, nullable=False)
+    )
+    outcome: ForecastOutcome = SQLField(
+        sa_column=Column("outcome", String, nullable=False)
+    )
+    resolved_at: datetime = SQLField(
+        sa_column=Column("resolvedAt", SADateTime, nullable=False)
+    )
+    reason: str = SQLField(sa_column=Column("reason", Text, nullable=False))
+    citation_url: str = SQLField(sa_column=Column("citationUrl", Text, nullable=False))
+    founder_id: str = SQLField(sa_column=Column("founderId", String, nullable=False))
+    raw_settlement: Optional[Any] = SQLField(
+        default=None, sa_column=Column("rawSettlement", JSON, nullable=True)
+    )
+    created_at: datetime = SQLField(
+        default_factory=_now, sa_column=Column("createdAt", SADateTime, nullable=False)
+    )
+
+
+class ResolutionMismatch(SQLModel, table=True):
+    """Recorded when the venue's resolution disagrees with a firm override
+    or when the venue resolved a market more than 7 days before the
+    prediction's target date (signal: market mismatch)."""
+
+    __tablename__ = "ResolutionMismatch"
+    __table_args__ = (
+        Index(
+            "ResolutionMismatch_predictionId_createdAt_idx",
+            "predictionId",
+            "createdAt",
+        ),
+        Index("ResolutionMismatch_reviewedAt_idx", "reviewedAt"),
+    )
+
+    id: str = SQLField(default_factory=_new_cuid, primary_key=True)
+    prediction_id: str = SQLField(
+        sa_column=Column("predictionId", String, nullable=False)
+    )
+    venue: str = SQLField(sa_column=Column("venue", String, nullable=False))
+    venue_outcome: str = SQLField(
+        sa_column=Column("venueOutcome", String, nullable=False)
+    )
+    venue_resolved_at: Optional[datetime] = SQLField(
+        default=None, sa_column=Column("venueResolvedAt", SADateTime, nullable=True)
+    )
+    venue_source_url: Optional[str] = SQLField(
+        default=None, sa_column=Column("venueSourceUrl", Text, nullable=True)
+    )
+    raw_venue_payload: Optional[Any] = SQLField(
+        default=None, sa_column=Column("rawVenuePayload", JSON, nullable=True)
+    )
+    reason: str = SQLField(sa_column=Column("reason", Text, nullable=False))
+    kind: str = SQLField(sa_column=Column("kind", String, nullable=False))
+    reviewed_at: Optional[datetime] = SQLField(
+        default=None, sa_column=Column("reviewedAt", SADateTime, nullable=True)
+    )
+    reviewed_by: Optional[str] = SQLField(
+        default=None, sa_column=Column("reviewedBy", String, nullable=True)
+    )
+    created_at: datetime = SQLField(
+        default_factory=_now, sa_column=Column("createdAt", SADateTime, nullable=False)
+    )
+
+
+class ResolutionRevision(SQLModel, table=True):
+    """Append-only history pointing at the original ForecastResolution
+    row plus the venue payload that triggered reconsideration."""
+
+    __tablename__ = "ResolutionRevision"
+    __table_args__ = (
+        Index(
+            "ResolutionRevision_resolutionId_createdAt_idx",
+            "resolutionId",
+            "createdAt",
+        ),
+    )
+
+    id: str = SQLField(default_factory=_new_cuid, primary_key=True)
+    resolution_id: str = SQLField(
+        sa_column=Column("resolutionId", String, nullable=False)
+    )
+    new_outcome: ForecastOutcome = SQLField(
+        sa_column=Column("newOutcome", String, nullable=False)
+    )
+    new_resolved_at: datetime = SQLField(
+        sa_column=Column("newResolvedAt", SADateTime, nullable=False)
+    )
+    reason: str = SQLField(sa_column=Column("reason", Text, nullable=False))
+    raw_settlement: Optional[Any] = SQLField(
+        default=None, sa_column=Column("rawSettlement", JSON, nullable=True)
+    )
+    source: str = SQLField(sa_column=Column("source", String, nullable=False))
     created_at: datetime = SQLField(
         default_factory=_now, sa_column=Column("createdAt", SADateTime, nullable=False)
     )

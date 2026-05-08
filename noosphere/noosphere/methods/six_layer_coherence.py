@@ -15,6 +15,10 @@ from pydantic import BaseModel
 from noosphere.models import CascadeEdgeRelation, MethodType
 from noosphere.methods._decorator import register_method
 
+# Composition DAG: ensure dependency methods register before we declare
+# depends_on=[...] (the validator rejects forward references).
+from noosphere.methods import nli_scorer as _dep_nli_scorer  # noqa: F401,E402
+
 
 class SixLayerInput(BaseModel):
     claim_a_text: str
@@ -62,6 +66,7 @@ class SixLayerOutput(BaseModel):
     dependencies=[
         ("nli_scorer", "1.0.0"),
     ],
+    depends_on=["nli_scorer"],
 )
 def six_layer_coherence(input_data: SixLayerInput) -> SixLayerOutput:
     from noosphere.methods._legacy.six_layer_coherence import CoherenceAggregator

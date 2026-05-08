@@ -2,6 +2,7 @@ import Link from "next/link";
 import { fetchPeerReviewsDiag, type Finding } from "@/lib/api/round3";
 import { peerVerdictColor, severityColor } from "@/lib/colors";
 import { requireTenantContext } from "@/lib/tenant";
+import ObjectionList from "./ObjectionList";
 
 /**
  * Peer-review tab on the conclusion-detail page.
@@ -62,30 +63,57 @@ export default async function PeerReviewTab({ conclusionId }: { conclusionId: st
           )}
         </div>
       ) : (
-        <div style={{ display: "flex", flexDirection: "column", gap: "0.5rem" }}>
-          {reviews.map((r) => (
-            <div key={r.id} style={{ padding: "0.6rem 1rem", borderLeft: `2px solid ${peerVerdictColor(r.verdict)}` }}>
-              <div style={{ display: "flex", justifyContent: "space-between", gap: "0.5rem" }}>
-                <span style={{ fontSize: "0.75rem", color: "var(--parchment)" }}>{r.reviewerName}</span>
-                <span style={{ fontSize: "0.65rem", color: peerVerdictColor(r.verdict), textTransform: "uppercase" }}>
-                  {r.verdict}
-                </span>
+        <div style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
+          <section>
+            <header
+              style={{
+                fontSize: "0.7rem",
+                color: "var(--gold-dim)",
+                letterSpacing: "0.1em",
+                textTransform: "uppercase",
+                marginBottom: "0.4rem",
+              }}
+            >
+              Top objections by severity
+            </header>
+            <ObjectionList records={reviews} />
+          </section>
+
+          <section style={{ display: "flex", flexDirection: "column", gap: "0.5rem" }}>
+            <header
+              style={{
+                fontSize: "0.7rem",
+                color: "var(--gold-dim)",
+                letterSpacing: "0.1em",
+                textTransform: "uppercase",
+              }}
+            >
+              All review reports
+            </header>
+            {reviews.map((r) => (
+              <div key={r.id} style={{ padding: "0.6rem 1rem", borderLeft: `2px solid ${peerVerdictColor(r.verdict)}` }}>
+                <div style={{ display: "flex", justifyContent: "space-between", gap: "0.5rem" }}>
+                  <span style={{ fontSize: "0.75rem", color: "var(--parchment)" }}>{r.reviewerName}</span>
+                  <span style={{ fontSize: "0.65rem", color: peerVerdictColor(r.verdict), textTransform: "uppercase" }}>
+                    {r.verdict}
+                  </span>
+                </div>
+                <p style={{ marginTop: "0.25rem", color: "var(--parchment)", fontSize: "0.8rem" }}>
+                  {r.commentary}
+                </p>
+                <FindingsBlock findings={r.findings} />
+                <div style={{ marginTop: "0.15rem", fontSize: "0.6rem", color: "var(--parchment-dim)" }}>
+                  {r.createdAt ? r.createdAt.slice(0, 16) : ""}
+                </div>
               </div>
-              <p style={{ marginTop: "0.25rem", color: "var(--parchment)", fontSize: "0.8rem" }}>
-                {r.commentary}
-              </p>
-              <FindingsBlock findings={r.findings} />
-              <div style={{ marginTop: "0.15rem", fontSize: "0.6rem", color: "var(--parchment-dim)" }}>
-                {r.createdAt ? r.createdAt.slice(0, 16) : ""}
-              </div>
-            </div>
-          ))}
-          <Link
-            href={`/peer-review/${conclusionId}`}
-            style={{ color: "var(--gold)", fontSize: "0.75rem", textDecoration: "none", marginTop: "0.25rem" }}
-          >
-            View all / Run new review →
-          </Link>
+            ))}
+            <Link
+              href={`/peer-review/${conclusionId}`}
+              style={{ color: "var(--gold)", fontSize: "0.75rem", textDecoration: "none", marginTop: "0.25rem" }}
+            >
+              View all / Run new review →
+            </Link>
+          </section>
         </div>
       )}
     </div>

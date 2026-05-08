@@ -1,0 +1,68 @@
+You are operating in /Users/michaelquintin/Desktop/Theseus.
+
+Goal: a single verification + regression pass after the entire
+50-prompt round has been attempted. The pass produces a written
+report identifying which prompts landed, which partially landed, and
+which failed; runs the full test suite; runs the existing audit
+script; confirms the public site still renders; and surfaces any
+silent breakage from coupled prompts.
+
+This prompt MUST be run last.
+
+Before you start — read:
+1. `coding_prompts/_audit_implementation.py` — the existing audit
+   script. It will run on this round's archive when the round is
+   over; for now, run it on the live top-level prompts.
+2. The CI configuration for noosphere and theseus-codex.
+
+Implement / execute:
+
+A. Run the test suites:
+   - `cd /Users/michaelquintin/Desktop/Theseus/noosphere && python -m pytest -x -q`
+   - `cd /Users/michaelquintin/Desktop/Theseus/theseus-codex && npm test -- --run`
+   - `cd /Users/michaelquintin/Desktop/Theseus/dialectic && python -m pytest -x -q`
+   Capture the output. Do not silence failures.
+
+B. Run the existing scripts/check_*.py invariants. Each is a CI
+   gate today; failure is regression. Capture which check failed
+   and why.
+
+C. Run the prompt audit:
+   `python3 coding_prompts/_audit_implementation.py`
+   Report which prompts in this round are IMPLEMENTED, PARTIAL,
+   NOT_IMPLEMENTED, UNCHECKABLE.
+
+D. Sanity-check public surfaces. Run the existing playwright
+   tests if present, and a smoke test of the new public pages
+   added in this round (calibration, methodology/criteria,
+   methodology/replicate, methodology/redteam, ask, critiques,
+   privacy, research/seasonal). Each must return 200 with the
+   expected hero text.
+
+E. Verify cross-prompt coupling. Several prompts depend on
+   earlier ones (02 depends on 01, 04 on 02, 22 on 21, etc.).
+   For each dependency, confirm the dependency artifact is
+   present and the dependent uses it correctly.
+
+F. Write a report at
+   `docs/runs/round17_verification_<timestamp>.md` with:
+   - per-prompt verdict
+   - test suite summary
+   - public-surface smoke results
+   - dependency-coupling check
+   - explicit list of remaining gaps and follow-up prompts
+
+Constraints
+- Do not edit production code in this prompt except to repair
+  trivial regressions that appear during the suite (typos,
+  missing imports). Anything substantive is a separate prompt.
+- The report is the deliverable. If the suite is red and you
+  fix it, the report still records that it was red.
+- Do not move any prompts to archive in this step. The audit
+  script is run separately by the founder; this prompt only
+  reads its output.
+
+SCOPE
+- `docs/runs/round17_verification.md` CREATE
+- `scripts/round17_smoke.sh` CREATE
+- `scripts/round17_verification.py` CREATE

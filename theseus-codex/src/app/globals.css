@@ -1829,3 +1829,353 @@ input::placeholder, textarea::placeholder {
     padding-top: 0;
   }
 }
+
+/* ═════════════════════════════════════════════════════════════════════════
+ * Public site — responsive header + mobile reading layout.
+ *
+ * Breakpoint: 720px. Above it, PublicHeader renders inline links and the
+ * founder-portal CTA; below it the same component hides those and exposes
+ * <MobileNavDrawer />. The article body bumps to 17–18px with looser
+ * paragraph spacing so reading at 360–414px feels comfortable rather than
+ * cramped. Hyphenation rules from the existing `.public-article-body`
+ * carry through; the rules below only widen `max-width` constraints and
+ * strengthen overflow protection for quotes / footnotes / pre blocks.
+ *
+ * Hero ASCII / heavy SVG: components live outside this stylesheet, but
+ * the breakpoint they should respect when shrinking-or-replacing on
+ * mobile is the same 720px boundary used here.
+ * ═════════════════════════════════════════════════════════════════════════ */
+
+.public-header {
+  align-items: center;
+  backdrop-filter: blur(6px);
+  background: linear-gradient(
+    180deg,
+    rgba(14, 10, 6, 0.94) 0%,
+    rgba(14, 10, 6, 0.82) 100%
+  );
+  border-bottom: 1px solid rgba(212, 160, 23, 0.18);
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  justify-content: space-between;
+  padding: 0.85rem 1.5rem;
+  position: sticky;
+  top: 0;
+  -webkit-backdrop-filter: blur(6px);
+  z-index: 5;
+}
+
+[data-theme="light"] .public-header {
+  background: linear-gradient(
+    180deg,
+    rgba(242, 232, 217, 0.94) 0%,
+    rgba(242, 232, 217, 0.82) 100%
+  );
+}
+
+.public-header-brand {
+  align-items: center;
+  display: flex;
+  gap: 0.55rem;
+  text-decoration: none;
+}
+
+.public-header-nav {
+  align-items: center;
+  display: flex;
+  font-size: 0.58rem;
+  gap: 0.9rem;
+  letter-spacing: 0.22em;
+  margin-left: auto;
+  margin-right: 1rem;
+  text-transform: uppercase;
+}
+
+.public-header-actions {
+  align-items: center;
+  display: flex;
+  gap: 0.6rem;
+}
+
+.public-header-cta {
+  border: 1px solid var(--amber-dim);
+  border-radius: 3px;
+  color: var(--amber);
+  font-size: 0.6rem;
+  letter-spacing: 0.26em;
+  padding: 0.4rem 0.9rem;
+  text-decoration: none;
+  text-transform: uppercase;
+  transition: all 0.18s ease;
+}
+
+.public-header-mobile {
+  display: none;
+}
+
+@media (max-width: 720px) {
+  .public-header {
+    padding: 0.7rem 1rem;
+  }
+
+  .public-header-tagline {
+    display: none;
+  }
+
+  .public-header-nav,
+  .public-header-actions {
+    display: none;
+  }
+
+  .public-header-mobile {
+    display: flex;
+    margin-left: auto;
+  }
+}
+
+/* Hamburger trigger — three amber bars, 44×44 hit target. */
+.public-nav-trigger {
+  align-items: center;
+  background: transparent;
+  border: 1px solid var(--amber-dim);
+  border-radius: 3px;
+  color: var(--amber);
+  cursor: pointer;
+  display: inline-flex;
+  height: 44px;
+  justify-content: center;
+  padding: 0;
+  width: 44px;
+}
+
+.public-nav-trigger:focus-visible {
+  outline: 2px solid var(--amber);
+  outline-offset: 2px;
+}
+
+.public-nav-trigger-bars {
+  display: inline-flex;
+  flex-direction: column;
+  gap: 4px;
+  height: 14px;
+  justify-content: space-between;
+  width: 18px;
+}
+
+.public-nav-trigger-bars > span {
+  background: var(--amber);
+  display: block;
+  height: 2px;
+  width: 100%;
+}
+
+.public-nav-scrim {
+  align-items: stretch;
+  background: rgba(8, 7, 10, 0.55);
+  display: flex;
+  inset: 0;
+  justify-content: flex-end;
+  position: fixed;
+  z-index: 10010;
+}
+
+.public-nav-drawer {
+  background: var(--stone);
+  border-left: 1px solid var(--border);
+  box-shadow: -10px 0 30px rgba(0, 0, 0, 0.45);
+  color: var(--parchment);
+  display: flex;
+  flex-direction: column;
+  max-width: 320px;
+  outline: none;
+  padding: 1.1rem 1.25rem 1.5rem;
+  width: min(82vw, 320px);
+}
+
+.public-nav-drawer-head {
+  align-items: center;
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 1rem;
+}
+
+.public-nav-drawer-title {
+  color: var(--amber);
+  font-size: 0.7rem;
+  letter-spacing: 0.32em;
+  text-transform: uppercase;
+}
+
+.public-nav-drawer-close {
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  color: var(--parchment-dim);
+  cursor: pointer;
+  font-size: 1.4rem;
+  height: 40px;
+  line-height: 1;
+  width: 40px;
+}
+
+.public-nav-drawer-close:focus-visible {
+  outline: 2px solid var(--amber);
+  outline-offset: 2px;
+}
+
+.public-nav-drawer-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+}
+
+.public-nav-drawer-link {
+  border-bottom: 1px solid rgba(212, 160, 23, 0.12);
+  color: var(--amber);
+  display: block;
+  font-size: 0.78rem;
+  letter-spacing: 0.22em;
+  padding: 1rem 0;
+  text-decoration: none;
+  text-transform: uppercase;
+}
+
+.public-nav-drawer-link:focus-visible {
+  outline: 2px solid var(--amber);
+  outline-offset: 2px;
+}
+
+.public-nav-drawer-foot {
+  align-items: center;
+  display: flex;
+  gap: 0.75rem;
+  justify-content: space-between;
+  margin-top: auto;
+  padding-top: 1.25rem;
+}
+
+.public-nav-drawer-cta {
+  border: 1px solid var(--amber-dim);
+  border-radius: 3px;
+  color: var(--amber);
+  font-size: 0.7rem;
+  letter-spacing: 0.22em;
+  padding: 0.6rem 0.9rem;
+  text-decoration: none;
+  text-transform: uppercase;
+}
+
+.public-nav-drawer-cta:focus-visible {
+  outline: 2px solid var(--amber);
+  outline-offset: 2px;
+}
+
+/* ── Mobile reading layout ──────────────────────────────────────────────── */
+
+@media (max-width: 720px) {
+  body {
+    /* 17px stays the legible default for body copy on phones; the
+       article container below bumps to 18px for prose. */
+    font-size: 17px;
+  }
+
+  .public-container {
+    padding: 1.5rem 1.05rem 3rem;
+  }
+
+  .public-article-body {
+    font-size: 1.06rem; /* ≈18px against the 17px root */
+    line-height: 1.72;
+    /* 60–66ch line length. The prose body keeps `max-width: 70ch` on
+       desktop; on mobile the viewport itself caps the measure, so we
+       just relax the cap and let padding control the gutter. */
+    max-width: 64ch;
+  }
+
+  .public-article-body p {
+    margin: 0 0 1.2rem;
+  }
+
+  .public-article-body blockquote {
+    border-left: 2px solid var(--amber-dim);
+    color: var(--parchment-dim);
+    margin: 1.1rem 0;
+    overflow-wrap: anywhere;
+    padding: 0.2rem 0.85rem;
+  }
+
+  .public-article-body pre,
+  .public-article-body code {
+    overflow-x: auto;
+    word-break: break-word;
+    /* Allow code that *can* wrap to do so; pre keeps its own scroll. */
+    white-space: pre-wrap;
+  }
+
+  .public-article-body pre {
+    white-space: pre;
+  }
+
+  .public-article-body sup,
+  .public-article-body .footnote,
+  .public-article-body a {
+    overflow-wrap: anywhere;
+    word-break: break-word;
+  }
+
+  /* Article post page wraps text in `.post-body` — bump it the same way. */
+  .post-body {
+    font-size: 1.06rem !important;
+    line-height: 1.72 !important;
+  }
+
+  .post-body p {
+    margin: 0 0 1.2rem !important;
+  }
+
+  /* Provenance gutter: collapse beside a 360px article body.
+     ProvenanceArticle uses `display: grid; grid-template-columns: auto 1fr`,
+     stacking the gutter above the prose works better than letting it
+     squeeze the measure. */
+  [data-testid="provenance-article"] > div:last-child {
+    grid-template-columns: 1fr !important;
+  }
+}
+
+/* Sticky bottom toolbar — used on mobile to keep the provenance toggle
+   reachable while the visitor reads. Hidden above 720px (the toggle is
+   already inline). */
+.public-mobile-toolbar {
+  display: none;
+}
+
+@media (max-width: 720px) {
+  .public-mobile-toolbar {
+    align-items: center;
+    background: rgba(14, 10, 6, 0.94);
+    -webkit-backdrop-filter: blur(8px);
+    backdrop-filter: blur(8px);
+    border-top: 1px solid rgba(212, 160, 23, 0.18);
+    bottom: 0;
+    display: flex;
+    gap: 0.5rem;
+    justify-content: center;
+    left: 0;
+    padding: 0.55rem 0.85rem calc(0.55rem + env(safe-area-inset-bottom, 0px));
+    position: fixed;
+    right: 0;
+    z-index: 20;
+  }
+
+  [data-theme="light"] .public-mobile-toolbar {
+    background: rgba(242, 232, 217, 0.96);
+  }
+
+  /* Reserve room so the fixed toolbar never covers a footer link. */
+  .public-container,
+  article {
+    padding-bottom: 5rem;
+  }
+}
+

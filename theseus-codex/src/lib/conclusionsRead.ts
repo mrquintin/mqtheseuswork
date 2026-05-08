@@ -534,7 +534,7 @@ async function enrichArticleCitationSources(
   });
 }
 
-async function resolvePublicOrganizationId(): Promise<string | null> {
+export async function resolvePublicOrganizationId(): Promise<string | null> {
   const explicitId = (
     process.env.THESEUS_PUBLIC_ORG_ID?.trim() ||
     process.env.CURRENTS_INGEST_ORG_ID?.trim() ||

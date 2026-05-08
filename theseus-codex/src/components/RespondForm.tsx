@@ -19,6 +19,7 @@ export default function RespondForm({ conclusions }: { conclusions: PublishedCon
   const [orcid, setOrcid] = useState("");
   const [citationUrl, setCitationUrl] = useState("");
   const [pseudonymous, setPseudonymous] = useState(false);
+  const [publishConsent, setPublishConsent] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const scopedConclusion = conclusions.length === 1 ? conclusions[0] : null;
@@ -42,6 +43,7 @@ export default function RespondForm({ conclusions }: { conclusions: PublishedCon
           submitterEmail: email,
           orcid,
           pseudonymous,
+          publishConsent,
         }),
       });
       const json = (await res.json().catch(() => ({}))) as { error?: string; ok?: boolean };
@@ -116,6 +118,15 @@ export default function RespondForm({ conclusions }: { conclusions: PublishedCon
       <label className="public-checkbox">
         <input type="checkbox" checked={pseudonymous} onChange={(e) => setPseudonymous(e.target.checked)} />
         Publish under a pseudonym if approved (still requires verified email; flagged publicly)
+      </label>
+
+      <label className="public-checkbox">
+        <input
+          type="checkbox"
+          checked={publishConsent}
+          onChange={(e) => setPublishConsent(e.target.checked)}
+        />
+        May we publish your response if we reply? When checked, the founder may pair your message with a public reply on the article page; otherwise any reply remains private.
       </label>
 
       {msg ? <p>{msg}</p> : null}

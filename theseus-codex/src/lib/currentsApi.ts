@@ -3,6 +3,8 @@ import { randomUUID } from "crypto";
 import type {
   PublicFollowupMessage,
   PublicOpinion,
+  PublicReconciliation,
+  PublicReconciliationCounter,
   PublicSource,
   PublicCitation,
 } from "@/lib/currentsTypes";
@@ -210,7 +212,261 @@ function normalizeOpinion(
     citations: (opinion.citations as CitationWire[]).map((citation) =>
       normalizeCitation(citation, metadataBySourceId.get(citation.source_id)),
     ),
+    reconciliation: opinion.reconciliation ?? null,
   };
+}
+
+const RECONCILIATION_ROLE = "counter_claim";
+const NO_COUNTER_UNCERTAINTY_TAG = "no_canonical_counter_claim_found";
+const NO_COUNTER_FOUND_NOTE = "no canonical counter-claim found in firm history";
+
+interface ReconciliationMetadata {
+  role?: unknown;
+  reconciliation_markdown?: unknown;
+  unresolved_tension?: unknown;
+  what_we_would_need_to_know?: unknown;
+  strongest_form_of_counter_claim?: unknown;
+  no_counter_found?: unknown;
+  counter_claim_kind?: unknown;
+  counter_claim_id?: unknown;
+  counter_claim_similarity?: unknown;
+  counter_claim_cascade_weight?: unknown;
+}
+
+function asString(value: unknown): string {
+  return typeof value === "string" ? value : "";
+}
+
+function asBool(value: unknown): boolean {
+  return typeof value === "boolean" ? value : false;
+}
+
+function asNumberOrNull(value: unknown): number | null {
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+function reconciliationFromMetadata(
+  metadata: ReconciliationMetadata,
+  counterMeta: CitationMetadata | undefined,
+  fallbackText: string,
+): PublicReconciliation {
+  const counterId = asString(metadata.counter_claim_id);
+  const counterKind = asString(metadata.counter_claim_kind) || "conclusion";
+  const text =
+    counterMeta?.conclusionText ??
+    fallbackText ??
+    null;
+  const counter: PublicReconciliationCounter | null = counterId
+    ? {
+        source_kind: counterKind,
+        source_id: counterId,
+        quoted_span: fallbackText,
+        similarity: asNumberOrNull(metadata.counter_claim_similarity) ?? 0,
+        cascade_weight: asNumberOrNull(metadata.counter_claim_cascade_weight),
+        conclusion_text: text,
+        conclusion_title: counterMeta?.conclusionTitle ?? null,
+        public_url: counterMeta?.publicUrl ?? null,
+        is_revoked: false,
+      }
+    : null;
+  return {
+    no_counter_found: asBool(metadata.no_counter_found),
+    reconciliation_markdown: asString(metadata.reconciliation_markdown),
+    unresolved_tension: asBool(metadata.unresolved_tension),
+    what_we_would_need_to_know: asString(metadata.what_we_would_need_to_know),
+    strongest_form_of_counter_claim: asString(
+      metadata.strongest_form_of_counter_claim,
+    ),
+    counter_claim: counter,
+  };
+}
+
+function honestNoCounterReconciliation(): PublicReconciliation {
+  return {
+    no_counter_found: true,
+    reconciliation_markdown:
+      `The firm has searched its own prior conclusions and claims for a ` +
+      `canonical counter-claim to this opinion and found none above the ` +
+      `similarity floor: ${NO_COUNTER_FOUND_NOTE}. The firm reports the ` +
+      `absence rather than papering over it with a fabricated objection.`,
+    unresolved_tension: false,
+    what_we_would_need_to_know: "",
+    strongest_form_of_counter_claim: "",
+    counter_claim: null,
+  };
+}
+
+async function counterConclusionMetadata(
+  conclusionIds: string[],
+): Promise<Map<string, CitationMetadata>> {
+  const out = new Map<string, CitationMetadata>();
+  if (!conclusionIds.length) return out;
+  try {
+    const { db } = await import("@/lib/db");
+    const client = db as {
+      conclusion: {
+        findMany: (args: unknown) => Promise<
+          {
+            id: string;
+            text: string | null;
+            topicHint?: string | null;
+            sources?: {
+              upload?: {
+                visibility?: string | null;
+                deletedAt?: Date | string | null;
+              } | null;
+            }[];
+          }[]
+        >;
+      };
+      publishedConclusion: {
+        findMany: (args: unknown) => Promise<
+          {
+            sourceConclusionId: string;
+            slug: string;
+            version: number;
+            payloadJson: string;
+          }[]
+        >;
+      };
+    };
+    const [conclusions, publications] = await Promise.all([
+      client.conclusion.findMany({
+        where: { id: { in: conclusionIds } },
+        select: {
+          id: true,
+          text: true,
+          topicHint: true,
+          sources: {
+            select: {
+              upload: { select: { visibility: true, deletedAt: true } },
+            },
+          },
+        },
+      }),
+      client.publishedConclusion.findMany({
+        where: {
+          kind: "CONCLUSION",
+          sourceConclusionId: { in: conclusionIds },
+        },
+        orderBy: [{ publishedAt: "desc" }],
+        select: {
+          sourceConclusionId: true,
+          slug: true,
+          version: true,
+          payloadJson: true,
+        },
+      }),
+    ]);
+    const latestPublication = new Map<string, (typeof publications)[number]>();
+    for (const publication of publications) {
+      if (!latestPublication.has(publication.sourceConclusionId)) {
+        latestPublication.set(publication.sourceConclusionId, publication);
+      }
+    }
+    for (const conclusion of conclusions) {
+      const visibilities = (conclusion.sources ?? [])
+        .map((source) => source.upload)
+        .filter((upload) => upload && !upload.deletedAt)
+        .map((upload) => normalizedVisibility(upload?.visibility));
+      const visibility = visibilities.includes("org")
+        ? "org"
+        : visibilities.find(Boolean) ?? null;
+      const publication = latestPublication.get(conclusion.id);
+      const publicUrl =
+        visibility === "org" && publication
+          ? `/c/${encodeURIComponent(publication.slug)}/v/${publication.version}`
+          : null;
+      out.set(conclusion.id, {
+        conclusionText: conclusion.text ?? null,
+        conclusionTitle:
+          titleFromPayload(publication?.payloadJson) ||
+          titleFromText(conclusion.topicHint) ||
+          titleFromText(conclusion.text),
+        publicUrl,
+        sourceVisibility: visibility,
+      });
+    }
+  } catch {
+    // No DB / no env: leave the map empty so the page still renders.
+  }
+  return out;
+}
+
+
+async function reconciliationsForOpinions(
+  opinions: PublicOpinion[],
+): Promise<Map<string, PublicReconciliation>> {
+  const result = new Map<string, PublicReconciliation>();
+  if (!opinions.length) return result;
+
+  for (const opinion of opinions) {
+    if (
+      Array.isArray(opinion.uncertainty_notes) &&
+      opinion.uncertainty_notes.includes(NO_COUNTER_UNCERTAINTY_TAG)
+    ) {
+      result.set(opinion.id, honestNoCounterReconciliation());
+    }
+  }
+
+  try {
+    const { db } = await import("@/lib/db");
+    const client = db as {
+      opinionCitation: {
+        findMany: (args: unknown) => Promise<
+          {
+            opinionId: string;
+            sourceKind: string;
+            conclusionId: string | null;
+            claimId: string | null;
+            quotedSpan: string;
+            justificationMetadata: ReconciliationMetadata | null;
+          }[]
+        >;
+      };
+    };
+    const rows = await client.opinionCitation.findMany({
+      where: { opinionId: { in: opinions.map((opinion) => opinion.id) } },
+      select: {
+        opinionId: true,
+        sourceKind: true,
+        conclusionId: true,
+        claimId: true,
+        quotedSpan: true,
+        justificationMetadata: true,
+      },
+    });
+
+    const counterConclusionIds = new Set<string>();
+    for (const row of rows) {
+      const metadata = row.justificationMetadata ?? {};
+      if (metadata.role !== RECONCILIATION_ROLE) continue;
+      if (row.sourceKind?.toLowerCase() === "conclusion" && row.conclusionId) {
+        counterConclusionIds.add(row.conclusionId);
+      }
+    }
+
+    const conclusionMetadata = await counterConclusionMetadata(
+      Array.from(counterConclusionIds),
+    );
+
+    for (const row of rows) {
+      const metadata = row.justificationMetadata ?? {};
+      if (metadata.role !== RECONCILIATION_ROLE) continue;
+      const sourceId =
+        row.conclusionId ?? row.claimId ?? asString(metadata.counter_claim_id);
+      if (!sourceId) continue;
+      const counterMeta = conclusionMetadata.get(sourceId);
+      result.set(
+        row.opinionId,
+        reconciliationFromMetadata(metadata, counterMeta, row.quotedSpan ?? ""),
+      );
+    }
+  } catch {
+    // Without DB access we fall back to whatever the no-counter tag implies.
+  }
+
+  return result;
 }
 
 function titleFromText(text: string | null | undefined): string | null {
@@ -384,7 +640,10 @@ async function enrichOpinions(
   const sourceMetadataResults = await Promise.all(
     opinions.map((opinion) => citationMetadataFromSources(opinion, options)),
   );
-  const dbMetadata = await citationMetadataFromPublicDb(opinions);
+  const [dbMetadata, reconciliations] = await Promise.all([
+    citationMetadataFromPublicDb(opinions),
+    reconciliationsForOpinions(opinions),
+  ]);
 
   return opinions.map((opinion, index) => {
     const merged = new Map(sourceMetadataResults[index]);
@@ -397,7 +656,11 @@ async function enrichOpinions(
         sourceVisibility: metadata.sourceVisibility ?? existing?.sourceVisibility ?? null,
       });
     }
-    return normalizeOpinion(opinion, merged);
+    const normalized = normalizeOpinion(opinion, merged);
+    return {
+      ...normalized,
+      reconciliation: reconciliations.get(opinion.id) ?? normalized.reconciliation,
+    };
   });
 }
 

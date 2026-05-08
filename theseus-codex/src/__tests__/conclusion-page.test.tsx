@@ -108,4 +108,72 @@ describe("ConclusionView", () => {
     expect(publicArticleBodyBlock).toContain("text-align: justify;");
     expect(publicArticleBodyBlock).toContain("hyphens: auto;");
   });
+
+  it("renders print endnotes with stable numbering and no leaked private URLs", () => {
+    const row = conclusion({
+      payload: {
+        ...conclusion().payload,
+        article: {
+          kind: "THEMATIC",
+          bodyMarkdown: "## Heading\n\nBody.",
+          sourceIds: [],
+          citations: [
+            {
+              label: "S1",
+              sourceKind: "opinion",
+              sourceId: "op_1",
+              quotedSpan: "evidence text",
+              publicUrl: "https://example.com/op/1",
+              linkable: true,
+              sourceConclusionText: "Public source title",
+              sourceConclusionTitle: "Public source title",
+            },
+            {
+              label: "S2",
+              sourceKind: "conclusion",
+              sourceId: "internal_id",
+              quotedSpan: "internal evidence",
+              publicUrl: null,
+              linkable: false,
+              sourceConclusionText: "Internal source title",
+              sourceConclusionTitle: "Internal source title",
+            },
+          ],
+        },
+      },
+    });
+    const html = renderToStaticMarkup(
+      <ConclusionView row={row} allVersions={[row]} responses={[]} />,
+    );
+
+    expect(html).toContain('data-testid="print-endnotes"');
+    expect(html).toContain('class="print-only print-endnotes"');
+    expect(html).toContain("Public source title");
+    expect(html).toContain("Internal source title");
+    expect(html).toContain('href="https://example.com/op/1"');
+    // Internal-only source must NOT have an http link in the endnote.
+    const endnoteSection = html.split('data-testid="print-endnotes"', 2)[1] ?? "";
+    const internalChunk = endnoteSection.split("Internal source title", 2)[1] ?? "";
+    const beforeNextItem = internalChunk.split("</li>", 2)[0] ?? "";
+    expect(beforeNextItem).not.toMatch(/https?:\/\//);
+  });
+
+  it("ships a print stylesheet that hides chrome and reveals print-only blocks", () => {
+    const cssPath = fileURLToPath(new URL("../app/print.css", import.meta.url));
+    const css = readFileSync(cssPath, "utf8");
+
+    // The on-screen rule keeps print-only blocks invisible.
+    expect(css).toMatch(/\.print-only\s*\{[^}]*display:\s*none/);
+
+    // The @media print rule has to exist (and be a real rule, not
+    // just a mention in a comment).
+    const ruleMatch = css.match(/@media\s+print\s*\{([\s\S]*)$/);
+    expect(ruleMatch).not.toBeNull();
+    const printBlock = ruleMatch![1];
+    expect(printBlock).toMatch(/\[role="toolbar"\]/);
+    expect(printBlock).toMatch(/\.no-print/);
+    expect(printBlock).toMatch(/\.print-metadata-block/);
+    expect(printBlock).toMatch(/\.print-endnotes/);
+    expect(printBlock).toMatch(/page-break/);
+  });
 });

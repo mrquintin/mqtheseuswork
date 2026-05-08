@@ -1,0 +1,41 @@
+{
+  "$comment": "Load profiles for the public-site viral simulator. See tests/load/article_viral.py.",
+  "profiles": {
+    "light": {
+      "concurrency": 50,
+      "peak_concurrency": 50,
+      "ramp_seconds": 5,
+      "duration_seconds": 30,
+      "budget": {
+        "p50_ms": 1000,
+        "p95_ms": 3000,
+        "error_rate": 0.01,
+        "max_pool_exhaustion_events": 0
+      }
+    },
+    "viral": {
+      "concurrency": 200,
+      "peak_concurrency": 200,
+      "ramp_seconds": 15,
+      "duration_seconds": 120,
+      "budget": {
+        "p50_ms": 1000,
+        "p95_ms": 3000,
+        "error_rate": 0.01,
+        "max_pool_exhaustion_events": 0
+      }
+    },
+    "spike": {
+      "concurrency": 200,
+      "peak_concurrency": 500,
+      "ramp_seconds": 25,
+      "duration_seconds": 90,
+      "budget": {
+        "p50_ms": 1000,
+        "p95_ms": 3000,
+        "error_rate": 0.01,
+        "max_pool_exhaustion_events": 0
+      }
+    }
+  }
+}

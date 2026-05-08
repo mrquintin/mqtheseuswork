@@ -22,6 +22,8 @@ from noosphere.models import (
 )
 from noosphere.methods._hooks import _FAILURE_HOOKS, _POST_HOOKS, _PRE_HOOKS
 from noosphere.methods._registry import REGISTRY
+from noosphere.methods.composition import validate_depends_on
+from noosphere.methods.domain_bounds import DomainBound, load_domain_bound
 
 logger = logging.getLogger(__name__)
 
@@ -138,10 +140,12 @@ def register_method(
     preconditions: list[str] | tuple[str, ...] = (),
     postconditions: list[str] | tuple[str, ...] = (),
     dependencies: list[tuple[str, str]] | tuple[tuple[str, str], ...] = (),
+    depends_on: list[str] | tuple[str, ...] = (),
     owner: str,
     status: str = "active",
     nondeterministic: bool = False,
     emits_edges: list[CascadeEdgeRelation] | tuple[CascadeEdgeRelation, ...] = (),
+    domain: Any = None,
 ) -> Callable:
     def decorator(fn: Callable) -> Callable:
         if isinstance(input_schema, type) and issubclass(input_schema, BaseModel):
@@ -268,8 +272,29 @@ def register_method(
 
         REGISTRY.register(spec, wrapped)
 
+        # Composition DAG: declared depends_on names must already be
+        # registered. Decoration-time check so a typo fails CI rather
+        # than silently leaving a ghost edge in the graph.
+        if depends_on:
+            validate_depends_on(
+                REGISTRY.known_method_names(), name, list(depends_on)
+            )
+            REGISTRY.set_depends_on(name, list(depends_on))
+        else:
+            # Always seed the side table so build_dag() sees this node.
+            REGISTRY.set_depends_on(name, [])
+
         if emits_edges:
             REGISTRY.set_emits_edges(method_id, list(emits_edges))
+
+        # Domain bound is optional; when present it is normalized via the
+        # deterministic loader so a bare list[str] of tags or a dict-style
+        # declaration both produce the same DomainBound shape.
+        if domain is not None:
+            bound: DomainBound = (
+                domain if isinstance(domain, DomainBound) else load_domain_bound(domain)
+            )
+            REGISTRY.set_domain_bound(name, bound)
 
         store = _get_store()
         if store is not None:

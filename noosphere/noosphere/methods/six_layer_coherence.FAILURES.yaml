@@ -1,0 +1,73 @@
+method: six_layer_coherence
+modes:
+  - name: judge_layer_skipped_biases_unresolved
+    description: |
+      When the LLM-judge layer (S6) is disabled via skip_llm_judge=True,
+      the sixth vote defaults to UNRESOLVED. The 4/6 supermajority
+      becomes harder to reach, so the aggregate verdict drifts toward
+      UNRESOLVED even on pairs where the mechanical layers agree.
+    worked_example: |
+      In an offline batch run we evaluated 800 contradictory pairs with
+      the judge disabled to save cost. 41% came back UNRESOLVED versus
+      8% with the judge on. The pairs were not harder; the threshold
+      was simply unreachable.
+    trigger_conditions: |
+      The conclusion was produced in offline batch mode, on a tight
+      cost budget, or with skip_llm_judge=True. Watch for clusters of
+      UNRESOLVED verdicts on pairs the firm previously considered
+      decidable.
+    mitigation: |
+      Re-run the contested pair with the judge enabled, or treat
+      UNRESOLVED outputs from skip_llm_judge runs as "needs human"
+      rather than "indeterminate".
+    severity: high
+    citations: []
+    public: true
+
+  - name: argumentation_layer_starves_without_neighbors
+    description: |
+      The argumentation layer (S2) needs neighbour claims and
+      precomputed pairwise contradiction scores to construct an
+      acceptable extension. When those are absent — early in a project,
+      after a corpus reset, or for an isolated claim — S2 emits a weak
+      or null signal and effectively abstains.
+    trigger_conditions: |
+      The conclusion is the first or one of very few claims in its
+      cluster, the contradiction score table has not been backfilled,
+      or the pair sits far from any neighbour in embedding space.
+    worked_example: |
+      A new founder uploaded a single transcript that produced four
+      claims with no prior corpus context. S2 returned UNRESOLVED on
+      every pair, leaving the verdict to rely on five layers instead
+      of six.
+    mitigation: |
+      Check the argumentation layer's neighbour count before trusting
+      its abstention; backfill contradiction scores for the cluster
+      before treating S2 outputs as evidence.
+    severity: medium
+    citations: []
+    public: true
+
+  - name: correlated_layers_inflate_supermajority
+    description: |
+      Layers 1 and 4 both operate on embedding similarity, and layers
+      3 and 6 both involve LLM reasoning. When these correlated layers
+      err in the same direction the 4/6 vote can clear with only two
+      genuinely independent signals.
+    trigger_conditions: |
+      The pair is from a domain where the embedding model is known to
+      be biased (e.g., heavily ideological text), or the LLM judge
+      shares training data overlap with the probabilistic-extraction
+      prompt.
+    worked_example: |
+      On a batch of climate-policy pairs the embedding-driven layers
+      both rated COHERE. The LLM judge agreed. The pair was in fact
+      contradictory in standard usage; only the explicit-NLI reading
+      caught it.
+    mitigation: |
+      For domains flagged as embedding-biased, weight S1+S4 and S3+S6
+      as single votes when auditing; require a non-correlated layer
+      to participate in the supermajority.
+    severity: medium
+    citations: []
+    public: false

@@ -1,0 +1,72 @@
+method: extract_methodology
+modes:
+  - name: profile_inflates_method_from_thin_text
+    description: |
+      The deterministic profile pipeline is structured to always
+      output reasoning_moves, assumptions, and transfer_targets. On
+      thin source text it confabulates plausible-looking entries
+      rather than abstaining. The profile then survives downstream
+      review because its shape looks complete.
+    trigger_conditions: |
+      The source upload is short (under ~500 words), is largely
+      narrative, or lacks an explicit reasoning step. The output
+      profile has full coverage of every field despite the input
+      offering little to abstract.
+    worked_example: |
+      A founder uploaded a two-paragraph aside from a podcast. The
+      method produced a four-bullet "reasoning moves" list whose
+      bullets did not appear, even paraphrased, in the source.
+    mitigation: |
+      Gate the profile on a per-field source-anchor count; require at
+      least one anchor per non-empty field, and emit an explicit
+      "no-profile" sentinel when the source cannot support one.
+    severity: high
+    citations: []
+    public: true
+
+  - name: transfer_targets_smuggle_source_topic
+    description: |
+      Transfer targets are supposed to describe portable arenas for
+      the method, not the original conclusion's topic. When the
+      source is heavily on-topic, the extractor frequently lists the
+      original domain itself as a transfer target.
+    trigger_conditions: |
+      The source upload's topic_hint is one of the listed transfer
+      targets, or the transfer targets are minor variations on the
+      source title.
+    worked_example: |
+      A profile extracted from an essay on California housing policy
+      listed "California housing policy" and "Bay Area zoning" as
+      transfer targets, which simply re-asserts the source rather
+      than abstracting the method.
+    mitigation: |
+      Reject transfer targets that share more than 60% token overlap
+      with the source's topic_hint or title; require at least one
+      target from a distinct domain category.
+    severity: medium
+    citations: []
+    public: true
+
+  - name: failure_modes_field_left_empty_treated_as_safe
+    description: |
+      The methodology profile contract has a failure_modes field, but
+      the deterministic extractor often returns it empty. Downstream
+      consumers read "no listed failure modes" as "this method is
+      safe to apply broadly", inverting the intended meaning of the
+      blank field.
+    trigger_conditions: |
+      The profile's failure_modes list is empty AND the profile is
+      being used to justify cross-domain transfer.
+    worked_example: |
+      A high-confidence profile of analogical reasoning was
+      transferred to a medical-decision context after appearing
+      "clean" of failure modes. The blank list was treated as a
+      green light rather than a missing audit.
+    mitigation: |
+      Treat blank failure_modes as "not assessed" rather than
+      "assessed and clean"; refuse transfer-target use of a profile
+      until at least one failure mode is recorded or a deliberate
+      opt-out is filed.
+    severity: high
+    citations: []
+    public: true

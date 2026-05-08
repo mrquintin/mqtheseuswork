@@ -13,16 +13,31 @@ from noosphere.evaluation.metrics import (
     compute_metrics_for_kind,
 )
 from noosphere.evaluation.counterfactual import CounterfactualRunner
+from noosphere.evaluation.counterfactual_replay import (
+    CounterfactualReplayEngine,
+    LedgerSnapshot,
+    MethodIncompatibleError,
+    ReplayResult,
+    ResolvedRow,
+    WouldHaveBeenBetterCell,
+    would_have_been_better_matrix,
+)
 from noosphere.evaluation.report import render
 
 import noosphere.evaluation.hooks  # noqa: F401 — registers pre-hook on import
 
 __all__ = [
     "CorpusSlicer",
+    "CounterfactualReplayEngine",
     "CounterfactualRunner",
     "EmbargoViolation",
+    "LedgerSnapshot",
+    "MethodIncompatibleError",
+    "ReplayResult",
     "ResolutionError",
     "ResolutionResult",
+    "ResolvedRow",
+    "WouldHaveBeenBetterCell",
     "brier_score",
     "compute_metrics",
     "compute_metrics_for_kind",
@@ -33,4 +48,5 @@ __all__ = [
     "render",
     "resolution_score",
     "resolve",
+    "would_have_been_better_matrix",
 ]

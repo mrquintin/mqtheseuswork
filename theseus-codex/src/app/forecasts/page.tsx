@@ -61,5 +61,9 @@ export default async function ForecastsPage() {
     console.error("forecasts_seed_fetch_failed", err);
   }
 
-  return <ForecastGridClient seed={seed} />;
+  return (
+    <div data-testid="forecasts-page">
+      <ForecastGridClient seed={seed} />
+    </div>
+  );
 }

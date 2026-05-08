@@ -1,0 +1,104 @@
+name: Nightly Replication
+
+# Minimal nightly replication so silent breakage of the firm's headline
+# claims is caught early. The job runs the harness in deterministic
+# mode on a small shard and verifies the result against a recorded
+# baseline run captured on the main branch. Drift on this benchmark
+# is a louder alert than method drift — the badge for this workflow
+# is what the public replication page links.
+
+on:
+  schedule:
+    # 07:15 UTC nightly — staggered against qh_benchmark.yml.
+    - cron: '15 7 * * *'
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - 'replication/**'
+      - 'noosphere/noosphere/benchmarks/**'
+      - 'benchmarks/quintin_hypothesis/**'
+      - '.github/workflows/nightly_replication.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'replication/**'
+      - 'noosphere/noosphere/benchmarks/**'
+      - '.github/workflows/nightly_replication.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: nightly-replication-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  replicate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+
+    env:
+      # Pin every knob the harness exposes so the run is reproducible
+      # across CI invocations. THESEUS_CROSS_MODEL_BUDGET keeps the
+      # cross-model target on a tiny shard; the goal is "did this
+      # break overnight?", not a full replication.
+      PYTHONHASHSEED: '0'
+      OMP_NUM_THREADS: '1'
+      MKL_NUM_THREADS: '1'
+      OPENBLAS_NUM_THREADS: '1'
+      THESEUS_CROSS_MODEL_BUDGET: '50'
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+          cache-dependency-path: noosphere/requirements.txt
+
+      - name: Install harness + noosphere
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e .[dev]
+          pip install -r noosphere/requirements.txt
+
+      - name: Unit tests for the envelope and verifier
+        run: pytest replication/tests -q
+
+      - name: Run replication harness on a small shard
+        working-directory: replication
+        run: |
+          # Use the Makefile so any CI-only deviation is visible. The
+          # `smoke` target runs the deterministic, key-free subset.
+          make smoke RUN_ROOT="${GITHUB_WORKSPACE}/replication/runs"
+
+      - name: Record this run as the new baseline candidate
+        run: |
+          mkdir -p replication/runs/_latest
+          cp -R replication/runs/*qh-benchmark*/. replication/runs/_latest/ 2>/dev/null || true
+          ls -la replication/runs/
+
+      - name: Verify against committed baseline (if present)
+        run: |
+          BASELINE="replication/baselines/qh-benchmark"
+          if [ -d "$BASELINE" ]; then
+            CURRENT=$(ls -1td replication/runs/*qh-benchmark*/ | head -1)
+            echo "[verify] baseline=$BASELINE current=$CURRENT"
+            python -m replication.lib.verify "$BASELINE" "$CURRENT"
+          else
+            echo "[verify] no committed baseline at $BASELINE; skipping comparison"
+            echo "::notice::Run replication/Makefile with the deterministic flag and commit a baseline to enable verify-on-CI."
+          fi
+
+      - name: Upload run artefacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: nightly-replication-${{ github.run_id }}
+          path: |
+            replication/runs/**/replication_envelope.json
+            replication/runs/**/metrics_summary.json
+            replication/runs/**/metrics_*.json
+            replication/runs/**/results_*.json
+          if-no-files-found: warn
+          retention-days: 30

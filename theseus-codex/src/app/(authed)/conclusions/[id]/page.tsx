@@ -5,6 +5,7 @@ import { db } from "@/lib/db";
 import { resolveClaimTexts } from "@/lib/api/round3";
 import { founderDisplayName } from "@/lib/founderDisplay";
 import {
+  mqsForConclusion,
   profilesForConclusions,
   type PublicationMethodologyProfile,
 } from "@/lib/methodologyProfiles";
@@ -18,9 +19,15 @@ import ConclusionSigil from "./conclusion-sigil";
 import ProvenanceTab from "./provenance-tab";
 import CascadeTab from "./cascade-tab";
 import PeerReviewTab from "./peer-review-tab";
+import BlindspotsPanel from "./BlindspotsPanel";
 import RelatedTab from "./related-tab";
 import HistoryTab from "./history-tab";
+import LineagePanel from "./LineagePanel";
 import ActionsBar from "./actions-bar";
+import ConclusionKeymap from "./conclusion-keymap";
+import MqsCard from "./MqsCard";
+import FailureModesCard from "./FailureModesCard";
+import { matchModesForConclusion } from "@/lib/failureModes";
 
 /**
  * Single-conclusion detail page.
@@ -34,7 +41,9 @@ const TABS = [
   { id: "provenance", label: "Provenance" },
   { id: "cascade", label: "Cascade" },
   { id: "peer", label: "Peer review" },
+  { id: "blindspots", label: "Geometric blindspots" },
   { id: "related", label: "Related" },
+  { id: "lineage", label: "Lineage" },
   { id: "history", label: "History" },
 ] as const;
 
@@ -166,6 +175,15 @@ export default async function ConclusionDetailPage({
   const writer = canWrite(tenant.role);
   const methodologyProfiles =
     (await profilesForConclusions(tenant.organizationId, [conclusion.id])).get(conclusion.id) ?? [];
+  const mqs = await mqsForConclusion(tenant.organizationId, conclusion.id);
+  const conclusionMethods = await db.conclusionMethod.findMany({
+    where: { organizationId: tenant.organizationId, conclusionId: conclusion.id },
+    select: { methodName: true },
+  });
+  const matchedFailureModes = matchModesForConclusion(
+    conclusionMethods.map((m) => m.methodName),
+    conclusion.text,
+  );
   const publicationReviewProps = publicationReviews.map((r) => ({
     id: r.id,
     status: r.status,
@@ -240,6 +258,7 @@ export default async function ConclusionDetailPage({
 
   return (
     <main style={{ padding: "2rem 0" }}>
+      <ConclusionKeymap conclusionId={id} canPublish={writer} />
       <PageHelp
         title="Conclusion"
         purpose={`"${conclusion.text.slice(0, 140)}${conclusion.text.length > 140 ? "…" : ""}"`}
@@ -328,6 +347,13 @@ export default async function ConclusionDetailPage({
           sourceUploads={toggleableSourceUploads}
         />
 
+        {mqs ? <MqsCard mqs={mqs} /> : null}
+
+        <FailureModesCard
+          conclusionId={conclusion.id}
+          matched={matchedFailureModes}
+        />
+
         <ActionsBar conclusionId={id} />
 
         <TabNav
@@ -352,8 +378,15 @@ export default async function ConclusionDetailPage({
             <CascadeTab conclusionId={id} />
           ) : activeTab === "peer" ? (
             <PeerReviewTab conclusionId={id} />
+          ) : activeTab === "blindspots" ? (
+            <BlindspotsPanel
+              conclusionId={id}
+              organizationId={tenant.organizationId}
+            />
           ) : activeTab === "related" ? (
             <RelatedTab conclusionId={id} />
+          ) : activeTab === "lineage" ? (
+            <LineagePanel conclusionId={id} />
           ) : (
             <HistoryTab conclusionId={id} />
           )}

@@ -1,0 +1,213 @@
+\documentclass[11pt,letterpaper]{article}
+
+\usepackage[margin=1in]{geometry}
+\usepackage[T1]{fontenc}
+\usepackage{lmodern}
+\usepackage{microtype}
+\usepackage{parskip}
+\usepackage{enumitem}
+\usepackage{booktabs}
+\usepackage{titlesec}
+\usepackage[hidelinks,colorlinks=true,linkcolor=black,urlcolor=black,citecolor=black]{hyperref}
+\usepackage{xcolor}
+\usepackage{fancyhdr}
+
+\titleformat{\section}{\Large\bfseries}{\thesection}{1em}{}
+\titleformat{\subsection}{\large\bfseries}{\thesubsection}{1em}{}
+
+\pagestyle{fancy}
+\fancyhf{}
+\fancyhead[L]{\small Theseus Seasonal Review --- \VAR{review.window_label_tex}}
+\fancyhead[R]{\small\thepage}
+\renewcommand{\headrulewidth}{0.4pt}
+
+\setlength{\parindent}{0pt}
+
+\newcommand{\datagap}[1]{\textcolor{black!55}{\emph{#1}}}
+
+\title{\textbf{Theseus Seasonal Research Review}\\[6pt]\large \VAR{review.window_label_tex}}
+\date{\VAR{review.generated_at_tex}}
+\author{Theseus}
+
+\begin{document}
+
+\maketitle
+\thispagestyle{empty}
+
+\begin{center}
+\fbox{%
+  \begin{minipage}{0.92\textwidth}
+    \centering\small
+    \textbf{Disclosure:} \VAR{review.disclosure_tex}.\\
+    Slug: \texttt{\VAR{review.slug_tex}}. Generated \VAR{review.generated_at_tex}.\\
+    Sections marked \emph{data not available} are omitted from the
+    quarter rather than estimated.
+  \end{minipage}%
+}
+\end{center}
+
+\vspace{1.5em}
+
+\section*{Overview}
+%% if review.overview_prose_tex
+\VAR{review.overview_prose_tex}
+%% else
+\datagap{Narrative pass not run; the structured object on the web view carries the underlying numbers.}
+%% endif
+
+\section{Methods}
+%% if review.methods.available
+%% if review.methods.prose_tex
+\VAR{review.methods.prose_tex}
+%% endif
+
+\textbf{Active.} \VAR{review.methods.data.active_count} method(s).
+\textbf{Deprecated.} \VAR{review.methods.data.deprecated_count} method(s).
+\textbf{Retired.} \VAR{review.methods.data.retired_count} method(s).
+
+%% if review.methods.retired
+\subsection*{Retired this register}
+\begin{itemize}[leftmargin=1.5em]
+%% for r in review.methods.retired
+  \item \texttt{\VAR{r.method_id_tex}} --- \VAR{r.name_tex} \emph{(v\VAR{r.version_tex})}
+%% endfor
+\end{itemize}
+%% endif
+
+%% if review.methods.deprecated
+\subsection*{Deprecated}
+\begin{itemize}[leftmargin=1.5em]
+%% for r in review.methods.deprecated
+  \item \texttt{\VAR{r.method_id_tex}} --- \VAR{r.name_tex} \emph{(v\VAR{r.version_tex})}
+%% endfor
+\end{itemize}
+%% endif
+
+%% else
+\datagap{\VAR{review.methods.note_tex}}
+%% endif
+
+\section{Drift}
+%% if review.drift.available
+%% if review.drift.prose_tex
+\VAR{review.drift.prose_tex}
+%% endif
+
+\textbf{Drift events in window: \VAR{review.drift.data.event_count}.}
+
+%% if review.drift.events
+\begin{center}
+\begin{tabular}{@{}p{0.32\textwidth} p{0.12\textwidth} p{0.18\textwidth} p{0.30\textwidth}@{}}
+\toprule
+\textbf{Target} & \textbf{Score} & \textbf{Observed} & \textbf{Notes} \\
+\midrule
+%% for e in review.drift.events
+\texttt{\VAR{e.target_id_tex}} & \VAR{e.drift_score_tex} & \VAR{e.observed_at_tex} & \VAR{e.notes_tex} \\
+%% endfor
+\bottomrule
+\end{tabular}
+\end{center}
+%% endif
+%% else
+\datagap{\VAR{review.drift.note_tex}}
+%% endif
+
+\section{Calibration trend}
+%% if review.calibration.available
+%% if review.calibration.prose_tex
+\VAR{review.calibration.prose_tex}
+%% endif
+
+Resolved forecasts in window: \VAR{review.calibration.data.resolved_count}.
+%% if review.calibration.data.mean_brier is not none
+Mean Brier: \VAR{"%.3f" | format(review.calibration.data.mean_brier)}.
+%% endif
+%% if review.calibration.data.mean_log_loss is not none
+Mean log-loss: \VAR{"%.3f" | format(review.calibration.data.mean_log_loss)}.
+%% endif
+%% else
+\datagap{\VAR{review.calibration.note_tex}}
+%% endif
+
+\section{Open questions}
+%% if review.open_questions.available
+%% if review.open_questions.prose_tex
+\VAR{review.open_questions.prose_tex}
+%% endif
+
+Resolved: \VAR{review.open_questions.data.resolved_count}. Added: \VAR{review.open_questions.data.added_count}.
+%% else
+\datagap{\VAR{review.open_questions.note_tex}}
+%% endif
+
+\section{Published articles}
+%% if review.articles.available
+%% if review.articles.prose_tex
+\VAR{review.articles.prose_tex}
+%% endif
+
+\begin{itemize}[leftmargin=1.5em]
+%% for a in review.articles.articles
+  \item \VAR{a.published_at_tex} --- \VAR{a.title_tex} \texttt{(\VAR{a.slug_tex})}
+%% endfor
+\end{itemize}
+%% else
+\datagap{\VAR{review.articles.note_tex}}
+%% endif
+
+\section{Principles distilled}
+%% if review.principles.available
+%% if review.principles.prose_tex
+\VAR{review.principles.prose_tex}
+%% endif
+
+\begin{itemize}[leftmargin=1.5em]
+%% for p in review.principles.drafted
+  \item \VAR{p.text_tex} \emph{(domains: \VAR{p.domain_breadth_tex}, conviction: \VAR{p.conviction_score_tex})}
+%% endfor
+\end{itemize}
+%% else
+\datagap{\VAR{review.principles.note_tex}}
+%% endif
+
+\section{Most-edited conclusions}
+%% if review.edited_conclusions.available
+%% if review.edited_conclusions.prose_tex
+\VAR{review.edited_conclusions.prose_tex}
+%% endif
+
+\begin{itemize}[leftmargin=1.5em]
+%% for r in review.edited_conclusions.rows
+  \item \texttt{\VAR{r.conclusion_id_tex}} --- \VAR{r.text_excerpt_tex}
+%% endfor
+\end{itemize}
+%% else
+\datagap{\VAR{review.edited_conclusions.note_tex}}
+%% endif
+
+\section{What we got wrong}
+%% if review.self_critique.prose_tex
+\VAR{review.self_critique.prose_tex}
+%% endif
+
+%% if review.self_critique.findings
+\begin{itemize}[leftmargin=1.5em]
+%% for f in review.self_critique.findings
+  \item Article \texttt{\VAR{f.article_id_tex}} --- \VAR{f.reason_tex}
+        \emph{(review item \VAR{f.review_item_id_tex})}
+%% endfor
+\end{itemize}
+%% else
+\textit{\VAR{review.self_critique_empty_note_tex}}
+%% endif
+
+\vfill
+\begin{center}\small
+\textit{This review was machine-assembled from the firm's own machinery
+for \VAR{review.window_label_tex}. The .tex source is the authoritative
+artifact; the PDF is a build product. The structured numbers carried in
+the sibling \texttt{review.json} are the source of truth for every
+numeric claim above.}
+\end{center}
+
+\end{document}

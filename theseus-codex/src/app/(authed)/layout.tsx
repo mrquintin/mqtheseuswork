@@ -3,6 +3,8 @@ import { getFounder } from "@/lib/auth";
 import Nav from "@/components/Nav";
 import SubNav from "@/components/SubNav";
 import AutoPageHelp from "@/components/AutoPageHelp";
+import KeyboardChrome from "@/components/KeyboardChrome";
+import { KeymapProvider } from "@/components/PageKeymap";
 import NavTransition from "@/components/NavTransition";
 import EntranceWelcome from "@/components/EntranceWelcome";
 import { founderDisplayName } from "@/lib/founderDisplay";
@@ -35,7 +37,7 @@ export default async function AuthedLayout({
   });
 
   return (
-    <>
+    <KeymapProvider>
       <Nav
         founder={{
           name: founderDisplayName(founder),
@@ -47,12 +49,13 @@ export default async function AuthedLayout({
       />
       <SubNav />
       <AutoPageHelp />
+      <KeyboardChrome />
       {/* EntranceWelcome wraps the page content so it can apply the
           `.codex-arrival` fade-in on first mount after login, and overlay
           a brief Latin welcome tag. Absent the post-login sessionStorage
           flag it's a no-op pass-through. */}
       <EntranceWelcome>{children}</EntranceWelcome>
       <NavTransition />
-    </>
+    </KeymapProvider>
   );
 }

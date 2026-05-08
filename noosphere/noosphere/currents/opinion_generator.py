@@ -9,6 +9,7 @@ from enum import Enum
 from pathlib import Path
 from typing import Any
 
+from noosphere.currents import dialectic
 from noosphere.currents._llm_client import LLMResponse, make_client
 from noosphere.currents.budget import BudgetExhausted
 from noosphere.models import (
@@ -45,6 +46,7 @@ EVENT_METRIC_FIELDS = (
     "bookmark_count",
     "impression_count",
 )
+DIALECTIC_ENABLED = True
 CONCLUSION_TOKEN_RE = re.compile(r"\[C:([^\]\s]+)\]")
 GENERIC_EVENT_SUBJECT_RE = re.compile(
     (
@@ -514,6 +516,87 @@ def _source_subject_errors(event: Any, headline: str, body_markdown: str) -> lis
     return []
 
 
+async def _attach_reconciliation(
+    store: Any,
+    *,
+    opinion_payload: dict[str, Any],
+    cited_source_ids: list[str],
+    citations: list[OpinionCitation],
+    uncertainty_notes: list[str],
+    budget: Any,
+    client: Any,
+) -> tuple[list[OpinionCitation], list[str]]:
+    """Run the dialectic engine and attach its result to the opinion payload.
+
+    The OpinionCitation table is the persistence venue: when a counter-claim
+    qualifies, we append a row pointing at the counter source with the
+    reconciliation paragraph in `justification_metadata`. When no candidate
+    clears the similarity floor, we append a stable marker tag to
+    `uncertainty_notes` rather than fabricating a strawman row. Dialectic
+    failures (probe errors, LLM errors, missing candidates) all collapse to
+    the no-counter path so the surrounding opinion pipeline stays
+    fault-tolerant.
+    """
+
+    try:
+        counter = dialectic.find_counter_claim(
+            store,
+            opinion_payload=opinion_payload,
+            excluded_source_ids=cited_source_ids,
+        )
+    except Exception:
+        counter = None
+
+    if counter is None:
+        if dialectic.NO_COUNTER_UNCERTAINTY_TAG not in uncertainty_notes:
+            uncertainty_notes = list(uncertainty_notes) + [
+                dialectic.NO_COUNTER_UNCERTAINTY_TAG
+            ]
+        return citations, uncertainty_notes
+
+    try:
+        reconciliation = await dialectic.generate_reconciliation(
+            opinion_payload=opinion_payload,
+            counter_claim=counter,
+            budget=budget,
+            client=client,
+        )
+    except Exception:
+        if dialectic.NO_COUNTER_UNCERTAINTY_TAG not in uncertainty_notes:
+            uncertainty_notes = list(uncertainty_notes) + [
+                dialectic.NO_COUNTER_UNCERTAINTY_TAG
+            ]
+        return citations, uncertainty_notes
+
+    if reconciliation.no_counter_found or reconciliation.counter_claim is None:
+        if dialectic.NO_COUNTER_UNCERTAINTY_TAG not in uncertainty_notes:
+            uncertainty_notes = list(uncertainty_notes) + [
+                dialectic.NO_COUNTER_UNCERTAINTY_TAG
+            ]
+        return citations, uncertainty_notes
+
+    quoted_span = dialectic.counter_quoted_span(reconciliation.counter_claim)
+    if not quoted_span:
+        if dialectic.NO_COUNTER_UNCERTAINTY_TAG not in uncertainty_notes:
+            uncertainty_notes = list(uncertainty_notes) + [
+                dialectic.NO_COUNTER_UNCERTAINTY_TAG
+            ]
+        return citations, uncertainty_notes
+
+    counter_kind = reconciliation.counter_claim.source_kind
+    counter_id = reconciliation.counter_claim.source_id
+    counter_row = OpinionCitation(
+        opinion_id="",
+        source_kind=counter_kind,
+        conclusion_id=counter_id if counter_kind == "conclusion" else None,
+        claim_id=counter_id if counter_kind == "claim" else None,
+        quoted_span=quoted_span,
+        retrieval_score=float(reconciliation.counter_claim.similarity),
+        justification_metadata=dialectic.reconciliation_metadata(reconciliation),
+    )
+    return [*citations, counter_row], uncertainty_notes
+
+
 async def generate_opinion(
     store: Any,
     event_id: str,
@@ -670,6 +753,24 @@ async def generate_opinion(
             )
             continue
 
+        citation_rows = _citation_rows(citations, event=event)
+        uncertainty_notes_list = _uncertainty_notes(payload.get("uncertainty_notes"))
+        opinion_payload = {
+            "stance": stance.value,
+            "headline": headline,
+            "body_markdown": body_markdown,
+        }
+        cited_source_ids = [citation["source_id"] for citation in citations]
+        if DIALECTIC_ENABLED:
+            citation_rows, uncertainty_notes_list = await _attach_reconciliation(
+                store,
+                opinion_payload=opinion_payload,
+                cited_source_ids=cited_source_ids,
+                citations=citation_rows,
+                uncertainty_notes=uncertainty_notes_list,
+                budget=budget,
+                client=client,
+            )
         opinion = EventOpinion(
             organization_id=getattr(event, "organization_id"),
             event_id=event_id,
@@ -677,14 +778,14 @@ async def generate_opinion(
             confidence=_confidence(payload.get("confidence")),
             headline=headline,
             body_markdown=body_markdown,
-            uncertainty_notes=_uncertainty_notes(payload.get("uncertainty_notes")),
+            uncertainty_notes=uncertainty_notes_list,
             topic_hint=payload.get("topic_hint") or getattr(event, "topic_hint", None),
             model_name=model_name or "claude-haiku-4-5",
             prompt_tokens=total_prompt_tokens,
             completion_tokens=total_completion_tokens,
         )
         try:
-            store.add_event_opinion(opinion, _citation_rows(citations, event=event))
+            store.add_event_opinion(opinion, citation_rows)
         except ValueError as exc:
             if "verbatim substring" not in str(exc):
                 raise

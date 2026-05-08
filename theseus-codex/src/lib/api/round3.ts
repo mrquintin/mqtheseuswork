@@ -128,6 +128,32 @@ export interface MethodEntry {
   description: string;
   status: "active" | "candidate" | "deprecated";
   usageCount: number;
+  driftState: "ok" | "warn" | "escalate" | "insufficient" | "unknown";
+  driftLastObservedAt: string | null;
+}
+
+export interface MethodDriftEvent {
+  id: string;
+  observedAt: string;
+  windowDays: number;
+  severity: "ok" | "warn" | "escalate" | "insufficient";
+  sigma: number | null;
+  pValue: number | null;
+  sampleSize: number;
+  calibrationSlope: number | null;
+  baselineSlope: number | null;
+  brierMean: number | null;
+  baselineBrier: number | null;
+  directionalBias: number | null;
+  domain: string;
+  methodVersion: string;
+  seed: number | null;
+}
+
+export interface MethodDriftSummary {
+  state: "ok" | "warn" | "escalate" | "insufficient" | "unknown";
+  lastActiveAt: string | null;
+  events: MethodDriftEvent[];
 }
 
 export interface MethodVersion {
@@ -619,13 +645,133 @@ export async function fetchMethods(
   const rows = await safeQuery(
     Prisma.sql`SELECT name, latest_version, description, status, usage_count FROM method_registry WHERE organization_id = ${organizationId} ORDER BY name LIMIT 200`,
   );
-  return rows.map((r) => ({
-    name: String(r.name ?? ""),
-    latestVersion: String(r.latest_version ?? ""),
-    description: String(r.description ?? ""),
-    status: (String(r.status ?? "active") as MethodEntry["status"]),
-    usageCount: Number(r.usage_count ?? 0),
+
+  // Per-method most-recent drift state. The DriftEvent columns are
+  // optional (added in the Method Drift work — older DBs may not have
+  // them yet) so we use safeQueryDiag and let the lookup degrade to
+  // "unknown" rather than break the page.
+  const driftByName = new Map<
+    string,
+    { state: MethodEntry["driftState"]; observedAt: string | null }
+  >();
+  const driftRows = await safeQueryDiag<RawRow>(
+    Prisma.sql`SELECT DISTINCT ON ("methodName") "methodName", severity, "observedAt"
+                 FROM "DriftEvent"
+                WHERE "organizationId" = ${organizationId}
+                  AND "targetKind"     = 'method'
+                  AND "methodName"     IS NOT NULL
+             ORDER BY "methodName", "observedAt" DESC`,
+  );
+  if (!driftRows.error) {
+    for (const r of driftRows.rows) {
+      const name = String(r.methodName ?? "");
+      if (!name) continue;
+      const sev = String(r.severity ?? "ok");
+      const allowed: ReadonlyArray<MethodEntry["driftState"]> = [
+        "ok",
+        "warn",
+        "escalate",
+        "insufficient",
+      ];
+      const state = (allowed as readonly string[]).includes(sev)
+        ? (sev as MethodEntry["driftState"])
+        : "unknown";
+      driftByName.set(name, {
+        state,
+        observedAt: r.observedAt ? String(r.observedAt) : null,
+      });
+    }
+  }
+
+  return rows.map((r) => {
+    const name = String(r.name ?? "");
+    const drift = driftByName.get(name);
+    return {
+      name,
+      latestVersion: String(r.latest_version ?? ""),
+      description: String(r.description ?? ""),
+      status: String(r.status ?? "active") as MethodEntry["status"],
+      usageCount: Number(r.usage_count ?? 0),
+      driftState: drift?.state ?? "unknown",
+      driftLastObservedAt: drift?.observedAt ?? null,
+    };
+  });
+}
+
+export async function fetchMethodDriftSummary(
+  organizationId: string,
+  name: string,
+): Promise<MethodDriftSummary> {
+  const result = await safeQueryDiag<RawRow>(
+    Prisma.sql`SELECT id, severity, sigma, "pValue", "windowDays",
+                      "sampleSize", "calibrationSlope", "baselineSlope",
+                      "brierMean", "baselineBrier", "directionalBias",
+                      "methodDomain", "methodVersion", seed, "observedAt"
+                 FROM "DriftEvent"
+                WHERE "organizationId" = ${organizationId}
+                  AND "targetKind"     = 'method'
+                  AND "methodName"     = ${name}
+             ORDER BY "observedAt" DESC
+                LIMIT 200`,
+  );
+  if (result.error) {
+    return { state: "unknown", lastActiveAt: null, events: [] };
+  }
+  const events: MethodDriftEvent[] = result.rows.map((r) => ({
+    id: String(r.id),
+    observedAt: String(r.observedAt ?? ""),
+    windowDays: Number(r.windowDays ?? 0),
+    severity: (["ok", "warn", "escalate", "insufficient"] as const).includes(
+      String(r.severity) as MethodDriftEvent["severity"],
+    )
+      ? (String(r.severity) as MethodDriftEvent["severity"])
+      : "ok",
+    sigma: r.sigma == null ? null : Number(r.sigma),
+    pValue: r.pValue == null ? null : Number(r.pValue),
+    sampleSize: Number(r.sampleSize ?? 0),
+    calibrationSlope:
+      r.calibrationSlope == null ? null : Number(r.calibrationSlope),
+    baselineSlope: r.baselineSlope == null ? null : Number(r.baselineSlope),
+    brierMean: r.brierMean == null ? null : Number(r.brierMean),
+    baselineBrier: r.baselineBrier == null ? null : Number(r.baselineBrier),
+    directionalBias:
+      r.directionalBias == null ? null : Number(r.directionalBias),
+    domain: String(r.methodDomain ?? ""),
+    methodVersion: String(r.methodVersion ?? ""),
+    seed: r.seed == null ? null : Number(r.seed),
   }));
+  // Reduce events most-recent-first by replaying forward (oldest
+  // first) so the hysteresis rule lines up with the Python side.
+  const ordered = [...events].reverse();
+  let state: MethodDriftSummary["state"] = "ok";
+  let lastActiveAt: string | null = null;
+  let consecutiveClean = 0;
+  const CLEAN_THRESHOLD = 2;
+  for (const ev of ordered) {
+    if (ev.severity === "insufficient") {
+      consecutiveClean = 0;
+      continue;
+    }
+    if (ev.severity === "escalate") {
+      state = "escalate";
+      consecutiveClean = 0;
+      lastActiveAt = ev.observedAt;
+      continue;
+    }
+    if (ev.severity === "warn") {
+      consecutiveClean = 0;
+      lastActiveAt = ev.observedAt;
+      if (state === "ok") state = "warn";
+      continue;
+    }
+    if (state === "ok") continue;
+    consecutiveClean += 1;
+    if (consecutiveClean >= CLEAN_THRESHOLD) {
+      state = "ok";
+      consecutiveClean = 0;
+    }
+  }
+  return { state, lastActiveAt, events };
 }
 
 export async function fetchMethodVersion(

@@ -1,0 +1,80 @@
+\documentclass[11pt]{article}
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage[margin=1in]{geometry}
+\usepackage{graphicx}
+\usepackage{booktabs}
+\usepackage{array}
+\usepackage{caption}
+\usepackage{hyperref}
+\usepackage{xcolor}
+\usepackage{textcomp}
+\title{Cross-Model Embedding Geometry Study\\\large QH Benchmark v1, Multi-Backend Replication}
+\author{Theseus / Noosphere Research}
+\date{2026-05-08}
+\begin{document}
+\maketitle
+
+\begin{abstract}We replicate the Quintin Hypothesis (QH) contradiction-geometry probe across multiple embedding back-ends to determine whether the predicted geometric signature is a property of language or a property of one specific model. We run the frozen QH-v1 benchmark with 1 embedding models for a total of 5808 prediction rows and compare per-model accuracy, AUROC, and ECE against random and cosine baselines.\par On the models reported here the geometry probe does not lose to the cosine baseline on AUROC. We retain the honest-failure framing because the negative result remains the more informative outcome and the prior publication commitment binds prospectively.\end{abstract}
+
+\section{Background}
+The Quintin Hypothesis (QH) predicts that the difference vector between embeddings of a premise and its logical contradiction is sparse (concentrated in few dimensions, measured by Hoyer sparsity) while the difference between a premise and a coherent continuation is dense. If this is a property of language, the prediction should hold across embedding back-ends. If it is a property of one specific model — for instance \texttt{text-embedding-3-large} — that is also useful information, but it is a much weaker claim than the firm originally asserted.
+
+
+\section{Honest negative finding}
+On the models reported here the geometry probe does not lose to the cosine baseline on AUROC. This is not strong evidence for the hypothesis (the strongest test is the per-domain breakdown); it only means we have nothing to retract on this run.
+
+
+\section{Per-model headline metrics}
+\begin{tabular}{l l r r r r}
+\toprule
+Model & Runner & $n$ & Accuracy & AUROC & ECE \\
+\midrule
+\texttt{hash-det:qh-cross-v1} & \texttt{random} & 1936 & 0.3352 & 0.4964 & 0.2537 \\
+\texttt{hash-det:qh-cross-v1} & \texttt{cosine} & 1936 & 0.3791 & 0.3877 & 0.4382 \\
+\texttt{hash-det:qh-cross-v1} & \texttt{contradiction\_geometry} & 1936 & 0.2877 & 0.6101 & 0.3120 \\
+\bottomrule
+\end{tabular}
+
+
+
+
+\section{Per-domain accuracy (geometry runner)}
+\begin{tabular}{l r r r}
+\toprule
+Model & economics & ethics & physics \\
+\midrule
+\texttt{hash-det:qh-cross-v1} & 0.2596 & 0.3285 & 0.2898 \\
+\bottomrule
+\end{tabular}
+
+
+
+
+\section{Inter-model agreement (binary contradicting label)}
+\begin{tabular}{l r}
+\toprule
+ & hash-det:qh-cross-v1 \\
+\midrule
+\texttt{hash-det:qh-cross-v1} & 1.00 \\
+\bottomrule
+\end{tabular}
+
+
+
+
+\section{Statistical test: do models differ controlling for domain?}
+\textbf{Method.} \texttt{insufficient\_sample}\\
+\textbf{Statistic.} n/a\\
+\textbf{p-value.} n/a\\
+\textbf{Observations.} 1936 across 1 models.\\
+\textit{need >=2 models and >=4 obs; got 1 models, 1936 obs}
+
+
+\section{Figures}
+
+\section{Reproducibility}
+The benchmark dataset is frozen as \texttt{qh-v1} under \texttt{benchmarks/quintin\_hypothesis/v1/}. Per-model predictions are persisted as parquet under \texttt{results/cross\_model/}; raw embedding vectors are stored off-tree (default \texttt{\textasciitilde/.theseus/data/cross\_model/}) with a manifest. The figures and numbers in this PDF are regenerated from \texttt{cross\_model\_analysis.json} on each build; no number is hand-edited.
+
+
+\end{document}

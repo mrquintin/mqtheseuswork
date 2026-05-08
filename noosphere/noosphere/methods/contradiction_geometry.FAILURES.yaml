@@ -1,0 +1,69 @@
+method: contradiction_geometry
+modes:
+  - name: short_text_collapses_sparsity
+    description: |
+      Hoyer sparsity is unstable for very short texts (under roughly
+      five words). The difference vector inherits too little geometric
+      structure, so the sparsity score swings around the threshold and
+      contradiction calls become essentially random.
+    trigger_conditions: |
+      Either input span is fewer than ~5 tokens, or the texts are
+      slogans, headlines, or single-clause assertions. Watch for
+      verdicts that flip when whitespace or punctuation is normalised.
+    worked_example: |
+      Comparing "Markets clear" against "Markets fail" produced a
+      sparsity score of 0.31 on one normalisation and 0.42 on another.
+      The contradiction call swapped depending on lowercasing alone.
+    mitigation: |
+      Require both texts to clear a minimum token length (default ≥ 8
+      tokens) before trusting the sparsity verdict; otherwise route
+      to an explicit NLI model.
+    severity: high
+    citations: []
+    public: true
+
+  - name: implicit_pragmatic_contradiction_missed
+    description: |
+      Contradictions that hinge on world knowledge or implicit
+      reasoning ("All swans are white" vs "I saw a black bird in the
+      swan pond") often fail to produce a sparse difference vector.
+      The model encodes the surface concepts but not the reasoning
+      step that makes them contradict.
+    trigger_conditions: |
+      The conclusion relies on enthymematic reasoning, common-sense
+      inference, or domain knowledge not present in the embedding
+      training data.
+    worked_example: |
+      A pair contrasting "Treaty X bans first use" with "We reserve
+      the right to launch under provocation" registered as COHERE on
+      sparsity but contradicted under standard interpretation.
+    mitigation: |
+      Pair the geometry call with an LLM-judge layer and treat the
+      geometry-only verdict as advisory whenever the conclusion text
+      uses domain terms of art.
+    severity: medium
+    citations: []
+    public: true
+
+  - name: silent_calibration_drift_from_optional_file
+    description: |
+      The Hoyer threshold is loaded from an optional JSON calibration
+      file when present and falls back to a hardcoded default
+      otherwise. Two environments can therefore produce different
+      verdicts on identical inputs without any code change being
+      visible in the diff.
+    trigger_conditions: |
+      The conclusion was produced on a workstation with a custom
+      calibration file, or migrated between environments where one
+      side had the file and the other did not.
+    worked_example: |
+      A reviewer reproduced a contradictory verdict on their laptop
+      that came back as COHERE on the production runner. The only
+      difference was the presence of contradiction_thresholds.json.
+    mitigation: |
+      Pin the calibration file path in CI and emit the active
+      threshold value alongside every verdict so audits can spot the
+      drift.
+    severity: medium
+    citations: []
+    public: false

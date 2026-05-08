@@ -1,0 +1,196 @@
+{
+  "edges": [
+    {
+      "dst": "contradiction_geometry",
+      "src": "contradiction_probe"
+    },
+    {
+      "dst": "nli_scorer",
+      "src": "six_layer_coherence"
+    },
+    {
+      "dst": "extract_claims",
+      "src": "synthesize_conclusion"
+    },
+    {
+      "dst": "nli_scorer",
+      "src": "synthesize_conclusion"
+    },
+    {
+      "dst": "six_layer_coherence",
+      "src": "synthesize_conclusion"
+    }
+  ],
+  "nodes": [
+    {
+      "color": "green",
+      "depth": 0,
+      "description": "Classifies a claim into discourse categories (METHODOLOGICAL, SUBSTANTIVE, etc.).",
+      "effective_severity": "ok",
+      "inherited_from": [],
+      "inherited_severity": "ok",
+      "name": "classify_claim_type",
+      "own_severity": "ok",
+      "risk_inherited": false,
+      "status": "active",
+      "version": "1.0.0"
+    },
+    {
+      "color": "green",
+      "depth": 0,
+      "description": "Detects contradiction via Hoyer sparsity of embedding difference vectors.",
+      "effective_severity": "ok",
+      "inherited_from": [],
+      "inherited_severity": "ok",
+      "name": "contradiction_geometry",
+      "own_severity": "ok",
+      "risk_inherited": false,
+      "status": "active",
+      "version": "1.0.0"
+    },
+    {
+      "color": "green",
+      "depth": 1,
+      "description": "Predicts the embedding-space neighborhood where a new proposition's logical contradiction should lie, then surfaces nearby existing propositions as unconfirmed candidates.",
+      "effective_severity": "ok",
+      "inherited_from": [],
+      "inherited_severity": "ok",
+      "name": "contradiction_probe",
+      "own_severity": "ok",
+      "risk_inherited": false,
+      "status": "active",
+      "version": "1.0.0"
+    },
+    {
+      "color": "green",
+      "depth": 0,
+      "description": "Decomposes a founder's voice into an intellectual profile with orientation scores.",
+      "effective_severity": "ok",
+      "inherited_from": [],
+      "inherited_severity": "ok",
+      "name": "decompose_voice",
+      "own_severity": "ok",
+      "risk_inherited": false,
+      "status": "active",
+      "version": "1.0.0"
+    },
+    {
+      "color": "green",
+      "depth": 0,
+      "description": "Ingests external literature and matches claims against internal positions.",
+      "effective_severity": "ok",
+      "inherited_from": [],
+      "inherited_severity": "ok",
+      "name": "external_claim_match",
+      "own_severity": "ok",
+      "risk_inherited": false,
+      "status": "active",
+      "version": "1.0.0"
+    },
+    {
+      "color": "green",
+      "depth": 0,
+      "description": "Extracts atomic truth-apt claims from a text chunk using an LLM.",
+      "effective_severity": "ok",
+      "inherited_from": [],
+      "inherited_severity": "ok",
+      "name": "extract_claims",
+      "own_severity": "ok",
+      "risk_inherited": false,
+      "status": "active",
+      "version": "1.0.0"
+    },
+    {
+      "color": "green",
+      "depth": 0,
+      "description": "Extracts portable methodology profiles from a source text.",
+      "effective_severity": "ok",
+      "inherited_from": [],
+      "inherited_severity": "ok",
+      "name": "extract_methodology",
+      "own_severity": "ok",
+      "risk_inherited": false,
+      "status": "active",
+      "version": "1.0.0"
+    },
+    {
+      "color": "green",
+      "depth": 0,
+      "description": "Extracts falsifiable world predictions from a single claim using an LLM.",
+      "effective_severity": "ok",
+      "inherited_from": [],
+      "inherited_severity": "ok",
+      "name": "extract_prediction",
+      "own_severity": "ok",
+      "risk_inherited": false,
+      "status": "active",
+      "version": "1.0.0"
+    },
+    {
+      "color": "green",
+      "depth": 0,
+      "description": "Scans ingested artifacts for passages describing a methodology and extracts structured method candidates via regex + LLM.",
+      "effective_severity": "ok",
+      "inherited_from": [],
+      "inherited_severity": "ok",
+      "name": "method_candidate_extractor",
+      "own_severity": "ok",
+      "risk_inherited": false,
+      "status": "active",
+      "version": "1.0.0"
+    },
+    {
+      "color": "green",
+      "depth": 0,
+      "description": "NLI cross-encoder scorer for claim pair coherence using DeBERTa.",
+      "effective_severity": "ok",
+      "inherited_from": [],
+      "inherited_severity": "ok",
+      "name": "nli_scorer",
+      "own_severity": "ok",
+      "risk_inherited": false,
+      "status": "active",
+      "version": "1.0.0"
+    },
+    {
+      "color": "green",
+      "depth": 1,
+      "description": "Six-layer coherence aggregation with 4/6 majority voting.",
+      "effective_severity": "ok",
+      "inherited_from": [],
+      "inherited_severity": "ok",
+      "name": "six_layer_coherence",
+      "own_severity": "ok",
+      "risk_inherited": false,
+      "status": "active",
+      "version": "1.0.0"
+    },
+    {
+      "color": "green",
+      "depth": 0,
+      "description": "Generates research topics, empirical anchors, and reading lists after a discussion.",
+      "effective_severity": "ok",
+      "inherited_from": [],
+      "inherited_severity": "ok",
+      "name": "suggest_research",
+      "own_severity": "ok",
+      "risk_inherited": false,
+      "status": "active",
+      "version": "1.0.0"
+    },
+    {
+      "color": "green",
+      "depth": 2,
+      "description": "Registers a substantive conclusion and returns method calibration feedback.",
+      "effective_severity": "ok",
+      "inherited_from": [],
+      "inherited_severity": "ok",
+      "name": "synthesize_conclusion",
+      "own_severity": "ok",
+      "risk_inherited": false,
+      "status": "active",
+      "version": "1.0.0"
+    }
+  ],
+  "schema": "theseus.method_composition.v1"
+}

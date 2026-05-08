@@ -1,8 +1,11 @@
 from __future__ import annotations
 
-from typing import Callable
+from typing import TYPE_CHECKING, Callable
 
 from noosphere.models import CascadeEdgeRelation, Method
+
+if TYPE_CHECKING:
+    from noosphere.methods.domain_bounds import DomainBound
 
 
 class MethodCollisionError(Exception):
@@ -28,6 +31,15 @@ class MethodRegistry:
         self._specs: dict[tuple[str, str], Method] = {}
         self._fns: dict[tuple[str, str], Callable] = {}
         self._emits_edges: dict[str, list[CascadeEdgeRelation]] = {}
+        # name -> list of dependency method names (composition DAG).
+        # Keyed on bare name because the DAG is about method identity,
+        # not about a particular pinned version.
+        self._depends_on: dict[str, list[str]] = {}
+        # name -> declarative DomainBound. Side-table rather than a field
+        # on Method because Method is `extra="forbid"` + `frozen=True` and
+        # we want bounds to be re-curatable without re-publishing the
+        # method spec. See noosphere/methods/domain_bounds.py.
+        self._domain_bounds: dict[str, "DomainBound"] = {}
 
     def register(self, spec: Method, fn: Callable) -> None:
         key = (spec.name, spec.version)
@@ -45,6 +57,33 @@ class MethodRegistry:
 
     def get_emits_edges(self, method_id: str) -> list[CascadeEdgeRelation]:
         return self._emits_edges.get(method_id, [])
+
+    # ── composition DAG side table ────────────────────────────────────
+
+    def set_depends_on(self, name: str, deps: list[str]) -> None:
+        self._depends_on[name] = list(deps)
+
+    def get_depends_on(self, name: str) -> list[str]:
+        return list(self._depends_on.get(name, []))
+
+    def iter_depends_on(self):
+        for name, deps in self._depends_on.items():
+            yield name, list(deps)
+
+    # ── domain bounds side table ──────────────────────────────────────
+
+    def set_domain_bound(self, name: str, bound: "DomainBound") -> None:
+        self._domain_bounds[name] = bound
+
+    def get_domain_bound(self, name: str) -> "DomainBound | None":
+        return self._domain_bounds.get(name)
+
+    def iter_domain_bounds(self):
+        for name, bound in self._domain_bounds.items():
+            yield name, bound
+
+    def known_method_names(self) -> set[str]:
+        return {n for (n, _v) in self._specs.keys()}
 
     def get(
         self,

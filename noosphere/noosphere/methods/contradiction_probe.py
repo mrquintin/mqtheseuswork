@@ -13,6 +13,12 @@ from noosphere.coherence.contradiction_direction import (
 from noosphere.models import MethodType
 from noosphere.methods._decorator import register_method
 
+# Eager-import the dependency module so its decorator fires before ours
+# does. The composition DAG validator (`validate_depends_on`) rejects
+# names that are not yet registered, so the import order is part of the
+# contract.
+from noosphere.methods import contradiction_geometry as _dep_contradiction_geometry  # noqa: F401,E402
+
 
 class ContradictionCandidate(BaseModel):
     proposition_id: str
@@ -105,6 +111,7 @@ def _geometry_scores(
     nondeterministic=False,
     emits_edges=[],
     dependencies=[("contradiction_geometry", "1.0.0")],
+    depends_on=["contradiction_geometry"],
 )
 def contradiction_probe(
     input_data: ContradictionProbeInput,

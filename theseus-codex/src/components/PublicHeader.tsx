@@ -2,51 +2,24 @@ import Link from "next/link";
 import { theseusIdentity } from "@/content/theseusIdentity";
 import { CurrentsNavPulse } from "./CurrentsNavPulse";
 import { ForecastsNavPulse } from "./ForecastsNavPulse";
+import MobileNavDrawer from "./MobileNavDrawer";
 import ThemeToggle from "./ThemeToggle";
 
 /**
  * Public-side header — renders on public reader-facing routes.
  *
- * Three controls on the right:
- *   - <ThemeToggle/>          → flip amber-on-stone ↔︎ ink-on-parchment
- *   - public route links      → migrated public pages
- *   - `authed=false`          → "Founder login →"
- *   - `authed=true`           → "Founder Portal →" (direct bounce back to
- *                                the private workspace)
- *
- * This is deliberately minimal: no search and no deep sitemap. The blog is
- * primarily for reading, so we keep the chrome out of the way and let
- * typography carry the brand.
+ * Above 720px the inline link list is rendered with theme toggle + the
+ * founder-portal CTA on the right. Below 720px the inline list and CTA
+ * collapse into <MobileNavDrawer />, leaving only the wordmark and a
+ * hamburger trigger so the chrome stays out of the way of long-form prose.
  */
 export default function PublicHeader({ authed }: { authed: boolean }) {
   return (
-    <header
-      style={{
-        position: "sticky",
-        top: 0,
-        zIndex: 5,
-        display: "flex",
-        justifyContent: "space-between",
-        alignItems: "center",
-        flexWrap: "wrap",
-        gap: "0.75rem",
-        padding: "0.85rem 1.5rem",
-        borderBottom: "1px solid rgba(212, 160, 23, 0.18)",
-        background:
-          "linear-gradient(180deg, rgba(14, 10, 6, 0.94) 0%, rgba(14, 10, 6, 0.82) 100%)",
-        backdropFilter: "blur(6px)",
-        WebkitBackdropFilter: "blur(6px)",
-      }}
-    >
+    <header className="public-header">
       <Link
         aria-label={theseusIdentity.publicHeader.logoAriaLabel}
+        className="public-header-brand"
         href="/"
-        style={{
-          textDecoration: "none",
-          display: "flex",
-          alignItems: "center",
-          gap: "0.55rem",
-        }}
       >
         <span
           className="mono"
@@ -60,6 +33,7 @@ export default function PublicHeader({ authed }: { authed: boolean }) {
           Theseus
         </span>
         <span
+          aria-hidden="true"
           style={{
             color: "var(--amber-dim)",
             fontSize: "0.9rem",
@@ -69,6 +43,7 @@ export default function PublicHeader({ authed }: { authed: boolean }) {
           ·
         </span>
         <span
+          className="public-header-tagline"
           style={{
             fontFamily: "'EB Garamond', serif",
             fontStyle: "italic",
@@ -81,18 +56,8 @@ export default function PublicHeader({ authed }: { authed: boolean }) {
       </Link>
 
       <nav
-        className="mono"
+        className="mono public-header-nav"
         aria-label="Public navigation"
-        style={{
-          display: "flex",
-          gap: "0.9rem",
-          alignItems: "center",
-          marginLeft: "auto",
-          marginRight: "1rem",
-          fontSize: "0.58rem",
-          letterSpacing: "0.22em",
-          textTransform: "uppercase",
-        }}
       >
         <Link href="/" style={{ color: "var(--amber-dim)", textDecoration: "none" }}>
           Home
@@ -107,25 +72,18 @@ export default function PublicHeader({ authed }: { authed: boolean }) {
         <ForecastsNavPulse label="Forecasts" />
       </nav>
 
-      <div style={{ display: "flex", gap: "0.6rem", alignItems: "center" }}>
+      <div className="public-header-actions">
         <ThemeToggle size={30} />
         <Link
           href={authed ? "/dashboard" : "/login"}
-          className="mono"
-          style={{
-            fontSize: "0.6rem",
-            letterSpacing: "0.26em",
-            textTransform: "uppercase",
-            color: "var(--amber)",
-            textDecoration: "none",
-            padding: "0.4rem 0.9rem",
-            border: "1px solid var(--amber-dim)",
-            borderRadius: "3px",
-            transition: "all 0.18s ease",
-          }}
+          className="mono public-header-cta"
         >
           {authed ? "Founder Portal →" : "Founder login →"}
         </Link>
+      </div>
+
+      <div className="public-header-mobile">
+        <MobileNavDrawer authed={authed} />
       </div>
     </header>
   );

@@ -1,9 +1,20 @@
 import Link from "next/link";
 import type { ReactNode } from "react";
 
+import ConclusionAddenda from "@/app/c/[slug]/Addendum";
+import type { AddendumRecord } from "@/lib/addendumApi";
 import type { PublishedConclusion, PublicResponse } from "@/lib/conclusionsRead";
+import type { MqsRecord } from "@/lib/methodologyProfiles";
+import {
+  fallbackReport,
+  reportMatchesBody,
+  type SentenceProvenanceReport,
+} from "@/lib/sentenceProvenance";
 
 import AnswerMarkdown from "./AnswerMarkdown";
+import MqsPill from "./MqsPill";
+import PrintEndnotes, { type PrintEndnoteSource } from "./PrintEndnotes";
+import ProvenanceArticle from "./ProvenanceArticle";
 
 function clamp01(n: number) {
   if (Number.isNaN(n)) return 0;
@@ -50,21 +61,52 @@ export default function ConclusionView({
   row,
   responses,
   topSlot,
+  bottomSlot,
+  mqs,
+  provenanceReport,
+  addenda,
 }: {
   row: PublishedConclusion;
   allVersions: PublishedConclusion[];
   responses: PublicResponse[];
   topSlot?: ReactNode;
+  bottomSlot?: ReactNode;
+  /**
+   * Public MQS pill. Only rendered when an MQS exists AND is fresh
+   * (scored at-or-after the conclusion's last edit). Freshness/publish
+   * gating happens upstream — passing `null` hides the pill.
+   */
+  mqs?: MqsRecord | null;
+  /**
+   * Public-projected sentence-provenance report assembled at publish
+   * time by `noosphere.cascade.sentence_provenance`. Optional — when
+   * absent (legacy publications), the article falls back to a
+   * conservative client-side report built from the citation manifest.
+   */
+  provenanceReport?: SentenceProvenanceReport | null;
+  /**
+   * Self-critique addenda. The original article body above is
+   * immutable; addenda render under it as visibly later content.
+   * Empty list (or omitted) hides the block entirely. See
+   * `noosphere/peer_review/self_critique.py`.
+   */
+  addenda?: AddendumRecord[];
 }) {
   const p = row.payload;
   const article = p.article;
   const isArticle = row.kind === "ARTICLE" && Boolean(article?.bodyMarkdown);
+  const articleReport: SentenceProvenanceReport | null =
+    isArticle && article
+      ? reportMatchesBody(provenanceReport, article.bodyMarkdown)
+        ? provenanceReport
+        : fallbackReport(row.id, article.bodyMarkdown, article.citations)
+      : null;
   const methodologyNarrative = p.methodology.reviewerNarrative.trim();
   const methodologyProfiles = p.methodology.profiles;
   const hasMethodology = Boolean(methodologyNarrative || methodologyProfiles.length);
 
   return (
-    <main className="public-container">
+    <main className="public-container" data-testid="conclusion-view">
       {topSlot}
 
       <p className="public-muted public-kicker">
@@ -84,6 +126,12 @@ export default function ConclusionView({
 
       <h1 className="public-title">{p.conclusionText}</h1>
 
+      {mqs ? (
+        <p className="public-muted public-kicker" style={{ marginTop: "-0.5rem" }}>
+          <MqsPill mqs={mqs} />
+        </p>
+      ) : null}
+
       {!isArticle ? (
         <section className="public-card">
           <h2>Confidence</h2>
@@ -99,7 +147,12 @@ export default function ConclusionView({
 
       <section className="public-section">
         <h2>{isArticle ? "The firm's perspective" : "Why the firm believes this"}</h2>
-        {isArticle && article ? (
+        {isArticle && article && articleReport ? (
+          <ProvenanceArticle
+            bodyMarkdown={article.bodyMarkdown}
+            report={articleReport}
+          />
+        ) : isArticle && article ? (
           <div className="public-article-body">
             <AnswerMarkdown>{article.bodyMarkdown}</AnswerMarkdown>
           </div>
@@ -203,8 +256,49 @@ export default function ConclusionView({
         </section>
       ) : null}
 
+      <ConclusionAddenda addenda={addenda ?? []} />
+
+      <PrintEndnotes sources={buildPrintEndnotes(p)} />
+
+      {bottomSlot}
     </main>
   );
+}
+
+/**
+ * Convert the public payload's citations + article-citation manifest
+ * into ordered endnote rows for the print stylesheet.
+ *
+ * Numbering is stable: it follows the manifest order so a reader who
+ * saw "[1]" inline finds note 1 here. Internal-only sources have no
+ * `publicUrl`; we still list them, but the URL field is omitted so a
+ * private link cannot leak into a printed document.
+ */
+function buildPrintEndnotes(
+  p: PublishedConclusion["payload"],
+): PrintEndnoteSource[] {
+  const out: PrintEndnoteSource[] = [];
+  const article = p.article;
+  if (article && article.citations.length) {
+    for (const c of article.citations) {
+      out.push({
+        label: c.label,
+        title:
+          c.sourceConclusionText?.trim() ||
+          c.quotedSpan?.trim() ||
+          c.sourceId ||
+          c.label,
+        kind: citationKindLabel(c.sourceKind),
+        url: c.publicUrl ?? null,
+      });
+    }
+  }
+  // Note: the APA/BibTeX/RIS blocks in `p.citations` are deliberately
+  // not echoed into the printed endnotes. They're a copy-paste tool
+  // for the screen reader, not per-source notes — repeating them here
+  // would clutter the printed page. Readers who want a citation block
+  // are expected to grab it from the live page.
+  return out;
 }
 
 function ArticleSourceList({

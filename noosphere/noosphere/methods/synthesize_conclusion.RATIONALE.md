@@ -41,3 +41,15 @@ treats all conclusions equally regardless of their difficulty or significance.
 - **External LLM**: The AutoResolver component uses a configured LLM client
   (Claude API) for semi-automatic resolution checking. The core registration
   and calibration analysis do not require an LLM.
+- **Composed methods (`depends_on`)**: synthesis rests on three upstream
+  registered methods:
+  - `extract_claims` — pulls the propositional content the conclusion is
+    attributed to.
+  - `nli_scorer` — produces the entailment/contradiction signal that the
+    coherence and contradiction reviewers consume before a conclusion is
+    eligible for synthesis.
+  - `six_layer_coherence` — the supermajority coherence gate that vetoes
+    synthesis when claim pairs are inconsistent.
+  These edges live in the decorator's `depends_on` list so the composition
+  graph propagates drift / failure-mode risk from any upstream method
+  onto every conclusion produced by `synthesize_conclusion`.

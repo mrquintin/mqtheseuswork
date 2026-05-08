@@ -83,6 +83,9 @@ from noosphere.models import (
     PredictiveClaim,
     ReadingQueueEntry,
     Rebuttal,
+    ResolutionMismatch,
+    ResolutionOverride,
+    ResolutionRevision,
     RelativePositionMap,
     ResearchSuggestion,
     RevalidationResult,
@@ -666,16 +669,27 @@ def _sqlite_migrate_forecast_columns(engine: Engine) -> None:
         return
     insp = inspect(engine)
     tables = insp.get_table_names()
-    if "ForecastPortfolioState" not in tables:
-        return
-    cols = {c["name"] for c in insp.get_columns("ForecastPortfolioState")}
     with engine.begin() as conn:
-        if "totalResolved" not in cols:
-            conn.execute(
-                text(
-                    'ALTER TABLE "ForecastPortfolioState" ADD COLUMN "totalResolved" INTEGER NOT NULL DEFAULT 0'
+        if "ForecastPortfolioState" in tables:
+            cols = {c["name"] for c in insp.get_columns("ForecastPortfolioState")}
+            if "totalResolved" not in cols:
+                conn.execute(
+                    text(
+                        'ALTER TABLE "ForecastPortfolioState" ADD COLUMN "totalResolved" INTEGER NOT NULL DEFAULT 0'
+                    )
                 )
-            )
+        if "ForecastResolution" in tables:
+            cols = {c["name"] for c in insp.get_columns("ForecastResolution")}
+            if "source" not in cols:
+                conn.execute(
+                    text(
+                        'ALTER TABLE "ForecastResolution" ADD COLUMN "source" VARCHAR NOT NULL DEFAULT \'VENUE\''
+                    )
+                )
+            if "sourceUrl" not in cols:
+                conn.execute(
+                    text('ALTER TABLE "ForecastResolution" ADD COLUMN "sourceUrl" TEXT')
+                )
 
 
 def _sqlite_migrate_publication_columns(engine: Engine) -> None:
@@ -2073,6 +2087,130 @@ class Store:
                 .order_by(asc(ForecastPrediction.created_at))
             ).all()
             return [row for row in rows if row.id not in resolved_ids]
+
+    def list_published_predictions_for_backfill(
+        self,
+        *,
+        organization_id: str | None = None,
+        source: Optional[Any] = None,
+        since: datetime | None = None,
+        limit: int = 1000,
+        include_resolved: bool = True,
+    ) -> list[ForecastPrediction]:
+        """Predictions with status PUBLISHED, optionally including those
+        with an existing ForecastResolution row.
+
+        The resolution backfiller defaults to ``include_resolved=True``
+        so it can detect venue drift and write a ``ResolutionRevision``
+        when the venue now disagrees with the firm's stored resolution.
+        Set ``include_resolved=False`` to limit scanning to predictions
+        that have never been resolved.
+        """
+
+        status_value = ForecastPredictionStatus.PUBLISHED.value
+        with self.session() as s:
+            resolved_ids: set[str] = set()
+            if not include_resolved:
+                resolved_ids = set(
+                    s.exec(select(ForecastResolution.prediction_id)).all()
+                )
+            stmt = (
+                select(ForecastPrediction, ForecastMarket)
+                .join(
+                    ForecastMarket,
+                    ForecastMarket.id == ForecastPrediction.market_id,
+                )
+                .where(ForecastPrediction.status == status_value)
+            )
+            if organization_id is not None:
+                stmt = stmt.where(
+                    ForecastPrediction.organization_id == organization_id
+                )
+            if source is not None:
+                source_value = (
+                    source.value if hasattr(source, "value") else str(source)
+                )
+                stmt = stmt.where(ForecastMarket.source == source_value)
+            if since is not None:
+                stmt = stmt.where(ForecastPrediction.created_at >= since)
+            stmt = stmt.order_by(asc(ForecastPrediction.created_at))
+            rows = list(s.exec(stmt).all())
+
+        out: list[ForecastPrediction] = []
+        for prediction, _market in rows:
+            if not include_resolved and prediction.id in resolved_ids:
+                continue
+            out.append(prediction)
+            if len(out) >= limit:
+                break
+        return out
+
+    def get_resolution_override(
+        self, prediction_id: str
+    ) -> Optional[ResolutionOverride]:
+        with self.session() as s:
+            return s.exec(
+                select(ResolutionOverride).where(
+                    ResolutionOverride.prediction_id == prediction_id
+                )
+            ).first()
+
+    def put_resolution_override(self, override: ResolutionOverride) -> str:
+        """Append-only by predictionId — second write returns the existing id."""
+
+        with self.session() as s:
+            existing = s.exec(
+                select(ResolutionOverride).where(
+                    ResolutionOverride.prediction_id == override.prediction_id
+                )
+            ).first()
+            if existing is not None:
+                return existing.id
+            s.add(override)
+            s.commit()
+            return override.id
+
+    def put_resolution_mismatch(self, mismatch: ResolutionMismatch) -> str:
+        """Append-only audit row; multiple mismatches per prediction are allowed."""
+
+        with self.session() as s:
+            s.add(mismatch)
+            s.commit()
+            return mismatch.id
+
+    def list_resolution_mismatches(
+        self,
+        *,
+        prediction_id: str | None = None,
+        unreviewed_only: bool = False,
+        limit: int = 200,
+    ) -> list[ResolutionMismatch]:
+        with self.session() as s:
+            stmt = select(ResolutionMismatch)
+            if prediction_id is not None:
+                stmt = stmt.where(ResolutionMismatch.prediction_id == prediction_id)
+            if unreviewed_only:
+                stmt = stmt.where(ResolutionMismatch.reviewed_at.is_(None))
+            stmt = stmt.order_by(desc(ResolutionMismatch.created_at)).limit(limit)
+            return list(s.exec(stmt).all())
+
+    def put_resolution_revision(self, revision: ResolutionRevision) -> str:
+        with self.session() as s:
+            s.add(revision)
+            s.commit()
+            return revision.id
+
+    def list_resolution_revisions(
+        self, resolution_id: str
+    ) -> list[ResolutionRevision]:
+        with self.session() as s:
+            return list(
+                s.exec(
+                    select(ResolutionRevision)
+                    .where(ResolutionRevision.resolution_id == resolution_id)
+                    .order_by(asc(ResolutionRevision.created_at))
+                ).all()
+            )
 
     def put_forecast_bet(self, bet: ForecastBet) -> str:
         mode_value = bet.mode.value if hasattr(bet.mode, "value") else str(bet.mode)

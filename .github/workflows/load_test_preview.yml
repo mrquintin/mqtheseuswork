@@ -1,0 +1,80 @@
+name: Load test (preview deploy)
+
+# Runs the "light" profile against every Vercel preview deploy.
+# A failed run blocks the deploy gate. To override, dispatch the
+# workflow manually with an `override_reason` input — the reason is
+# written into the results JSON for audit.
+on:
+  pull_request:
+    paths:
+      - "tests/load/**"
+      - "theseus-codex/src/app/api/public/**"
+      - "theseus-codex/src/app/post/**"
+      - "theseus-codex/src/app/c/**"
+      - "theseus-codex/src/app/(home)/**"
+      - "theseus-codex/src/app/page.tsx"
+      - ".github/workflows/load_test_preview.yml"
+  deployment_status:
+  workflow_dispatch:
+    inputs:
+      base_url:
+        description: "Preview deploy URL to hit"
+        required: true
+      article_slug:
+        description: "Article slug to load on /post/<slug>"
+        required: true
+      conclusion_id:
+        description: "Optional conclusion id for the lineage call"
+        required: false
+        default: ""
+      override_reason:
+        description: "If set, a failing run is recorded but does not block."
+        required: false
+        default: ""
+
+jobs:
+  load-test-light:
+    runs-on: ubuntu-latest
+    # Only act on a successful preview deploy or an explicit dispatch.
+    if: >-
+      github.event_name != 'deployment_status' ||
+      github.event.deployment_status.state == 'success'
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Resolve preview URL
+        id: resolve
+        run: |
+          set -euo pipefail
+          if [ "${{ github.event_name }}" = "deployment_status" ]; then
+            BASE_URL="${{ github.event.deployment_status.target_url }}"
+          else
+            BASE_URL="${{ github.event.inputs.base_url }}"
+          fi
+          if [ -z "$BASE_URL" ]; then
+            echo "no preview URL available; skipping load test" >&2
+            exit 78
+          fi
+          echo "base_url=$BASE_URL" >> "$GITHUB_OUTPUT"
+
+      - name: Run light load profile
+        env:
+          LOAD_TEST_BASE_URL: ${{ steps.resolve.outputs.base_url }}
+          LOAD_TEST_ARTICLE_SLUG: ${{ github.event.inputs.article_slug || vars.LOAD_TEST_ARTICLE_SLUG }}
+          LOAD_TEST_CONCLUSION_ID: ${{ github.event.inputs.conclusion_id }}
+          LOAD_TEST_OVERRIDE_REASON: ${{ github.event.inputs.override_reason }}
+        run: |
+          python tests/load/article_viral.py --profile light
+
+      - name: Upload load-test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: load-test-light-${{ github.run_id }}
+          path: tests/load/results/*.json
+          if-no-files-found: warn
+          retention-days: 30

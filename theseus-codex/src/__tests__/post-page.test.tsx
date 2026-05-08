@@ -6,6 +6,7 @@ const mocks = vi.hoisted(() => ({
   db: {
     upload: { findFirst: vi.fn() },
     publishedConclusion: { findFirst: vi.fn() },
+    publicationSignature: { findFirst: vi.fn() },
   },
   getFounder: vi.fn(),
   notFound: vi.fn(() => {
@@ -43,6 +44,32 @@ vi.mock("@/components/RespondCallout", () => ({
   default: () => <aside data-testid="respond-callout" />,
 }));
 
+vi.mock("./ReaderResponses", () => ({
+  default: () => <div data-testid="reader-responses" />,
+}));
+
+vi.mock("@/app/post/[slug]/ReaderResponses", () => ({
+  default: () => <div data-testid="reader-responses" />,
+}));
+
+vi.mock("@/components/PrintButton", () => ({
+  default: ({
+    className,
+    label = "PDF",
+  }: {
+    className?: string;
+    label?: string;
+  }) => (
+    <button
+      className={`no-print ${className ?? ""}`.trim()}
+      data-testid="print-button"
+      type="button"
+    >
+      {label}
+    </button>
+  ),
+}));
+
 vi.mock("@/lib/auth", () => ({
   getFounder: mocks.getFounder,
 }));
@@ -58,6 +85,7 @@ describe("PostPage", () => {
     vi.clearAllMocks();
     mocks.getFounder.mockResolvedValue(null);
     mocks.db.publishedConclusion.findFirst.mockResolvedValue(null);
+    mocks.db.publicationSignature.findFirst.mockResolvedValue(null);
   });
 
   it("preserves the stored title text and justifies the article body container", async () => {
@@ -89,5 +117,50 @@ describe("PostPage", () => {
     expect(h1?.[1]).not.toContain("Cinzel");
     expect(h1?.[1]).not.toContain("text-transform");
     expect(html).toContain('class="post-body public-article-body"');
+  });
+
+  it("renders the print-only metadata block and a no-print toolbar", async () => {
+    mocks.db.upload.findFirst.mockResolvedValue({
+      id: "post-2",
+      organizationId: "org-1",
+      title: "Print Snapshot Article",
+      slug: "print-snapshot-article",
+      description: "",
+      authorBio: "Theseus",
+      blogExcerpt: "",
+      textContent: "Body paragraph one.\n\nBody paragraph two.",
+      publishedAt: new Date("2026-05-01T12:00:00.000Z"),
+      sourceType: "written",
+      audioUrl: null,
+      audioDurationSec: null,
+      founder: { displayName: "Theseus", name: "Theseus", username: "theseus" },
+    });
+    mocks.db.publicationSignature.findFirst.mockResolvedValue({
+      keyFingerprint: "fp-fixture-1234",
+    });
+
+    const element = await PostPage({
+      params: Promise.resolve({ slug: "print-snapshot-article" }),
+    });
+    const html = renderToStaticMarkup(element);
+
+    // Metadata block is in the DOM with the expected fields.
+    expect(html).toContain('data-testid="print-metadata-block"');
+    expect(html).toContain('class="print-only print-metadata-block"');
+    expect(html).toContain("Print Snapshot Article");
+    expect(html).toContain("fp-fixture-1234");
+    expect(html).toContain("/post/print-snapshot-article");
+
+    // Print button (a toolbar control) is present but tagged no-print.
+    // Attribute order is implementation-defined, so just check both
+    // are present on the same tag.
+    expect(html).toContain('data-testid="print-button"');
+    const printButtonTag = html.match(/<button[^>]*data-testid="print-button"[^>]*>/);
+    expect(printButtonTag).not.toBeNull();
+    expect(printButtonTag![0]).toMatch(/class="[^"]*\bno-print\b/);
+
+    // The "Back to index" toolbar wrapper is no-print so the printed
+    // page does not carry it.
+    expect(html).toMatch(/class="no-print"[^>]*>[\s\S]*Back to index/);
   });
 });

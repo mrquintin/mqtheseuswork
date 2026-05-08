@@ -1,3 +1,5 @@
+import { createHash } from "node:crypto";
+
 import { db } from "@/lib/db";
 import {
   hasMethodologyContent,
@@ -463,4 +465,244 @@ export async function buildPublicExportBundle(organizationId: string) {
       pseudonymous: r.pseudonymous,
     })),
   };
+}
+
+// ── Publication signing ────────────────────────────────────────────────
+//
+// The web app NEVER holds private signing keys. The noosphere CLI mints
+// signatures (`noosphere ledger sign-publication <slug>`) and writes them
+// into PublicationSignature. The web app:
+//   1. serves signatures verbatim via /api/public/signature/[slug],
+//   2. recomputes the canonical hash from the live row using the
+//      canonicalizer below,
+//   3. compares to PublicationSignature.canonicalHash to decide whether
+//      to render a verified / unsigned / mismatch banner.
+//
+// The canonicalizer here MUST stay byte-for-byte equivalent to
+// noosphere/noosphere/ledger/canonicalize.py — the verifier and signer
+// hash the same bytes or nothing works.
+
+export const PUBLICATION_SIGNATURE_SCHEMA = "theseus.publicationSignature.v1";
+
+export type PublicationCanonicalCitation = {
+  format: string;
+  block: string;
+};
+
+export type PublicationCanonicalMqs = {
+  aimMethodFit: number;
+  composite: number;
+  compressibility: number;
+  domainSensitivity: number;
+  progressivity: number;
+  promptVersion: string;
+  severity: number;
+};
+
+export type PublicationCanonicalInput = {
+  citations: PublicationCanonicalCitation[];
+  conclusionText: string;
+  discountedConfidence: number;
+  methodologyProfileIds: string[];
+  mqs: PublicationCanonicalMqs | null;
+  publishedAt: string;
+  schema: typeof PUBLICATION_SIGNATURE_SCHEMA;
+  slug: string;
+  statedConfidence: number;
+  version: number;
+};
+
+export type PublicationSignaturePayload = {
+  schema: string;
+  slug: string;
+  version: number;
+  canonicalInput: PublicationCanonicalInput;
+  canonicalHash: string;
+  signatureHex: string;
+  keyFingerprint: string;
+  signedAt: string;
+};
+
+export type PublicationSignatureStatus =
+  | { state: "verified"; signature: PublicationSignaturePayload; expectedHash: string }
+  | { state: "unsigned"; expectedHash: string }
+  | {
+      state: "mismatch";
+      signature: PublicationSignaturePayload;
+      expectedHash: string;
+      signedHash: string;
+    };
+
+export function normalizeMarkdownForSignature(text: string | null | undefined): string {
+  if (text == null) return "";
+  let s = String(text).normalize("NFC");
+  s = s.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
+  s = s
+    .split("\n")
+    .map((line) => line.replace(/[ \t\f\v]+$/u, ""))
+    .join("\n");
+  s = s.replace(/\n{3,}/g, "\n\n");
+  return s.trim();
+}
+
+function normalizeIsoTimestamp(ts: string | Date | null | undefined): string {
+  if (ts == null) return "";
+  const d = ts instanceof Date ? ts : new Date(ts);
+  if (Number.isNaN(d.getTime())) return String(ts);
+  // Match Python's: drop microseconds, render as Z UTC.
+  const iso = new Date(Math.floor(d.getTime() / 1000) * 1000).toISOString();
+  return iso.replace(/\.\d+Z$/, "Z");
+}
+
+function round6(n: unknown): number {
+  const v = typeof n === "number" ? n : Number(n ?? 0);
+  if (!Number.isFinite(v)) return 0;
+  return Math.round(v * 1_000_000) / 1_000_000;
+}
+
+function normalizeCitations(
+  raw: { format?: string; block?: string }[] | null | undefined,
+): PublicationCanonicalCitation[] {
+  if (!raw || raw.length === 0) return [];
+  const out = raw.map((c) => ({
+    format: String(c?.format ?? "").trim().toLowerCase(),
+    block: normalizeMarkdownForSignature(c?.block ?? ""),
+  }));
+  out.sort((a, b) => {
+    if (a.format !== b.format) return a.format < b.format ? -1 : 1;
+    if (a.block !== b.block) return a.block < b.block ? -1 : 1;
+    return 0;
+  });
+  return out;
+}
+
+function normalizeProfileIds(ids: (string | null | undefined)[] | null | undefined): string[] {
+  if (!ids) return [];
+  const cleaned = ids
+    .map((s) => (s == null ? "" : String(s).trim()))
+    .filter((s) => s.length > 0);
+  return Array.from(new Set(cleaned)).sort();
+}
+
+function canonicalJsonStringify(obj: unknown): string {
+  if (obj === null || typeof obj !== "object") return JSON.stringify(obj);
+  if (Array.isArray(obj)) {
+    return `[${obj.map((v) => canonicalJsonStringify(v)).join(",")}]`;
+  }
+  const keys = Object.keys(obj as Record<string, unknown>).sort();
+  const body = keys
+    .map((k) => `${JSON.stringify(k)}:${canonicalJsonStringify((obj as Record<string, unknown>)[k])}`)
+    .join(",");
+  return `{${body}}`;
+}
+
+export type CanonicalInputSource = {
+  slug: string;
+  version: number;
+  publishedAt: Date | string;
+  discountedConfidence: number;
+  statedConfidence: number;
+  payload: PublicationPayloadV1 | { conclusionText?: string; methodology?: PublicationMethodology; citations?: { format?: string; block?: string }[] };
+  mqs?: {
+    aimMethodFit?: number | null;
+    composite?: number | null;
+    compressibility?: number | null;
+    domainSensitivity?: number | null;
+    progressivity?: number | null;
+    promptVersion?: string | null;
+    severity?: number | null;
+  } | null;
+};
+
+export function buildCanonicalInput(src: CanonicalInputSource): PublicationCanonicalInput {
+  const profiles = (src.payload as PublicationPayloadV1)?.methodology?.profiles;
+  const profileIds = normalizeProfileIds(
+    Array.isArray(profiles) ? profiles.map((p) => (p as { id?: string }).id) : [],
+  );
+  const citations = normalizeCitations(
+    Array.isArray((src.payload as { citations?: { format?: string; block?: string }[] }).citations)
+      ? ((src.payload as { citations: { format?: string; block?: string }[] }).citations)
+      : [],
+  );
+  const mqs = src.mqs
+    ? {
+        aimMethodFit: round6(src.mqs.aimMethodFit),
+        composite: round6(src.mqs.composite),
+        compressibility: round6(src.mqs.compressibility),
+        domainSensitivity: round6(src.mqs.domainSensitivity),
+        progressivity: round6(src.mqs.progressivity),
+        promptVersion: String(src.mqs.promptVersion ?? ""),
+        severity: round6(src.mqs.severity),
+      }
+    : null;
+
+  return {
+    citations,
+    conclusionText: normalizeMarkdownForSignature(
+      (src.payload as { conclusionText?: string }).conclusionText ?? "",
+    ),
+    discountedConfidence: round6(src.discountedConfidence),
+    methodologyProfileIds: profileIds,
+    mqs,
+    publishedAt: normalizeIsoTimestamp(src.publishedAt),
+    schema: PUBLICATION_SIGNATURE_SCHEMA,
+    slug: String(src.slug),
+    statedConfidence: round6(src.statedConfidence),
+    version: Math.trunc(Number(src.version) || 0),
+  };
+}
+
+export function canonicalHash(input: PublicationCanonicalInput): string {
+  return createHash("sha256").update(canonicalJsonStringify(input), "utf8").digest("hex");
+}
+
+export async function evaluatePublicationSignatureStatus(
+  publishedConclusionId: string,
+  src: CanonicalInputSource,
+): Promise<PublicationSignatureStatus> {
+  const liveInput = buildCanonicalInput(src);
+  const expectedHash = canonicalHash(liveInput);
+
+  const sig = await db.publicationSignature.findUnique({
+    where: { publishedConclusionId },
+  });
+  if (!sig) {
+    return { state: "unsigned", expectedHash };
+  }
+
+  let payload: PublicationSignaturePayload | null = null;
+  try {
+    const parsed = JSON.parse(sig.payloadJson) as PublicationSignaturePayload;
+    payload = parsed;
+  } catch {
+    payload = null;
+  }
+  const fallback: PublicationSignaturePayload = payload ?? {
+    schema: PUBLICATION_SIGNATURE_SCHEMA,
+    slug: sig.slug,
+    version: sig.version,
+    canonicalInput: liveInput,
+    canonicalHash: sig.canonicalHash,
+    signatureHex: sig.signatureHex,
+    keyFingerprint: sig.keyFingerprint,
+    signedAt: sig.signedAt,
+  };
+
+  if (sig.canonicalHash === expectedHash) {
+    return { state: "verified", signature: fallback, expectedHash };
+  }
+  return {
+    state: "mismatch",
+    signature: fallback,
+    expectedHash,
+    signedHash: sig.canonicalHash,
+  };
+}
+
+export async function activePublicationKeyFingerprint(): Promise<string | null> {
+  const latest = await db.publicationSignature.findFirst({
+    orderBy: { createdAt: "desc" },
+    select: { keyFingerprint: true },
+  });
+  return latest?.keyFingerprint ?? null;
 }

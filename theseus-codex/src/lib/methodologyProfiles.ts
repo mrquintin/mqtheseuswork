@@ -185,6 +185,116 @@ export async function profilesForConclusions(
   return out;
 }
 
+export type MqsSubScore = {
+  score: number;
+  evidence: Record<string, unknown>;
+};
+
+export type MqsRecord = {
+  conclusionId: string;
+  progressivity: number;
+  severity: number;
+  aimMethodFit: number;
+  compressibility: number;
+  domainSensitivity: number;
+  composite: number;
+  evidence: Record<string, unknown>;
+  modelName: string;
+  promptVersion: string;
+  scoredAt: string;
+};
+
+type MqsRow = {
+  conclusionId: string;
+  progressivity: number | string;
+  severity: number | string;
+  aimMethodFit: number | string;
+  compressibility: number | string;
+  domainSensitivity: number | string;
+  composite: number | string;
+  evidence: unknown;
+  modelName: string;
+  promptVersion: string;
+  scoredAt: Date | string;
+};
+
+function num01(value: unknown): number {
+  const n = typeof value === "number" ? value : Number(value || 0);
+  if (!Number.isFinite(n)) return 0;
+  return Math.min(1, Math.max(0, n));
+}
+
+function evidenceObject(value: unknown): Record<string, unknown> {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return {};
+  return value as Record<string, unknown>;
+}
+
+function isoDate(value: Date | string): string {
+  return value instanceof Date ? value.toISOString() : String(value);
+}
+
+function rowToMqs(row: MqsRow): MqsRecord {
+  return {
+    conclusionId: row.conclusionId,
+    progressivity: num01(row.progressivity),
+    severity: num01(row.severity),
+    aimMethodFit: num01(row.aimMethodFit),
+    compressibility: num01(row.compressibility),
+    domainSensitivity: num01(row.domainSensitivity),
+    composite: num01(row.composite),
+    evidence: evidenceObject(row.evidence),
+    modelName: cleanString(row.modelName, 120) || "stub",
+    promptVersion: cleanString(row.promptVersion, 120) || "mqs-prompt-v1.0",
+    scoredAt: isoDate(row.scoredAt),
+  };
+}
+
+export async function mqsForConclusion(
+  organizationId: string,
+  conclusionId: string,
+): Promise<MqsRecord | null> {
+  try {
+    const rows = await db.$queryRaw<MqsRow[]>`
+      SELECT
+        "conclusionId",
+        progressivity,
+        severity,
+        "aimMethodFit",
+        compressibility,
+        "domainSensitivity",
+        composite,
+        evidence,
+        "modelName",
+        "promptVersion",
+        "scoredAt"
+      FROM "MethodologyQualityScore"
+      WHERE "organizationId" = ${organizationId}
+        AND "conclusionId" = ${conclusionId}
+      LIMIT 1
+    `;
+    return rows[0] ? rowToMqs(rows[0]) : null;
+  } catch (error) {
+    console.error("[mqs] fetch failed (schema lag?):", error);
+    return null;
+  }
+}
+
+/**
+ * Public-side filter: only return an MQS record when the score is fresher
+ * than the conclusion's last edit. The public pill is hidden otherwise.
+ */
+export function isMqsFreshForPublic(
+  mqs: MqsRecord | null,
+  conclusionUpdatedAt: Date | string | null | undefined,
+): boolean {
+  if (!mqs) return false;
+  if (!conclusionUpdatedAt) return true;
+  const scored = new Date(mqs.scoredAt).getTime();
+  const edited = new Date(isoDate(conclusionUpdatedAt as Date | string)).getTime();
+  if (!Number.isFinite(scored) || !Number.isFinite(edited)) return false;
+  return scored >= edited;
+}
+
 export async function profilesForUpload(
   organizationId: string,
   uploadId: string,

@@ -38,6 +38,7 @@ from anthropic import Anthropic
 from noosphere.models import (
     Principle,
     Claim,
+    Conclusion,
     Relationship,
     RelationType,
     Discipline,
@@ -701,6 +702,110 @@ Be precise. The principle text should be a single assertoric statement, 2-3 sent
                     relationships.append(rel)
 
         return relationships
+
+    # ── Corpus-level distillation ────────────────────────────────────────────
+
+    def cluster_conclusions(
+        self,
+        conclusions: List[Conclusion],
+        embeddings: List[List[float]],
+        clustering_threshold: float,
+        min_cluster_size: int,
+    ) -> List[List[int]]:
+        """
+        Hierarchical clustering on the embedding-space neighborhood of
+        conclusions. Returns list of clusters as index lists.
+
+        The threshold is interpreted as cosine distance (1 - cosine
+        similarity) and is applied conservatively by callers — the firm
+        prefers fewer, more defensible principles over many narrow ones.
+        """
+        if len(conclusions) != len(embeddings):
+            raise ValueError("conclusions and embeddings length mismatch")
+        if len(conclusions) <= 1:
+            return [[0]] if conclusions else []
+
+        X = np.asarray(embeddings, dtype=float)
+        clustering = AgglomerativeClustering(
+            n_clusters=None,
+            distance_threshold=clustering_threshold,
+            linkage="average",
+            metric="cosine",
+        )
+        labels = clustering.fit_predict(X)
+        groups: Dict[int, List[int]] = defaultdict(list)
+        for idx, lab in enumerate(labels.tolist()):
+            groups[int(lab)].append(idx)
+        return [g for g in groups.values() if len(g) >= min_cluster_size]
+
+    def draft_principle_for_conclusions(
+        self,
+        cluster: List[Conclusion],
+    ) -> Optional[Dict[str, Any]]:
+        """
+        Generate a candidate principle for a cluster of conclusions.
+
+        The conclusions in the cluster are the only context provided to
+        the LLM — the prompt explicitly forbids free invention and
+        requires that the draft cite the conclusions it generalizes.
+
+        Returns a dict with keys: text, domains (list[str]),
+        cited_conclusion_ids (list[str]).  Returns None on parse
+        failure.
+        """
+        if not cluster:
+            return None
+
+        cited_lines = "\n".join(
+            f"[{c.id}] {c.text}" for c in cluster
+        )
+        prompt = (
+            "You are distilling a working principle the firm keeps "
+            "re-deriving. The principle is a single-sentence claim the "
+            "firm is willing to defend, written as a position — not a "
+            "slogan, not an axiom inferred from first principles.\n\n"
+            "Use ONLY the conclusions below as evidence. Do not invent "
+            "claims they do not support. Quote each conclusion id you "
+            "rely on.\n\n"
+            f"Conclusions:\n{cited_lines}\n\n"
+            "Respond with ONLY a JSON object (no markdown):\n"
+            "{\n"
+            '  "text": "<single-sentence principle the firm would defend>",\n'
+            '  "domains": ["<domain string>", ...],\n'
+            '  "cited_conclusion_ids": ["<id>", ...]\n'
+            "}\n"
+        )
+        try:
+            response = self.client.messages.create(
+                model="claude-sonnet-4-20250514",
+                max_tokens=600,
+                messages=[{"role": "user", "content": prompt}],
+            )
+            content = response.content[0].text
+            data = json.loads(content)
+        except (json.JSONDecodeError, KeyError, ValueError, IndexError) as e:
+            logger.error(f"Failed to draft principle: {e}")
+            return None
+
+        cluster_ids = {c.id for c in cluster}
+        cited = [
+            cid for cid in data.get("cited_conclusion_ids", [])
+            if isinstance(cid, str) and cid in cluster_ids
+        ]
+        if not cited:
+            # Without explicit citations, refuse the draft — the
+            # constraint is that the principle must cite the
+            # conclusions it generalizes.
+            return None
+
+        return {
+            "text": str(data.get("text", "")).strip(),
+            "domains": [
+                str(d).strip() for d in data.get("domains", [])
+                if isinstance(d, str) and str(d).strip()
+            ],
+            "cited_conclusion_ids": cited,
+        }
 
     # ── Helpers ──────────────────────────────────────────────────────────────
 

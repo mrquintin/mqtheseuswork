@@ -24,3 +24,6 @@ from noosphere.peer_review.reviewers import adv_literature as _adv_literature  #
 from noosphere.peer_review.reviewers import replication as _replication  # noqa: E402, F401
 from noosphere.peer_review.reviewers import rhetorical as _rhetorical  # noqa: E402, F401
 from noosphere.peer_review.reviewers import humility as _humility  # noqa: E402, F401
+from noosphere.peer_review import blindspot as _blindspot  # noqa: E402, F401
+from noosphere.peer_review import geometric_blindspot as _geometric_blindspot  # noqa: E402, F401
+from noosphere.peer_review import inverse as _inverse  # noqa: E402, F401

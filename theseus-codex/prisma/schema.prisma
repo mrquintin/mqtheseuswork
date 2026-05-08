@@ -130,31 +130,52 @@ model Organization {
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
 
-  founders             Founder[]
-  sessions             Session[]
-  uploads              Upload[]
-  conclusions          Conclusion[]
-  contradictions       Contradiction[]
-  driftEvents          DriftEvent[]
-  researchSuggestions  ResearchSuggestion[]
-  reviewItems          ReviewItem[]
-  openQuestions        OpenQuestion[]
-  auditEvents          AuditEvent[]
-  publicationReviews   PublicationReview[]
-  publishedConclusions PublishedConclusion[]
-  publicResponses      PublicResponse[]
-  apiKeys              ApiKey[]
-  currentEvents        CurrentEvent[]
-  eventOpinions        EventOpinion[]
-  methodologyProfiles  MethodologyProfile[]
-  socialPosts          SocialPost[]
-  operatorStates       OperatorState[]
-  forecastMarkets      ForecastMarket[]
-  forecastPredictions  ForecastPrediction[]
-  forecastTraces       ForecastTrace[]
-  forecastBets         ForecastBet[]
-  forecastPortfolios   ForecastPortfolioState[]
-  watchedMarkets       WatchedMarket[]
+  founders                 Founder[]
+  sessions                 Session[]
+  uploads                  Upload[]
+  conclusions              Conclusion[]
+  contradictions           Contradiction[]
+  driftEvents              DriftEvent[]
+  researchSuggestions      ResearchSuggestion[]
+  reviewItems              ReviewItem[]
+  openQuestions            OpenQuestion[]
+  auditEvents              AuditEvent[]
+  publicationReviews       PublicationReview[]
+  publishedConclusions     PublishedConclusion[]
+  publicResponses          PublicResponse[]
+  responseTriages          ResponseTriage[]
+  publicReplies            PublicReply[]
+  apiKeys                  ApiKey[]
+  currentEvents            CurrentEvent[]
+  eventOpinions            EventOpinion[]
+  methodologyProfiles      MethodologyProfile[]
+  methodologyQualityScores MethodologyQualityScore[]
+  socialPosts              SocialPost[]
+  operatorStates           OperatorState[]
+  forecastMarkets          ForecastMarket[]
+  forecastPredictions      ForecastPrediction[]
+  forecastTraces           ForecastTrace[]
+  forecastBets             ForecastBet[]
+  forecastPortfolios       ForecastPortfolioState[]
+  watchedMarkets           WatchedMarket[]
+  conclusionMethods        ConclusionMethod[]
+  methodTrackRecords       MethodTrackRecord[]
+  methodVersions           MethodVersion[]
+  anchorRevisions          AnchorRevision[]
+  domainBoundVerdicts      DomainBoundVerdict[]
+  calibrationModels        CalibrationModel[]
+  recalibrationOverrides   RecalibrationOverride[]
+  revisionEvents           RevisionEvent[]
+  sourceStandings          SourceStanding[]
+  sourceTriageItems        SourceTriageItem[]
+  sourceCredibility        SourceCredibilityUpdate[]
+  citationVerdicts         CitationVerdict[]
+  attentionActions         AttentionAction[]
+  subscribers              Subscriber[]
+  principles               Principle[]
+  addenda                  Addendum[]
+  critiqueSubmissions      CritiqueSubmission[]
+  critiqueBountyPayouts    CritiqueBountyPayout[]
 }
 
 // ── Founders (portal users) — maps to FounderProfile in noosphere/models.py ─
@@ -201,10 +222,21 @@ model Founder {
   researchSuggestions        ResearchSuggestion[]
   reviewResolutions          ReviewItem[]                @relation("ReviewResolver")
   publicationReviews         PublicationReview[]         @relation("PublicationReviewer")
+  recalibrationOverrides     RecalibrationOverride[]
   apiKeys                    ApiKey[]
   conclusionDeletionRequests ConclusionDeletionRequest[]
   dashboardDismissals        DashboardDismissal[]
   resolvedContradictions     Contradiction[]             @relation("ContradictionResolver")
+  revisionEvents             RevisionEvent[]
+  publicReplies              PublicReply[]               @relation("PublicReplyFounder")
+  attentionActions           AttentionAction[]
+  decidedCritiques           CritiqueSubmission[]        @relation("CritiqueDecidedBy")
+  confirmedBountyPayouts     CritiqueBountyPayout[]      @relation("CritiqueBountyConfirmedBy")
+
+  /// Opt-in flag for the daily morning digest email summarising open
+  /// high-severity attention items. Default `false` — silent until the
+  /// founder explicitly opts in. See `src/lib/dailyDigestEmail.ts`.
+  dailyDigestOptIn Boolean @default(false)
 
   @@unique([organizationId, email])
   @@unique([organizationId, username])
@@ -374,7 +406,7 @@ model Upload {
 }
 
 model UploadChunk {
-  id           String  @id @default(cuid())
+  id           String   @id @default(cuid())
   uploadId     String
   index        Int
   text         String
@@ -465,14 +497,24 @@ model Conclusion {
   /// column was added; the semantic explorer backfills on demand.
   embeddingJson String?
 
-  attributedFounderId String?
-  attributedFounder   Founder?                    @relation("ConclusionFounder", fields: [attributedFounderId], references: [id])
-  organization        Organization                @relation(fields: [organizationId], references: [id], onDelete: Restrict)
-  publicationReviews  PublicationReview[]
-  sources             ConclusionSource[]
-  methodologyProfiles MethodologyProfile[]
-  deletionRequests    ConclusionDeletionRequest[]
-  dashboardDismissals DashboardDismissal[]
+  attributedFounderId     String?
+  attributedFounder       Founder?                    @relation("ConclusionFounder", fields: [attributedFounderId], references: [id])
+  organization            Organization                @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  publicationReviews      PublicationReview[]
+  sources                 ConclusionSource[]
+  methodologyProfiles     MethodologyProfile[]
+  /// Optional MQS row (1:1). Built by `noosphere mqs backfill`; re-runnable
+  /// without rewriting the underlying methodology profile.
+  methodologyQualityScore MethodologyQualityScore?
+  conclusionMethods       ConclusionMethod[]
+  domainBoundVerdicts     DomainBoundVerdict[]
+  recalibrationOverride   RecalibrationOverride?
+  deletionRequests        ConclusionDeletionRequest[]
+  dashboardDismissals     DashboardDismissal[]
+
+  /// Conclusion edit timestamp; the public MQS pill is only shown when the
+  /// MQS row's `scoredAt` is at least this recent.
+  updatedAt DateTime? @updatedAt
 
   @@index([organizationId])
   @@index([organizationId, normalizedText])
@@ -567,13 +609,242 @@ model PublishedConclusion {
 
   publishedAt DateTime @default(now())
 
-  organization Organization     @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  organization Organization          @relation(fields: [organizationId], references: [id], onDelete: Restrict)
   responses    PublicResponse[]
+  signature    PublicationSignature?
 
   @@unique([slug, version])
   @@index([organizationId])
   @@index([slug])
   @@index([kind, publishedAt])
+}
+
+/// Cryptographic signature for a PublishedConclusion.
+///
+/// Generated by the noosphere CLI (`noosphere ledger sign-publication`) at
+/// the publish moment. Private signing keys NEVER live in the web app; the
+/// web app stores the signature artifact and serves it via
+/// /api/public/signature/[slug]. Readers can re-verify with
+/// `noosphere ledger verify-publication <slug>`.
+model PublicationSignature {
+  id                     String   @id @default(cuid())
+  publishedConclusionId  String   @unique
+  slug                   String
+  version                Int
+
+  /// Hex-encoded SHA-256 of the canonicalized inputs (see noosphere.ledger.canonicalize).
+  canonicalHash  String
+  /// Hex-encoded Ed25519 signature over the canonical hash bytes.
+  signatureHex   String
+  /// Short fingerprint (sha256[:16]) of the verify key used to sign.
+  keyFingerprint String
+  /// ISO-8601 UTC timestamp at the moment of signing.
+  signedAt       String
+
+  /// Full PublicationSignature artifact as JSON (canonicalInput + signature),
+  /// served verbatim to the public verifier.
+  payloadJson String @default("{}")
+
+  createdAt DateTime @default(now())
+
+  publishedConclusion PublishedConclusion @relation(fields: [publishedConclusionId], references: [id], onDelete: Cascade)
+
+  @@index([slug, version])
+  @@index([keyFingerprint])
+}
+
+// ── Self-critique addenda ──────────────────────────────────────────────────
+//
+// Quarterly self-critique (see `noosphere/peer_review/self_critique.py`)
+// can recommend that a published article carry a dated addendum block —
+// "On <date> the firm re-reviewed this article and found <summary>".
+// The addendum is visibly later content; the original article body is
+// never edited through this path. Only `publishedAt` is shown publicly;
+// `pending` and `dismissed` rows are operator-only.
+model Addendum {
+  id             String @id @default(cuid())
+  organizationId String
+
+  /// Slug of the article the addendum attaches to. We key by slug (not
+  /// publishedConclusionId) so a generated-article post and its
+  /// matching `PublishedConclusion` row can share addenda without
+  /// having to be linked through the same id.
+  articleSlug String
+
+  /// Optional pointer at the noosphere-side article id, kept for audit
+  /// trails so the founder can correlate an addendum with the upstream
+  /// run.
+  noosphereArticleId String?
+
+  /// The self-critique finding that produced this addendum (free-form
+  /// — used only for cross-referencing).
+  findingId String @default("")
+
+  /// One-sentence summary shown in the public block ("the firm
+  /// re-reviewed this article and found …").
+  summary String @db.Text
+  /// Full body of the addendum. Markdown is allowed; the public page
+  /// renders it inside a dated block below the original article.
+  body String @default("") @db.Text
+
+  /// pending | published | dismissed. Only `published` rows surface on
+  /// the public page; `dismissed` carries `dismissedReason`.
+  status String @default("pending")
+
+  /// Free-form label of the reviewer configuration that produced the
+  /// finding (e.g. `self-critique:v1`). Recorded so the firm can prove
+  /// the self-critique pass used a configuration distinct from the
+  /// original publication's swarm.
+  reviewerConfig String @default("")
+
+  createdAt       DateTime  @default(now())
+  publishedAt     DateTime?
+  dismissedAt     DateTime?
+  dismissedReason String    @default("") @db.Text
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+
+  @@index([organizationId, articleSlug, status])
+  @@index([articleSlug, status, publishedAt])
+}
+
+// ── Open critique invitation (challenge-this) ──────────────────────────────
+//
+// Outside experts critique a specific firm conclusion through a
+// structured form (see `src/components/ChallengeThisCta.tsx`). The
+// submission lands in `CritiqueSubmission` (distinct from
+// `PublicResponse` so general inbox traffic does not hide invited
+// expert critique). The founder routes the row through the moderation
+// states `pending → accepted | partial | rejected`. Accepted critiques
+// are signed alongside the article and appear on the public
+// `/critiques` hall-of-fame.
+//
+// Bounty: when the founder marks an accepted critique as severity
+// `high` (per `noosphere.peer_review.severity`), the system queues a
+// `CritiqueBountyPayout` row in `pending_founder_confirmation`. No
+// payout fires until the founder explicitly confirms — the payouts
+// pipeline is the eventual sender, not the codex.
+model CritiqueSubmission {
+  id             String @id @default(cuid())
+  organizationId String
+
+  /// Article this critique is aimed at — keyed by slug so the
+  /// challenge form on a generated-article post and a
+  /// `PublishedConclusion` row can both file critiques against the
+  /// same target.
+  articleSlug           String
+  /// Optional pointer at the underlying `PublishedConclusion.id` when
+  /// the article is a reviewed firm conclusion.
+  publishedConclusionId String?
+
+  /// Specific claim the critic challenges (free-form text — the
+  /// canonical claim id is not exposed publicly).
+  targetClaim     String  @db.Text
+  /// Counter-evidence presented by the critic.
+  counterEvidence String  @db.Text
+  /// Method used to derive the counter-evidence ("how did you arrive
+  /// at this?" — replication, audit, lit review, expert opinion).
+  derivationMethod String @db.Text
+  /// Citations supporting the counter-evidence (one URL per line).
+  citations        String @default("") @db.Text
+
+  /// Critic identity / display preferences. Email is required so the
+  /// founder can contact the critic about bounty / partial discussion.
+  /// `displayName` and `publicUrl` are what the public hall-of-fame
+  /// renders when the critique is accepted.
+  submitterEmail String
+  displayName    String  @default("")
+  publicUrl      String  @default("")
+  bio            String  @default("") @db.Text
+  orcid          String  @default("")
+
+  /// pending | accepted | partial | rejected | archived
+  status         String   @default("pending")
+  /// Reason recorded by the founder when status moves out of `pending`.
+  /// For partial: explains why it's a private discussion. For rejected:
+  /// shown to the critic in the rejection email.
+  moderatorNote  String   @default("") @db.Text
+
+  /// Severity label assigned at acceptance time per the rubric in
+  /// `noosphere.peer_review.severity` — "low" | "medium" | "high".
+  /// Only `high` makes the critique bounty-eligible.
+  severityLabel  String   @default("")
+  /// Cached severity value in [0, 1].
+  severityValue  Float    @default(0)
+
+  /// Founder who acted on the row (accepted/rejected). Null while
+  /// pending.
+  decidedById    String?
+  decidedAt      DateTime?
+
+  /// Set when the critique materially changed an article — points at
+  /// the `RevisionEvent.id` produced by routing through prompt 16.
+  triggeredRevisionId String?
+  /// Set when the critique drove an `Addendum` row (prompt 43).
+  addendumId          String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  organization Organization                 @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  decidedBy    Founder?                     @relation("CritiqueDecidedBy", fields: [decidedById], references: [id])
+  bounty       CritiqueBountyPayout?
+
+  @@index([organizationId])
+  @@index([organizationId, status])
+  @@index([organizationId, articleSlug, status])
+  @@index([severityValue])
+}
+
+/// Queued bounty payout for an accepted high-severity critique.
+///
+/// The codex never sends money. It records intent (`amountUsd`,
+/// `payoutMode`, `destination`) and waits in
+/// `pending_founder_confirmation` until the founder explicitly confirms
+/// in the queue UI. Confirmation flips the row to `confirmed`, which is
+/// what the firm's external payouts pipeline picks up.
+///
+/// Critics may direct the bounty to a charity instead of accepting it
+/// personally — `payoutMode = "charity"` carries the chosen charity in
+/// `destination`.
+model CritiqueBountyPayout {
+  id             String @id @default(cuid())
+  organizationId String
+
+  critiqueSubmissionId String @unique
+
+  /// Default 500 (USD); configurable per-org via the queue UI before
+  /// the founder confirms.
+  amountUsd  Int    @default(500)
+  /// "self" — paid to the critic's email of record. "charity" —
+  /// donated to the charity captured in `destination`.
+  payoutMode String @default("self")
+  /// For payoutMode=self: "" (use submitter email). For
+  /// payoutMode=charity: the charity name / URL the critic chose.
+  destination String @default("")
+
+  /// pending_founder_confirmation | confirmed | cancelled
+  status String @default("pending_founder_confirmation")
+  /// Reason recorded if cancelled.
+  cancellationNote String @default("")
+
+  /// `confirmed`-state metadata — set only after the founder confirms.
+  confirmedById   String?
+  confirmedAt     DateTime?
+  /// External payouts-pipeline reference id (set by the off-codex job
+  /// that actually disburses funds; the codex only stores it for the
+  /// audit trail).
+  externalRef     String   @default("")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  organization        Organization       @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  critiqueSubmission  CritiqueSubmission @relation(fields: [critiqueSubmissionId], references: [id], onDelete: Cascade)
+  confirmedBy         Founder?           @relation("CritiqueBountyConfirmedBy", fields: [confirmedById], references: [id])
+
+  @@index([organizationId])
+  @@index([organizationId, status])
 }
 
 // ── Methodology profiles ───────────────────────────────────────────────────
@@ -582,7 +853,7 @@ model PublishedConclusion {
 /// concludes. Noosphere writes these from transcripts/uploads and reanalysis
 /// scripts; publication review can attach them to public conclusions.
 model MethodologyProfile {
-  id             String @id @default(cuid())
+  id             String  @id @default(cuid())
   organizationId String
   uploadId       String?
   conclusionId   String?
@@ -602,7 +873,7 @@ model MethodologyProfile {
   failureModes    Json
   evidenceAnchors Json
 
-  confidence Float @default(0.5)
+  confidence Float  @default(0.5)
   dedupeKey  String
 
   createdAt DateTime @default(now())
@@ -617,6 +888,53 @@ model MethodologyProfile {
   @@index([organizationId, patternType])
   @@index([uploadId])
   @@index([conclusionId])
+}
+
+// ── Methodology Quality Score (MQS) ─────────────────────────────────────────
+
+/// Operational form of the five working criteria from `THE_META_METHOD.md`:
+/// progressivity, severity, aim-method fit, compressibility, domain sensitivity.
+///
+/// One row per Conclusion. The score is additive — it never silently mutates a
+/// MethodologyProfile — and re-runnable: `noosphere mqs backfill` overwrites
+/// the existing row in place using the conclusion id as the unique key.
+///
+/// The composite is intentionally not a simple mean. Domain Sensitivity acts
+/// as a multiplicative gate; the canonical formula is documented in
+/// `docs/methods/MQS_Specification.md` and verified by
+/// `scripts/check_mqs_doc_consistency.py`.
+model MethodologyQualityScore {
+  id             String @id @default(cuid())
+  organizationId String
+
+  /// 1:1 with Conclusion. The unique constraint enforces the relation.
+  conclusionId String @unique
+
+  progressivity     Float
+  severity          Float
+  aimMethodFit      Float
+  compressibility   Float
+  domainSensitivity Float
+  composite         Float
+
+  /// JSON blob with one entry per sub-score plus the composite formula and
+  /// schema version, so a human reviewer can inspect and contest the score.
+  evidence Json
+
+  /// Identity of the producer so re-runs can be reasoned about (e.g.
+  /// "anthropic/claude-opus-4-7" + "mqs-prompt-v1.0").
+  modelName     String @default("stub")
+  promptVersion String @default("mqs-prompt-v1.0")
+
+  scoredAt  DateTime @default(now())
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  conclusion   Conclusion   @relation(fields: [conclusionId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId, scoredAt])
+  @@index([organizationId, composite])
 }
 
 // ── Currents — observed external events + source-grounded opinions ──────────
@@ -675,17 +993,17 @@ model EventOpinion {
 }
 
 model OpinionCitation {
-  id             String    @id @default(cuid())
-  opinionId      String
-  sourceKind     String
-  conclusionId   String?
-  claimId        String?
-  quotedSpan     String    @db.Text
-  retrievalScore Float
+  id                    String    @id @default(cuid())
+  opinionId             String
+  sourceKind            String
+  conclusionId          String?
+  claimId               String?
+  quotedSpan            String    @db.Text
+  retrievalScore        Float
   justificationMetadata Json      @default("{}")
-  isRevoked      Boolean   @default(false)
-  revokedAt      DateTime?
-  revokedReason  String?
+  isRevoked             Boolean   @default(false)
+  revokedAt             DateTime?
+  revokedReason         String?
 
   opinion EventOpinion @relation(fields: [opinionId], references: [id], onDelete: Cascade)
 
@@ -724,15 +1042,15 @@ model FollowUpMessage {
 // ── Social publishing — held outbound posts with a hard human gate ─────────
 
 model SocialPost {
-  id             String   @id @default(cuid())
+  id             String    @id @default(cuid())
   organizationId String
-  createdAt      DateTime @default(now())
+  createdAt      DateTime  @default(now())
   source         String
   sourceId       String?
   platform       String
-  bundleId       String?  @db.Uuid
-  body           String   @db.Text
-  markdownBody   String?  @db.Text
+  bundleId       String?   @db.Uuid
+  body           String    @db.Text
+  markdownBody   String?   @db.Text
   subject        String?
   media          Json?
   status         String
@@ -798,16 +1116,16 @@ model ForecastMarket {
 }
 
 model WatchedMarket {
-  id                 String         @id @default(cuid())
-  organizationId     String
-  source             ForecastSource
-  url                String         @db.Text
-  externalId         String?
-  status             String         @default("ACTIVE")
-  notes              String?        @db.Text
-  lastConsideredAt   DateTime?
-  createdAt          DateTime       @default(now())
-  updatedAt          DateTime       @updatedAt
+  id               String         @id @default(cuid())
+  organizationId   String
+  source           ForecastSource
+  url              String         @db.Text
+  externalId       String?
+  status           String         @default("ACTIVE")
+  notes            String?        @db.Text
+  lastConsideredAt DateTime?
+  createdAt        DateTime       @default(now())
+  updatedAt        DateTime       @updatedAt
 
   organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
 
@@ -836,13 +1154,15 @@ model ForecastPrediction {
   createdAt        DateTime                 @default(now())
   updatedAt        DateTime                 @updatedAt
 
-  market           ForecastMarket            @relation(fields: [marketId], references: [id], onDelete: Cascade)
-  organization     Organization              @relation(fields: [organizationId], references: [id], onDelete: Restrict)
-  citations        ForecastCitation[]
-  resolution       ForecastResolution?
-  bets             ForecastBet[]
-  trace            ForecastTrace?
-  followUpSessions ForecastFollowUpSession[]
+  market               ForecastMarket            @relation(fields: [marketId], references: [id], onDelete: Cascade)
+  organization         Organization              @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  citations            ForecastCitation[]
+  resolution           ForecastResolution?
+  resolutionOverride   ResolutionOverride?
+  resolutionMismatches ResolutionMismatch[]
+  bets                 ForecastBet[]
+  trace                ForecastTrace?
+  followUpSessions     ForecastFollowUpSession[]
 
   @@index([organizationId, status, createdAt])
   @@index([marketId, createdAt])
@@ -850,16 +1170,16 @@ model ForecastPrediction {
 }
 
 model ForecastTrace {
-  id              String   @id @default(cuid())
-  predictionId    String   @unique
-  marketId        String
-  organizationId  String
-  marketTitle     String   @db.VarChar(280)
-  principlesUsed  Json
-  modelOutput     Json
-  gateResults     Json
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
+  id             String   @id @default(cuid())
+  predictionId   String   @unique
+  marketId       String
+  organizationId String
+  marketTitle    String   @db.VarChar(280)
+  principlesUsed Json
+  modelOutput    Json
+  gateResults    Json
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
 
   prediction   ForecastPrediction @relation(fields: [predictionId], references: [id], onDelete: Cascade)
   market       ForecastMarket     @relation(fields: [marketId], references: [id], onDelete: Cascade)
@@ -897,12 +1217,85 @@ model ForecastResolution {
   resolvedAt        DateTime
   justification     String          @db.Text
   rawSettlement     Json?
+  /// Resolution provenance: VENUE | OVERRIDE | BACKFILL
+  source            String          @default("VENUE")
+  /// Optional URL of the venue resolution page used as evidence
+  sourceUrl         String?         @db.Text
   createdAt         DateTime        @default(now())
 
-  prediction ForecastPrediction @relation(fields: [predictionId], references: [id], onDelete: Cascade)
+  prediction ForecastPrediction   @relation(fields: [predictionId], references: [id], onDelete: Cascade)
+  revisions  ResolutionRevision[]
 
   @@index([resolvedAt])
   @@index([calibrationBucket])
+}
+
+/// Founder-supplied override for a forecast that resolves off-venue
+/// (e.g. court rulings). Override wins over the venue's reported
+/// resolution; the venue discrepancy is recorded on `ResolutionMismatch`.
+model ResolutionOverride {
+  id            String          @id @default(cuid())
+  predictionId  String          @unique
+  outcome       ForecastOutcome
+  resolvedAt    DateTime
+  reason        String          @db.Text
+  citationUrl   String          @db.Text
+  founderId     String
+  rawSettlement Json?
+  createdAt     DateTime        @default(now())
+
+  prediction ForecastPrediction @relation(fields: [predictionId], references: [id], onDelete: Cascade)
+
+  @@index([founderId])
+  @@index([resolvedAt])
+}
+
+/// Recorded when the venue reports a resolution that disagrees with an
+/// override or when the venue's resolution date is more than 7 days
+/// after the prediction's target_date — the latter signals that the
+/// firm's forecast was about a different question. The backfill
+/// driver writes one row per disagreement and skips the resolution
+/// write so a human can review it.
+model ResolutionMismatch {
+  id              String    @id @default(cuid())
+  predictionId    String
+  venue           String
+  venueOutcome    String
+  venueResolvedAt DateTime?
+  venueSourceUrl  String?   @db.Text
+  rawVenuePayload Json?
+  reason          String    @db.Text
+  /// "OVERRIDE_DISAGREEMENT" | "TARGET_DATE_MISMATCH"
+  kind            String
+  reviewedAt      DateTime?
+  reviewedBy      String?
+  createdAt       DateTime  @default(now())
+
+  prediction ForecastPrediction @relation(fields: [predictionId], references: [id], onDelete: Cascade)
+
+  @@index([predictionId, createdAt])
+  @@index([reviewedAt])
+}
+
+/// Append-only history of resolution updates. Existing
+/// ForecastResolution rows are never overwritten — when new evidence
+/// would change the resolution we instead record a revision pointing
+/// at the original row and the venue payload that triggered the
+/// reconsideration. Humans then decide whether to act.
+model ResolutionRevision {
+  id            String          @id @default(cuid())
+  resolutionId  String
+  newOutcome    ForecastOutcome
+  newResolvedAt DateTime
+  reason        String          @db.Text
+  rawSettlement Json?
+  /// "VENUE" | "OVERRIDE" | "BACKFILL"
+  source        String
+  createdAt     DateTime        @default(now())
+
+  resolution ForecastResolution @relation(fields: [resolutionId], references: [id], onDelete: Cascade)
+
+  @@index([resolutionId, createdAt])
 }
 
 model ForecastBet {
@@ -995,20 +1388,130 @@ model PublicResponse {
   orcid          String  @default("")
   pseudonymous   Boolean @default(false)
 
-  /// pending | approved | rejected | engaged
+  /// Did the responder consent to having their response published if
+  /// the firm decides to reply publicly? Captured per-response on the
+  /// submission form (Round 17 prompt 31). When false, the founder
+  /// queue suppresses the "Promote to PublicReply" affordance and the
+  /// public-article appendix never renders this row.
+  publishConsent Boolean @default(false)
+
+  /// pending | approved | rejected | engaged | archived
   status        String @default("pending")
   moderatorNote String @default("")
 
-  createdAt DateTime @default(now())
+  createdAt DateTime  @default(now())
   seenAt    DateTime?
 
   organization Organization        @relation(fields: [organizationId], references: [id], onDelete: Restrict)
   published    PublishedConclusion @relation(fields: [publishedConclusionId], references: [id], onDelete: Cascade)
+  triage       ResponseTriage?
+  publicReply  PublicReply?
 
   @@index([organizationId])
   @@index([publishedConclusionId])
   @@index([status])
   @@index([seenAt])
+}
+
+// ── Round 17 prompt 31: response triage + dialog loop ──────────────────────
+//
+// `ResponseTriage` is a 1:1 sidecar to `PublicResponse` written by the
+// Python classifier in `noosphere/literature/response_triage.py`. The
+// triage row is the queue's source of priority (substantive vs noise);
+// the founder retains the override via `manualLabel` / `manualReason`.
+//
+// The plaintext submitter email is NEVER duplicated here; we only keep
+// the SHA-256 hash so the queue can flag repeat-spam senders without
+// expanding the PII surface.
+model ResponseTriage {
+  id               String @id @default(cuid())
+  organizationId   String
+  publicResponseId String @unique
+
+  /// SUBSTANTIVE_OBJECTION | CLARIFICATION_REQUEST | GENERAL_ENGAGEMENT | SPAM_NOISE
+  label      String
+  /// Founder override of `label`. Empty string = honour the classifier label.
+  manualLabel String @default("")
+
+  /// "" | too_short | promotional_link | off_topic | abusive_language | repeat_sender | low_information
+  spamReason String @default("")
+  /// Founder override of `spamReason` (audit trail; e.g. when un-spamming).
+  manualReason String @default("")
+
+  confidence  Float
+  /// One-sentence reduction of the implied objection. Empty unless
+  /// label == SUBSTANTIVE_OBJECTION. Feeds the severity rubric.
+  impliedObjection String @default("") @db.Text
+  rationale        String @default("") @db.Text
+  usedLlm          Boolean @default(false)
+
+  /// SHA-256 of the lowercased submitter email; "" for pseudonymous.
+  senderHash          String  @default("")
+  elevatedSenderFlag  Boolean @default(false)
+
+  /// Severity input snapshot from the cascade graph at triage time —
+  /// stored so the queue can sort by potential severity without a
+  /// fresh cascade traversal on every page render. JSON shape mirrors
+  /// `SeverityInputs` in `noosphere/peer_review/severity.py`.
+  severityInputsJson String @default("{}")
+  /// Cached numeric severity in [0, 1] derived from the snapshot.
+  severityValue      Float  @default(0)
+
+  createdAt DateTime  @default(now())
+  /// Set when the founder archives the row (spam path or
+  /// substantive-but-handled). Archived rows drop out of the queue.
+  archivedAt   DateTime?
+  archiveNote  String    @default("")
+
+  organization   Organization   @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  publicResponse PublicResponse @relation(fields: [publicResponseId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId])
+  @@index([organizationId, label])
+  @@index([organizationId, archivedAt, severityValue])
+  @@index([senderHash])
+}
+
+// `PublicReply` is the founder's reply, attached to a single
+// `PublicResponse`. The founder can mark it `private` (emailed back to
+// the responder; never published) or `public` (rendered in the article
+// appendix). Public replies require BOTH the responder's
+// `publishConsent` AND the founder's confirmation here — symmetric
+// double opt-in, so neither side can publish unilaterally.
+model PublicReply {
+  id               String @id @default(cuid())
+  organizationId   String
+  publicResponseId String @unique
+  founderId        String
+
+  /// private | public
+  visibility    String @default("private")
+  body          String @db.Text
+
+  /// True only when the founder explicitly confirmed the publish step
+  /// AND the underlying PublicResponse.publishConsent was true at the
+  /// time of confirmation. Snapshotted here so a later consent-revoke
+  /// does not change the audit record.
+  publishConfirmed     Boolean   @default(false)
+  publishConfirmedAt   DateTime?
+
+  /// Whether this reply also opened a review-queue item for the
+  /// implied objection. Track here so the queue UI can show "already
+  /// promoted" without a join.
+  promotedToReview     Boolean   @default(false)
+  /// Whether the reply triggered a revision-engine (prompt 16) input.
+  /// Stores the RevisionEvent.id when set.
+  triggeredRevisionId  String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  organization   Organization   @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  publicResponse PublicResponse @relation(fields: [publicResponseId], references: [id], onDelete: Cascade)
+  founder        Founder        @relation("PublicReplyFounder", fields: [founderId], references: [id])
+
+  @@index([organizationId])
+  @@index([organizationId, visibility, publishConfirmed])
 }
 
 model ContactSubmission {
@@ -1119,6 +1622,22 @@ model DashboardDismissal {
 }
 
 // ── DriftEvent — mirrors noosphere.models.DriftEvent ───────────────────────
+//
+// Two distinct kinds of drift event share this table:
+//
+// 1. `targetKind = "principle"` (the historical use): an embedding /
+//    semantic drift event for a Principle. `targetId` references the
+//    principle id; the method-* fields are empty.
+//
+// 2. `targetKind = "method"` (added with the Method Drift work):
+//    nightly per-method calibration drift. `methodName`, `methodVersion`,
+//    `methodDomain`, `windowDays` are required and `targetId` is set to
+//    `method:<name>@<version>` so existing consumers see *some* id even
+//    if they do not understand the new kind.
+//
+// The deterministic id for method drift events is a UUID-v5 of the
+// (organization, method, version, domain, window, window_end) tuple,
+// so re-running the nightly evaluator is idempotent.
 
 model DriftEvent {
   id             String @id @default(cuid())
@@ -1137,9 +1656,28 @@ model DriftEvent {
   authorTopicKey              String   @default("")
   topicId                     String   @default("")
 
+  // ── Method drift fields (null/empty for principle drift) ────────────
+  methodName       String?
+  methodVersion    String?
+  methodDomain     String?
+  windowDays       Int?
+  severity         String? // "ok" | "warn" | "escalate" | "insufficient"
+  sigma            Float?
+  pValue           Float?
+  seed             Int?
+  sampleSize       Int?
+  calibrationSlope Float?
+  baselineSlope    Float?
+  brierMean        Float?
+  baselineBrier    Float?
+  directionalBias  Float?
+  evidence         Json?
+
   organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
 
   @@index([organizationId])
+  @@index([organizationId, methodName, methodVersion, methodDomain, observedAt])
+  @@index([targetKind, observedAt])
 }
 
 // ── ResearchSuggestion — mirrors noosphere.models.ResearchSuggestion ───────
@@ -1245,6 +1783,51 @@ model AuditEvent {
   @@index([organizationId])
 }
 
+// ── Belief revision audit ledger ─────────────────────────────────────────
+//
+// Every committed revision (founder marks new evidence on a claim and
+// confirms the propagation preview) appends one row here. The
+// `preConfidenceSnapshot` is what makes time-replay work: replaying the
+// ledger up to but not including a given event reconstructs the prior
+// belief state exactly. `revertedAt` is the soft-delete: the public
+// "/revisions/<id>" page renders an event regardless, but conclusion
+// readers fall through to the previous non-reverted event.
+model RevisionEvent {
+  id             String @id @default(cuid())
+  organizationId String
+  /// Plan id from the noosphere engine (sha256 over inputs+thresholds);
+  /// duplicates indicate idempotent re-submits and are allowed.
+  planId         String
+  /// Founder who confirmed the revision in the preview modal.
+  founderId      String
+
+  /// JSON: [{ claim_id, weight, new_evidence }] — the RevisionInput batch.
+  inputsJson            String
+  /// JSON: full RevisionPlan.to_dict() — frozen at commit time.
+  planJson              String
+  /// JSON: { conclusion_id: confidence_before } — the before-snapshot.
+  preConfidenceSnapshot String
+  /// Conclusions whose confidence changed by > δ at commit time. Stored
+  /// as a denormalised JSON array of conclusion ids so the UI can build
+  /// the "updated" pill query without parsing planJson on every page
+  /// render. Source of truth is still planJson.
+  affectedConclusionIds String @default("[]")
+
+  /// `true` when the founder typed the K-cap confirmation phrase. Always
+  /// `false` for revisions whose affected_count <= K; informational only.
+  typedConfirmation Boolean @default(false)
+
+  createdAt  DateTime  @default(now())
+  revertedAt DateTime?
+
+  founder      Founder      @relation(fields: [founderId], references: [id])
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+
+  @@index([organizationId])
+  @@index([organizationId, createdAt])
+  @@index([planId])
+}
+
 // ── API keys for machine-to-machine auth (Dialectic auto-sync, scripts, etc.) ─
 //
 // Store the *hash* of the key, never the plaintext. The plaintext is returned
@@ -1278,4 +1861,925 @@ model ApiKey {
   @@index([organizationId])
   @@index([founderId])
   @@index([prefix])
+}
+
+// ── Method ↔ Conclusion linkage ───────────────────────────────────────────
+//
+// Bridge table: which registered methods produced this conclusion, and at
+// what relative weight. A single conclusion may compose several methods
+// (e.g. "empirical_calibration" + "adversarial_revision"), so the weights
+// are not constrained to sum to 1 — they're independent contributions in
+// [0, 1]. The `domain` column lets the track-record aggregator group by
+// the conclusion's topical domain so we don't smooth across forecasting,
+// policy design, etc.
+//
+// Idempotent: the linker upserts on (conclusionId, methodName, methodVersion)
+// rather than appending.
+model ConclusionMethod {
+  id             String @id @default(cuid())
+  organizationId String
+  conclusionId   String
+
+  /// Reference into the in-process method registry. Stored as
+  /// (name, version) rather than a foreign key because the registry is a
+  /// Python decorator catalog, not a DB table.
+  methodName    String
+  methodVersion String
+
+  /// In [0, 1]. How much this method contributed to the conclusion. The
+  /// linker is allowed to assign multiple methods weight 1.0 — this is
+  /// not a softmax over methods.
+  weight Float @default(1.0)
+
+  /// Domain the conclusion sits in (e.g. "forecasting", "policy"). Empty
+  /// string when unknown. Track records are computed per-domain.
+  domain String @default("")
+
+  /// Free-form rationale from the linker (LLM judge or stub). Useful for
+  /// audit; not load-bearing.
+  rationale String @default("")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  conclusion   Conclusion   @relation(fields: [conclusionId], references: [id], onDelete: Cascade)
+
+  @@unique([conclusionId, methodName, methodVersion])
+  @@index([organizationId, methodName, methodVersion])
+  @@index([methodName, methodVersion])
+}
+
+// ── Versioned method snapshots (content-addressed) ───────────────────────
+//
+// Every method release is captured as a `MethodVersion` row keyed by a
+// stable content hash. The hash is computed in
+// `noosphere/methods/version_snapshot.py` over the normalized source,
+// RATIONALE, FAILURES.yaml, and registered DomainBound — line endings
+// collapsed and trailing whitespace stripped so the same checkout
+// produces the same digest on any machine. Two transitions to the
+// same hash collide on purpose (e.g. revert).
+//
+// The codex web app reads this table to render
+// `/methodology/[method]/changelog` and to feed the per-method
+// digest hook (see `noosphere/social/digest_builder.py`).
+//
+// Re-analysis on version change is OPT-IN — see
+// `scripts/reanalyze-codex.sh`. The presence of a new MethodVersion
+// row never silently rewrites historic conclusions.
+model MethodVersion {
+  id             String @id @default(cuid())
+  organizationId String
+
+  /// (name, version) is the registry key. We keep it denormalized
+  /// rather than referencing `Method` because the registry is a
+  /// Python decorator catalog, not a DB table.
+  methodName    String
+  methodVersion String
+
+  /// Content-addressed identifier. Same checkout → same hash, on any
+  /// machine. Stable URL anchor for the public changelog is the
+  /// short prefix (`v-<first 12 chars>`).
+  contentHash String
+
+  /// Public-visible portions of the snapshot. The raw source and
+  /// rationale are public; the failures view is filtered to only
+  /// `public: true` modes so private framings never leak. Kept
+  /// alongside the row rather than re-derived on the fly so the
+  /// changelog is reproducible even if the on-disk file changes.
+  source              String
+  rationale           String
+  failuresPublicYaml  String @default("")
+  domainBoundJson     String @default("")
+
+  /// Wall-clock capture time. Used only for ordering on the
+  /// changelog; the hash is what makes a version unique.
+  capturedAt DateTime @default(now())
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+
+  @@unique([organizationId, methodName, contentHash])
+  @@index([methodName, capturedAt])
+  @@index([organizationId, methodName, methodVersion])
+}
+
+// ── Materialized per-method track record ─────────────────────────────────
+//
+// Rolled up from resolved ForecastPredictions linked to each method through
+// ConclusionMethod, weighted by `ConclusionMethod.weight`. Materialized
+// rather than computed on every page load because the join goes through a
+// chain of three tables and the aggregation includes a bootstrap CI on the
+// calibration slope. The materialization job (`noosphere methods
+// track-record --rebuild`) is idempotent: it upserts on
+// (organizationId, methodName, methodVersion, domain).
+model MethodTrackRecord {
+  id             String @id @default(cuid())
+  organizationId String
+
+  methodName    String
+  methodVersion String
+
+  /// Empty string for "no domain label". Track records are NEVER smoothed
+  /// across domains — one row per domain.
+  domain String @default("")
+
+  /// Number of resolved ForecastPredictions feeding this row. Hard filter:
+  /// unresolved predictions are excluded entirely.
+  sampleSize Int
+
+  /// Σ(weight·brier) / Σ(weight). Null when sampleSize == 0.
+  weightedBrier Float?
+
+  /// OLS slope of outcome ~ probability over resolved predictions, with a
+  /// non-parametric bootstrap CI. Null when the slope is undefined
+  /// (sampleSize < 2 or zero variance in probabilities).
+  calibrationSlope       Float?
+  calibrationSlopeCiLow  Float?
+  calibrationSlopeCiHigh Float?
+
+  /// Fraction of source conclusions whose MQS severity sub-score is at
+  /// or above the published threshold (0.5). Null when no MQS data.
+  severityPassRate Float?
+
+  /// Audit blob: bootstrap iterations, threshold used, source ids, etc.
+  evidence Json
+
+  computedAt DateTime @default(now())
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+
+  @@unique([organizationId, methodName, methodVersion, domain])
+  @@index([methodName, methodVersion])
+  @@index([organizationId, computedAt])
+}
+
+// ── Domain Bounds: per-method declarative applicability gates ───────────
+//
+// Each method registers a `DomainBound` (see
+// noosphere/methods/domain_bounds.py) declaring the embedding region
+// and/or topic-tag set in which it is allowed to operate. When a
+// conclusion is run through a method, the orchestrator records the
+// resulting verdict on `DomainBoundVerdict` so the UI can render an
+// in-domain / edge / out badge and so MQS can gate the composite.
+//
+// Anchors are versioned. Re-curating produces a NEW `AnchorRevision`
+// row rather than mutating the prior one — older `DomainBoundVerdict`
+// rows continue to point at the revision that was active when they
+// were emitted. Cross-model comparisons are refused: the
+// `embeddingModel` on AnchorRevision must match the embedding model
+// of the conclusion being checked.
+
+model AnchorRevision {
+  id             String @id @default(cuid())
+  organizationId String
+
+  /// Method this revision belongs to. Stored as (name, version) rather
+  /// than a foreign key for the same reason `ConclusionMethod` does:
+  /// the registry is a Python decorator catalog, not a DB table.
+  methodName    String
+  methodVersion String
+
+  /// Stable content-hash id, e.g. `rev_8f...`. Used by
+  /// `DomainBoundVerdict.anchorRevisionId` to pin a verdict to the
+  /// exact anchors that were active when it ran.
+  revisionId String
+
+  /// Embedding model identifier these anchors were curated under.
+  /// Cross-model comparisons are refused at check time.
+  embeddingModel String
+
+  /// k-medoid centroid vectors. JSON array of arrays: each inner array
+  /// is one anchor of length `dim`.
+  anchors Json
+
+  /// Angular cosine thresholds. `inRadius` defines the in-domain
+  /// region; `edgeRadius` (>= inRadius) the soft edge-case zone.
+  inRadius   Float
+  edgeRadius Float
+
+  /// Free-form curator notes (which medoid IDs were inspected, why a
+  /// radius was widened, etc.). Not load-bearing.
+  notes String @default("")
+
+  /// True when the revision is the active one for this method. Older
+  /// revisions are kept (verdicts point at them) but never new
+  /// verdicts. Exactly zero or one revision per method should be
+  /// active at any time.
+  active Boolean @default(false)
+
+  createdAt DateTime @default(now())
+
+  organization Organization         @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  verdicts     DomainBoundVerdict[]
+
+  @@unique([organizationId, methodName, methodVersion, revisionId])
+  @@index([organizationId, methodName, methodVersion, active])
+}
+
+model DomainBoundVerdict {
+  id             String @id @default(cuid())
+  organizationId String
+  conclusionId   String
+
+  methodName    String
+  methodVersion String
+
+  /// One of `in_bounds`, `edge_case`, `out_of_bounds`. Treated as the
+  /// source of truth for `MethodologyQualityScore.domainSensitivity`.
+  status String
+
+  /// Signed margin: positive when in-bounds, negative when out. Units
+  /// are angular cosine distance for anchor-driven verdicts and the
+  /// binary {-1, +1} for pure tag verdicts.
+  margin Float
+
+  /// Free-form reason from the bound check. Hover text on the badge.
+  reason String @default("")
+
+  /// Optional pin: when the verdict came from an anchor bound, this
+  /// links to the exact `AnchorRevision` that was active at run time.
+  /// Null for tag-only verdicts.
+  anchorRevisionId String?
+
+  /// Tags that matched (when the tag side participated). Empty for
+  /// pure anchor verdicts.
+  matchedTags String[] @default([])
+
+  /// Embedding model the verdict was computed under. Stored so a
+  /// future model migration can detect verdicts that need to be
+  /// recomputed.
+  embeddingModel String?
+
+  evidence Json?
+
+  createdAt DateTime @default(now())
+
+  organization   Organization    @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  conclusion     Conclusion      @relation(fields: [conclusionId], references: [id], onDelete: Cascade)
+  anchorRevision AnchorRevision? @relation(fields: [anchorRevisionId], references: [id], onDelete: SetNull)
+
+  @@unique([conclusionId, methodName, methodVersion])
+  @@index([organizationId, methodName, methodVersion])
+  @@index([status])
+}
+
+// ── Recalibration: per-domain isotonic mapping raw → calibrated ──────────
+//
+// The firm's stated confidence (a probability on a forecast, a confidence
+// score on a conclusion) is what the producing model actually believes.
+// `CalibrationModel` lets the public render that number conditionally on
+// the firm's track record: each row is a domain-scoped isotonic
+// regression fit over resolved binary forecasts, with a fit timestamp,
+// sample size, and a SHA-256 hash of the canonicalized resolution set so
+// a reader can pinpoint exactly which fit produced a displayed number.
+//
+// Lifecycle:
+//   * Re-fit weekly by `_tick_recalibration` in
+//     `noosphere/forecasts/scheduler.py`.
+//   * The fitter inserts a NEW row each cycle and flips the previous
+//     active row's `active` flag to false. Older rows are kept (audit)
+//     but never become the source for a new render.
+//   * Display path queries the active row for `(organizationId, domain)`;
+//     when no row exists OR `sampleSize < threshold`, the conclusion /
+//     forecast is rendered uncalibrated with a "small sample" tag.
+
+model CalibrationModel {
+  id             String @id @default(cuid())
+  organizationId String
+
+  /// Domain key (matches `ForecastMarket.category` / `ConclusionMethod.domain`).
+  /// Calibration models are NEVER smoothed across domains: a strong-domain
+  /// track record must not flatter a weak-domain confidence.
+  domain String
+
+  /// Monotonically increasing per (organizationId, domain). New fits get
+  /// `MAX(version)+1`. The combination is unique so a re-fit cannot
+  /// silently overwrite a prior model.
+  version Int
+
+  /// When the fit was computed.
+  fitAt DateTime @default(now())
+
+  /// Resolved binary forecasts that fed the fit. Below
+  /// `THESEUS_RECALIBRATION_MIN_SAMPLES` the fitter does not write a row
+  /// at all; the absence is the conservative-by-default signal.
+  sampleSize Int
+
+  /// SHA-256 hex over the canonicalized resolution set the fit was
+  /// trained on. Lets the UI link a displayed calibrated number back to
+  /// the exact training rows.
+  resolutionHash String
+
+  /// Piecewise-linear knots: `{"x": [...], "y": [...]}` with `x` ascending
+  /// and `y` non-decreasing. The TS apply path interpolates linearly
+  /// between knots and clamps outside.
+  knots Json
+
+  /// True for the row currently used to render. Exactly zero or one row
+  /// per `(organizationId, domain)` should be active at any time.
+  active Boolean @default(true)
+
+  createdAt DateTime @default(now())
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+
+  @@unique([organizationId, domain, version])
+  @@index([organizationId, domain, active])
+  @@index([organizationId, domain, fitAt])
+}
+
+// ── Recalibration override ─────────────────────────────────────────────
+//
+// A founder can opt a specific conclusion out of the recalibration
+// display layer — useful when the conclusion is itself the subject of a
+// methodology change (the firm is *deliberately* repricing how it
+// calibrates), and applying the prior calibration would obscure rather
+// than clarify what changed.
+//
+// The override row IS the audit trail: founder, timestamp, free-form
+// reason. There is at most one override per conclusion (`@unique`); a
+// later founder can edit the row to update the reason. Removing the
+// override = deleting the row.
+
+model RecalibrationOverride {
+  id             String @id @default(cuid())
+  organizationId String
+  conclusionId   String @unique
+  founderId      String
+
+  /// Free-form reason (e.g. "methodology change in flight; raw is the
+  /// signal we want readers to evaluate").
+  reason String @default("")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  conclusion   Conclusion   @relation(fields: [conclusionId], references: [id], onDelete: Cascade)
+  founder      Founder      @relation(fields: [founderId], references: [id])
+
+  @@index([organizationId])
+  @@index([founderId])
+}
+
+// ── Source standing — append-only ledger for retraction / withdrawal ─────
+//
+// External pollers (Retraction Watch, arXiv withdrawals, generic URL
+// resolvers) write a row here every time a cited source's standing
+// changes. The row of record is the *latest* row per `sourceId`; older
+// rows stay around so the audit trail can reconstruct the timeline.
+//
+// `sourceId` is the canonical id from
+// `noosphere.literature.standing.canonical_source_id` — a `doi:`,
+// `arxiv:`, or `url:` prefix string. Two URLs that point at the same
+// DOI collapse to one row.
+//
+// `noticeSourceId` (when present) is the canonical id of the
+// retraction/correction notice itself; we keep the chain of provenance
+// so a reader can audit who issued the standing change.
+enum SourceStandingStatus {
+  ACTIVE
+  RETRACTED
+  CORRECTED
+  DISPUTED
+  EXPIRED
+}
+
+model SourceStanding {
+  id             String @id @default(cuid())
+  organizationId String
+
+  /// Canonical source id — see `canonical_source_id`. Multiple rows per
+  /// id are expected: each row is a transition.
+  sourceId String
+  status   SourceStandingStatus
+  reason   String               @default("") @db.Text
+  poller   String
+
+  /// Canonical id of the retraction/correction notice. A retraction
+  /// notice IS a source, so we record its provenance here too.
+  noticeSourceId String?
+
+  /// Whatever the poller observed — feed row, HTTP status, page hash.
+  /// JSON for forward compatibility with new poller types.
+  rawPayload Json?
+
+  observedAt DateTime @default(now())
+  createdAt  DateTime @default(now())
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+
+  @@index([organizationId, sourceId, observedAt])
+  @@index([organizationId, status, observedAt])
+  @@index([sourceId])
+}
+
+// ── Source triage queue — founder confirms each propagation ──────────────
+//
+// When a SourceStanding flips to a propagating status (RETRACTED /
+// CORRECTED / EXPIRED), the cascade hook enqueues one row here per
+// affected conclusion. The founder must explicitly confirm or override
+// the proposed revision before it commits — silent propagation would
+// be a credibility risk in the other direction.
+//
+// `decision` is null until acted on; `decidedAt` carries the timestamp.
+// The cascade engine only applies the revision when
+// `decision = "confirmed"`.
+model SourceTriageItem {
+  id             String @id @default(cuid())
+  organizationId String
+
+  /// What surfaced this row: "standing" (default — a SourceStanding
+  /// transition fired the cascade revision) or "citation_verdict"
+  /// (citation-chain validator found a textual entailment failure).
+  /// Citation-verdict rows leave standingId empty and set verdictId.
+  trigger String @default("standing")
+
+  /// The standing event that caused this triage row. Empty string when
+  /// trigger="citation_verdict".
+  standingId String @default("")
+  /// The verdict row that caused this triage row. Empty when
+  /// trigger="standing".
+  verdictId  String @default("")
+  /// Canonical source id (denormalised for fast UI rendering).
+  sourceId     String
+  /// Conclusion whose evidence weight is being challenged.
+  conclusionId String
+
+  /// Status copied from SourceStanding at enqueue time so the queue UI
+  /// doesn't have to join. For citation-verdict rows this carries the
+  /// verdict label as a string in the `notes` field rather than an
+  /// enum value — but we keep ACTIVE here so the column stays
+  /// non-null without inventing a new enum case.
+  status SourceStandingStatus @default(ACTIVE)
+
+  /// "pending" | "confirmed" | "overridden" | "dismissed"
+  decision     String  @default("pending")
+  decisionNote String? @db.Text
+  decidedById  String?
+
+  createdAt DateTime  @default(now())
+  decidedAt DateTime?
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+
+  @@index([organizationId, decision, createdAt])
+  @@index([conclusionId])
+  @@index([sourceId])
+  @@index([standingId])
+  @@index([verdictId])
+  @@index([organizationId, trigger, decision])
+}
+
+// ── Source credibility ledger ────────────────────────────────────────────
+//
+// Time-series of credibility updates per canonical source. Each row is
+// a single observation: a forecast resolution, a retraction, a
+// peer-review verdict on the conclusion that cited the source. The
+// row also carries the *running* posterior (alpha, beta, weighted
+// counts) computed by folding all prior updates plus this one into
+// the source-type prior — denormalised so the UI doesn't have to
+// replay the log on every render. The log is the source of truth; if
+// the running totals ever disagree with a fold of the rows, the rows
+// win.
+//
+// `current_credibility` is a view: select the latest row for a
+// `sourceId` ordered by `observedAt`.
+//
+// `sourceId` follows the same canonicalization as SourceStanding (see
+// `noosphere.literature.standing.canonical_source_id`). `sourceType`
+// is one of the values in `noosphere.literature.source_priors.SourceType`;
+// it is denormalised on every row so a UI can render the prior label
+// without joining to a separate table.
+//
+// Idempotence: pollers and resolvers are expected to filter on
+// `(sourceId, conclusionId, kind, outcome)` before appending — the
+// in-memory ledger does this; the Prisma row layer should rely on the
+// index below for the same lookup.
+enum CredibilityOutcome {
+  CONFIRMATION
+  FAILURE
+}
+
+enum CredibilityEventKind {
+  FORECAST_RESOLUTION
+  RETRACTION
+  PEER_REVIEW_VERDICT
+  MANUAL_OVERRIDE
+}
+
+model SourceCredibilityUpdate {
+  id             String @id @default(cuid())
+  organizationId String
+
+  /// Canonical source id — see `canonical_source_id`.
+  sourceId   String
+  /// Source type — one of `SourceType` values from source_priors.py.
+  /// Denormalised so the UI can render without a join.
+  sourceType String
+
+  /// Conclusion whose resolution drove this update.
+  conclusionId String
+
+  outcome CredibilityOutcome
+  kind    CredibilityEventKind
+
+  /// Load-bearing weight in (0, 1] — 1.0 means the source was
+  /// indispensable to the conclusion; smaller values down-weight
+  /// tangential cites so they don't move the posterior much.
+  weight Float
+
+  /// Running posterior after this update is folded in. The UI reads
+  /// these directly to render the 0–100 strip.
+  posteriorAlpha Float
+  posteriorBeta  Float
+
+  /// Cumulative counts including this row.
+  nUpdates       Int
+  nConfirmations Int
+  nFailures      Int
+
+  note       String @default("") @db.Text
+  rawPayload Json?
+
+  observedAt DateTime @default(now())
+  createdAt  DateTime @default(now())
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+
+  @@index([organizationId, sourceId, observedAt])
+  @@index([sourceId, observedAt])
+  @@index([organizationId, sourceId, conclusionId, kind, outcome])
+  @@index([conclusionId])
+}
+
+// ── Citation chain verdicts ──────────────────────────────────────────────
+//
+// One row per (citation, computation). The cited *text* of a source must
+// support the firm's stated claim — paraphrasing drift is a credibility
+// failure mode that source-standing and source-credibility do not catch.
+// See `noosphere.literature.citation_chain`.
+//
+// `relation` is the firm-declared relation type. `relationHolds` is the
+// NLI judge's verdict on whether the recorded `excerptUsed` actually
+// supports `statedClaim`. The excerpt and claim are persisted verbatim
+// so an audit can re-derive the verdict even if the live source text
+// has since changed.
+//
+// `cascadeWeight` is the load-bearing weight of the citation at
+// computation time. An ambiguous verdict only escalates to triage when
+// the weight clears the threshold (default 0.6) — below it the
+// ambiguous verdict is recorded but not surfaced.
+//
+// Override semantics: founder confirms a flagged verdict via the
+// triage queue; the override row stamps `overriddenById` and
+// `overrideReason`. Once overridden, the verdict no longer blocks
+// publication.
+enum CitationRelation {
+  SUPPORTS
+  CONTRADICTS
+  QUALIFIES
+  MENTIONS
+}
+
+enum CitationVerdictLabel {
+  ENTAILS
+  CONTRADICTS
+  NEUTRAL
+  AMBIGUOUS
+}
+
+model CitationVerdict {
+  id             String @id @default(cuid())
+  organizationId String
+
+  /// One of "opinion" (OpinionCitation), "forecast" (ForecastCitation),
+  /// or "conclusion_source" (ConclusionSource). Not a hard FK because
+  /// the three citation tables have different keys.
+  citationKind String
+  /// Foreign id within `citationKind`. Composite-keyed citation rows
+  /// (ConclusionSource: conclusionId+uploadId) encode as
+  /// "conclusionId:uploadId".
+  citationId String
+
+  /// Canonical source id — matches SourceStanding.sourceId.
+  sourceId String
+
+  relation      CitationRelation
+  relationHolds CitationVerdictLabel
+  confidence    Float
+
+  /// Excerpt actually fed to the NLI judge — recorded verbatim.
+  excerptUsed String @db.Text
+  /// Firm's stated claim about the source (the hypothesis side of NLI).
+  statedClaim String @db.Text
+
+  /// Identifier for the NLI head used to compute this verdict.
+  /// Re-running with a different head produces a new row rather than
+  /// updating the old one.
+  modelVersion String
+
+  /// Cascade load-bearing weight at validation time. Drives the
+  /// ambiguous-verdict triage threshold; not used by publication gate.
+  cascadeWeight Float @default(0.0)
+
+  /// Founder override — populated when the founder confirmed the
+  /// verdict from triage and accepted publication anyway.
+  overriddenById String?
+  overrideReason String?
+  overriddenAt   DateTime?
+
+  /// Raw NLI probability triple, JSON-encoded for forward compat.
+  rawPayload Json?
+
+  computedAt DateTime @default(now())
+  createdAt  DateTime @default(now())
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+
+  @@index([organizationId, sourceId])
+  @@index([organizationId, citationKind, citationId, computedAt])
+  @@index([organizationId, relationHolds, computedAt])
+  @@index([sourceId, computedAt])
+}
+
+// ── AttentionAction — founder-side snooze/dismiss audit log ──────────────
+//
+// Append-only ledger of actions a founder has taken on items in the
+// unified attention queue surfaced on the dashboard. The queue itself
+// is computed at request time from many backing tables (DriftEvent,
+// PublicResponse, ResponseTriage, SourceTriageItem, CitationVerdict,
+// Contradiction, OpenQuestion, ConclusionDeletionRequest, …); this
+// table records the *founder-side* state for each surfaced item:
+//
+//   * action="snooze"   — hide until snoozedUntil. Snooze windows are
+//                          capped at 14 days at the API layer; longer
+//                          requests are rewritten as "dismiss" with
+//                          reason="deferred indefinitely".
+//   * action="dismiss"  — hide indefinitely; reason is required.
+//   * action="unsnooze" — explicit re-surface (cancels a prior snooze).
+//
+// We keep history rather than upserting because a high rate of
+// dismissals on a particular queue is itself a signal that the queue
+// needs tuning. The current state of an item is the latest row for
+// (founderId, queue, itemId) by createdAt; helpers in
+// `src/lib/attention.ts` enforce that read.
+model AttentionAction {
+  id             String @id @default(cuid())
+  organizationId String
+  founderId      String
+
+  /// Stable queue identifier — see `AttentionQueueId` in
+  /// `src/lib/attention.ts` for the canonical vocabulary.
+  queue String
+  /// Identifier of the underlying row inside that queue. Composite ids
+  /// (e.g. citation verdicts keyed by kind+id) collapse into a single
+  /// string here.
+  itemId String
+
+  /// "snooze" | "dismiss" | "unsnooze"
+  action       String
+  snoozedUntil DateTime?
+  reason       String    @default("") @db.Text
+
+  createdAt DateTime @default(now())
+
+  founder      Founder      @relation(fields: [founderId], references: [id], onDelete: Cascade)
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+
+  @@index([founderId, queue, itemId, createdAt])
+  @@index([organizationId, queue, action, createdAt])
+  @@index([organizationId, founderId, createdAt])
+}
+
+// ── Public follow / digest subscriptions ───────────────────────────────────
+//
+// A Subscriber is an outside reader following one slice of the firm's
+// public output: a methodology, a domain tag, a single conclusion, or
+// the firm at large. Double opt-in: rows start status=pending with a
+// confirm token; activation requires the reader to click the emailed
+// link, after which status flips to active and confirmedAt is set.
+//
+// Telemetry-free by design — no open/click tracking. The unsubscribe
+// link in every digest carries a stable, sufficiently-random token; it
+// is the only way a reader leaves the list. Reasons (free-text) are
+// optional and stored locally for the firm's signal, never shared.
+model Subscriber {
+  id             String @id @default(cuid())
+  organizationId String
+
+  /// Lowercased, trimmed email. Re-subscribing reuses the row.
+  email String
+
+  /// Subscription scope. One of:
+  ///   firm           — every published surface the firm emits
+  ///   methodology    — `scopeKey` is the method name (matches MethodologyProfile)
+  ///   domain         — `scopeKey` is the domain tag (e.g. "biology", "ml-safety")
+  ///   conclusion     — `scopeKey` is the publishedConclusion slug
+  scope    String
+  /// Empty string for `firm`; otherwise the per-scope key (see above).
+  scopeKey String @default("")
+
+  /// pending | active | unsubscribed
+  status String @default("pending")
+
+  /// Cadence of digests: weekly (default) | immediate | monthly. Immediate
+  /// only fires on firm-wide major events (revisions/retractions); other
+  /// items still aggregate into the next weekly window.
+  cadence String @default("weekly")
+
+  /// URL-safe random token for the double-opt-in confirm link. Cleared on confirm.
+  confirmToken      String  @default("")
+  /// URL-safe random token for one-click unsubscribe; embedded in every digest.
+  unsubscribeToken  String  @unique
+
+  /// Set when the reader clicks the confirm link.
+  confirmedAt    DateTime?
+  /// Set when the reader unsubscribes; row is retained as a tombstone so
+  /// re-subscribing the same email cannot bypass another opt-in step.
+  unsubscribedAt DateTime?
+  /// Free-text reason captured at unsubscribe time. Empty if not given.
+  unsubscribeReason String @default("")
+
+  /// Timestamp of the most recent digest sent to this subscriber. Drives
+  /// the per-subscriber "since" window the digest builder reads from.
+  lastSentAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+
+  @@unique([organizationId, email, scope, scopeKey])
+  @@index([organizationId, status, cadence])
+  @@index([scope, scopeKey])
+}
+
+// ── Principles (cross-domain distillations) ────────────────────────────────
+//
+// Output of the corpus-level distillation pipeline. A Principle is a
+// single-sentence claim the firm is willing to defend, derived from
+// the embedding-space neighborhood of its conclusions.
+//
+// Lifecycle:
+//   draft           — surfaced by the pipeline; awaiting founder triage
+//   accepted        — founder approved (with edits); shown publicly when
+//                     `publicVisible = true`
+//   rejected        — founder declined (`triageReason` records why)
+//   merged          — folded into another principle (`mergedIntoId`)
+//   needs_rereview  — the underlying cluster has shifted; founder must
+//                     re-validate before it stays accepted
+//
+// Conviction scoring is conservative: a single high-centrality
+// conclusion does not produce conviction; convergence across domains
+// does. See noosphere/distillation/principle_distillation.py.
+model Principle {
+  id             String @id @default(cuid())
+  organizationId String
+
+  text        String
+  /// JSON string[] of domain tags the firm is willing to attach.
+  /// Public principles must declare their domain; surfaces refuse to
+  /// publish if this is empty.
+  domainsJson String @default("[]")
+
+  /// JSON string[] of Conclusion ids in the cluster that produced
+  /// the principle. The full cluster — not just the LLM-cited subset.
+  clusterConclusionIds String @default("[]")
+  /// JSON string[] of Conclusion ids the LLM explicitly cited.
+  citedConclusionIds   String @default("[]")
+
+  /// status ladder — see model docstring.
+  status String @default("draft")
+  /// draft | accepted | rejected | merged | needs_rereview source.
+  triageReason String @default("")
+  /// Set on `merged`: target principle id this row was folded into.
+  mergedIntoId String?
+
+  /// Conservative score in [0, 1]. Conviction-weighted ordering on the
+  /// public methodology page reads this column.
+  convictionScore Float @default(0.0)
+  /// Distinct domains in the cluster — proxy for cross-domain
+  /// convergence. Zero unless the cluster spans multiple disciplines.
+  domainBreadth   Int   @default(0)
+  /// Mean cosine similarity of cluster members to the cluster centroid.
+  clusterCentroidSimilarity Float @default(0.0)
+
+  /// Whether the firm is willing to publish this principle on the
+  /// public methodology surface. Acceptance does not imply publication.
+  publicVisible Boolean @default(false)
+
+  /// The diff reason emitted by `redistill` when an existing principle's
+  /// cluster has shifted: cluster_grew | cluster_shrunk |
+  /// cluster_added_and_retracted | cluster_dissolved. Cleared when the
+  /// founder re-accepts.
+  driftReason String?
+
+  /// Founder who last accepted/edited this row.
+  reviewedByFounderId String?
+
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  reviewedAt  DateTime?
+  publishedAt DateTime?
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+
+  @@index([organizationId])
+  @@index([organizationId, status])
+  @@index([organizationId, publicVisible])
+}
+
+/// One unit of observable work in the noosphere pipeline. Spans nest
+/// under `traceId` so an upload can be followed end-to-end (ingester →
+/// classifier → distiller → publication). Older spans roll up to
+/// `MethodMetricRollup` and may be archived after 30 days; the rollup
+/// is the durable record.
+model Span {
+  id           String  @id
+  traceId      String
+  parentSpanId String?
+  name         String
+  status       String  @default("ok")
+  startedAt    DateTime
+  endedAt      DateTime?
+  durationMs   Float?
+  errorKind    String?
+  errorMessage String?
+  /// Sanitised attributes — never raw user text or credentials.
+  attrs        Json    @default("{}")
+  costUsd      Float   @default(0.0)
+  organizationId String?
+
+  createdAt DateTime @default(now())
+
+  @@index([traceId])
+  @@index([name, startedAt])
+  @@index([startedAt])
+  @@index([status, startedAt])
+}
+
+/// Per-method per-window rollup. Materialised by the same nightly job
+/// that computes track record. Survives span retention so the dashboard
+/// keeps long-horizon trendlines without scanning raw spans.
+model MethodMetricRollup {
+  id           String   @id @default(cuid())
+  method       String
+  windowStart  DateTime
+  windowEnd    DateTime
+  count        Int
+  errorCount   Int
+  p50Ms        Float
+  p95Ms        Float
+  errorRate    Float
+  costUsd      Float
+
+  createdAt DateTime @default(now())
+
+  @@unique([method, windowStart, windowEnd])
+  @@index([method, windowStart])
+  @@index([windowStart])
+}
+
+/// Threshold-based alerts (e.g. error rate > 5% sustained 15 min).
+/// `metric` matches a field of `MethodMetrics` (error_rate, p95_ms,
+/// cost_usd, count). `webhookUrl` is optional — when null the rule
+/// only writes to the unified attention queue.
+model AlertRule {
+  id             String  @id @default(cuid())
+  name           String  @unique
+  metric         String
+  threshold      Float
+  method         String  @default("*")
+  windowMinutes  Int     @default(15)
+  minSamples     Int     @default(5)
+  webhookUrl     String?
+  enabled        Boolean @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+/// One firing of an `AlertRule`. The unified attention queue (prompt 34)
+/// reads from here.
+model AlertEvent {
+  id         String   @id @default(cuid())
+  ruleName   String
+  method     String
+  metric     String
+  value      Float
+  threshold  Float
+  firedAt    DateTime
+  acknowledgedAt DateTime?
+  acknowledgedBy String?
+  deliveredTo Json   @default("[]")
+
+  @@index([firedAt])
+  @@index([ruleName, firedAt])
+  @@index([acknowledgedAt])
 }

@@ -1,0 +1,100 @@
+name: Red-team tournament
+
+# Weekly: rotate the adversarial peer-review swarm across reviewer
+# configurations on the frozen v1 conclusion bench and archive the
+# leaderboard. Drift across runs is a signal for the method-drift
+# detector (prompt 04). Also runs on PRs that touch the harness so
+# regressions surface before merge.
+
+on:
+  schedule:
+    # 04:15 UTC every Monday — well outside cron rush hour and
+    # outside the qh_benchmark window.
+    - cron: '15 4 * * 1'
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - 'noosphere/noosphere/peer_review/tournament.py'
+      - 'noosphere/tests/test_redteam_tournament.py'
+      - 'noosphere/scripts/run_redteam_tournament.sh'
+      - 'benchmarks/redteam/**'
+      - '.github/workflows/redteam_tournament.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'noosphere/noosphere/peer_review/tournament.py'
+      - 'benchmarks/redteam/**'
+      - '.github/workflows/redteam_tournament.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: redteam-tournament-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  tournament:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+          cache-dependency-path: noosphere/requirements.txt
+
+      - name: Install noosphere
+        working-directory: noosphere
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install -e .
+
+      - name: Run unit tests for the tournament harness
+        run: |
+          PYTHONPATH=noosphere pytest noosphere/tests/test_redteam_tournament.py -q
+
+      - name: Run tournament against frozen v1 bench
+        env:
+          # Provider keys are read from the environment; missing keys
+          # are logged and skipped, never error.
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
+          MISTRAL_OSS_API_KEY: ${{ secrets.MISTRAL_OSS_API_KEY }}
+          REDTEAM_ARCHIVE: ${{ github.workspace }}/noosphere_data/redteam_tournament/archive
+        run: |
+          mkdir -p "${REDTEAM_ARCHIVE}"
+          ./noosphere/scripts/run_redteam_tournament.sh
+
+      - name: Refresh leaderboard snapshot for theseus-codex
+        run: |
+          mkdir -p theseus-codex/public/redteam
+          cp -v noosphere_data/redteam_tournament/archive/tournament-*.json \
+             theseus-codex/public/redteam/ || true
+          # Also publish the most-recent snapshot under a stable name
+          # so the public page can fetch it without timestamp coupling.
+          latest="$(ls -t noosphere_data/redteam_tournament/archive/tournament-*.json 2>/dev/null | head -n1 || true)"
+          if [ -n "${latest}" ]; then
+            cp "${latest}" theseus-codex/public/redteam/latest.json
+          fi
+
+      - name: Upload tournament archive
+        uses: actions/upload-artifact@v4
+        with:
+          name: redteam-tournament-${{ github.run_id }}
+          path: noosphere_data/redteam_tournament/archive/
+          if-no-files-found: warn
+          retention-days: 365
+
+      - name: Upload public leaderboard snapshot
+        uses: actions/upload-artifact@v4
+        with:
+          name: redteam-tournament-public-snapshot
+          path: theseus-codex/public/redteam/
+          if-no-files-found: warn
+          retention-days: 90

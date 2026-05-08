@@ -23,6 +23,17 @@ from noosphere.articles.triggers import (
     DEFAULT_WEEKLY_ARTICLE_CAP,
     dispatch_triggered_articles,
 )
+from noosphere.coherence.recalibration import (
+    ResolvedRow as RecalibrationResolvedRow,
+    fit_and_persist_per_domain as fit_and_persist_recalibration_models,
+)
+from noosphere.evaluation.public_calibration import (
+    build_manifest as build_public_calibration_manifest,
+    default_manifest_path as default_public_calibration_path,
+    fetch_rows_from_db as fetch_public_calibration_rows,
+    publish_manifest as publish_public_calibration_manifest,
+    revalidate_public_page as revalidate_public_calibration_page,
+)
 from noosphere.forecasts.budget import PersistentHourlyBudgetGuard
 from noosphere.forecasts.config import KalshiConfig, PolymarketConfig
 from noosphere.forecasts.forecast_generator import ForecastOutcome, generate_forecast
@@ -49,6 +60,8 @@ from noosphere.store import Store
 RECENT_PREDICTION_WINDOW = timedelta(hours=24)
 SHUTDOWN_GRACE_SECONDS = 30.0
 DEFAULT_BUDGET_PATH = Path("/var/lib/theseus/forecasts_budget.json")
+DEFAULT_PUBLIC_CALIBRATION_INTERVAL_S = 24 * 60 * 60  # nightly
+DEFAULT_RECALIBRATION_INTERVAL_S = 7 * 24 * 60 * 60  # weekly
 
 log = get_logger(__name__)
 
@@ -60,6 +73,8 @@ class SchedulerConfig:
     resolution_poll_interval_s: int = 300
     paper_bet_drain_interval_s: int = 60
     article_interval_s: int = 3600
+    public_calibration_interval_s: int = DEFAULT_PUBLIC_CALIBRATION_INTERVAL_S
+    recalibration_interval_s: int = DEFAULT_RECALIBRATION_INTERVAL_S
     status_file: Path = Path("/var/lib/theseus/forecasts_status.json")
     budget_file: Path = DEFAULT_BUDGET_PATH
     max_predictions_per_cycle: int = 8
@@ -91,6 +106,14 @@ class SchedulerConfig:
                 "FORECASTS_ARTICLE_INTERVAL_S",
                 cls.article_interval_s,
             ),
+            public_calibration_interval_s=_env_seconds(
+                "FORECASTS_PUBLIC_CALIBRATION_INTERVAL_S",
+                cls.public_calibration_interval_s,
+            ),
+            recalibration_interval_s=_env_seconds(
+                "FORECASTS_RECALIBRATION_INTERVAL_S",
+                cls.recalibration_interval_s,
+            ),
             status_file=status_path_from_env(),
             budget_file=Path(os.environ.get("FORECASTS_BUDGET_PATH", "").strip() or default_budget),
             max_predictions_per_cycle=_env_int(
@@ -110,6 +133,10 @@ class SchedulerState:
     last_generate_ts: str | None = None
     last_resolve_ts: str | None = None
     last_article_ts: str | None = None
+    last_public_calibration_ts: str | None = None
+    last_public_calibration_hash: str | None = None
+    last_recalibration_ts: str | None = None
+    last_recalibration_models_written: int = 0
 
 
 @dataclass(frozen=True)
@@ -263,6 +290,10 @@ def _status_payload(store: Store, state: SchedulerState) -> dict[str, Any]:
         "last_generate_ts": state.last_generate_ts,
         "last_resolve_ts": state.last_resolve_ts,
         "last_article_ts": state.last_article_ts,
+        "last_public_calibration_ts": state.last_public_calibration_ts,
+        "last_public_calibration_hash": state.last_public_calibration_hash,
+        "last_recalibration_ts": state.last_recalibration_ts,
+        "last_recalibration_models_written": state.last_recalibration_models_written,
         "paper_balance_usd": portfolio.paper_balance_usd,
         "live_balance_usd": portfolio.live_balance_usd,
         "live_trading_enabled": portfolio.live_trading_enabled,
@@ -554,6 +585,195 @@ async def _tick_paper_drain(
     )
 
 
+def _publish_calibration_manifest_sync(
+    store: Store,
+    *,
+    manifest_path: Path | None,
+) -> tuple[str, int, str | None]:
+    """Pull resolved-prediction rows, build the public calibration
+    manifest, write it to disk atomically, and best-effort trigger a
+    static-revalidation of the public page.
+
+    Pure-sync helper called from inside an executor so the async
+    scheduler stays non-blocking. Returns ``(hash, sample_size,
+    revalidate_status)``.
+    """
+
+    org_id = _organization_id() or None
+    with store.session() as session:
+        connection = session.connection()
+        cursor = connection.connection.cursor()
+        try:
+            rows = fetch_public_calibration_rows(
+                cursor,
+                organization_id=org_id,
+            )
+        finally:
+            try:
+                cursor.close()
+            except Exception:
+                pass
+    manifest = build_public_calibration_manifest(rows)
+    publish_public_calibration_manifest(manifest, path=manifest_path)
+    revalidation = revalidate_public_calibration_page()
+    revalidate_status: str | None
+    if revalidation.get("ok"):
+        revalidate_status = "revalidated"
+    elif revalidation.get("skipped"):
+        revalidate_status = "skipped"
+    else:
+        revalidate_status = f"failed:{revalidation.get('error', 'unknown')}"
+    return (
+        manifest.resolution_set_hash,
+        manifest.counts.get("resolved_binary", 0),
+        revalidate_status,
+    )
+
+
+async def _tick_public_calibration(
+    store: Store,
+    *,
+    config: SchedulerConfig,
+    state: SchedulerState,
+    status_lock: asyncio.Lock,
+    manifest_path: Path | None = None,
+) -> TickReport:
+    started = time.monotonic()
+    started_at = utc_now_iso()
+    errors: list[str] = []
+    resolution_hash: str | None = None
+    sample_size = 0
+    revalidate_status: str | None = None
+    try:
+        loop = asyncio.get_running_loop()
+        resolution_hash, sample_size, revalidate_status = await loop.run_in_executor(
+            None,
+            lambda: _publish_calibration_manifest_sync(
+                store, manifest_path=manifest_path
+            ),
+        )
+    except Exception as exc:
+        errors.append(f"{type(exc).__name__}: {exc}")
+
+    if resolution_hash is not None:
+        state.last_public_calibration_ts = utc_now_iso()
+        state.last_public_calibration_hash = resolution_hash
+    await _write_status(store, state, config=config, status_lock=status_lock)
+
+    log.info(
+        "forecasts_public_calibration_published",
+        resolution_hash=resolution_hash,
+        sample_size=sample_size,
+        revalidate_status=revalidate_status,
+    )
+    return TickReport(
+        loop="public_calibration",
+        started_at=started_at,
+        duration_ms=int((time.monotonic() - started) * 1000),
+        status="ok" if not errors else "error",
+        attempted=1,
+        succeeded=1 if not errors else 0,
+        errors=tuple(errors),
+    )
+
+
+def _fit_recalibration_models_sync(store: Store) -> tuple[int, int]:
+    """Pull resolved-prediction rows, fit a per-domain isotonic
+    recalibrator, and write each fit as a new ``CalibrationModel`` row.
+
+    Returns ``(models_written, rows_considered)``. A return of (0, n)
+    when n > 0 just means no domain crossed the sample-size threshold —
+    the absence of a model row is the conservative-by-default signal
+    the display layer keys off of.
+    """
+
+    org_id = _organization_id() or None
+    if not org_id:
+        # No active organization scope — refuse to write rows that would
+        # not pin to a tenant.
+        return (0, 0)
+    with store.session() as session:
+        connection = session.connection()
+        cursor = connection.connection.cursor()
+        try:
+            rows = fetch_public_calibration_rows(
+                cursor,
+                organization_id=org_id,
+            )
+            binary_rows: list[RecalibrationResolvedRow] = []
+            for r in rows:
+                if not r.is_binary_resolved():
+                    continue
+                if r.outcome not in {"YES", "NO"}:
+                    continue
+                if r.resolved_at is None or r.probability_yes is None:
+                    continue
+                binary_rows.append(
+                    RecalibrationResolvedRow(
+                        prediction_id=r.prediction_id,
+                        domain=(r.domain or "").strip(),
+                        probability_yes=float(r.probability_yes),
+                        outcome=1 if r.outcome == "YES" else 0,
+                        resolved_at=r.resolved_at,
+                    )
+                )
+            written = fit_and_persist_recalibration_models(
+                cursor,
+                binary_rows,
+                organization_id=org_id,
+            )
+            try:
+                connection.connection.commit()
+            except Exception:
+                pass
+        finally:
+            try:
+                cursor.close()
+            except Exception:
+                pass
+    return (len(written), len(binary_rows))
+
+
+async def _tick_recalibration(
+    store: Store,
+    *,
+    config: SchedulerConfig,
+    state: SchedulerState,
+    status_lock: asyncio.Lock,
+) -> TickReport:
+    started = time.monotonic()
+    started_at = utc_now_iso()
+    errors: list[str] = []
+    written = 0
+    rows_considered = 0
+    try:
+        loop = asyncio.get_running_loop()
+        written, rows_considered = await loop.run_in_executor(
+            None, lambda: _fit_recalibration_models_sync(store)
+        )
+    except Exception as exc:
+        errors.append(f"{type(exc).__name__}: {exc}")
+
+    if not errors:
+        state.last_recalibration_ts = utc_now_iso()
+        state.last_recalibration_models_written = written
+    await _write_status(store, state, config=config, status_lock=status_lock)
+    log.info(
+        "forecasts_recalibration_fit",
+        models_written=written,
+        rows_considered=rows_considered,
+    )
+    return TickReport(
+        loop="recalibration",
+        started_at=started_at,
+        duration_ms=int((time.monotonic() - started) * 1000),
+        status="ok" if not errors else "error",
+        attempted=1,
+        succeeded=1 if not errors else 0,
+        errors=tuple(errors),
+    )
+
+
 async def _tick_articles(
     store: Store,
     *,
@@ -676,6 +896,8 @@ async def run_once(store: Store, *, config: SchedulerConfig) -> dict[str, Any]:
         "resolve": asyncio.Lock(),
         "paper_drain": asyncio.Lock(),
         "articles": asyncio.Lock(),
+        "public_calibration": asyncio.Lock(),
+        "recalibration": asyncio.Lock(),
     }
     runners: list[tuple[str, Callable[[], Awaitable[TickReport]]]] = [
         (
@@ -725,6 +947,24 @@ async def run_once(store: Store, *, config: SchedulerConfig) -> dict[str, Any]:
                 budget=budget,
             ),
         ),
+        (
+            "public_calibration",
+            lambda: _tick_public_calibration(
+                store,
+                config=config,
+                state=state,
+                status_lock=status_lock,
+            ),
+        ),
+        (
+            "recalibration",
+            lambda: _tick_recalibration(
+                store,
+                config=config,
+                state=state,
+                status_lock=status_lock,
+            ),
+        ),
     ]
     for name, runner in runners:
         await _guarded_tick(name, locks[name], runner)
@@ -747,6 +987,8 @@ async def run_forever(store: Store, *, config: SchedulerConfig) -> None:
         "resolve": asyncio.Lock(),
         "paper_drain": asyncio.Lock(),
         "articles": asyncio.Lock(),
+        "public_calibration": asyncio.Lock(),
+        "recalibration": asyncio.Lock(),
     }
     tasks = [
         asyncio.create_task(
@@ -826,6 +1068,36 @@ async def run_forever(store: Store, *, config: SchedulerConfig) -> None:
             ),
             name="forecasts-articles-loop",
         ),
+        asyncio.create_task(
+            _periodic_loop(
+                "public_calibration",
+                float(config.public_calibration_interval_s),
+                locks["public_calibration"],
+                lambda: _tick_public_calibration(
+                    store,
+                    config=config,
+                    state=state,
+                    status_lock=status_lock,
+                ),
+                stop_event,
+            ),
+            name="forecasts-public-calibration-loop",
+        ),
+        asyncio.create_task(
+            _periodic_loop(
+                "recalibration",
+                float(config.recalibration_interval_s),
+                locks["recalibration"],
+                lambda: _tick_recalibration(
+                    store,
+                    config=config,
+                    state=state,
+                    status_lock=status_lock,
+                ),
+                stop_event,
+            ),
+            name="forecasts-recalibration-loop",
+        ),
     ]
 
     log.info(
@@ -835,6 +1107,8 @@ async def run_forever(store: Store, *, config: SchedulerConfig) -> None:
         resolution_poll_interval_s=config.resolution_poll_interval_s,
         paper_bet_drain_interval_s=config.paper_bet_drain_interval_s,
         article_interval_s=config.article_interval_s,
+        public_calibration_interval_s=config.public_calibration_interval_s,
+        recalibration_interval_s=config.recalibration_interval_s,
         status_file=str(config.status_file),
         budget_file=str(config.budget_file),
         max_predictions_per_cycle=config.max_predictions_per_cycle,

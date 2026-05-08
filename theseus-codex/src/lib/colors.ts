@@ -57,3 +57,29 @@ export function severityColor(severity: string): string {
       return "var(--parchment-dim)";
   }
 }
+
+/** Objection severity rubric label: high | medium | low */
+export function objectionSeverityColor(label: string): string {
+  switch (label) {
+    case "high":
+      return "var(--ember)";
+    case "medium":
+      return "var(--amber)";
+    case "low":
+      return "var(--parchment-dim)";
+    default:
+      return "var(--parchment-dim)";
+  }
+}
+
+/** Map rubric severity rank for sorting: high(2) > medium(1) > low(0). */
+export function objectionSeverityRank(label: string): number {
+  switch (label) {
+    case "high":
+      return 2;
+    case "medium":
+      return 1;
+    default:
+      return 0;
+  }
+}

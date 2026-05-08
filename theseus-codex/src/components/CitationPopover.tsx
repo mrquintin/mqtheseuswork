@@ -14,13 +14,65 @@ import { createPortal } from "react-dom";
 
 import type { PublicCitation } from "@/lib/currentsTypes";
 import { renderSafeMarkdown } from "@/lib/safeMarkdown";
+import {
+  normalizeCredibilityPayload,
+  scoreBandColor,
+  scoreBandLabel,
+  sourceTypeLabel,
+  summaryLine,
+  unconfidentCaveat,
+  type SourceCredibilityPayload,
+} from "@/lib/sourceCredibility";
+import {
+  normalizeVerdictPayload,
+  verdictPill,
+  verdictSummary,
+  type CitationVerdictPayload,
+} from "@/lib/citationVerdict";
 
 type CitationWithVisibility = PublicCitation & {
   conclusion_title?: string | null;
   conclusionTitle?: string | null;
   source_visibility?: string | null;
   visibility?: string | null;
+  source_standing?: string | null;
+  sourceStanding?: string | null;
+  standing_reason?: string | null;
+  standingReason?: string | null;
+  source_credibility?: Partial<SourceCredibilityPayload> | null;
+  sourceCredibility?: Partial<SourceCredibilityPayload> | null;
+  citation_verdict?: unknown;
+  citationVerdict?: unknown;
 };
+
+type SourceStanding =
+  | "active"
+  | "retracted"
+  | "corrected"
+  | "disputed"
+  | "expired";
+
+const STANDING_STYLE: Record<Exclude<SourceStanding, "active">, { bg: string; fg: string; label: string }> = {
+  retracted: { bg: "#5b1414", fg: "#ffd1d1", label: "Retracted" },
+  corrected: { bg: "#5b3414", fg: "#ffe2c2", label: "Corrected" },
+  expired: { bg: "#3a3a3a", fg: "#dcdcdc", label: "Expired" },
+  disputed: { bg: "#5a4a14", fg: "#ffe9a8", label: "Disputed" },
+};
+
+function normalizedStanding(citation: CitationWithVisibility): SourceStanding {
+  const raw = (citation.source_standing ?? citation.sourceStanding ?? "active")
+    .toString()
+    .trim()
+    .toLowerCase();
+  if (raw === "retracted" || raw === "corrected" || raw === "disputed" || raw === "expired") {
+    return raw;
+  }
+  return "active";
+}
+
+function standingReason(citation: CitationWithVisibility): string {
+  return (citation.standing_reason ?? citation.standingReason ?? "").toString().trim();
+}
 
 interface CitationPopoverProps {
   open: boolean;
@@ -35,6 +87,7 @@ interface CitationPopoverProps {
 interface PopoverPosition {
   left: number;
   top: number;
+  width: number;
 }
 
 const FOCUSABLE_SELECTOR =
@@ -43,6 +96,10 @@ const ESTIMATED_HEIGHT = 250;
 const MARGIN = 12;
 const WIDTH = 360;
 const POPOVER_Z_INDEX = 10020;
+
+function effectiveWidth(viewportWidth: number): number {
+  return Math.min(WIDTH, Math.max(220, viewportWidth - MARGIN * 2));
+}
 
 const shellStyle: CSSProperties = {
   background: "var(--currents-bg-elevated)",
@@ -53,7 +110,6 @@ const shellStyle: CSSProperties = {
   maxWidth: `calc(100vw - ${MARGIN * 2}px)`,
   padding: "0.85rem",
   position: "fixed",
-  width: `${WIDTH}px`,
   zIndex: POPOVER_Z_INDEX,
 };
 
@@ -172,18 +228,177 @@ function positionFor(anchor: HTMLElement, dialog: HTMLElement | null): PopoverPo
     window.innerWidth || document.documentElement?.clientWidth || WIDTH + MARGIN * 2;
   const viewportHeight =
     window.innerHeight || document.documentElement?.clientHeight || ESTIMATED_HEIGHT;
+  const width = effectiveWidth(viewportWidth);
   const height = dialog?.offsetHeight || ESTIMATED_HEIGHT;
   const preferredTop = rect.top - height - 10;
   const top =
     preferredTop >= MARGIN
       ? preferredTop
       : Math.min(rect.bottom + 10, Math.max(MARGIN, viewportHeight - height - MARGIN));
-  const centeredLeft = rect.left + rect.width / 2 - WIDTH / 2;
+  const centeredLeft = rect.left + rect.width / 2 - width / 2;
   const left = Math.min(
     Math.max(MARGIN, centeredLeft),
-    Math.max(MARGIN, viewportWidth - WIDTH - MARGIN),
+    Math.max(MARGIN, viewportWidth - width - MARGIN),
   );
-  return { left, top };
+  return { left, top, width };
+}
+
+interface CitationVerdictPillProps {
+  verdict: CitationVerdictPayload;
+}
+
+function CitationVerdictPill({ verdict }: CitationVerdictPillProps) {
+  const style = verdictPill(verdict.relation_holds);
+  const overridden = Boolean(verdict.overridden_by && verdict.override_reason);
+  const summary = verdictSummary(verdict);
+  return (
+    <div
+      data-testid="citation-verdict"
+      data-verdict={verdict.relation_holds}
+      style={{ marginTop: "0.4rem" }}
+      title={summary}
+    >
+      <span
+        aria-label={`Citation verdict: ${style.label}`}
+        data-testid="citation-verdict-pill"
+        style={{
+          background: style.bg,
+          border: "1px solid rgba(0,0,0,0.35)",
+          borderRadius: "999px",
+          color: style.fg,
+          display: "inline-block",
+          fontFamily: "'IBM Plex Mono', monospace",
+          fontSize: "0.65rem",
+          letterSpacing: "0.1em",
+          padding: "0.15rem 0.55rem",
+          textTransform: "uppercase",
+        }}
+      >
+        {style.label}
+      </span>
+      {overridden ? (
+        <span
+          style={{
+            color: "var(--currents-muted)",
+            fontSize: "0.7rem",
+            marginLeft: "0.5rem",
+          }}
+        >
+          founder override
+        </span>
+      ) : null}
+      <p
+        style={{
+          color: "var(--currents-parchment-dim)",
+          fontSize: "0.72rem",
+          lineHeight: 1.4,
+          margin: "0.35rem 0 0",
+        }}
+      >
+        {summary}
+      </p>
+    </div>
+  );
+}
+
+interface CredibilityStripProps {
+  credibility: SourceCredibilityPayload;
+}
+
+function CredibilityStrip({ credibility }: CredibilityStripProps) {
+  const score = Math.max(0, Math.min(100, credibility.score_100));
+  const fill = scoreBandColor(score);
+  const bandLabel = scoreBandLabel(score);
+  const summary = summaryLine(credibility);
+  const tooltip = credibility.confident
+    ? summary
+    : `${summary} — ${unconfidentCaveat(credibility)}`;
+
+  return (
+    <div
+      data-testid="source-credibility"
+      style={{
+        borderTop: "1px solid var(--currents-border)",
+        marginTop: "0.7rem",
+        paddingTop: "0.55rem",
+      }}
+      title={tooltip}
+    >
+      <div
+        style={{
+          alignItems: "baseline",
+          color: "var(--currents-muted)",
+          display: "flex",
+          fontFamily: "'IBM Plex Mono', monospace",
+          fontSize: "0.65rem",
+          justifyContent: "space-between",
+          letterSpacing: "0.1em",
+          textTransform: "uppercase",
+        }}
+      >
+        <span>Source credibility</span>
+        <span style={{ color: "var(--currents-parchment-dim)" }}>
+          {sourceTypeLabel(credibility.source_type)}
+        </span>
+      </div>
+      <div
+        aria-label={
+          credibility.confident
+            ? `Source credibility ${score} of 100 (${bandLabel})`
+            : `Source credibility unsettled — ${credibility.n_updates} of ${credibility.min_updates_for_confidence} updates`
+        }
+        role="img"
+        style={{
+          background: "rgba(255,255,255,0.06)",
+          borderRadius: "3px",
+          height: "8px",
+          marginTop: "0.35rem",
+          overflow: "hidden",
+          position: "relative",
+          width: "100%",
+        }}
+      >
+        <div
+          data-testid="source-credibility-fill"
+          style={{
+            background: credibility.confident ? fill : "rgba(255,255,255,0.18)",
+            height: "100%",
+            transition: "width 200ms ease",
+            width: `${score}%`,
+          }}
+        />
+      </div>
+      <div
+        style={{
+          color: "var(--currents-parchment-dim)",
+          display: "flex",
+          fontFamily: "'IBM Plex Mono', monospace",
+          fontSize: "0.7rem",
+          justifyContent: "space-between",
+          marginTop: "0.3rem",
+        }}
+      >
+        <span data-testid="source-credibility-score">
+          {credibility.confident
+            ? `${score.toFixed(score % 1 === 0 ? 0 : 1)} / 100`
+            : `n=${credibility.n_updates} updates`}
+        </span>
+        <span style={{ color: "var(--currents-muted)" }}>{summary}</span>
+      </div>
+      {!credibility.confident ? (
+        <p
+          style={{
+            color: "var(--currents-muted)",
+            fontSize: "0.72rem",
+            lineHeight: 1.4,
+            margin: "0.35rem 0 0",
+          }}
+        >
+          {unconfidentCaveat(credibility)}
+        </p>
+      ) : null}
+    </div>
+  );
 }
 
 export default function CitationPopover({
@@ -298,6 +513,16 @@ export default function CitationPopover({
 
   if (!open || typeof document === "undefined") return null;
 
+  const standing = normalizedStanding(citation);
+  const standingMeta = standing === "active" ? null : STANDING_STYLE[standing];
+  const reason = standingReason(citation);
+  const credibility = normalizeCredibilityPayload(
+    citation.source_credibility ?? citation.sourceCredibility ?? null,
+  );
+  const verdict = normalizeVerdictPayload(
+    citation.citation_verdict ?? citation.citationVerdict ?? null,
+  );
+
   return createPortal(
     <div
       aria-modal="false"
@@ -310,6 +535,7 @@ export default function CitationPopover({
         left: `${position?.left ?? MARGIN}px`,
         opacity: position ? 1 : 0,
         top: `${position?.top ?? MARGIN}px`,
+        width: `${position?.width ?? WIDTH}px`,
       }}
       tabIndex={-1}
     >
@@ -324,6 +550,54 @@ export default function CitationPopover({
         <div>
           <div style={captionStyle}>{citationKind(citation)}</div>
           <h2 style={titleStyle}>{citationTitle(citation)}</h2>
+          {standingMeta ? (
+            <div style={{ marginTop: "0.4rem" }}>
+              <span
+                aria-label={`Source standing: ${standingMeta.label}`}
+                data-testid="source-standing-pill"
+                style={{
+                  background: standingMeta.bg,
+                  border: "1px solid rgba(0,0,0,0.35)",
+                  borderRadius: "999px",
+                  color: standingMeta.fg,
+                  display: "inline-block",
+                  fontFamily: "'IBM Plex Mono', monospace",
+                  fontSize: "0.65rem",
+                  letterSpacing: "0.1em",
+                  padding: "0.15rem 0.55rem",
+                  textTransform: "uppercase",
+                }}
+              >
+                {standingMeta.label}
+              </span>
+              {reason ? (
+                <span
+                  style={{
+                    color: "var(--currents-muted)",
+                    fontSize: "0.72rem",
+                    marginLeft: "0.55rem",
+                  }}
+                >
+                  {reason}
+                </span>
+              ) : null}
+              {standing === "retracted" || standing === "corrected" ? (
+                <a
+                  href="/methodology#source-standing"
+                  style={{
+                    color: "var(--currents-gold)",
+                    display: "inline-block",
+                    fontSize: "0.72rem",
+                    marginLeft: "0.55rem",
+                    textDecoration: "underline",
+                  }}
+                >
+                  this source has been retracted →
+                </a>
+              ) : null}
+            </div>
+          ) : null}
+          {verdict ? <CitationVerdictPill verdict={verdict} /> : null}
         </div>
         <button
           aria-label="Close citation"
@@ -343,6 +617,10 @@ export default function CitationPopover({
           ×
         </button>
       </div>
+
+      {credibility ? (
+        <CredibilityStrip credibility={credibility} />
+      ) : null}
 
       <div style={bodyStyle}>{renderSafeMarkdown(text)}</div>
 

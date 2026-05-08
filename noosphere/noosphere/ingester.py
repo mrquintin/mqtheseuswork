@@ -934,3 +934,136 @@ from noosphere.ingest_artifacts import (  # noqa: E402
     ingest_text,
     ingest_transcript,
 )
+
+
+# ── Dialectic argument-map ingestion ──────────────────────────────────────────
+#
+# Dialectic now exports a structured argument map (claims + relations) as the
+# canonical artifact, with the raw transcript kept only as a fallback. We
+# prefer the map whenever it's present because it carries the relations
+# Dialectic already inferred via NLI — re-running extraction over the raw
+# transcript would discard that signal.
+
+import json as _json  # noqa: E402
+from datetime import date as _date  # noqa: E402
+
+
+def _is_argument_map_markdown(text: str) -> bool:
+    """Cheap frontmatter sniff so we don't pay for a YAML parse on every file."""
+
+    head = text[:512]
+    return head.startswith("---") and "kind: argument_map" in head
+
+
+def _argument_map_payload(path: Path) -> Optional[Dict[str, Any]]:
+    """Return a structured argument-map dict, prefering ``argument_map.json``
+    next to the markdown when available. Falls back to parsing the markdown
+    frontmatter + ``### `` claim sections so a hand-rolled map still ingests."""
+
+    p = Path(path)
+    sibling_json = p.with_name("argument_map.json")
+    if sibling_json.exists():
+        try:
+            return _json.loads(sibling_json.read_text(encoding="utf-8"))
+        except Exception:
+            pass
+    if p.suffix.lower() != ".md":
+        return None
+    text = p.read_text(encoding="utf-8", errors="replace")
+    if not _is_argument_map_markdown(text):
+        return None
+    # Best-effort parse: pull headings under "## Claims".
+    nodes: list[dict] = []
+    in_claims = False
+    current: Optional[Dict[str, Any]] = None
+    for line in text.splitlines():
+        if line.strip().lower().startswith("## claims"):
+            in_claims = True
+            continue
+        if line.startswith("## ") and in_claims:
+            in_claims = False
+        if not in_claims:
+            continue
+        if line.startswith("### "):
+            if current is not None:
+                nodes.append(current)
+            current = {
+                "text": line[4:].lstrip("?• ").strip(),
+                "claim_type": "empirical",
+                "speaker": "unknown",
+            }
+        elif current is not None and line.startswith("> "):
+            for kv in line[2:].split("·"):
+                if ":" in kv:
+                    k, v = kv.split(":", 1)
+                    current[k.strip()] = v.strip()
+    if current is not None:
+        nodes.append(current)
+    return {"kind": "argument_map", "nodes": nodes, "edges": []}
+
+
+def ingest_argument_map(
+    path: str | Path,
+    store: Any,
+    *,
+    episode_id: str = "dialectic",
+    episode_date: Optional[_date] = None,
+    embedding_model: str = "all-MiniLM-L6-v2",
+) -> Tuple[Any, int]:
+    """Ingest a Dialectic argument-map artifact (JSON or Markdown).
+
+    Persists every claim node directly — no LLM re-extraction — and
+    preserves the speaker / type / turn metadata Dialectic recorded.
+    The raw transcript fallback (if any) is left for ``ingest_transcript``;
+    we don't double-ingest the same content.
+
+    Returns ``(artifact, claim_count)`` mirroring ``ingest_dialectic_session_jsonl``.
+    """
+
+    from noosphere.ids import artifact_id_from_file
+    from noosphere.mitigations.ingestion_guard import apply_ingestion_flags_to_claim
+    from noosphere.models import Artifact
+
+    p = Path(path)
+    payload = _argument_map_payload(p)
+    if payload is None:
+        # Caller asked for argument-map ingestion on a non-map file — fall
+        # back to the existing transcript path so we never silently swallow
+        # an upload.
+        logger.info("argument_map_fallback_to_transcript", path=str(p))
+        return ingest_transcript(p, store)[0], 0
+
+    raw_bytes = p.read_bytes()
+    aid = artifact_id_from_file(p)
+    art = Artifact(
+        id=aid,
+        uri=str(p.resolve()),
+        mime_type="application/x-argument-map+json"
+        if p.suffix.lower() == ".json"
+        else "text/markdown",
+        byte_length=len(raw_bytes),
+        content_sha256=__import__("hashlib").sha256(raw_bytes).hexdigest(),
+        title=str(payload.get("title") or p.stem),
+        source_date=episode_date,
+    )
+    store.put_artifact(art)
+
+    when = episode_date or _date.today()
+    n = 0
+    for nd in payload.get("nodes", []):
+        text = (nd.get("text") or "").strip()
+        if not text:
+            continue
+        speaker_name = str(nd.get("speaker") or "unknown")
+        cl = Claim(
+            text=text,
+            speaker=Speaker(name=speaker_name),
+            episode_id=str(episode_id),
+            episode_date=when,
+            chunk_id=str(nd.get("node_id") or nd.get("id") or ""),
+        )
+        apply_ingestion_flags_to_claim(cl)
+        store.put_claim(cl)
+        n += 1
+    logger.info("ingest_argument_map", artifact_id=aid, num_claims=n, path=str(p))
+    return art, n

@@ -4,6 +4,7 @@ import type { NextRequest } from "next/server";
 import { db } from "@/lib/db";
 import { publicCorsHeaders } from "@/lib/publicCors";
 import { notifyFounderOfResponse } from "@/lib/responsesEmail";
+import { seedTriageRow } from "@/lib/responseTriageApi";
 
 const KINDS = new Set(["counter_evidence", "counter_argument", "clarification", "agreement_extension"]);
 const RATE_LIMIT_WINDOW_MS = 24 * 60 * 60 * 1000;
@@ -27,6 +28,7 @@ export async function POST(req: NextRequest) {
         submitterEmail?: string;
         orcid?: string;
         pseudonymous?: boolean;
+        publishConsent?: boolean;
       }
     | null;
 
@@ -74,8 +76,20 @@ export async function POST(req: NextRequest) {
       submitterEmail: email,
       orcid: String(body.orcid ?? "").trim(),
       pseudonymous: Boolean(body.pseudonymous),
+      publishConsent: Boolean(body.publishConsent),
       status: "pending",
     },
+  });
+
+  void seedTriageRow({
+    responseId: row.id,
+    organizationId: pub.organizationId,
+    kind: row.kind,
+    body: row.body,
+    citationUrl: row.citationUrl,
+    submitterEmail: row.submitterEmail,
+  }).catch((error) => {
+    console.error("[public responses] triage seed failed:", error);
   });
 
   void notifyFounderOfResponse(row, pub).catch((error) => {

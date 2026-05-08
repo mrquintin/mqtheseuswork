@@ -57,6 +57,31 @@ vi.mock("@/lib/conclusionsRead", () => ({
   listPublishedArticles: mocks.listPublishedArticles,
 }));
 
+vi.mock("@/lib/methodologyManifest", () => ({
+  buildMethodologyManifest: vi.fn().mockResolvedValue({
+    v: 1,
+    schema: "theseus.methodology.manifest",
+    generatedAt: "2026-05-08T00:00:00.000Z",
+    methods: [],
+    edges: [],
+    publicFailureModes: [],
+    publicTrackRecords: [],
+  }),
+  methodEntry: vi.fn().mockResolvedValue(null),
+  driftLabel: (s: string) =>
+    s === "escalate" ? "Drifting" : s === "warn" ? "Watch" : "OK",
+  driftColor: () => "var(--public-muted, #888)",
+  MANIFEST_SCHEMA_VERSION: 1,
+}));
+
+vi.mock("@/components/MethodologyIndexTable", () => ({
+  default: ({ methods }: { methods: Array<{ name: string }> }) => (
+    <div data-testid="methodology-index-table">
+      {methods.length} methods
+    </div>
+  ),
+}));
+
 import PublicHomePage from "@/app/page";
 import MethodologyPage from "@/app/methodology/page";
 import ConclusionView from "@/components/ConclusionView";
@@ -224,14 +249,14 @@ describe("PublicHomePage", () => {
 describe("Public methodology surfaces", () => {
   beforeEach(resetPublicMocks);
 
-  it("explains the object-level conclusion versus reusable method distinction", async () => {
+  it("frames the methodology page as the firm's published reasoning surface", async () => {
     const html = await renderMethodologyPage();
 
-    expect(html).toContain("Two different public records");
-    expect(html).toContain("object-level");
-    expect(html).toContain("reusable");
-    expect(html).toContain("the conclusion does not transfer automatically with it");
+    expect(html).toContain("The reusable part of inquiry");
+    expect(html).toContain("Method index");
+    expect(html).toContain("Public failure modes");
     expect(html).toContain("does not expose raw deliberation");
+    expect(html).toContain("Five-criterion rubric");
   });
 
   it("renders public methodology profiles without exposing private source anchors", () => {

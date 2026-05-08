@@ -1,0 +1,277 @@
+/* ═════════════════════════════════════════════════════════════════════════
+ * Print stylesheet — print-quality view of every published article.
+ *
+ * Imported by `app/post/[slug]/page.tsx` and `app/c/[slug]/page.tsx`.
+ * Activates only inside `@media print`; on-screen rendering is left
+ * entirely untouched (the only screen-side rule is hiding the
+ * `.print-only` block, which is itself opt-in).
+ *
+ * Goals:
+ *   1. Strip web chrome (header, footer, toolbars, popovers, audio,
+ *      response widgets) so the printed page is pure article.
+ *   2. Re-typeset for paper: black on white, EB Garamond body, larger
+ *      line-height, generous margins, justified prose.
+ *   3. Promote citation popovers to numbered endnotes with full
+ *      bibliographic info.
+ *   4. Keep paragraphs intact across page breaks; force each section
+ *      heading to stay with its first paragraph.
+ *   5. Reveal the print-only metadata + endnote blocks injected by the
+ *      React layer.
+ * ═════════════════════════════════════════════════════════════════════════ */
+
+/* On-screen: hide elements that exist only to be printed. */
+.print-only {
+  display: none !important;
+}
+
+@media print {
+  /* ── Page setup ─────────────────────────────────────────────────────── */
+  @page {
+    size: Letter;
+    margin: 0.85in 0.9in 0.95in;
+  }
+
+  html,
+  body {
+    background: #fff !important;
+    color: #111 !important;
+    font-family: "EB Garamond", "Iowan Old Style", Georgia, serif !important;
+    font-size: 11pt;
+    line-height: 1.55;
+  }
+
+  /* Reveal the print-only blocks (metadata header, endnotes). */
+  .print-only {
+    display: block !important;
+  }
+
+  /* ── Strip web chrome ───────────────────────────────────────────────── */
+  /*
+   * Anything tagged `.no-print` is removed (e.g. the public PDF button,
+   * "Back to index" links, response widgets). We also defensively strip
+   * common chrome by element/role selectors so a fresh widget added
+   * later prints reasonably without needing this stylesheet updated.
+   */
+  .no-print,
+  header[data-public-header],
+  nav,
+  [role="navigation"],
+  [role="toolbar"],
+  [role="dialog"],
+  [data-testid="respond-callout"],
+  [data-testid="reader-responses"],
+  [data-testid="provenance-toggle"],
+  [data-testid="provenance-toggle-mobile"],
+  [data-testid="provenance-tip"],
+  [data-testid="provenance-mobile-toolbar"],
+  [data-testid="provenance-article"] [role="toolbar"],
+  .public-mobile-toolbar,
+  .public-header,
+  .public-footer,
+  .post-footer,
+  .citation-popover,
+  audio,
+  video,
+  .skip-link,
+  .crt-overlay,
+  [data-crt-overlay] {
+    display: none !important;
+  }
+
+  /* ── Layout reset ───────────────────────────────────────────────────── */
+  main,
+  .public-container,
+  .public-post-article {
+    background: transparent !important;
+    box-shadow: none !important;
+    color: #111 !important;
+    margin: 0 !important;
+    max-width: 100% !important;
+    padding: 0 !important;
+    width: auto !important;
+  }
+
+  /* Force a page break before the article body so the metadata block
+   * (which is page-1 only) gets its own opening page when there is
+   * enough content to overflow; the `.print-page-break` utility lets
+   * the React layer request explicit breaks (used between TOC entries
+   * in the bound PDF export). */
+  .print-page-break {
+    page-break-before: always;
+  }
+
+  /* ── Typography ─────────────────────────────────────────────────────── */
+  h1,
+  h2,
+  h3,
+  h4,
+  .public-title {
+    color: #000 !important;
+    font-family: "EB Garamond", "Iowan Old Style", Georgia, serif !important;
+    font-weight: 600;
+    letter-spacing: 0;
+    page-break-after: avoid;
+    text-shadow: none !important;
+  }
+
+  h1,
+  .public-title {
+    font-size: 22pt;
+    line-height: 1.2;
+    margin: 0 0 0.4em;
+  }
+
+  h2 {
+    font-size: 14pt;
+    margin: 1.4em 0 0.4em;
+  }
+
+  h3 {
+    font-size: 12pt;
+    margin: 1.1em 0 0.3em;
+  }
+
+  /* Paragraphs: keep them whole when possible, justify for paper. */
+  p,
+  li {
+    color: #111 !important;
+    orphans: 3;
+    widows: 3;
+  }
+
+  .post-body p,
+  .public-article-body p,
+  .public-section p {
+    margin: 0 0 0.75em;
+    page-break-inside: avoid;
+    text-align: justify;
+  }
+
+  /* Convert pull-quote (description lede) styling to a print-safe
+   * variant: indented italic paragraph with a hairline rule above and
+   * below, no colored bar. */
+  .public-post-article header p[style*="italic"],
+  .post-pullquote {
+    border: none !important;
+    border-top: 0.5pt solid #999 !important;
+    border-bottom: 0.5pt solid #999 !important;
+    color: #222 !important;
+    font-style: italic;
+    margin: 1em 0.5in !important;
+    padding: 0.6em 0 !important;
+    text-align: center;
+  }
+
+  /* Sections: a section heading should never sit at the bottom of a
+   * page detached from its body. */
+  section,
+  .public-section {
+    page-break-inside: auto;
+  }
+  section h2,
+  .public-section h2 {
+    page-break-after: avoid;
+  }
+
+  /* Lists print as plain bullet/number lists, no terminal styling. */
+  ul,
+  ol {
+    margin: 0 0 0.75em 1.4em;
+    padding: 0;
+  }
+
+  /* ── Links: print-friendly (underline, black text, URL never shown
+   *    inline because endnotes carry the URL). ───────────────────────── */
+  a,
+  a:visited {
+    color: #000 !important;
+    text-decoration: underline;
+  }
+
+  /* ── Print-only metadata block (first page header) ─────────────────── */
+  .print-metadata-block {
+    border-bottom: 0.5pt solid #333;
+    color: #111;
+    font-family: "EB Garamond", "Iowan Old Style", Georgia, serif;
+    margin: 0 0 1.2em;
+    padding: 0 0 0.7em;
+  }
+  .print-metadata-block .print-metadata-title {
+    font-size: 22pt;
+    font-weight: 600;
+    line-height: 1.2;
+    margin: 0 0 0.35em;
+  }
+  .print-metadata-block .print-metadata-byline {
+    font-size: 10.5pt;
+    margin: 0 0 0.5em;
+  }
+  .print-metadata-block dl {
+    display: grid;
+    font-size: 9.5pt;
+    grid-column-gap: 1em;
+    grid-row-gap: 0.15em;
+    grid-template-columns: max-content 1fr;
+    margin: 0;
+  }
+  .print-metadata-block dt {
+    color: #444;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+  }
+  .print-metadata-block dd {
+    margin: 0;
+  }
+  .print-metadata-block .print-metadata-fingerprint {
+    font-family: "IBM Plex Mono", "Menlo", monospace;
+    font-size: 8.5pt;
+    word-break: break-all;
+  }
+
+  /* ── Print-only endnotes block ─────────────────────────────────────── */
+  .print-endnotes {
+    border-top: 0.5pt solid #333;
+    margin-top: 2em;
+    padding-top: 0.7em;
+    page-break-before: auto;
+  }
+  .print-endnotes h2 {
+    font-size: 13pt;
+    margin: 0 0 0.5em;
+  }
+  .print-endnotes ol {
+    counter-reset: endnote;
+    list-style: none;
+    margin: 0;
+    padding: 0;
+  }
+  .print-endnotes li {
+    counter-increment: endnote;
+    font-size: 10pt;
+    line-height: 1.4;
+    margin: 0 0 0.45em;
+    padding-left: 2.2em;
+    position: relative;
+    text-indent: 0;
+  }
+  .print-endnotes li::before {
+    content: counter(endnote) ".";
+    font-weight: 600;
+    left: 0;
+    position: absolute;
+    text-align: right;
+    width: 1.8em;
+  }
+  .print-endnotes .print-endnote-url {
+    color: #222 !important;
+    font-family: "IBM Plex Mono", "Menlo", monospace;
+    font-size: 9pt;
+    word-break: break-all;
+  }
+  .print-endnotes .print-endnote-meta {
+    color: #555;
+    font-size: 9pt;
+    margin-left: 0.4em;
+  }
+}

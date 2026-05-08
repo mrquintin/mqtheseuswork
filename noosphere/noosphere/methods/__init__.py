@@ -15,6 +15,29 @@ from noosphere.methods._registry import (
     MethodCollisionError,
     MethodNotFoundError,
 )
+from noosphere.methods.composition import (
+    InheritedRisk,
+    MethodCompositionError,
+    MethodDag,
+    MethodNode,
+    build_dag,
+    compute_risk_inheritance,
+    graph_snapshot,
+    severity_penalty_multiplier_with_inheritance,
+)
+from noosphere.methods.domain_bounds import (
+    AnchorBound,
+    DomainBound,
+    DomainRefusal,
+    DomainVerdict,
+    EmbeddingModelMismatch,
+    TagBound,
+    check_anchor,
+    check_domain,
+    check_tags,
+    load_domain_bound,
+    refuse_out_of_bounds,
+)
 
 
 def get_method(
@@ -24,16 +47,35 @@ def get_method(
 
 
 __all__ = [
+    "AnchorBound",
     "CORRELATION_ID",
-    "REGISTRY",
-    "TENANT_ID",
+    "DomainBound",
+    "DomainRefusal",
+    "DomainVerdict",
+    "EmbeddingModelMismatch",
+    "InheritedRisk",
     "MethodCollisionError",
+    "MethodCompositionError",
+    "MethodDag",
+    "MethodNode",
     "MethodNotFoundError",
+    "REGISTRY",
+    "TagBound",
+    "TENANT_ID",
+    "build_dag",
+    "check_anchor",
+    "check_domain",
+    "check_tags",
+    "compute_risk_inheritance",
     "get_method",
+    "graph_snapshot",
+    "load_domain_bound",
+    "refuse_out_of_bounds",
     "register_failure_hook",
     "register_method",
     "register_post_hook",
     "register_pre_hook",
     "set_store_factory",
+    "severity_penalty_multiplier_with_inheritance",
     "unregister_hook",
 ]

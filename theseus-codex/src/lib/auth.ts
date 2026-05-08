@@ -139,3 +139,107 @@ export async function destroySession() {
 }
 
 export { COOKIE_NAME };
+
+// ── Password strength predicate ─────────────────────────────────────────────
+//
+// Founder login is the firm's identity gate; a guessable passphrase
+// here is the difference between "an attacker reads the dashboard"
+// and "an attacker publishes under our signature". Threshold is set
+// from the threat model (`docs/security/Threat_Model.md` §5).
+
+const COMMON_PASSWORDS: ReadonlySet<string> = new Set([
+  "password",
+  "password1",
+  "password123",
+  "letmein",
+  "welcome",
+  "admin",
+  "administrator",
+  "qwerty",
+  "qwerty123",
+  "iloveyou",
+  "abc123",
+  "12345678",
+  "123456789",
+  "1234567890",
+  "111111",
+  "monkey",
+  "dragon",
+  "master",
+  "sunshine",
+  "princess",
+  "shadow",
+  "football",
+  "baseball",
+  "trustno1",
+  "passw0rd",
+  "p@ssword",
+  "p@ssw0rd",
+  "qazwsx",
+  "qwertyuiop",
+  "michael",
+  "ashley",
+  "111222",
+  "654321",
+  "123123",
+  "000000",
+  "letmein123",
+  "starwars",
+  "freedom",
+  "whatever",
+  "hello",
+  "hello123",
+  "welcome1",
+  "summer",
+  "winter",
+  "spring",
+  "autumn",
+  "theseus",
+  "founder",
+  "noosphere",
+  "currents",
+  "codex",
+]);
+
+export type PasswordCheck =
+  | { ok: true }
+  | { ok: false; reason: string };
+
+/**
+ * Strong-password predicate for the password-set/change handlers.
+ *
+ * Rules (intentionally explicit so the UI can mirror them):
+ *   - ≥ 12 characters
+ *   - at least one lowercase, one uppercase, one digit
+ *   - at least one non-alphanumeric character
+ *   - not in the small dictionary above
+ *
+ * Returns a structured result so the form can render the *specific*
+ * rule the candidate violated rather than a generic "too weak".
+ */
+export function isStrongPassword(candidate: string): PasswordCheck {
+  if (typeof candidate !== "string") return { ok: false, reason: "Password must be a string." };
+  if (candidate.length < 12) {
+    return { ok: false, reason: "Password must be at least 12 characters." };
+  }
+  if (candidate.length > 1024) {
+    return { ok: false, reason: "Password is unreasonably long." };
+  }
+  if (!/[a-z]/.test(candidate)) {
+    return { ok: false, reason: "Password must contain a lowercase letter." };
+  }
+  if (!/[A-Z]/.test(candidate)) {
+    return { ok: false, reason: "Password must contain an uppercase letter." };
+  }
+  if (!/[0-9]/.test(candidate)) {
+    return { ok: false, reason: "Password must contain a digit." };
+  }
+  if (!/[^A-Za-z0-9]/.test(candidate)) {
+    return { ok: false, reason: "Password must contain a punctuation or symbol character." };
+  }
+  if (COMMON_PASSWORDS.has(candidate.toLowerCase())) {
+    return { ok: false, reason: "Password appears in the common-password dictionary." };
+  }
+  return { ok: true };
+}
+

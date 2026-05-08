@@ -105,6 +105,30 @@ class KalshiClient:
         event = payload.get("event")
         return event if isinstance(event, dict) else payload
 
+    async def fetch_resolution(self, market_id: str) -> Any:
+        """Return the venue's view of `market_id`'s resolution, or None
+        if the venue does not know the market. ``outcome == "STILL_OPEN"``
+        means the market exists but has not yet resolved.
+        """
+
+        from noosphere.forecasts._polymarket_client import ResolutionRecord
+        from noosphere.forecasts.resolution_tracker import (
+            _parse_kalshi_settlement,
+        )
+
+        payload = await self.get_market(market_id)
+        if payload is None:
+            return None
+        settlement = _parse_kalshi_settlement(payload)
+        return ResolutionRecord(
+            venue="KALSHI",
+            market_id=market_id,
+            outcome=settlement.outcome,
+            resolved_at=settlement.resolved_at,
+            source_url=_kalshi_resolution_url(payload, market_id),
+            raw=settlement.raw,
+        )
+
     async def _request(
         self,
         method: str,
@@ -244,6 +268,16 @@ def _manual_retry_wait_s(exc: _RetryableHTTPStatus, attempt: int) -> float:
     if exc.retry_after_s is not None:
         return max(0.0, exc.retry_after_s)
     return min(8.0, 0.5 * (2 ** max(0, attempt - 1)))
+
+
+def _kalshi_resolution_url(payload: dict[str, Any], ticker: str) -> str | None:
+    for key in ("url", "marketUrl", "market_url", "resolutionUrl"):
+        value = payload.get(key)
+        if isinstance(value, str) and value.strip().startswith("http"):
+            return value.strip()
+    if ticker:
+        return f"https://kalshi.com/markets/{ticker}"
+    return None
 
 
 def _retry_after_s(raw: str | None) -> float | None:

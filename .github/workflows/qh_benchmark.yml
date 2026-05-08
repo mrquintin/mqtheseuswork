@@ -1,0 +1,110 @@
+name: Quintin Hypothesis Benchmark
+
+# Nightly: re-run the QH benchmark against the frozen v1 dataset
+# with the pinned deterministic embedder and upload the result. The
+# theseus-codex leaderboard page reads these JSON files. Drift on
+# this benchmark is a louder alert than method drift — it is the
+# firm losing its own thesis. The workflow is also dispatchable
+# manually and runs on PRs that touch the benchmark code so that
+# regressions surface before merge.
+
+on:
+  schedule:
+    # 06:30 UTC nightly — pinned offset to avoid the cron rush hour.
+    - cron: '30 6 * * *'
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - 'noosphere/noosphere/benchmarks/**'
+      - 'noosphere/tests/test_qh_benchmark.py'
+      - 'benchmarks/quintin_hypothesis/**'
+      - 'docs/benchmarks/QH_Benchmark_Schema.md'
+      - '.github/workflows/qh_benchmark.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'noosphere/noosphere/benchmarks/**'
+      - 'benchmarks/quintin_hypothesis/**'
+      - '.github/workflows/qh_benchmark.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: qh-benchmark-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  benchmark:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+          cache-dependency-path: noosphere/requirements.txt
+
+      - name: Install noosphere
+        working-directory: noosphere
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install -e .
+
+      - name: Run unit tests for the benchmark harness
+        working-directory: noosphere
+        run: pytest tests/test_qh_benchmark.py -q
+
+      - name: Validate dataset for leakage
+        working-directory: noosphere
+        run: |
+          python -m noosphere.cli benchmark qh --validate --json > leakage_report.json
+          cat leakage_report.json
+          # Fail the job if any leaks are detected.
+          python -c "import json,sys; r=json.load(open('leakage_report.json')); sys.exit(0 if r['n_leaks']==0 else 2)"
+
+      - name: Run all three baseline runners
+        working-directory: noosphere
+        env:
+          # Pin the embedder so cross-run comparisons are valid.
+          QH_EMBEDDER_DIM: '192'
+          QH_SEED: '0'
+        run: |
+          for runner in random cosine contradiction_geometry; do
+            echo "::group::runner=$runner"
+            python -m noosphere.cli benchmark qh \
+              --runner "$runner" \
+              --seed "$QH_SEED" \
+              --embedder-dim "$QH_EMBEDDER_DIM" \
+              --json
+            echo "::endgroup::"
+          done
+
+      - name: Refresh leaderboard snapshot for theseus-codex
+        run: |
+          mkdir -p theseus-codex/public/qh-benchmark
+          cp benchmarks/quintin_hypothesis/v1/results/metrics_*.json \
+             theseus-codex/public/qh-benchmark/
+
+      - name: Upload metrics artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: qh-benchmark-results-${{ github.run_id }}
+          path: |
+            benchmarks/quintin_hypothesis/v1/results/metrics_*.json
+            benchmarks/quintin_hypothesis/v1/results/metrics_*.md
+            benchmarks/quintin_hypothesis/v1/results/results_*.json
+          if-no-files-found: error
+          retention-days: 90
+
+      - name: Upload public snapshot for theseus-codex
+        uses: actions/upload-artifact@v4
+        with:
+          name: qh-benchmark-public-snapshot
+          path: theseus-codex/public/qh-benchmark/
+          if-no-files-found: error
+          retention-days: 30

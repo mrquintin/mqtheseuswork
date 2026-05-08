@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server";
 import { getFounder } from "@/lib/auth";
 import { db } from "@/lib/db";
-import { generateApiKeyPlaintext } from "@/lib/apiKeyAuth";
+import { generateApiKeyPlaintext, normaliseScopes } from "@/lib/apiKeyAuth";
+import { requireCsrfToken } from "@/lib/csrf";
 
 /**
  * GET  /api/auth/api-keys         → list non-revoked keys for the current founder
@@ -42,6 +43,10 @@ export async function POST(req: Request) {
   if (!founder) {
     return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
   }
+  const csrf = requireCsrfToken(req);
+  if (!csrf.ok) {
+    return NextResponse.json({ error: "CSRF check failed", code: csrf.reason }, { status: 403 });
+  }
   let body: { label?: string; scopes?: string };
   try {
     body = await req.json();
@@ -56,6 +61,17 @@ export async function POST(req: Request) {
     );
   }
 
+  const scopes = normaliseScopes(body.scopes ?? "");
+  if (scopes === null) {
+    return NextResponse.json(
+      {
+        error:
+          "`scopes` must be empty (legacy full access) or a comma-separated subset of: read, write, publish",
+      },
+      { status: 400 },
+    );
+  }
+
   const { plaintext, prefix, keyHash } = await generateApiKeyPlaintext();
   const key = await db.apiKey.create({
     data: {
@@ -64,7 +80,7 @@ export async function POST(req: Request) {
       label,
       prefix,
       keyHash,
-      scopes: body.scopes || "",
+      scopes,
     },
     select: { id: true, label: true, prefix: true, createdAt: true },
   });
@@ -85,6 +101,10 @@ export async function DELETE(req: Request) {
   const founder = await getFounder();
   if (!founder) {
     return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
+  }
+  const csrf = requireCsrfToken(req);
+  if (!csrf.ok) {
+    return NextResponse.json({ error: "CSRF check failed", code: csrf.reason }, { status: 403 });
   }
   const url = new URL(req.url);
   const id = url.searchParams.get("id");

@@ -41,9 +41,11 @@ export default async function CurrentsPage() {
   }
 
   return (
-    <Suspense fallback={<CurrentsLoadingState />}>
-      <FeedClient health={health} seed={seed} />
-    </Suspense>
+    <div data-testid="currents-page">
+      <Suspense fallback={<CurrentsLoadingState />}>
+        <FeedClient health={health} seed={seed} />
+      </Suspense>
+    </div>
   );
 }
 

@@ -1,0 +1,74 @@
+You are operating in /Users/michaelquintin/Desktop/Theseus.
+
+Goal: a security hardening pass over the public surfaces, the founder
+auth, and the API key handling. The firm's credibility evaporates
+the first time a leaked token publishes a fabricated article under
+its signature (prompt 30). Treat this prompt as a deliberate audit,
+not a survey.
+
+Before you start — read:
+1. `theseus-codex/src/lib/auth.ts`, `apiKeyAuth.ts`, `roles.ts`,
+   `tenant.ts`.
+2. `theseus-codex/middleware.ts` (or wherever the route guard
+   lives).
+3. The signed authorship key handling (prompt 30).
+4. Existing security checks under `scripts/check_no_phone_home.py`
+   etc.
+
+Implement:
+
+A. Threat model. `docs/security/Threat_Model.md`: identify the
+   firm's actual adversaries (impersonation of the firm,
+   tampering with published claims, exfiltration of private
+   transcripts, denial-of-service on viral days), the
+   vulnerable surfaces, and the existing mitigations. This is
+   the document the rest of this prompt's work must align to.
+
+B. Auth hardening:
+   - Founder login: enforce strong password rules + WebAuthn
+     option. Lock-out policy on N failed attempts.
+   - API keys: per-key scope (read/write/publish), per-key
+     rate limit, per-key audit log. Rotation UI; revocation
+     visible.
+   - CSRF on all state-changing public endpoints (the
+     RespondForm path, etc.). Verify the existing pattern;
+     extend if missing.
+
+C. Public-API hardening. Rate limits per IP and per route.
+   Ask-search (prompt 28) and subscribe (prompt 39) are
+   spam-prone; gate with a simple challenge.
+
+D. Secret hygiene. A `scripts/check_no_secrets_in_code.py`
+   that scans the repo for detectable secrets. CI enforced.
+
+E. Signed-publication abuse. Re-verify that the signing key
+   from prompt 30 is never reachable from the web app, and add
+   a CI check that the key path is not in any web app
+   import graph.
+
+F. Tests. Targeted security tests: brute-force lockout fires;
+   per-key rate limit enforced; CSRF token required on
+   state-changing endpoints; secret-scan triggers on a planted
+   token.
+
+Constraints
+- This prompt is a hardening pass, not a redesign. Where the
+  existing implementation is reasonable, document it; where it
+  is not, repair locally.
+- Do not centralize secrets in a new vault if the deploy story
+  doesn't already include one. Use what's there.
+- Findings that do not fit in one prompt are recorded in the
+  threat model with a TODO and a severity, not silently
+  forgotten.
+
+SCOPE
+- `docs/security/Threat_Model.md` CREATE
+- `theseus-codex/src/lib/auth.ts` MODIFY
+- `theseus-codex/src/lib/apiKeyAuth.ts` MODIFY
+- `theseus-codex/middleware.ts` MODIFY (or CREATE)
+- `theseus-codex/src/app/api/public/ask/route.ts` MODIFY
+- `theseus-codex/src/app/api/public/subscribe/route.ts` MODIFY
+- `theseus-codex/src/app/(authed)/account/api-keys/page.tsx` MODIFY
+- `theseus-codex/src/__tests__/auth-security.test.ts` CREATE
+- `scripts/check_no_secrets_in_code.py` CREATE
+- `scripts/check_signing_key_not_in_web.py` CREATE

@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import "./globals.css";
+import "./print.css";
 import CRTOverlay from "@/components/CRTOverlay";
 import { theseusIdentity } from "@/content/theseusIdentity";
 

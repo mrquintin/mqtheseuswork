@@ -1,0 +1,161 @@
+\documentclass[11pt,letterpaper]{article}
+
+\usepackage[margin=1in]{geometry}
+\usepackage[T1]{fontenc}
+\usepackage{lmodern}
+\usepackage{microtype}
+\usepackage{parskip}
+\usepackage{enumitem}
+\usepackage{booktabs}
+\usepackage{titlesec}
+\usepackage[hidelinks,colorlinks=true,linkcolor=black,urlcolor=black,citecolor=black]{hyperref}
+\usepackage{xcolor}
+\usepackage{fancyhdr}
+
+\titleformat{\section}{\Large\bfseries}{\thesection}{1em}{}
+\titleformat{\subsection}{\large\bfseries}{\thesubsection}{1em}{}
+
+\pagestyle{fancy}
+\fancyhf{}
+\fancyhead[L]{\small Theseus Auto-Paper --- \VAR{paper.cluster_id_tex}}
+\fancyhead[R]{\small\thepage}
+\renewcommand{\headrulewidth}{0.4pt}
+
+\setlength{\parindent}{0pt}
+
+\newcommand{\todomark}[1]{\textcolor{red}{\textbf{[TODO: #1]}}}
+\newcommand{\rowref}[1]{\texttt{\small[row:#1]}}
+
+\title{\textbf{\VAR{paper.title_tex}}\\[6pt]\large \VAR{paper.subtitle_tex}}
+\date{\VAR{paper.date_str}}
+\author{Theseus Auto-Paper Generator}
+
+\begin{document}
+
+\maketitle
+\thispagestyle{empty}
+
+\begin{center}
+\fbox{%
+  \begin{minipage}{0.92\textwidth}
+    \centering\small
+    \textbf{Disclosure:} machine-drafted, founder-reviewed.\\
+    Lead conclusion: \texttt{\VAR{paper.lead_conclusion_id_tex}}.\\
+    Methodology root: \texttt{\VAR{paper.methodology.profile_id_tex}}
+    (\VAR{paper.methodology.pattern_type_tex}).
+  \end{minipage}%
+}
+\end{center}
+
+\vspace{1.5em}
+
+\section*{Abstract}
+\VAR{paper.abstract_tex}
+
+\section{Introduction}
+\VAR{paper.introduction_tex}
+
+\subsection*{Conclusions in this cluster}
+\begin{itemize}[leftmargin=1.5em]
+%% for c in paper.conclusions
+  \item \textbf{\VAR{c.id_tex}} \rowref{conclusion:\VAR{c.id_tex}} --- \VAR{c.text_tex}
+%% endfor
+\end{itemize}
+
+\section{Methods}
+The cluster shares a single methodology root,
+\textit{\VAR{paper.methodology.title_tex}} (\texttt{\VAR{paper.methodology.profile_id_tex}}, pattern \emph{\VAR{paper.methodology.pattern_type_tex}}).
+
+\textbf{Summary.} \VAR{paper.methodology.summary_tex}
+
+%% if paper.methodology.reasoning_moves
+\subsection*{Reasoning moves}
+\begin{itemize}[leftmargin=1.5em]
+%% for move in paper.methodology.reasoning_moves
+  \item \VAR{move}
+%% endfor
+\end{itemize}
+%% endif
+
+%% if paper.methodology.assumptions
+\subsection*{Assumptions}
+\begin{itemize}[leftmargin=1.5em]
+%% for a in paper.methodology.assumptions
+  \item \VAR{a}
+%% endfor
+\end{itemize}
+%% endif
+
+\section{Results}
+The cluster's conclusions were stress-tested against
+\VAR{paper.resolved_forecasts | length} resolved forecast(s) from the firm's
+calibration ledger. Each row below resolves to a database record.
+
+\begin{center}
+\begin{tabular}{@{}p{0.30\textwidth} p{0.10\textwidth} p{0.12\textwidth} p{0.12\textwidth} p{0.20\textwidth}@{}}
+\toprule
+\textbf{Headline} & \textbf{Outcome} & \textbf{Stated} & \textbf{Brier} & \textbf{Row} \\
+\midrule
+%% for f in paper.resolved_forecasts
+\VAR{f.headline_tex} & \VAR{f.market_outcome_tex} & \VAR{f.probability_yes_tex} & \VAR{f.brier_score_tex} & \rowref{forecast\_resolution:\VAR{f.prediction_id_tex}} \\
+%% endfor
+\bottomrule
+\end{tabular}
+\end{center}
+
+%% if paper.results_summary_tex
+
+\VAR{paper.results_summary_tex}
+%% endif
+
+\section{Discussion}
+%% if paper.peer_review.summary_tex
+\VAR{paper.peer_review.summary_tex}
+%% else
+\todomark{no peer-review swarm output found for the cluster's lead conclusion}
+%% endif
+
+%% if paper.peer_review.findings
+\subsection*{Peer-review findings}
+\begin{itemize}[leftmargin=1.5em]
+%% for finding in paper.peer_review.findings
+  \item \textbf{\VAR{finding.severity_tex}} --- \VAR{finding.detail_tex}
+        \rowref{review\_report:\VAR{finding.report_id_tex}}
+%% endfor
+\end{itemize}
+%% endif
+
+\section{Limits and failure modes}
+%% if paper.methodology.failure_modes
+The methodology root carries a registered failure-mode catalog. Every
+limit below is an entry from the firm's catalog, not a synthesized
+observation.
+
+\begin{itemize}[leftmargin=1.5em]
+%% for fm in paper.methodology.failure_modes
+  \item \VAR{fm}
+%% endfor
+\end{itemize}
+%% else
+\todomark{methodology root has no registered failure modes; manual review required before publication}
+%% endif
+
+\section{References}
+\begin{enumerate}[leftmargin=2em]
+%% for ref in paper.references
+  \item \VAR{ref.text_tex} \rowref{\VAR{ref.row_kind_tex}:\VAR{ref.row_id_tex}}
+%% endfor
+%% if not paper.references
+  \item \todomark{no citation rows associated with the cluster's conclusions}
+%% endif
+\end{enumerate}
+
+\vfill
+\begin{center}\small
+\textit{This paper was machine-drafted by Theseus from the firm's existing
+artifacts. Every numerical claim resolves to a row in the firm's
+database (see \rowref{...} markers). The .tex source is the authoritative
+artifact; the PDF is a build product.}
+\end{center}
+
+\end{document}

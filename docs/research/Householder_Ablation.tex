@@ -1,0 +1,66 @@
+\documentclass[11pt]{article}
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage[margin=1in]{geometry}
+\usepackage{booktabs}
+\usepackage{array}
+\usepackage{caption}
+\usepackage{hyperref}
+\usepackage{xcolor}
+\usepackage{textcomp}
+\title{Householder Reflection Ablation\\\large QH Benchmark v1, Contradiction-Geometry Pipeline}
+\author{Theseus / Noosphere Research}
+\date{2026-05-08}
+\begin{document}
+\maketitle
+\begin{abstract}
+We ablate the Householder reflection step inside the firm's contradiction-geometry pipeline against the frozen QH-v1 benchmark (1567 evaluation items; 103 contradicting pairs held out to estimate the reflection direction). Five variants are compared via paired McNemar with effect-size and Wilson confidence bands. The control invokes the production registered method end-to-end; variants swap a single step. If the no-reflection variant is statistically indistinguishable from the control, the firm faces a documented choice: keep the step on principled grounds or remove it. This report does not pre-commit.
+\end{abstract}
+\section{Pipeline being ablated}
+The contradiction-geometry pipeline embeds (premise $a$, continuation $b$); estimates a learned reflection direction $\hat d$ from contradicting exemplars via uncentered local PCA on $b - a$ (production \texttt{estimate\_contradiction\_direction}); reflects $b$ across $\hat d$ via Householder ($b' = b - 2(b \cdot \hat d)\hat d$, production \texttt{IdeologyReflector.reflect}); computes Hoyer sparsity of the difference $b' - a$ (production registered method \texttt{contradiction\_geometry}); and thresholds with the frozen QH-v1 cuts to a three-way label. The reflection step is the firm's most distinctive claim and the one most likely to be inherited from an earlier prototype rather than carrying its own weight. This study asks whether it does.
+
+\section{Variants}
+\begin{description}
+\item[\texttt{full}] the production pipeline end-to-end: learned reflection direction, Householder reflection on the continuation, then Hoyer sparsity of the difference vector.
+\item[\texttt{no\_reflection}] skip the Householder step entirely; otherwise identical to the control. The difference between this and \textit{full} is the contribution of the reflection.
+\item[\texttt{random\_reflection}] replace the learned direction with a random unit vector (fixed seed). The difference between this and \textit{full} is the contribution of \emph{learning} the direction; the difference between this and \textit{no\_reflection} is the contribution of \emph{any} reflection.
+\item[\texttt{asym\_positive}] reflect only the antagonistic half (cosine $< 0$) of items; leave the rest unreflected. Tests whether the reflection earns its keep mainly where contradiction is plausible a priori.
+\item[\texttt{raw\_embedding}] reflect the continuation, then score with Hoyer sparsity of the reflected embedding directly --- no difference vector. Tests whether the difference operation is what is doing the work.
+\end{description}
+
+\section{Headline accuracies}
+\begin{tabular}{l r}
+\toprule
+Variant & Accuracy \\
+\midrule
+\texttt{full} & 0.2897 \\
+\texttt{no\_reflection} & 0.2897 \\
+\texttt{random\_reflection} & 0.2897 \\
+\texttt{asym\_positive} & 0.2897 \\
+\texttt{raw\_embedding} & 0.2897 \\
+\bottomrule
+\end{tabular}
+
+\section{Paired McNemar vs.\ control (\texttt{full})}
+\begin{tabular}{l r r r r r r}
+\toprule
+Variant & $b$ (ctrl wins) & $c$ (var wins) & $p$ (exact) & OR ($b/c$) & OR 95\% CI & $c/(b+c)$ \\
+\midrule
+\texttt{no\_reflection} & 0 & 0 & 1.0000 & n/a & [n/a, n/a] & n/a \\
+\texttt{random\_reflection} & 0 & 0 & 1.0000 & n/a & [n/a, n/a] & n/a \\
+\texttt{asym\_positive} & 0 & 0 & 1.0000 & n/a & [n/a, n/a] & n/a \\
+\texttt{raw\_embedding} & 0 & 0 & 1.0000 & n/a & [n/a, n/a] & n/a \\
+\bottomrule
+\end{tabular}
+
+\noindent\textit{Reading the table.} $b$ counts items the control got right and the variant got wrong; $c$ counts the reverse. $p$ is the exact two-sided binomial test on the discordant pairs (the standard exact form of McNemar). The odds ratio $b/c$ with Wald CI on the log scale is the effect-size estimate; values $> 1$ favour the control, values $< 1$ favour the variant. With $\sim 1{,}000$ items the firm should not over-interpret a marginal $p < 0.05$ without looking at the CI.
+
+\section{Decision rule and recommendation}
+\textbf{Status:} \texttt{indistinguishable}.
+
+On this run, removing the Householder step changes accuracy by +0.0000 (full = 0.2897, no\_reflection = 0.2897). The paired McNemar test has p = 1.0000 on $b+c = 0$ discordant pairs. The firm cannot rule out the null that the reflection step is a no-op on this benchmark. \textbf{Recommendation:} pre-commit to one of two paths --- (a) keep the step and add a RATIONALE entry that names the principled reason (theory-of-meaning argument; a separate eval set on which it wins; ideological-reflection use case downstream), or (b) remove it in a follow-up prompt with a full review trail. This research prompt does not change production code.
+
+\section{Reproducibility}
+Benchmark version \texttt{qh-v1}; embedder \texttt{hash-det-v1} (dim 192); git SHA \texttt{b69d7e0760efbe084a2743e933f4e2cab003c125}; timestamp 2026-05-08T08:05:55Z. Direction estimator: \texttt{uncentered\_local\_pca} on 103 held-out contradicting pairs (low\_confidence = false). Numbers in this PDF are regenerated from \texttt{ablation\_results.json}; no number is hand-edited.
+
+\end{document}

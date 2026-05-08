@@ -2,7 +2,11 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import type { Metadata } from "next";
 
+import PrintButton from "@/components/PrintButton";
+import PrintEndnotes, { type PrintEndnoteSource } from "@/components/PrintEndnotes";
+import PrintMetadataBlock from "@/components/PrintMetadataBlock";
 import PublicHeader from "@/components/PublicHeader";
+import ReaderResponses from "./ReaderResponses";
 import RespondCallout from "@/components/RespondCallout";
 import { db } from "@/lib/db";
 import { getFounder } from "@/lib/auth";
@@ -11,6 +15,7 @@ import {
   type PublishedConclusion,
 } from "@/lib/conclusionsRead";
 import { founderDisplayName } from "@/lib/founderDisplay";
+import { getPublicSiteUrl } from "@/lib/site";
 
 /**
  * Public blog post — individual article page.
@@ -119,32 +124,71 @@ export default async function PostPage({ params }: PageProps) {
   const paragraphs = splitParagraphs(body);
   const byline = post.authorBio || founderDisplayName(post.founder);
 
+  const canonicalUrl = `${getPublicSiteUrl()}/post/${encodeURIComponent(post.slug ?? slug)}`;
+  const signatureFingerprint = await loadSignatureFingerprint(post.slug ?? slug);
+  const printEndnotes = postPrintEndnotes(post);
+
   return (
     <main style={{ minHeight: "100vh" }}>
       <PublicHeader authed={Boolean(founder)} />
 
+      <PrintMetadataBlock
+        title={post.title}
+        byline={byline}
+        publishedAt={new Date(post.publishedAt!).toISOString()}
+        methodology={post.sourceType ?? null}
+        canonicalUrl={canonicalUrl}
+        signatureFingerprint={signatureFingerprint}
+      />
+
       <article
+        className="public-post-article"
+        data-testid="post-article"
         style={{
           maxWidth: "720px",
           margin: "0 auto",
           padding: "3rem 1.75rem 5rem",
         }}
       >
-        <Link
-          href="/"
-          className="mono"
+        <div
+          className="no-print"
           style={{
-            fontSize: "0.6rem",
-            letterSpacing: "0.28em",
-            textTransform: "uppercase",
-            color: "var(--amber-dim)",
-            textDecoration: "none",
+            alignItems: "center",
+            display: "flex",
+            justifyContent: "space-between",
+            gap: "1rem",
             marginBottom: "1.5rem",
-            display: "inline-block",
           }}
         >
-          ← Back to index
-        </Link>
+          <Link
+            href="/"
+            className="mono"
+            style={{
+              fontSize: "0.6rem",
+              letterSpacing: "0.28em",
+              textTransform: "uppercase",
+              color: "var(--amber-dim)",
+              textDecoration: "none",
+              display: "inline-block",
+            }}
+          >
+            ← Back to index
+          </Link>
+          <PrintButton
+            className="mono"
+            style={{
+              background: "transparent",
+              border: "1px solid var(--amber-dim)",
+              borderRadius: "4px",
+              color: "var(--amber)",
+              cursor: "pointer",
+              fontSize: "0.6rem",
+              letterSpacing: "0.22em",
+              padding: "0.35rem 0.7rem",
+              textTransform: "uppercase",
+            }}
+          />
+        </div>
 
         <RespondCallout conclusions={[responseTarget]} />
 
@@ -290,6 +334,14 @@ export default async function PostPage({ params }: PageProps) {
             ))
           )}
         </div>
+
+        <PrintEndnotes sources={printEndnotes} />
+
+        <ReaderResponses
+          organizationId={post.organizationId}
+          postId={post.id}
+          postSlug={post.slug ?? slug}
+        />
 
         <footer
           style={{
@@ -455,6 +507,39 @@ function fallbackPostResponseTarget(
       citations: [],
     },
   };
+}
+
+async function loadSignatureFingerprint(slug: string): Promise<string | null> {
+  try {
+    const sig = await db.publicationSignature.findFirst({
+      where: { slug },
+      orderBy: { version: "desc" },
+      select: { keyFingerprint: true },
+    });
+    return sig?.keyFingerprint ?? null;
+  } catch {
+    return null;
+  }
+}
+
+function postPrintEndnotes(post: {
+  audioUrl: string | null;
+  sourceType: string | null;
+}): PrintEndnoteSource[] {
+  const out: PrintEndnoteSource[] = [];
+  // Posts don't carry inline citation popovers (their citations land
+  // in the published-conclusion view), but if the post has an audio
+  // source we surface the audio URL as the one externally-checkable
+  // anchor a printed reader can hit.
+  if (post.audioUrl) {
+    out.push({
+      label: "A1",
+      title: "Audio source",
+      kind: post.sourceType ?? "audio",
+      url: post.audioUrl,
+    });
+  }
+  return out;
 }
 
 /**

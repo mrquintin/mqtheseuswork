@@ -1,0 +1,68 @@
+{
+  "n_rows": 5808,
+  "per_model": {
+    "hash-det:qh-cross-v1": {
+      "random": {
+        "n": 1936,
+        "n_binary": 1191,
+        "accuracy": 0.3352272727272727,
+        "auroc_contradicting_vs_coherent": 0.49637818643136683,
+        "ece_contradicting": 0.25367729747907375
+      },
+      "cosine": {
+        "n": 1936,
+        "n_binary": 1191,
+        "accuracy": 0.37913223140495866,
+        "auroc_contradicting_vs_coherent": 0.38768838244538967,
+        "ece_contradicting": 0.4382193564812562
+      },
+      "contradiction_geometry": {
+        "n": 1936,
+        "n_binary": 1191,
+        "accuracy": 0.28770661157024796,
+        "auroc_contradicting_vs_coherent": 0.610075947646529,
+        "ece_contradicting": 0.3120498769383394
+      }
+    }
+  },
+  "per_domain": {
+    "hash-det:qh-cross-v1": {
+      "random": {
+        "physics": 0.35854616895874264,
+        "economics": 0.29442508710801396,
+        "ethics": 0.33430232558139533
+      },
+      "cosine": {
+        "physics": 0.40962671905697445,
+        "economics": 0.34494773519163763,
+        "ethics": 0.34593023255813954
+      },
+      "contradiction_geometry": {
+        "physics": 0.28978388998035365,
+        "economics": 0.259581881533101,
+        "ethics": 0.32848837209302323
+      }
+    }
+  },
+  "agreement_models": [
+    "hash-det:qh-cross-v1"
+  ],
+  "agreement_matrix": [
+    [
+      1.0
+    ]
+  ],
+  "stat_test": {
+    "method": "insufficient_sample",
+    "statistic": NaN,
+    "p_value": NaN,
+    "notes": "need >=2 models and >=4 obs; got 1 models, 1936 obs",
+    "n_observations": 1936,
+    "n_models": 1
+  },
+  "geometry_losses": [],
+  "figures": {
+    "bars": null,
+    "agreement": null
+  }
+}

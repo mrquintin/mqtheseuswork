@@ -6,7 +6,7 @@ import asyncio
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from email.utils import parsedate_to_datetime
-from typing import Any
+from typing import Any, Literal, Optional
 
 try:  # pragma: no cover - exercised only in environments with tenacity installed.
     import tenacity
@@ -28,6 +28,25 @@ class _RetryableHTTPStatus(Exception):
     status_code: int
     body: str
     retry_after_s: float | None = None
+
+
+ResolutionOutcome = Literal["YES", "NO", "CANCELLED", "STILL_OPEN"]
+
+
+@dataclass(frozen=True)
+class ResolutionRecord:
+    """Venue-side resolution snapshot used by the backfill driver.
+
+    The driver consumes one of these per market and decides whether to
+    write a ForecastResolution, a ResolutionMismatch, or skip.
+    """
+
+    venue: str
+    market_id: str
+    outcome: ResolutionOutcome
+    resolved_at: Optional[datetime]
+    source_url: Optional[str]
+    raw: Optional[dict[str, Any]]
 
 
 class PolymarketGammaClient:
@@ -77,6 +96,31 @@ class PolymarketGammaClient:
         if not isinstance(payload, dict):
             raise PolymarketGammaError(200, "unexpected get_market payload shape")
         return payload
+
+    async def fetch_resolution(
+        self, market_id: str
+    ) -> ResolutionRecord | None:
+        """Return the venue's view of `market_id`'s resolution, or None if
+        the market is unknown. ``outcome == "STILL_OPEN"`` means the
+        market exists but has not resolved yet.
+        """
+
+        from noosphere.forecasts.resolution_tracker import (
+            _parse_polymarket_settlement,
+        )
+
+        payload = await self.get_market(market_id)
+        if payload is None:
+            return None
+        settlement = _parse_polymarket_settlement(payload)
+        return ResolutionRecord(
+            venue="POLYMARKET",
+            market_id=market_id,
+            outcome=settlement.outcome,
+            resolved_at=settlement.resolved_at,
+            source_url=_polymarket_resolution_url(payload, market_id),
+            raw=settlement.raw,
+        )
 
     async def _request(
         self,
@@ -166,6 +210,22 @@ def _manual_retry_wait_s(exc: _RetryableHTTPStatus, attempt: int) -> float:
     if exc.retry_after_s is not None:
         return max(0.0, exc.retry_after_s)
     return min(8.0, 0.5 * (2 ** max(0, attempt - 1)))
+
+
+def _polymarket_resolution_url(
+    payload: dict[str, Any], condition_id: str
+) -> str | None:
+    for key in ("resolutionUrl", "marketUrl", "url", "slug"):
+        value = payload.get(key)
+        if isinstance(value, str) and value.strip():
+            text = value.strip()
+            if text.startswith("http"):
+                return text
+            if key == "slug":
+                return f"https://polymarket.com/event/{text}"
+    if condition_id:
+        return f"https://polymarket.com/market/{condition_id}"
+    return None
 
 
 def _retry_after_s(raw: str | None) -> float | None:

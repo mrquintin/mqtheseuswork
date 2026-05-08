@@ -39,7 +39,7 @@ from noosphere.models import (
 )
 
 from noosphere.config import get_settings
-from noosphere.observability import configure_logging, get_logger
+from noosphere.observability import configure_logging, get_logger, start_span, start_trace
 
 logger = get_logger(__name__)
 
@@ -350,6 +350,7 @@ class NoosphereOrchestrator:
         episode_date: date,
         title: str = "",
         speakers: Optional[list[str]] = None,
+        trace_id: Optional[str] = None,
     ) -> Episode:
         """
         Full pipeline with methodology/substance separation.
@@ -365,11 +366,22 @@ class NoosphereOrchestrator:
           8. Record temporal snapshots
           9. Persist everything
 
+        Pass ``trace_id`` to attach this ingest to an upstream trace
+        (e.g. the upload request); otherwise a new trace originates here.
+
         Returns:
             Episode metadata.
         """
         with structlog.contextvars.bound_contextvars(
             correlation_id=str(uuid.uuid4())
+        ), start_trace(
+            "orchestrator.ingest_episode",
+            trace_id=trace_id,
+            attrs={
+                "episode_number": episode_number,
+                "episode_date": str(episode_date),
+                "title": title,
+            },
         ):
             return self._ingest_episode_impl(
                 transcript_path,
@@ -401,13 +413,18 @@ class NoosphereOrchestrator:
         speaker_objects = (
             [Speaker(name=s) for s in speakers] if speakers else None
         )
-        claims, episode_meta = self.ingester.ingest(
-            transcript_path=str(path),
-            episode_number=episode_number,
-            episode_date=episode_date,
-            episode_title=title,
-            speaker_list=speaker_objects,
-        )
+        with start_span(
+            "ingester.ingest",
+            attrs={"transcript_path": str(path), "episode_id": episode_id},
+        ) as _ingest_span:
+            claims, episode_meta = self.ingester.ingest(
+                transcript_path=str(path),
+                episode_number=episode_number,
+                episode_date=episode_date,
+                episode_title=title,
+                speaker_list=speaker_objects,
+            )
+            _ingest_span.attrs["claim_count"] = len(claims)
         logger.info(f"  Extracted {len(claims)} raw claims")
 
         # ── Step 1b: Register input source and attribute to founders ─────
@@ -444,7 +461,11 @@ class NoosphereOrchestrator:
         logger.info("Step 2: Classifying claims (methodology vs substance)...")
         from noosphere.classifier import DiscourseType
 
-        classified = self.classifier.classify_batch(claims)
+        with start_span(
+            "classifier.classify_batch",
+            attrs={"claim_count": len(claims)},
+        ):
+            classified = self.classifier.classify_batch(claims)
 
         counts = defaultdict(int)
         for cc in classified:
@@ -532,9 +553,13 @@ class NoosphereOrchestrator:
         logger.info("Step 3 continued: Distilling methodological principles...")
         new_principles = []
         if methodological_claims:
-            new_principles, new_relationships = self.distiller.distill_principles(
-                claims=methodological_claims
-            )
+            with start_span(
+                "distiller.distill_principles",
+                attrs={"method_claim_count": len(methodological_claims)},
+            ):
+                new_principles, new_relationships = self.distiller.distill_principles(
+                    claims=methodological_claims
+                )
             # Add to graph with founder contribution tracking
             for p in new_principles:
                 # Compute founder contributions for this principle

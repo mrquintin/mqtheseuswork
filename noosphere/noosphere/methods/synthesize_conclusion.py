@@ -13,6 +13,13 @@ from pydantic import BaseModel, Field
 from noosphere.models import CascadeEdgeRelation, MethodType
 from noosphere.methods._decorator import register_method
 
+# Composition DAG: ``synthesize_conclusion`` rests on the upstream
+# extractors and coherence judges. Eager-imported so they register
+# before our depends_on declaration runs through the validator.
+from noosphere.methods import extract_claims as _dep_extract_claims  # noqa: F401,E402
+from noosphere.methods import nli_scorer as _dep_nli_scorer  # noqa: F401,E402
+from noosphere.methods import six_layer_coherence as _dep_six_layer_coherence  # noqa: F401,E402
+
 
 class SynthesizeConclusionInput(BaseModel):
     text: str
@@ -63,6 +70,7 @@ class SynthesizeConclusionOutput(BaseModel):
         CascadeEdgeRelation.REFUTES,
     ],
     dependencies=[],
+    depends_on=["extract_claims", "nli_scorer", "six_layer_coherence"],
 )
 def synthesize_conclusion(
     input_data: SynthesizeConclusionInput,

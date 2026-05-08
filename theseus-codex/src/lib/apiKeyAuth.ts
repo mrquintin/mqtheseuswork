@@ -67,12 +67,24 @@ export type ApiKeyPrincipal = Founder & {
   organization: Organization;
   __authMethod: "api_key";
   __apiKeyId: string;
+  /** Canonical scopes string (e.g. "read,write"). Empty = legacy full access. */
+  __apiKeyScopes: string;
 };
+
+export type ApiKeyAuthError =
+  | { ok: false; reason: "missing" | "invalid" }
+  | { ok: false; reason: "rate_limited"; retryAfterSec: number };
 
 /**
  * Verify an API key from the Authorization header and return the founder it
  * represents. Returns null for missing/invalid/revoked keys. On success,
  * bumps `lastUsedAt` (fire-and-forget; auth does not wait on it).
+ *
+ * Note: per-key rate limiting is *not* enforced here so the cheap
+ * negative path (no header → null) stays a no-op. Use
+ * `authenticateApiKeyWithRateLimit` if you want the limiter applied
+ * automatically; otherwise call `checkApiKeyRateLimit` yourself after
+ * a successful auth.
  */
 export async function authenticateApiKey(
   authHeader: string | null | undefined,
@@ -101,6 +113,7 @@ export async function authenticateApiKey(
         ...key.founder,
         __authMethod: "api_key",
         __apiKeyId: key.id,
+        __apiKeyScopes: key.scopes ?? "",
       };
     }
   }
@@ -121,4 +134,160 @@ export async function getFounderFromAuth(req: Request) {
   const apiKey = await authenticateApiKey(req.headers.get("authorization"));
   if (apiKey) return apiKey;
   return getFounder();
+}
+
+// ── Scope enforcement ──────────────────────────────────────────────────────
+//
+// `ApiKey.scopes` is a CSV column. Empty string = full founder scope
+// (legacy: keys minted before scopes existed). Going forward we
+// recommend minting with one of:
+//   "read"           — read-only API access
+//   "write"          — read + mutate (uploads, edits, draft conclusions)
+//   "publish"        — write + sign-and-publish
+// Higher tiers imply lower; `apiKeyHasScope(key, "read")` is true for
+// any non-revoked key.
+
+export type ApiKeyScope = "read" | "write" | "publish";
+
+const SCOPE_LADDER: Record<ApiKeyScope, ReadonlySet<ApiKeyScope>> = {
+  read: new Set<ApiKeyScope>(["read"]),
+  write: new Set<ApiKeyScope>(["read", "write"]),
+  publish: new Set<ApiKeyScope>(["read", "write", "publish"]),
+};
+
+export const VALID_API_KEY_SCOPES: readonly ApiKeyScope[] = [
+  "read",
+  "write",
+  "publish",
+];
+
+function parseScopes(raw: string | null | undefined): Set<ApiKeyScope> {
+  if (!raw) return new Set<ApiKeyScope>(["read", "write", "publish"]); // legacy: full
+  const explicit = new Set<ApiKeyScope>();
+  for (const piece of raw.split(",").map((s) => s.trim()).filter(Boolean)) {
+    if (piece === "read" || piece === "write" || piece === "publish") {
+      for (const implied of SCOPE_LADDER[piece]) explicit.add(implied);
+    }
+  }
+  return explicit;
+}
+
+/**
+ * Predicate: does this principal carry `required` scope? `principal`
+ * may be the raw scopes string or an `ApiKeyPrincipal`.
+ */
+export function apiKeyHasScope(
+  principal: ApiKeyPrincipal | { scopes?: string | null } | string | null,
+  required: ApiKeyScope,
+): boolean {
+  if (principal == null) return false;
+  if (typeof principal === "string") {
+    return parseScopes(principal).has(required);
+  }
+  if ("__authMethod" in principal) {
+    return parseScopes(principal.__apiKeyScopes).has(required);
+  }
+  return parseScopes((principal as { scopes?: string | null }).scopes ?? "").has(required);
+}
+
+/**
+ * Validate a candidate scopes string. Returns the canonical
+ * comma-separated representation, or null if any token is invalid.
+ * "" (empty / legacy full-access) is allowed.
+ */
+export function normaliseScopes(raw: string | null | undefined): string | null {
+  if (raw == null || raw.trim() === "") return "";
+  const tokens = raw.split(",").map((s) => s.trim()).filter(Boolean);
+  for (const t of tokens) {
+    if (t !== "read" && t !== "write" && t !== "publish") return null;
+  }
+  // Deduplicate while preserving the canonical order.
+  const ordered: ApiKeyScope[] = [];
+  for (const s of VALID_API_KEY_SCOPES) {
+    if (tokens.includes(s)) ordered.push(s);
+  }
+  return ordered.join(",");
+}
+
+// ── Per-key rate limiting ──────────────────────────────────────────────────
+//
+// In-memory; same Redis swap-out story as the login limiter. Keyed on
+// `apiKeyId` so a leaked key burning credit can't take the whole org
+// over a quota — only itself.
+
+type Bucket = { count: number; resetAt: number };
+const apiKeyBuckets = new Map<string, Bucket>();
+
+const API_KEY_RATE_WINDOW_MS = 60 * 1000;
+const API_KEY_RATE_MAX = 60;
+
+export function checkApiKeyRateLimit(
+  apiKeyId: string,
+  now: number = Date.now(),
+): { ok: true } | { ok: false; retryAfterSec: number } {
+  let bucket = apiKeyBuckets.get(apiKeyId);
+  if (!bucket || now > bucket.resetAt) {
+    bucket = { count: 0, resetAt: now + API_KEY_RATE_WINDOW_MS };
+    apiKeyBuckets.set(apiKeyId, bucket);
+  }
+  if (bucket.count >= API_KEY_RATE_MAX) {
+    const retryAfterSec = Math.max(1, Math.ceil((bucket.resetAt - now) / 1000));
+    return { ok: false, retryAfterSec };
+  }
+  bucket.count += 1;
+  return { ok: true };
+}
+
+export function _resetApiKeyRateLimitsForTests(): void {
+  apiKeyBuckets.clear();
+}
+
+/**
+ * Variant of `authenticateApiKey` that also enforces the per-key
+ * rate limit. Returns either an `ApiKeyPrincipal` or a structured
+ * error (so the caller can serialise a 401 vs a 429 vs a missing
+ * header). `null` is reserved for "no auth header at all" so the
+ * caller can fall through to a cookie-session check.
+ */
+export async function authenticateApiKeyWithRateLimit(
+  authHeader: string | null | undefined,
+): Promise<ApiKeyPrincipal | { ok: false; reason: "invalid" } | { ok: false; reason: "rate_limited"; retryAfterSec: number } | null> {
+  if (!authHeader) return null;
+  const principal = await authenticateApiKey(authHeader);
+  if (!principal) return { ok: false, reason: "invalid" };
+  const rate = checkApiKeyRateLimit(principal.__apiKeyId);
+  if (!rate.ok) {
+    return { ok: false, reason: "rate_limited", retryAfterSec: rate.retryAfterSec };
+  }
+  return principal;
+}
+
+/**
+ * Audit-log a write-scope use of this key. Fire-and-forget. Read-only
+ * uses are *not* logged — they'd swamp the audit table on every page
+ * fetch by a sync agent. Writes (publish, mutate) are.
+ */
+export async function logApiKeyUse(
+  principal: ApiKeyPrincipal,
+  action: string,
+  detail?: string,
+): Promise<void> {
+  try {
+    await db.auditEvent.create({
+      data: {
+        organizationId: principal.organizationId,
+        founderId: principal.id,
+        action: `api_key.use.${action}`,
+        detail: detail ?? `apiKeyId=${principal.__apiKeyId}`,
+      },
+    });
+  } catch {
+    // Never let audit-log failure break the request; the request
+    // itself has its own success/error path. The `console.error` is
+    // intentional so the issue is visible without crashing the call.
+    console.error("[apiKey] audit-log write failed", {
+      apiKeyId: principal.__apiKeyId,
+      action,
+    });
+  }
 }

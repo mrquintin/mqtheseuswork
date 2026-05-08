@@ -7,7 +7,7 @@ compatible, contradictory, or indeterminate by running them through six
 independent scoring layers and aggregating the verdicts via a 4/6 supermajority
 vote. The six layers are:
 
-1. **NLI consistency (S1):** DeBERTa cross-encoder entailment/contradiction probabilities.
+1. **NLI consistency (S1):** DeBERTa cross-encoder entailment/contradiction probabilities. This layer is delegated to the registered `nli_scorer` method, which is the formal dependency declared in the decorator's `depends_on` list — drift on `nli_scorer` propagates to the coherence judgment via the composition graph.
 2. **Argumentation theory (S2):** Abstract argumentation framework checking whether both claims belong to a jointly acceptable (grounded) extension.
 3. **Probabilistic coherence (S3):** Kolmogorov axiom audit — extracts probability assignments from the claims and checks for internal consistency.
 4. **Embedding geometry (S4):** Hoyer sparsity of the difference vector between claim embeddings, plus cosine angles against a reference corpus mean.

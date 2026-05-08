@@ -2,12 +2,14 @@ import { Suspense, type CSSProperties } from "react";
 import Link from "next/link";
 import { Prisma } from "@prisma/client";
 import SculptureBackdrop from "@/components/SculptureBackdrop";
+import AttentionQueue from "@/components/AttentionQueue";
 import AutoProcessStatusBanner from "@/components/AutoProcessStatusBanner";
 import PublishToggle from "@/components/PublishToggle";
 import UploadStatusBadge from "@/components/UploadStatusBadge";
 import UploadRowDetail from "@/components/UploadRowDetail";
 import { db } from "@/lib/db";
 import { fetchDecayRecords } from "@/lib/api/round3";
+import { listAttentionForFounder } from "@/lib/attention";
 import { getCurrentsHealth, type CurrentsHealth } from "@/lib/currentsApi";
 import { embeddingHealth, type EmbeddingHealth } from "@/lib/embeddingHealth";
 import { getForecastPortfolioSurface } from "@/lib/forecastPortfolioData";
@@ -20,6 +22,7 @@ import DashboardConclusionsClient, {
   type DashboardConclusionCard,
 } from "./DashboardConclusionsClient";
 import AccountDisplayNameNudge from "./AccountDisplayNameNudge";
+import DashboardKeymap from "./dashboard-keymap";
 
 /**
  * Dashboard — landing page after login.
@@ -86,6 +89,7 @@ export default async function DashboardPage() {
 
   return (
     <div style={{ position: "relative", overflow: "hidden", minHeight: "80vh" }}>
+      <DashboardKeymap />
       <SculptureBackdrop src="/sculptures/sisyphus.mesh.bin" side="right" />
 
       <main
@@ -144,6 +148,22 @@ export default async function DashboardPage() {
         ) : null}
 
         <AutoProcessStatusBanner />
+
+        {/*
+         * Primary surface: the unified attention queue.
+         *
+         * Older versions of this dashboard surfaced a different queue
+         * per panel — drift, contradictions, source-triage, etc. —
+         * which made it easy to miss high-severity items because each
+         * was a tab away. The Attention queue collapses every
+         * founder-side queue into one ranked list (severity → age →
+         * queue id), so "what needs your attention right now" is the
+         * first thing the founder sees on login. Pulse / Hearth-style
+         * ambient indicators move to a secondary row below.
+         */}
+        <Suspense fallback={null}>
+          <AttentionPanel tenant={tenant} />
+        </Suspense>
 
         <div
           style={{
@@ -438,6 +458,36 @@ function getUploadVisibilityScope(tenant: TenantContext): Prisma.UploadWhereInpu
       { founderId: tenant.founderId },
     ],
   };
+}
+
+async function AttentionPanel({ tenant }: { tenant: TenantContext }) {
+  let listing;
+  try {
+    listing = await listAttentionForFounder(tenant);
+  } catch (err) {
+    console.error("[dashboard] attention listing failed:", err);
+    listing = {
+      items: [],
+      dismissalRates: [],
+      generatedAt: new Date(),
+    };
+  }
+  const generatedAt = listing.generatedAt;
+  return (
+    <AttentionQueue
+      items={listing.items.map((item) => ({
+        queue: item.queue,
+        itemId: item.itemId,
+        severity: item.severity,
+        ageMs: generatedAt.getTime() - item.createdAt.getTime(),
+        createdAt: item.createdAt.toISOString(),
+        preview: item.preview,
+        link: item.link,
+      }))}
+      dismissalRates={listing.dismissalRates}
+      generatedAt={generatedAt.toISOString()}
+    />
+  );
 }
 
 async function AttentionSignals({ tenant }: { tenant: TenantContext }) {

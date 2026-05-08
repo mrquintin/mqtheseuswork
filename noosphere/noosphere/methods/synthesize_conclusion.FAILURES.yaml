@@ -1,0 +1,71 @@
+method: synthesize_conclusion
+modes:
+  - name: single_method_attribution_loses_interaction
+    description: |
+      Each conclusion is attributed to a single reasoning method, but
+      most conclusions arise from a combination (empirical observation
+      filtered through first-principles reasoning, etc.). The
+      simplification keeps calibration tractable but the per-method
+      track record then misses interaction effects entirely.
+    trigger_conditions: |
+      The conclusion's reasoning text mentions more than one method by
+      name, or its source profiles span multiple pattern types.
+    worked_example: |
+      A founder's prediction about housing-supply elasticity was
+      attributed to "first-principles" but actually combined a
+      regression result with a property-rights argument. The
+      first-principles record absorbed the calibration credit and the
+      empirical-calibration record absorbed none.
+    mitigation: |
+      Allow multi-method attribution with weights; until then, surface
+      the secondary method in the audit trail and exclude such
+      conclusions from per-method calibration aggregates.
+    severity: medium
+    citations: []
+    public: true
+
+  - name: concurrent_writes_corrupt_json_registry
+    description: |
+      The ConclusionsRegistry persists to a JSON file with no
+      file-locking. Two processes (CLI run + scheduler, or two
+      workers) writing simultaneously can interleave and corrupt the
+      registry, silently dropping conclusions.
+    trigger_conditions: |
+      The conclusion was registered while a batch job, scheduled
+      task, or second CLI session was also writing. Watch for
+      conclusion IDs that disappear between successive `methods show`
+      calls.
+    worked_example: |
+      A nightly recompute job overlapped a manual founder upload and
+      the resulting JSON was missing seven of the day's
+      registrations; recovery required pulling from the prior day's
+      backup.
+    mitigation: |
+      Wrap registry writes in an OS file lock, or migrate the
+      registry to a SQLite/Postgres-backed store before scaling
+      beyond a single writer.
+    severity: high
+    citations: []
+    public: false
+
+  - name: cold_start_calibration_silence_misleads
+    description: |
+      Calibration feedback is suppressed below 3 resolved conclusions
+      per method. The dashboard shows no signal during early use,
+      which the firm tends to read as "the method is working" rather
+      than "we have not measured it yet".
+    trigger_conditions: |
+      The method has fewer than 3 resolved conclusions in its track
+      record AND a founder is using its absence-of-warnings to
+      justify a new application.
+    worked_example: |
+      A reviewer cleared a novel transfer because the method "had no
+      reported issues". The method had only one resolved conclusion
+      on file; the silence was a sample-size artefact.
+    mitigation: |
+      Render the cold-start state as an explicit "untested" badge in
+      reviewer-facing UI; require an alternative justification when a
+      method with fewer than the suppression threshold is invoked.
+    severity: medium
+    citations: []
+    public: true

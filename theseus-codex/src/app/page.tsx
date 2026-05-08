@@ -1,7 +1,9 @@
 import Link from "next/link";
 
 import TransparencyFooter from "@/app/(home)/TransparencyFooter";
+import PublicAskBox from "@/components/PublicAskBox";
 import PublicHeader from "@/components/PublicHeader";
+import SubscribeForm from "@/components/SubscribeForm";
 import {
   getTheseusContactEmail,
   theseusIdentity,
@@ -65,6 +67,17 @@ export default async function PublicHomePage() {
       >
         <IdentityStrip />
 
+        <section
+          aria-label="Inquiry search"
+          style={{
+            borderBottom: "1px solid var(--stroke)",
+            marginBottom: "2rem",
+            paddingBottom: "1.75rem",
+          }}
+        >
+          <PublicAskBox mode="compact" />
+        </section>
+
         {!hasPublicOutput ? <EmptyPublicOutput email={email} /> : null}
 
         <CurrentsPreviewRail currents={currents} />
@@ -73,6 +86,33 @@ export default async function PublicHomePage() {
         <PublicSignalSurface />
 
         <ManifestoPreview />
+        <section
+          aria-labelledby="home-follow-title"
+          style={{
+            borderBottom: "1px solid var(--stroke)",
+            marginBottom: "1.5rem",
+            padding: "0 0 1.75rem",
+          }}
+        >
+          <h2
+            className="mono"
+            id="home-follow-title"
+            style={{
+              color: "var(--amber-dim)",
+              fontSize: "0.72rem",
+              letterSpacing: "0.3em",
+              margin: "0 0 0.85rem",
+              textTransform: "uppercase",
+            }}
+          >
+            FOLLOW THE FIRM
+          </h2>
+          <SubscribeForm
+            target={{ scope: "firm" }}
+            title="Subscribe to firm-wide digests"
+            intro="A digest of new publications, revisions, and retractions across every method and domain the firm runs. Double opt-in. One-click unsubscribe in every email. No tracking pixels."
+          />
+        </section>
         <ContactLine email={email} />
         <TransparencyFooter />
       </div>

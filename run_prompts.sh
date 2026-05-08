@@ -1,13 +1,17 @@
 #!/bin/bash
-# Active prompt batch runner — sequentially run every active top-level numbered
-# prompt in coding_prompts/ via the OpenAI Codex CLI (`codex exec`). Streams
-# each session's stdout to the terminal AND saves the full text log to
-# .codex_runs/<timestamp>_<prompt>.log for review. The current batch's
-# scope and dependencies are documented in coding_prompts/README.md.
+# Active prompt batch runner -- sequentially run every active top-level
+# numbered prompt in coding_prompts/ via the Claude Code CLI (`claude`).
 #
-# This uses the installed Codex CLI's existing login/subscription auth. It does
-# NOT read or require an OpenAI API key, and it scrubs OpenAI API-key env vars
-# before invoking Codex. If needed, run `codex auth login` once.
+# This uses the installed Claude Code CLI's existing login/subscription auth.
+# It does NOT read or require an Anthropic API key, and it scrubs every
+# Anthropic-related env var before invoking the CLI. If needed, run
+# `claude /login` once.
+#
+# Streaming: invokes claude in `--output-format stream-json` mode and pipes
+# the JSONL through `format_stream_claude.py` so you see tool calls and
+# partial text in real time. The raw JSONL is preserved at
+# .claude_code_runs/<timestamp>_<prompt>.raw.jsonl ; the human-readable
+# rendering is at .claude_code_runs/<timestamp>_<prompt>.log .
 #
 # Usage:
 #   ./run_prompts.sh
@@ -15,7 +19,7 @@
 #   ./run_prompts.sh --to 5
 #   ./run_prompts.sh --from 2 --to 6
 #   ./run_prompts.sh --only 04
-#   ./run_prompts.sh --model gpt-5.3-codex
+#   ./run_prompts.sh --model claude-opus-4-7
 #   ./run_prompts.sh --continue
 #   ./run_prompts.sh --dry-run
 
@@ -28,8 +32,12 @@ fi
 
 REPO_ROOT="$(cd "$(dirname "$0")" && pwd)"
 PROMPTS_DIR="$REPO_ROOT/coding_prompts"
-LOG_DIR="$REPO_ROOT/.codex_runs"
-MODEL=""
+LOG_DIR="$REPO_ROOT/.claude_code_runs"
+FORMATTER="$REPO_ROOT/format_stream_claude.py"
+
+# Default to Opus 4.7. Override with --model.
+MODEL="claude-opus-4-7"
+
 FROM=0
 TO=0
 ONLY=""
@@ -44,10 +52,10 @@ on_signal() {
   local signal="$1"
   echo
   if [ -n "${CURRENT_PROMPT_NUM:-}" ]; then
-    echo "${RED:-}${BOLD:-}── Interrupted (${signal}) during prompt ${CURRENT_PROMPT_NUM} (${CURRENT_PROMPT_NAME}). ──${NC:-}"
+    echo "${RED:-}${BOLD:-}-- Interrupted (${signal}) during prompt ${CURRENT_PROMPT_NUM} (${CURRENT_PROMPT_NAME}). --${NC:-}"
     echo "${RED:-}Resume with: ./run_prompts.sh --from ${CURRENT_PROMPT_NUM}${NC:-}"
   else
-    echo "${RED:-}${BOLD:-}── Interrupted (${signal}) before any prompt started. ──${NC:-}"
+    echo "${RED:-}${BOLD:-}-- Interrupted (${signal}) before any prompt started. --${NC:-}"
   fi
   case "$signal" in
     INT) exit 130 ;;
@@ -66,7 +74,7 @@ while [[ $# -gt 0 ]]; do
     --model) case "${2-}" in ''|--*) echo "error: --model requires a value" >&2; exit 2 ;; esac; MODEL="$2"; shift 2 ;;
     --continue) CONTINUE_ON_FAIL=1; shift ;;
     --dry-run) DRY_RUN=1; shift ;;
-    -h|--help) sed -n '2,19p' "$0"; exit 0 ;;
+    -h|--help) sed -n '2,24p' "$0"; exit 0 ;;
     *) echo "unknown flag: $1"; exit 2 ;;
   esac
 done
@@ -109,27 +117,38 @@ if [ "$FROM_N" -gt 0 ] && [ "$TO_N" -gt 0 ] && [ "$FROM_N" -gt "$TO_N" ]; then
   exit 2
 fi
 
-if [ "$DRY_RUN" -eq 0 ] && ! command -v codex >/dev/null 2>&1; then
-  echo "ERROR: 'codex' CLI not found in PATH." >&2
-  echo "Install it and run 'codex auth login'. This runner does not use an API key." >&2
+if [ "$DRY_RUN" -eq 0 ] && ! command -v claude >/dev/null 2>&1; then
+  echo "ERROR: 'claude' CLI not found in PATH." >&2
+  echo "Install Claude Code (https://docs.claude.com/en/docs/claude-code) and run 'claude /login'." >&2
+  echo "This runner does not use an Anthropic API key." >&2
+  exit 3
+fi
+
+if [ "$DRY_RUN" -eq 0 ] && ! command -v python3 >/dev/null 2>&1; then
+  echo "ERROR: python3 is required for the stream formatter." >&2
   exit 3
 fi
 
 [[ -d "$PROMPTS_DIR" ]] || { echo "$PROMPTS_DIR does not exist"; exit 3; }
+[[ -f "$FORMATTER" ]] || { echo "$FORMATTER missing — re-pull the script set"; exit 3; }
 mkdir -p "$LOG_DIR"
 
-if command -v stdbuf >/dev/null 2>&1; then
-  LINEBUF=(stdbuf -oL -eL)
-elif command -v gstdbuf >/dev/null 2>&1; then
-  LINEBUF=(gstdbuf -oL -eL)
-else
-  LINEBUF=()
-fi
-
-CODEX_EXEC_ARGS=(exec --full-auto)
-if [ -n "$MODEL" ]; then
-  CODEX_EXEC_ARGS+=(--model "$MODEL")
-fi
+# Claude Code CLI args:
+#   -p / --print                 headless single-shot mode (read prompt, run, exit)
+#   --permission-mode bypassPermissions   approve all tool calls automatically
+#                                (matches the spirit of `codex exec --full-auto`)
+#   --output-format stream-json  emit JSONL events to stdout
+#   --verbose                    required by stream-json
+#   --include-partial-messages   stream text deltas as they arrive
+#   --model                      pin the model. Default: claude-opus-4-7
+CLAUDE_PRINT_ARGS=(
+  -p
+  --permission-mode bypassPermissions
+  --output-format stream-json
+  --verbose
+  --include-partial-messages
+  --model "$MODEL"
+)
 
 PROMPTS=()
 while IFS= read -r line; do
@@ -154,8 +173,8 @@ make_progress_bar() {
   local filled=$((cur * width / tot))
   local empty=$((width - filled))
   local bar="" i
-  for i in $(seq 1 "$filled" 2>/dev/null); do bar="${bar}▰"; done
-  for i in $(seq 1 "$empty" 2>/dev/null); do bar="${bar}▱"; done
+  for i in $(seq 1 "$filled" 2>/dev/null); do bar="${bar}#"; done
+  for i in $(seq 1 "$empty" 2>/dev/null); do bar="${bar}-"; done
   echo "$bar"
 }
 
@@ -174,9 +193,14 @@ for f in ${PROMPTS[@]+"${PROMPTS[@]}"}; do
   if should_run "$num"; then SELECTED=$((SELECTED + 1)); fi
 done
 
-echo "${BOLD}Plan:${NC} ${#PROMPTS[@]} active prompts total (${SELECTED} selected; Codex CLI login runner)"
-[ -n "$MODEL" ] && echo "${BOLD}Model:${NC} $MODEL"
-[ -z "$MODEL" ] && echo "${BOLD}Model:${NC} (codex default - pass --model to override)"
+CLAUDE_VERSION="(claude --version unavailable)"
+if [ "$DRY_RUN" -eq 0 ]; then
+  CLAUDE_VERSION="$(claude --version 2>/dev/null || echo '(version probe failed)')"
+fi
+
+echo "${BOLD}Plan:${NC} ${#PROMPTS[@]} active prompts total (${SELECTED} selected; Claude Code CLI subscription runner)"
+echo "${BOLD}Model:${NC} $MODEL"
+echo "${BOLD}CLI:${NC} $CLAUDE_VERSION"
 if [ "$FROM_N" -gt 0 ] || [ "$TO_N" -gt 0 ] || [ -n "$ONLY" ]; then
   filter=""
   [ -n "$ONLY" ] && filter="$filter only=$ONLY"
@@ -213,7 +237,7 @@ heartbeat_loop() {
     elapsed=$((now - start_ts))
     mins=$((elapsed / 60))
     secs=$((elapsed % 60))
-    printf "${BLUE}  ⏱  [%s] still running %s (%dm %02ds elapsed)${NC}\n" \
+    printf "${BLUE}  [%s] still running %s (%dm %02ds elapsed)${NC}\n" \
       "$prompt_num" "$prompt_name" "$mins" "$secs"
   done
 }
@@ -221,20 +245,37 @@ heartbeat_loop() {
 parse_quota_reset_to_epoch() {
   local log="$1"
   local raw cleaned epoch
-  raw=$(grep -oE "try again at [^.]+\\." "$log" 2>/dev/null \
+
+  raw=$(grep -oiE "(try again at|available again at|resets at|next available at)[[:space:]]+[^.]+\\." "$log" 2>/dev/null \
     | tail -1 \
-    | sed -E 's/^try again at //; s/\.[[:space:]]*$//')
-  [ -z "$raw" ] && return 0
+    | sed -E 's/^[^[:space:]]+[[:space:]]+[^[:space:]]+[[:space:]]+//; s/^[^[:space:]]+[[:space:]]+//; s/\.[[:space:]]*$//')
+  if [ -z "$raw" ]; then
+    local mins
+    mins=$(grep -oiE "available in[[:space:]]+[0-9]+[[:space:]]+(minute|min|hour|hr)" "$log" 2>/dev/null | tail -1 || true)
+    if [ -n "$mins" ]; then
+      local n unit
+      n=$(echo "$mins" | grep -oE "[0-9]+")
+      unit=$(echo "$mins" | grep -oiE "(minute|min|hour|hr)")
+      case "$unit" in
+        hour|hr) echo $(( $(date +%s) + n * 3600 )); return 0 ;;
+        minute|min) echo $(( $(date +%s) + n * 60 )); return 0 ;;
+      esac
+    fi
+    return 0
+  fi
   cleaned=$(echo "$raw" | sed -E 's/([0-9]+)(st|nd|rd|th)/\1/g')
   epoch=$(date -j -f "%b %d, %Y %I:%M %p" "$cleaned" +%s 2>/dev/null \
     || date -d "$cleaned" +%s 2>/dev/null)
   [ -n "$epoch" ] && echo "$epoch"
 }
 
-run_codex_with_retry() {
+# Run claude in stream-json mode. The raw JSONL is captured to <log>.raw.jsonl;
+# the human-readable rendering goes to <log>.log AND to the terminal.
+run_claude_with_retry() {
   local prompt_file="$1"
   local log_path="$2"
-  local num="$3"
+  local raw_path="$3"
+  local num="$4"
   local quota_retries=0
   local transient_retries=0
   local max_quota_retries=4
@@ -242,22 +283,46 @@ run_codex_with_retry() {
   local rc reset_epoch now_epoch wait_s human_wait
 
   while :; do
+    # Build the prompt envelope (founder context + prompt body) once and pipe
+    # it into claude. Stream-json events come back on stdout; tee to the raw
+    # log; the formatter renders them for the terminal AND writes a copy to
+    # the human-readable log via tee.
+    set -o pipefail
     (
-      unset OPENAI_API_KEY OPENAI_AUTH_TOKEN OPENAI_BASE_URL OPENAI_ORG_ID OPENAI_PROJECT
+      unset ANTHROPIC_API_KEY \
+            ANTHROPIC_AUTH_TOKEN \
+            ANTHROPIC_API_URL \
+            ANTHROPIC_BASE_URL \
+            ANTHROPIC_BEDROCK_BASE_URL \
+            ANTHROPIC_VERTEX_BASE_URL \
+            ANTHROPIC_DEFAULT_HAIKU_MODEL \
+            ANTHROPIC_DEFAULT_SONNET_MODEL \
+            ANTHROPIC_DEFAULT_OPUS_MODEL \
+            ANTHROPIC_MODEL \
+            CLAUDE_API_KEY \
+            CLAUDE_CODE_USE_BEDROCK \
+            CLAUDE_CODE_USE_VERTEX \
+            AWS_BEARER_TOKEN_BEDROCK
       {
         echo "You are operating in /Users/michaelquintin/Desktop/Theseus."
-        echo "First inspect current code and tests. If the prompt's requested work is already implemented, verify it and make only necessary repair edits. Do not duplicate landed work. Do not use or ask for an OpenAI API key; rely on the Codex CLI login session running this prompt."
+        echo "First inspect current code and tests. If the prompt's requested work is already implemented, verify it and make only necessary repair edits. Do not duplicate landed work. Do not ask for or use an Anthropic API key; rely on the Claude Code CLI subscription session running this prompt."
         echo
         cat "$prompt_file"
-      } | "${LINEBUF[@]}" codex "${CODEX_EXEC_ARGS[@]}" -
-    ) 2>&1 | tee "$log_path"
-    rc=${PIPESTATUS[0]}
+      } | claude "${CLAUDE_PRINT_ARGS[@]}" 2>&1 \
+        | tee "$raw_path" \
+        | python3 "$FORMATTER" \
+        | tee "$log_path"
+    )
+    rc=$?
+    set +o pipefail
 
     if [ "$rc" -eq 0 ]; then
       return 0
     fi
 
-    if grep -qE "(hit your usage limit|usage limit reached|rate limit|quota exceeded)" "$log_path"; then
+    # Quota / rate-limit handling — search the raw JSONL since human log may
+    # have already collapsed the message.
+    if grep -qiE "(usage limit|rate limit|quota exceeded|too many requests|quota reached|reached your.* limit)" "$raw_path"; then
       quota_retries=$((quota_retries + 1))
       if [ "$quota_retries" -gt "$max_quota_retries" ]; then
         echo "${RED}Quota cap hit ${max_quota_retries} times for prompt $num - giving up.${NC}"
@@ -265,7 +330,7 @@ run_codex_with_retry() {
         return "$rc"
       fi
 
-      reset_epoch=$(parse_quota_reset_to_epoch "$log_path")
+      reset_epoch=$(parse_quota_reset_to_epoch "$raw_path")
       now_epoch=$(date +%s)
       if [ -n "$reset_epoch" ] && [ "$reset_epoch" -gt "$now_epoch" ]; then
         wait_s=$((reset_epoch - now_epoch + 90))
@@ -276,36 +341,36 @@ run_codex_with_retry() {
         fi
         human_wait=$((wait_s / 60))
         echo
-        echo "${YELLOW}═══════════════════════════════════════════════════════════════${NC}"
-        echo "${YELLOW}Codex daily quota exhausted on prompt ${num}.${NC}"
+        echo "${YELLOW}===============================================================${NC}"
+        echo "${YELLOW}Claude Code quota exhausted on prompt ${num}.${NC}"
         echo "${YELLOW}Waiting ${wait_s}s (about ${human_wait} min, including a 90s buffer), then retrying.${NC}"
         echo "${YELLOW}Quota retry ${quota_retries}/${max_quota_retries}. Ctrl-C to abort.${NC}"
-        echo "${YELLOW}═══════════════════════════════════════════════════════════════${NC}"
+        echo "${YELLOW}===============================================================${NC}"
         sleep "$wait_s"
         continue
       fi
 
       echo
-      echo "${YELLOW}═══════════════════════════════════════════════════════════════${NC}"
-      echo "${YELLOW}Codex quota error detected, but reset time could not be parsed.${NC}"
+      echo "${YELLOW}===============================================================${NC}"
+      echo "${YELLOW}Claude Code quota error detected, but reset time could not be parsed.${NC}"
       echo "${YELLOW}Sleeping 60 minutes as a conservative fallback, then retrying.${NC}"
       echo "${YELLOW}Quota retry ${quota_retries}/${max_quota_retries}.${NC}"
-      echo "${YELLOW}═══════════════════════════════════════════════════════════════${NC}"
+      echo "${YELLOW}===============================================================${NC}"
       sleep 3600
       continue
     fi
 
-    if grep -qE "(auth login|authentication required|please run.*login|invalid api key)" "$log_path"; then
-      echo "${RED}Codex reports an auth problem. Run 'codex auth login' and retry.${NC}"
+    if grep -qiE "(not.*logged in|please.*login|authentication required|invalid credentials|token expired|/login)" "$raw_path"; then
+      echo "${RED}Claude Code reports an auth problem. Run 'claude /login' and retry.${NC}"
       return "$rc"
     fi
 
     transient_retries=$((transient_retries + 1))
     if [ "$transient_retries" -gt "$max_transient_retries" ]; then
-      echo "${RED}Codex returned exit $rc after ${max_transient_retries} retries - treating as real failure.${NC}"
+      echo "${RED}Claude Code returned exit $rc after ${max_transient_retries} retries - treating as real failure.${NC}"
       return "$rc"
     fi
-    echo "${YELLOW}Codex returned exit $rc with no quota signature - treating as transient.${NC}"
+    echo "${YELLOW}Claude Code returned exit $rc with no quota signature - treating as transient.${NC}"
     echo "${YELLOW}Retrying in 30s (attempt ${transient_retries}/${max_transient_retries}).${NC}"
     sleep 30
   done
@@ -315,11 +380,12 @@ run_prompt() {
   local prompt="$1"
   local index="$2"
   local total="$3"
-  local base num stamp log status start elapsed bar pct total_elapsed total_mins hb
+  local base num stamp log raw status start elapsed bar pct total_elapsed total_mins hb
   base=$(basename "$prompt" .txt)
   num="${base%%_*}"
   stamp=$(date +"%Y%m%d-%H%M%S")
   log="$LOG_DIR/${stamp}_${base}.log"
+  raw="$LOG_DIR/${stamp}_${base}.raw.jsonl"
   CURRENT_PROMPT_NUM="$num"
   CURRENT_PROMPT_NAME="$base"
 
@@ -329,11 +395,12 @@ run_prompt() {
   total_mins=$((total_elapsed / 60))
 
   echo
-  echo "${BLUE}──────────────────────────────────────────────────────────────${NC}"
+  echo "${BLUE}--------------------------------------------------------------${NC}"
   printf "${BOLD}${BLUE}[%d/%d]${NC} ${BLUE}%s${NC}  ${BOLD}${BLUE}%3d%%${NC}   ${BLUE}batch so far: %dm${NC}\n" \
     "$index" "$total" "$bar" "$pct" "$total_mins"
-  printf "${BOLD}${BLUE}▶ %s${NC}   ${BLUE}log: %s${NC}\n" "$base" "$log"
-  echo "${BLUE}──────────────────────────────────────────────────────────────${NC}"
+  printf "${BOLD}${BLUE}> %s${NC}   ${BLUE}log: %s${NC}\n" "$base" "$log"
+  printf "${BLUE}  raw: %s${NC}\n" "$raw"
+  echo "${BLUE}--------------------------------------------------------------${NC}"
 
   start=$(date +%s)
 
@@ -341,7 +408,7 @@ run_prompt() {
   hb=$!
   disown "$hb" 2>/dev/null || true
 
-  run_codex_with_retry "$prompt" "$log" "$num"
+  run_claude_with_retry "$prompt" "$log" "$raw" "$num"
   status=$?
 
   kill "$hb" >/dev/null 2>&1 || true
@@ -349,10 +416,11 @@ run_prompt() {
 
   elapsed=$(($(date +%s) - start))
   if [ "$status" -eq 0 ]; then
-    echo "${GREEN}✓ ${base} complete (${elapsed}s)${NC}"
+    echo "${GREEN}OK ${base} complete (${elapsed}s)${NC}"
   else
-    echo "${RED}${BOLD}✗ ${base} failed (exit ${status}, ${elapsed}s)${NC}"
+    echo "${RED}${BOLD}FAIL ${base} (exit ${status}, ${elapsed}s)${NC}"
     echo "${RED}   log: $log${NC}"
+    echo "${RED}   raw: $raw${NC}"
     echo "${RED}Halting. Inspect the log and resume with --from ${num}${NC}"
   fi
   return "$status"
@@ -391,16 +459,16 @@ fi
 
 echo
 if [ "$failed" -eq 0 ]; then
-  echo "${BLUE}──────────────────────────────────────────────────────────────${NC}"
-  printf "${GREEN}${BOLD}✓ Active batch complete${NC}        %s   ${GREEN}%d/%d ok${NC}   ${BLUE}%dm %02ds${NC}\n" \
+  echo "${BLUE}--------------------------------------------------------------${NC}"
+  printf "${GREEN}${BOLD}OK Active batch complete${NC}        %s   ${GREEN}%d/%d ok${NC}   ${BLUE}%dm %02ds${NC}\n" \
     "$final_bar" "$ok" "$SELECTED" "$total_mins" "$total_secs"
   echo "${BLUE}Logs:${NC} $LOG_DIR"
-  echo "${BLUE}──────────────────────────────────────────────────────────────${NC}"
+  echo "${BLUE}--------------------------------------------------------------${NC}"
 else
-  echo "${BLUE}──────────────────────────────────────────────────────────────${NC}"
-  printf "${RED}${BOLD}✗ Active batch halted${NC}          %s   ${RED}%d/%d ran, %d fail${NC}   ${BLUE}%dm %02ds${NC}\n" \
+  echo "${BLUE}--------------------------------------------------------------${NC}"
+  printf "${RED}${BOLD}FAIL Active batch halted${NC}         %s   ${RED}%d/%d ran, %d fail${NC}   ${BLUE}%dm %02ds${NC}\n" \
     "$final_bar" "$ran" "$SELECTED" "$failed" "$total_mins" "$total_secs"
   echo "${BLUE}Logs:${NC} $LOG_DIR"
-  echo "${BLUE}──────────────────────────────────────────────────────────────${NC}"
+  echo "${BLUE}--------------------------------------------------------------${NC}"
   exit 1
 fi

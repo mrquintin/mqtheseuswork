@@ -3,12 +3,15 @@
 import Link from "next/link";
 
 import type { PublicOpinion, PublicSource } from "@/lib/currentsTypes";
+import CurrentsReconciliation from "@/components/CurrentsReconciliation";
 
 import { CopyLinkButton } from "./CopyLinkButton";
 import FollowupChat from "./FollowupChat";
 import SourceCard from "./SourceCard";
 import { OpinionMarkdownBody } from "../OpinionCard";
 import XPostEmbed from "../XPostEmbed";
+
+const NO_COUNTER_UNCERTAINTY_TAG = "no_canonical_counter_claim_found";
 
 interface DetailClientProps {
   opinion: PublicOpinion;
@@ -234,26 +237,33 @@ export default function DetailClient({ opinion, sources }: DetailClientProps) {
             }}
           />
 
-          {opinion.uncertainty_notes.length ? (
-            <section
-              aria-label="Uncertainty notes"
-              style={{
-                borderLeft: "3px solid var(--currents-amber)",
-                color: "var(--currents-amber)",
-                fontSize: "0.94rem",
-                fontStyle: "italic",
-                lineHeight: 1.55,
-                marginTop: "1rem",
-                paddingLeft: "0.85rem",
-              }}
-            >
-              {opinion.uncertainty_notes.map((note) => (
-                <p key={note} style={{ margin: "0.25rem 0" }}>
-                  {note}
-                </p>
-              ))}
-            </section>
-          ) : null}
+          <CurrentsReconciliation reconciliation={opinion.reconciliation ?? null} />
+
+          {(() => {
+            const visibleNotes = opinion.uncertainty_notes.filter(
+              (note) => note !== NO_COUNTER_UNCERTAINTY_TAG,
+            );
+            return visibleNotes.length ? (
+              <section
+                aria-label="Uncertainty notes"
+                style={{
+                  borderLeft: "3px solid var(--currents-amber)",
+                  color: "var(--currents-amber)",
+                  fontSize: "0.94rem",
+                  fontStyle: "italic",
+                  lineHeight: 1.55,
+                  marginTop: "1rem",
+                  paddingLeft: "0.85rem",
+                }}
+              >
+                {visibleNotes.map((note) => (
+                  <p key={note} style={{ margin: "0.25rem 0" }}>
+                    {note}
+                  </p>
+                ))}
+              </section>
+            ) : null;
+          })()}
 
           <section
             aria-label="Firm sources"

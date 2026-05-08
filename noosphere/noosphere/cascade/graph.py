@@ -3,9 +3,14 @@ from __future__ import annotations
 import logging
 from collections import deque
 from datetime import datetime, timezone
-from typing import Optional
+from typing import Iterable, Optional
 from uuid import uuid4
 
+from noosphere.literature.source_credibility import (
+    BetaPosterior,
+    aggregate_supports_confidence,
+    modulated_supports_confidence,
+)
 from noosphere.models import (
     CascadeEdge,
     CascadeEdgeRelation,
@@ -97,6 +102,85 @@ class CascadeGraph:
 
     def retract_edge(self, edge_id: str) -> None:
         self._store.retract_cascade_edge(edge_id, datetime.now(timezone.utc))
+
+    def mark_evidence_on_claim(
+        self,
+        *,
+        claim_node_id: str,
+        evidence_text: str,
+        method_invocation_id: str,
+        confidence: float,
+        contradicts: bool = False,
+    ) -> tuple[str, str]:
+        """Operator UX hook: attach a new evidence artifact to an existing
+        claim node and return ``(artifact_node_id, edge_id)`` so the caller
+        can revert by retracting the edge if the founder cancels the
+        revision preview. Pure graph-level — no revision plan is
+        committed; that's the revision module's job."""
+        artifact_id = self.add_node(
+            kind=CascadeNodeKind.ARTIFACT,
+            ref=f"revision-evidence:{evidence_text[:64]}",
+            attrs={"text": evidence_text, "introduced_by": "revision"},
+        )
+        relation = (
+            CascadeEdgeRelation.CONTRADICTS
+            if contradicts
+            else CascadeEdgeRelation.SUPPORTS
+        )
+        edge_id = self.add_edge(
+            src=artifact_id,
+            dst=claim_node_id,
+            relation=relation,
+            method_invocation_id=method_invocation_id,
+            confidence=confidence,
+        )
+        return artifact_id, edge_id
+
+    # ── source-credibility modulation ────────────────────────────────
+    #
+    # The cascade graph stores a base ``confidence`` per supports edge.
+    # That confidence is the *upstream* assertion strength (how strongly
+    # the supporting evidence claims it supports the target). The
+    # *effective* contribution of that edge to the target claim's
+    # evidence weight is bounded by the credibility of the cited source
+    # — a 0.9-confidence support from a tabloid X-post does not carry
+    # 0.9 weight if that source's credibility posterior sits at 0.3.
+    #
+    # The two helpers below make this modulation explicit and
+    # auditable. They are pure functions on the inputs so cascade
+    # callers can verify behaviour in tests without touching graph
+    # state. The aggregator is capped at the maximum credibility of any
+    # single contributing source: piling on low-credibility supports
+    # cannot manufacture high confidence.
+
+    @staticmethod
+    def modulate_supports_edge(
+        base_confidence: float,
+        posterior: Optional[BetaPosterior],
+    ) -> float:
+        """Effective confidence for one supports edge given its source.
+
+        Returns ``base_confidence * posterior.mean`` (clamped to
+        [0, 1]); falls back to a neutral 0.5 multiplier if the source
+        is not yet in the credibility ledger.
+        """
+
+        return modulated_supports_confidence(base_confidence, posterior)
+
+    @staticmethod
+    def aggregate_supports(
+        contributions: Iterable[tuple[float, Optional[BetaPosterior]]],
+    ) -> float:
+        """Pool multiple supports edges into a single evidence weight.
+
+        ``contributions`` is an iterable of
+        ``(base_confidence, posterior)`` for each supports edge feeding
+        the same target claim. The result is bounded above by the
+        maximum credibility among contributors, so weak evidence does
+        not multiply into strong evidence.
+        """
+
+        return aggregate_supports_confidence(contributions)
 
     def iter_edges(
         self,

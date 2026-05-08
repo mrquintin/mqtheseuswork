@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
 """Launch the Dialectic live-analysis dashboard (wrapper for ``python -m dialectic``)."""
 
+import argparse
 import multiprocessing
+import os
 import sys
 import traceback
 from pathlib import Path
@@ -43,7 +45,86 @@ def _write_crash_log(exc: BaseException) -> Path:
     return path
 
 
+def _prime_speaker_profiles() -> None:
+    """Initialise the per-speaker methodology profile store before the UI starts.
+
+    Profiles live on the local machine only. We pre-create the directory so a
+    first-time launch doesn't fail when the dashboard tries to load profiles
+    for the active speakers. The path can be overridden by setting the
+    ``DIALECTIC_SPEAKER_PROFILES_DIR`` env var (consumed downstream by
+    code that constructs a :class:`SpeakerProfileStore`).
+    """
+    try:
+        from noosphere.voices.profile_store import (
+            SpeakerProfileStore,
+            default_profile_dir,
+        )
+    except Exception:
+        # Noosphere unavailable in this build — skip silently. The dashboard's
+        # methodology mirror will degrade to "no baseline" for every speaker.
+        return
+    override = os.environ.get("DIALECTIC_SPEAKER_PROFILES_DIR")
+    root = Path(override) if override else default_profile_dir()
+    try:
+        SpeakerProfileStore(root)
+    except Exception:
+        pass
+
+
+def _peel_known_args() -> None:
+    """Strip our own flags from sys.argv before delegating to ``dialectic.__main__``.
+
+    We add ``--speaker-profiles-dir`` here so users can point at a custom
+    profile directory without forking the dashboard's own argparser.
+
+    The argument-map flags are also peeled here. They translate into env
+    vars consumed by ``dialectic.argument_map_builder.BuilderConfig.load``
+    and the dashboard wiring — that way the dashboard's own argparser
+    doesn't need to know about them and they survive the
+    ``python -m dialectic`` indirection.
+    """
+    parser = argparse.ArgumentParser(add_help=False)
+    parser.add_argument("--speaker-profiles-dir", default=None)
+    parser.add_argument(
+        "--argument-map-config",
+        default=None,
+        help="Path to a TOML file overriding ArgumentMapBuilder thresholds.",
+    )
+    parser.add_argument(
+        "--argument-map-export-dir",
+        default=None,
+        help=(
+            "Directory to write end-of-session argument-map exports "
+            "(JSON, SVG, Markdown) into. Defaults to the per-session "
+            "recording directory."
+        ),
+    )
+    parser.add_argument(
+        "--argument-map-sync-codex",
+        action="store_true",
+        help=(
+            "Opt in to syncing the argument map to the Codex at session end. "
+            "Off by default — the map is local-only unless explicitly enabled."
+        ),
+    )
+    known, rest = parser.parse_known_args()
+    if known.speaker_profiles_dir:
+        os.environ["DIALECTIC_SPEAKER_PROFILES_DIR"] = known.speaker_profiles_dir
+    if known.argument_map_config:
+        os.environ["DIALECTIC_ARGUMENT_MAP_CONFIG"] = known.argument_map_config
+    if known.argument_map_export_dir:
+        os.environ["DIALECTIC_ARGUMENT_MAP_EXPORT_DIR"] = known.argument_map_export_dir
+    # Privacy default: opt-in only. Saving locally always works.
+    os.environ["DIALECTIC_ARGUMENT_MAP_SYNC_CODEX"] = (
+        "1" if known.argument_map_sync_codex else "0"
+    )
+    # Replace argv with the leftovers so __main__'s parser sees only its args.
+    sys.argv = [sys.argv[0]] + rest
+
+
 def _main() -> None:
+    _peel_known_args()
+    _prime_speaker_profiles()
     # Deferred import so ImportError inside the package is captured by our
     # try/except (instead of dying at module import time with no log).
     from dialectic.__main__ import main
