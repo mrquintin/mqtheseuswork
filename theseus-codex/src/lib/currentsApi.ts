@@ -150,7 +150,7 @@ function citationNeedsMetadata(citation: CitationWire): boolean {
 }
 
 function opinionHasInlineCitationMarkers(opinion: PublicOpinion): boolean {
-  return /\[\d+\]/.test(opinion.body_markdown);
+  return /\[(?:\d+|C:[^\]\s]+)\]/.test(opinion.body_markdown);
 }
 
 function sourceMetadata(source: SourceWire): CitationMetadata {

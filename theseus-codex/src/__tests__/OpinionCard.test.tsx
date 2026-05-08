@@ -157,6 +157,22 @@ describe("OpinionCard", () => {
     expect(html).toContain('aria-haspopup="dialog"');
   });
 
+  it("renders firm conclusion tokens from current [C:id] markers", () => {
+    const html = renderToStaticMarkup(
+      <OpinionCard
+        opinion={opinion({
+          body_markdown:
+            "The firm treats this as a live test of judgment [C:source-1].",
+          citations: [citation(1, "conclusion")],
+        })}
+      />,
+    );
+
+    expect(html).not.toContain("[C:source-1]");
+    expect(html).toContain("[firm conclusion]");
+    expect(html).toContain('aria-haspopup="dialog"');
+  });
+
   it("escapes markdown containing script tags", () => {
     const html = renderToStaticMarkup(
       <OpinionCard

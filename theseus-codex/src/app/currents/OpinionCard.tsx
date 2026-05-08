@@ -232,13 +232,12 @@ function replaceCitationMarkers(
   onOpen: (citation: CitationMetadata, anchor: HTMLButtonElement) => void,
 ): ReactNode {
   const nodes: ReactNode[] = [];
-  const markerPattern = /\[(\d+)\]/g;
+  const markerPattern = /\[(?:(\d+)|C:([^\]\s]+))\]/g;
   let lastIndex = 0;
   let match: RegExpExecArray | null;
 
   while ((match = markerPattern.exec(text)) !== null) {
-    const citationIndex = Number.parseInt(match[1], 10) - 1;
-    const citation = citations[citationIndex];
+    const citation = citationForMarker(citations, match[1], match[2]);
     if (!citation) continue;
 
     if (match.index > lastIndex) {
@@ -264,6 +263,24 @@ function replaceCitationMarkers(
   if (!nodes.length) return text;
   if (lastIndex < text.length) nodes.push(text.slice(lastIndex));
   return nodes;
+}
+
+function citationForMarker(
+  citations: CitationMetadata[],
+  numericMarker: string | undefined,
+  sourceIdMarker: string | undefined,
+): CitationMetadata | undefined {
+  if (numericMarker) {
+    const citationIndex = Number.parseInt(numericMarker, 10) - 1;
+    return citations[citationIndex];
+  }
+
+  if (!sourceIdMarker) return undefined;
+  return citations.find(
+    (citation) =>
+      citation.source_id === sourceIdMarker ||
+      citation.id === sourceIdMarker,
+  );
 }
 
 function injectCitationTokens(
