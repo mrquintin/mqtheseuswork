@@ -238,9 +238,12 @@ NLIScoreFn = Callable[[str, str], dict[str, float]]
 
 
 def _default_nli_scorer(premise: str, hypothesis: str) -> dict[str, float]:
-    from noosphere.methods.nli_scorer import NLIInput, nli_scorer
+    from noosphere.methods import get_method
+    from noosphere.methods import nli_scorer as _registered_nli_scorer  # noqa: F401
+    from noosphere.methods.nli_scorer import NLIInput
 
-    score = nli_scorer(NLIInput(premise=premise, hypothesis=hypothesis))
+    _, nli_scorer_method = get_method("nli_scorer")
+    score = nli_scorer_method(NLIInput(premise=premise, hypothesis=hypothesis))
     return {
         "entailment": score.entailment,
         "neutral": score.neutral,

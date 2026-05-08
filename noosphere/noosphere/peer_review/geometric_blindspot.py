@@ -39,10 +39,10 @@ from typing import Any, Callable, Iterable, Optional
 
 import numpy as np
 
-from noosphere.methods import register_method
+from noosphere.methods import get_method, register_method
+from noosphere.methods import contradiction_probe as _registered_contradiction_probe  # noqa: F401
 from noosphere.methods.contradiction_probe import (
     ContradictionProbeInput,
-    contradiction_probe,
 )
 from noosphere.models import Conclusion, Finding, MethodType, ReviewReport
 from noosphere.peer_review import reviewers as _registry
@@ -257,7 +257,8 @@ def detect_geometric_blindspots(
     engaged = _engaged_ids(conclusion)
     exemplar_pairs = ctx.get("contradiction_exemplar_pairs")
 
-    probe_output = contradiction_probe(
+    _, contradiction_probe_method = get_method("contradiction_probe")
+    probe_output = contradiction_probe_method(
         ContradictionProbeInput(
             embedding=query.tolist(),
             locality_index=locality_index,

@@ -9,8 +9,8 @@ The pipeline being ablated is the firm's full contradiction-geometry probe:
        (production code — uncentered local PCA when there are enough
        exemplars, sparse symbolic flip otherwise).
     3. Householder-reflect the continuation across ``d_hat``:
-       ``b' = b - 2(b · d_hat) d_hat`` via the legacy
-       :class:`IdeologyReflector.reflect` (production code).
+       ``b' = b - 2(b · d_hat) d_hat`` using the same formula as the
+       production reflector.
     4. Run the production-registered method
        :func:`noosphere.methods.contradiction_geometry.contradiction_geometry`
        on ``(a, b')`` — Hoyer sparsity of the difference vector plus
@@ -79,10 +79,10 @@ from noosphere.coherence.contradiction_direction import (
     ContradictionDirection,
     estimate_contradiction_direction,
 )
-from noosphere.methods._legacy.contradiction_geometry import IdeologyReflector
+from noosphere.methods import get_method
+from noosphere.methods import contradiction_geometry as _registered_contradiction_geometry  # noqa: F401
 from noosphere.methods.contradiction_geometry import (
     ContradictionGeometryInput,
-    contradiction_geometry as production_contradiction_geometry,
 )
 
 
@@ -153,14 +153,21 @@ def _random_unit(dim: int, seed: int) -> np.ndarray:
 
 
 # ---------------------------------------------------------------------------
-# Reflection (uses production legacy IdeologyReflector)
-
-
-_REFLECTOR = IdeologyReflector(verbose=False)
+# Reflection (same Householder formula as the production reflector)
 
 
 def _reflect(vec: np.ndarray, axis: np.ndarray) -> np.ndarray:
-    return _REFLECTOR.reflect(vec, axis)
+    vectors = np.asarray(vec)
+    axis_arr = np.asarray(axis)
+    axis_norm = float(np.linalg.norm(axis_arr))
+    if axis_norm < 1e-10:
+        return vectors.copy()
+    unit_axis = axis_arr / axis_norm
+    if vectors.ndim == 1:
+        projection = float(np.dot(vectors, unit_axis))
+        return vectors - 2 * projection * unit_axis
+    projections = np.dot(vectors, unit_axis)
+    return vectors - 2 * np.outer(projections, unit_axis)
 
 
 # ---------------------------------------------------------------------------
@@ -213,6 +220,7 @@ def _score_via_production(
 
     Returns (sparsity, cosine).
     """
+    _, production_contradiction_geometry = get_method("contradiction_geometry")
     out = production_contradiction_geometry(
         ContradictionGeometryInput(
             embedding_a=premise_emb.tolist(),
