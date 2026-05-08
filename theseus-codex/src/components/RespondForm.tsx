@@ -21,6 +21,7 @@ export default function RespondForm({ conclusions }: { conclusions: PublishedCon
   const [pseudonymous, setPseudonymous] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const scopedConclusion = conclusions.length === 1 ? conclusions[0] : null;
 
   async function submit() {
     setMsg(null);
@@ -60,20 +61,26 @@ export default function RespondForm({ conclusions }: { conclusions: PublishedCon
     <div className="public-card public-form-card">
       <p className="public-muted">Responses are reviewed before publication. Engaged responses trigger internal review.</p>
 
-      <label className="public-label">
-        Conclusion revision (published row id)
-        <select value={publishedId} onChange={(e) => setPublishedId(e.target.value)} disabled={!conclusions.length}>
-          {conclusions.length ? (
-            conclusions.map((c) => (
-              <option key={c.id} value={c.id}>
-                {c.slug} v{c.version} - {c.publishedAt.slice(0, 10)}
-              </option>
-            ))
-          ) : (
-            <option value="">No published conclusions</option>
-          )}
-        </select>
-      </label>
+      {scopedConclusion ? (
+        <p className="public-muted mono" style={{ fontSize: "0.66rem", letterSpacing: "0.08em" }}>
+          Responding to: &apos;{scopedConclusion.payload.conclusionText || scopedConclusion.slug}&apos;
+        </p>
+      ) : (
+        <label className="public-label">
+          Conclusion revision (published row id)
+          <select value={publishedId} onChange={(e) => setPublishedId(e.target.value)} disabled={!conclusions.length}>
+            {conclusions.length ? (
+              conclusions.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.slug} v{c.version} - {c.publishedAt.slice(0, 10)}
+                </option>
+              ))
+            ) : (
+              <option value="">No published conclusions</option>
+            )}
+          </select>
+        </label>
+      )}
 
       <label className="public-label">
         Response type

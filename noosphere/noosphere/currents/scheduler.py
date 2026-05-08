@@ -17,7 +17,10 @@ from typing import Sequence
 
 from sqlalchemy.engine import make_url
 
-from noosphere.articles.triggers import dispatch_triggered_articles
+from noosphere.articles.triggers import (
+    DEFAULT_WEEKLY_ARTICLE_CAP,
+    dispatch_triggered_articles,
+)
 from noosphere.config import get_settings
 from noosphere.currents.budget import BudgetExhausted, PersistentHourlyBudgetGuard
 from noosphere.currents.config import IngestorConfig
@@ -34,7 +37,7 @@ SHORT_BACKOFF_SECONDS = 30
 LONG_BACKOFF_SECONDS = CYCLE_SECONDS
 EMBED_BACKFILL_INTERVAL_SECONDS = 24 * 60 * 60
 ARTICLE_DISPATCH_INTERVAL_SECONDS = 60 * 60
-MAX_ARTICLES_PER_DAY = 4
+MAX_ARTICLES_PER_WEEK = DEFAULT_WEEKLY_ARTICLE_CAP
 
 LOGGER = logging.getLogger(__name__)
 
@@ -456,12 +459,10 @@ async def _dispatch_articles_if_due(
     if last is not None and time.time() - last < interval:
         return 0, []
 
-    daily_cap_default = _env_int(
-        "FORECASTS_MAX_ARTICLES_PER_DAY",
-        MAX_ARTICLES_PER_DAY,
-    )
-    daily_cap = _env_int("ARTICLES_MAX_PER_DAY", daily_cap_default)
-    if daily_cap <= 0:
+    weekly_cap = _env_int("NOOSPHERE_ARTICLES_WEEKLY_CAP", MAX_ARTICLES_PER_WEEK)
+    if weekly_cap < 0:
+        weekly_cap = MAX_ARTICLES_PER_WEEK
+    if weekly_cap <= 0:
         _write_article_dispatch_marker(marker, ok=True, published=0)
         return 0, []
 
@@ -469,7 +470,7 @@ async def _dispatch_articles_if_due(
         articles = await dispatch_triggered_articles(
             store,
             budget=budget,
-            daily_cap=daily_cap,
+            weekly_cap=weekly_cap,
         )
     except BudgetExhausted as exc:
         _write_article_dispatch_marker(marker, ok=False, published=0)

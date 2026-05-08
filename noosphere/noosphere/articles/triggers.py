@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 import os
 from collections import defaultdict
 from dataclasses import dataclass
@@ -29,7 +30,9 @@ from noosphere.models import (
 
 THEMATIC_WINDOW = timedelta(days=7)
 CORRECTION_WINDOW = timedelta(hours=24)
-DEFAULT_DAILY_ARTICLE_CAP = 4
+WEEKLY_CAP_WINDOW = timedelta(days=7)
+DEFAULT_WEEKLY_ARTICLE_CAP = 1
+RECENT_OPINION_WEIGHT_HALF_LIFE_DAYS = 7.0
 DEFAULT_THEMATIC_MIN_OPINIONS = 2
 DEFAULT_THEMATIC_MIN_EVENTS = 5
 DEFAULT_THEMATIC_MAX_SOURCES = 8
@@ -69,6 +72,44 @@ def _env_int(name: str, default: int, *, minimum: int | None = None) -> int:
     if minimum is not None:
         value = max(minimum, value)
     return value
+
+
+def _env_nonnegative_int(name: str, default: int) -> int:
+    raw = os.environ.get(name, "").strip()
+    if not raw:
+        return default
+    try:
+        value = int(raw)
+    except ValueError:
+        return default
+    if value < 0:
+        return default
+    return value
+
+
+def _weekly_article_cap(explicit: int | None = None) -> int:
+    if explicit is not None:
+        return explicit if explicit >= 0 else DEFAULT_WEEKLY_ARTICLE_CAP
+    return _env_nonnegative_int(
+        "NOOSPHERE_ARTICLES_WEEKLY_CAP",
+        DEFAULT_WEEKLY_ARTICLE_CAP,
+    )
+
+
+def _weekly_window_start(now: datetime) -> datetime:
+    return _as_utc(now) - WEEKLY_CAP_WINDOW
+
+
+def _weekly_regular_article_slots_remaining(
+    store: Any,
+    *,
+    now: datetime,
+    weekly_cap: int,
+) -> int:
+    return max(
+        0,
+        weekly_cap - count_articles_since(store, _weekly_window_start(now)),
+    )
 
 
 def _topic_discipline_key_from_hint(topic_hint: str | None) -> tuple[str, str]:
@@ -197,25 +238,46 @@ def _opinion_corpus_keys(
     return keys_by_opinion
 
 
+def _recent_opinion_weight(opinion: EventOpinion, now: datetime) -> float:
+    age_seconds = max(
+        0.0,
+        (_as_utc(now) - _as_utc(opinion.generated_at)).total_seconds(),
+    )
+    age_days = age_seconds / 86_400.0
+    return 0.5 + 0.5 * math.exp(-age_days / RECENT_OPINION_WEIGHT_HALF_LIFE_DAYS)
+
+
 def _representative_opinion_ids(
     store: Any,
     cluster: list[EventOpinion],
+    *,
+    now: datetime,
 ) -> list[str]:
     """
-    Pick a bounded recent slice without letting one underlying upload dominate.
+    Pick a bounded slice without letting one underlying upload dominate.
 
     The article input surface is EventOpinion rows, but each opinion has
     OpinionCitation rows pointing back to firm conclusions. Those conclusions
     in turn usually point through ConclusionSource to the upload that produced
     them. Balancing on that upload key is what prevents one long education
     podcast from becoming the apparent whole corpus.
+
+    Selection keeps the corpus-wide opinion pool but favors newer firm opinions
+    as article seeds. The ranking multiplies confidence by
+    ``0.5 + 0.5 * exp(-age_days / 7)``; this makes opinions from roughly the
+    last 14 days materially more likely to seed a piece without excluding
+    older long-standing conclusions from the candidate pool entirely.
     """
 
     max_sources = _thematic_max_sources()
     max_per_key = _thematic_max_opinions_per_corpus_source()
     ordered = sorted(
         cluster,
-        key=lambda opinion: (_as_utc(opinion.generated_at), opinion.confidence),
+        key=lambda opinion: (
+            opinion.confidence * _recent_opinion_weight(opinion, now),
+            _as_utc(opinion.generated_at),
+            opinion.confidence,
+        ),
         reverse=True,
     )
     keys_by_opinion = _opinion_corpus_keys(store, [opinion.id for opinion in ordered])
@@ -259,8 +321,8 @@ def _representative_event_ids(cluster: list[CurrentEvent]) -> list[str]:
     return [event.id for event in selected]
 
 
-async def _opinion_thematic_clusters(store: Any, since: datetime) -> list[list[str]]:
-    """Return recent public-firm-opinion clusters sharing topic+discipline."""
+async def _opinion_thematic_clusters(store: Any, *, now: datetime) -> list[list[str]]:
+    """Return public-firm-opinion clusters sharing topic+discipline."""
 
     min_opinions = _env_int(
         "ARTICLES_THEMATIC_MIN_OPINIONS",
@@ -271,7 +333,6 @@ async def _opinion_thematic_clusters(store: Any, since: datetime) -> list[list[s
         opinions = list(
             session.exec(
                 select(EventOpinion)
-                .where(EventOpinion.generated_at >= since)
                 .where(EventOpinion.revoked_at.is_(None))
                 .where(EventOpinion.abstention_reason.is_(None))
                 .order_by(EventOpinion.generated_at)
@@ -297,7 +358,7 @@ async def _opinion_thematic_clusters(store: Any, since: datetime) -> list[list[s
     for cluster in clusters.values():
         if len(cluster) < min_opinions:
             continue
-        selected = _representative_opinion_ids(store, cluster)
+        selected = _representative_opinion_ids(store, cluster, now=now)
         if len(selected) < min_opinions:
             continue
         if _distinct_opinion_corpus_count(store, selected) < min_corpus_sources:
@@ -333,7 +394,11 @@ async def _event_thematic_clusters(store: Any, since: datetime) -> list[list[str
     ]
 
 
-async def thematic_trigger_check(store: Any) -> list[list[str]]:
+async def thematic_trigger_check(
+    store: Any,
+    *,
+    now: datetime | None = None,
+) -> list[list[str]]:
     """
     Return recent thematic clusters.
 
@@ -343,11 +408,29 @@ async def thematic_trigger_check(store: Any) -> list[list[str]]:
     flag for one-off migrations or diagnostics.
     """
 
-    since = _utcnow() - THEMATIC_WINDOW
+    now = now or _utcnow()
+    since = now - THEMATIC_WINDOW
     return [
-        *await _opinion_thematic_clusters(store, since),
+        *await _opinion_thematic_clusters(store, now=now),
         *await _event_thematic_clusters(store, since),
     ]
+
+
+async def select_thematic_candidates(
+    store: Any,
+    *,
+    weekly_cap: int | None = None,
+    now: datetime | None = None,
+) -> list[list[str]]:
+    """Return thematic candidates only when the weekly regular cadence has room."""
+
+    now = now or _utcnow()
+    cap = _weekly_article_cap(weekly_cap)
+    if cap <= 0:
+        return []
+    if _weekly_regular_article_slots_remaining(store, now=now, weekly_cap=cap) <= 0:
+        return []
+    return await thematic_trigger_check(store, now=now)
 
 
 def _nontrivial_stake_floor() -> Decimal:
@@ -412,12 +495,30 @@ async def correction_trigger_check(store: Any) -> list[str]:
     return out
 
 
-async def triggered_article_candidates(store: Any) -> list[ArticleCandidate]:
-    thematic, postmortem, correction = (
-        await thematic_trigger_check(store),
-        await postmortem_trigger_check(store),
-        await correction_trigger_check(store),
+async def triggered_article_candidates(
+    store: Any,
+    *,
+    weekly_cap: int | None = None,
+    now: datetime | None = None,
+) -> list[ArticleCandidate]:
+    now = now or _utcnow()
+    cap = _weekly_article_cap(weekly_cap)
+    if cap <= 0:
+        return []
+
+    regular_remaining = _weekly_regular_article_slots_remaining(
+        store,
+        now=now,
+        weekly_cap=cap,
     )
+    if regular_remaining > 0:
+        thematic, postmortem = (
+            await thematic_trigger_check(store, now=now),
+            await postmortem_trigger_check(store),
+        )
+    else:
+        thematic, postmortem = [], []
+    correction = await correction_trigger_check(store)
     candidates: list[ArticleCandidate] = []
     candidates.extend(ArticleCandidate(ArticleKind.THEMATIC, ids) for ids in thematic)
     candidates.extend(
@@ -431,31 +532,35 @@ async def triggered_article_candidates(store: Any) -> list[ArticleCandidate]:
     return candidates
 
 
-def _start_of_utc_day(now: datetime) -> datetime:
-    now = _as_utc(now)
-    return now.replace(hour=0, minute=0, second=0, microsecond=0)
-
-
 async def dispatch_triggered_articles(
     store: Any,
     *,
     budget: Any,
-    daily_cap: int = DEFAULT_DAILY_ARTICLE_CAP,
+    weekly_cap: int | None = None,
     now: datetime | None = None,
 ) -> list[Article]:
-    """Dispatch trigger candidates, capped by already-published articles today."""
+    """Dispatch trigger candidates under the weekly regular-article cap."""
 
-    if daily_cap <= 0:
-        return []
     now = now or _utcnow()
-    remaining = max(0, daily_cap - count_articles_since(store, _start_of_utc_day(now)))
-    if remaining <= 0:
+    cap = _weekly_article_cap(weekly_cap)
+    if cap <= 0:
         return []
 
+    regular_remaining = _weekly_regular_article_slots_remaining(
+        store,
+        now=now,
+        weekly_cap=cap,
+    )
+    regular_published = 0
     published: list[Article] = []
-    for candidate in await triggered_article_candidates(store):
-        if len(published) >= remaining:
-            break
+    for candidate in await triggered_article_candidates(
+        store,
+        weekly_cap=cap,
+        now=now,
+    ):
+        is_correction = candidate.kind == ArticleKind.CORRECTION
+        if not is_correction and regular_published >= regular_remaining:
+            continue
         if article_already_published(
             store, kind=candidate.kind, source_ids=candidate.source_ids
         ):
@@ -466,6 +571,8 @@ async def dispatch_triggered_articles(
             source_ids=candidate.source_ids,
             budget=budget,
         )
-        if article is not None:
+        if article is not None and article.status == "published":
             published.append(article)
+            if not is_correction:
+                regular_published += 1
     return published

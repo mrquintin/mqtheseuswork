@@ -1,0 +1,96 @@
+You are operating in /Users/michaelquintin/Desktop/Theseus.
+
+Goal: rationalize the public top nav so every public page surfaces a clear
+"Home" affordance and the privileged-side button reads "Founder Portal" not
+"Dashboard". The Responses item is also being dropped from the nav (the
+Responses page itself is removed in prompt 02 — this prompt is the chrome
+change only).
+
+Concrete intent from the founder transcript:
+- "in that top right bar, which is about methodology, currents, forecasts,
+  hopefully, doesn't say responses after these changes. Um, it should also
+  say home to the left of them."
+- "rename the … the dashboard button [in the top right]. Can you rename
+  that to founder portal? That would be a lot easier."
+
+Before you start — read current state:
+1. Read `theseus-codex/src/components/PublicHeader.tsx`. Note the existing
+   nav order: About · Methodology · Currents · Forecasts · Responses, and
+   the right-side button "Dashboard →" / "Founder login →". The Theseus
+   wordmark on the left is the implicit home link.
+2. Read `theseus-codex/src/components/CurrentsNavPulse.tsx` and
+   `theseus-codex/src/components/ForecastsNavPulse.tsx` — they wrap nav
+   items with a live-feed pulse indicator. Do not regress the pulse.
+3. Read `theseus-codex/src/components/Nav.tsx` — the *founder-side* nav.
+   Its label "Dashboard" applies inside the founder portal and stays;
+   the rename only applies to the PublicHeader's right-side button that
+   bounces a logged-in viewer back into the portal.
+4. Read every page under `theseus-codex/src/app/(home)/`,
+   `theseus-codex/src/app/post/[slug]/`,
+   `theseus-codex/src/app/c/[slug]/`,
+   `theseus-codex/src/app/methodology/`,
+   `theseus-codex/src/app/about/`,
+   `theseus-codex/src/app/currents/`, and
+   `theseus-codex/src/app/forecasts/` to identify which already render
+   `PublicHeader`. Currents and Forecasts currently use a custom layout
+   without `PublicHeader` — that's the gap behind "doesn't have a clear
+   home button".
+5. Read every test under `theseus-codex/src/__tests__/` matching
+   `PublicHeader|public-nav|nav` so you know which assertions to update.
+
+Implement or repair:
+
+A. Edit `PublicHeader.tsx`:
+   - The Theseus wordmark on the left stays (it is the canonical Home
+     link). In addition, add an explicit "Home" item as the FIRST entry of
+     the nav `<nav>` block, with `href="/"` and the same monospace styling
+     as its siblings. The reading order becomes:
+     `Home · About · Methodology · Currents · Forecasts`.
+   - Remove the "Responses" `<Link>` from that `<nav>` block.
+   - Rename the right-side button label from `"Dashboard →"` to
+     `"Founder Portal →"` for `authed=true`. The unauthenticated label
+     remains `"Founder login →"`.
+   - The button's `href` stays `/dashboard` — that is the founder portal's
+     route. Do not invent a `/founder-portal` URL.
+
+B. Make the Currents and Forecasts public pages use `PublicHeader` so the
+   Home item is always visible.
+   - In `theseus-codex/src/app/currents/layout.tsx` (or whichever ancestor
+     wraps the public Currents tree), wrap the page in `PublicHeader`
+     with the correct `authed` value resolved from `getFounder()` the same
+     way `app/post/[slug]/page.tsx` does.
+   - Do the same for `theseus-codex/src/app/forecasts/layout.tsx` (and any
+     sub-route that bypasses the layout — verify by inspection, not
+     assumption).
+   - Do NOT add `PublicHeader` to `(authed)/*` routes; those use the
+     founder-side `Nav.tsx`.
+
+C. Tests
+   - Update or add `theseus-codex/src/__tests__/PublicHeader.test.tsx`
+     covering:
+     (a) renders a "Home" link before "About",
+     (b) does not render a "Responses" link,
+     (c) `authed=true` renders "Founder Portal →" pointing at `/dashboard`,
+     (d) `authed=false` still renders "Founder login →".
+   - Add `theseus-codex/src/__tests__/CurrentsLayoutHeader.test.tsx` and
+     `theseus-codex/src/__tests__/ForecastsLayoutHeader.test.tsx` that
+     mount the respective layouts and assert `PublicHeader` is in the
+     tree.
+
+D. Constraints
+   - Do not delete the founder-side `Nav.tsx` or its "Dashboard" label.
+   - Do not change the `/dashboard` route or middleware. The button label
+     is the only thing that flips.
+   - The `/responses` route is removed in prompt 02; this prompt MUST NOT
+     delete it. Just stop linking to it from the nav.
+
+If the work already exists, inspect and only repair gaps; do not duplicate
+header components.
+
+SCOPE
+- `theseus-codex/src/components/PublicHeader.tsx` MODIFY
+- `theseus-codex/src/app/currents/layout.tsx` MODIFY
+- `theseus-codex/src/app/forecasts/layout.tsx` MODIFY
+- `theseus-codex/src/__tests__/PublicHeader.test.tsx` MODIFY
+- `theseus-codex/src/__tests__/CurrentsLayoutHeader.test.tsx` CREATE
+- `theseus-codex/src/__tests__/ForecastsLayoutHeader.test.tsx` CREATE

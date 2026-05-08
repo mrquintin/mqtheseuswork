@@ -1,0 +1,133 @@
+You are operating in /Users/michaelquintin/Desktop/Theseus.
+
+Goal: redesign how citations on a Currents opinion are surfaced to the
+public reader. The current rendering is a "Firm rationale links" strip of
+unlabeled chips that go nowhere meaningful. Replace each citation with a
+visible "[opinion]" or "[firm conclusion]" hyperlink that, when clicked,
+opens an in-page popover showing the underlying firm conclusion text.
+The popover shows the source link ONLY if the source was uploaded with
+public visibility — internal-only sources show conclusion text without
+ever exposing the source link.
+
+Concrete intent from the founder transcript:
+- "these citations are a little strange … they're not actually giving you
+  anything valuable … not applicable at all. The user can't click on
+  those citations. They don't look like citations."
+- "I would like to see, with the citation, some kind of indication that
+  it is a citation, so, like, '[firm opinion]' or 'opinion' with a
+  hyperlink with it, and then when the user clicks that, there's a popup
+  window that then shows the conclusion that's stored within the firm,
+  but only shows the source of that conclusion if that source was made
+  public when it was uploaded. Only then. No exception."
+
+Before you start — read current state:
+1. Read `theseus-codex/src/app/currents/OpinionCard.tsx`. Lines ~315–325
+   render the "Firm rationale links" strip. The opinion text itself is
+   rendered via `renderSafeMarkdown` elsewhere in the same component.
+   The current strip is what gets removed; the citation is moved INLINE
+   into the opinion prose itself.
+2. Read `theseus-codex/src/lib/currentsTypes.ts` (or sibling) for
+   `PublicOpinion` and `OpinionCitation`. Note the fields: `sourceKind`
+   (e.g. `conclusion`, `claim`), `sourceId`, `quotedSpan`,
+   `publicUrl`.
+3. Read `theseus-codex/src/app/currents/[id]/SourceCard.tsx` and
+   `SourceDrawer.tsx`. The drawer is removed in prompt 07; the card has
+   the right data shape to inspire the popover content but lives only
+   on the detail page. The popover is for the CARD, not the detail
+   page.
+4. Read `theseus-codex/src/lib/safeMarkdown.ts` to see how markdown is
+   sanitized today. The popover's body must run through the same
+   sanitizer.
+5. Read `theseus-codex/src/__tests__/OpinionCard.test.tsx`.
+
+Implement or repair:
+
+A. Inline citation token
+   - The opinion generator already produces opinion text with bracketed
+     numeric markers like `[1]` `[2]`. Extend
+     `OpinionCard.tsx`'s markdown post-processing pass: replace every
+     occurrence of `[N]` (where N indexes into `opinion.citations`) with
+     a clickable element rendered as `[opinion]` or `[firm conclusion]`
+     depending on the citation's `sourceKind`. Use a small renderer that
+     plugs into the `safeMarkdown` AST so the click handler is a real
+     `<button>` element, not an anchor that hijacks the URL.
+   - Each token gets:
+     - text: `[opinion]` for `sourceKind === "claim"`,
+       `[firm conclusion]` for `sourceKind === "conclusion"`,
+       `[firm source]` for anything else,
+     - `aria-haspopup="dialog"`,
+     - `aria-controls` pointing at the popover id,
+     - underlined amber styling (a single property: `text-decoration:
+       underline; text-decoration-style: dotted;`) so it visually reads
+       as a citation, not a button.
+
+B. Popover
+   - Create `theseus-codex/src/components/CitationPopover.tsx`. It is a
+     controlled component:
+     - Props: `open`, `onClose`, `anchorRef`, `citation`,
+       `conclusionText`, `publicUrl`.
+     - Behavior: floating card anchored to the citation token; closes on
+       outside click, ESC, or scroll-out. Renders ABOVE the embedded X
+       widget z-index so it does not get clipped — verify with the
+       widget z-index from prompt R15/01.
+     - Content: the citation `kind` as a small mono caption, the
+       conclusion text from the joined row (markdown-safe), and a single
+       link "Open the public conclusion →" rendered ONLY if `publicUrl`
+       is non-null AND the joined source row has `visibility = "org"`.
+       When `publicUrl` is null, render the bare text plus a faint line
+       "Source recorded by the firm; not publicly available." (no
+       link, no exception).
+     - The popover is NOT a route — no URL state, no permalink. It is
+       deliberately ephemeral.
+   - Use existing primitives if a popover/portal helper already exists in
+     the project; otherwise implement with `createPortal` against
+     `document.body` and a focus-trap helper.
+
+C. Strip removal
+   - Delete the "Firm rationale links" strip block in `OpinionCard.tsx`
+     (the `<div aria-label="Firm rationale links">` element and its
+     wrapper). Citations are now exclusively inline.
+   - On the detail route (`currents/[id]/page.tsx`), the citation tokens
+     in the opinion text use the same popover. The dedicated
+     `SourceCard` list in the detail body stays for now; prompt 07
+     removes the drawer and trims clutter independently.
+
+D. Loader extension
+   - The loader that builds `PublicOpinion.citations` must include the
+     joined `conclusionText` (and `conclusionTitle` for the popover
+     header) when the cited source is a conclusion. Verify
+     `theseus-codex/src/lib/currentsApi.ts` (or wherever opinions are
+     built for the public surface) and extend it.
+   - The visibility gate: include `publicUrl` only when the joined row
+     has `visibility = "org"`. If `visibility` is `private` or
+     `semi_private`, force `publicUrl = null` regardless of what the
+     row stores.
+
+E. Tests
+   - `theseus-codex/src/__tests__/CitationPopover.test.tsx`:
+     (a) renders the kind caption and the conclusion text,
+     (b) renders the public-source link only when `publicUrl` is non-null
+         AND visibility is `org`,
+     (c) hides the link when visibility is `private`,
+     (d) ESC and outside-click close the popover.
+   - Update `OpinionCard.test.tsx` to assert no element with the literal
+     accessible name "Firm rationale links" exists, and that clicking a
+     `[opinion]` token opens the popover.
+
+Constraints:
+- Do not change the persisted citation rows. The render layer is the
+  one being redesigned.
+- Do not show the source link for any visibility other than `org`. No
+  exception. The user explicitly emphasized this twice in the
+  transcript.
+- Keep keyboard accessibility: the popover is a `role="dialog"` and the
+  trigger is a button; tab focus moves into the popover when opened.
+
+If the work already exists, inspect and only repair gaps.
+
+SCOPE
+- `theseus-codex/src/app/currents/OpinionCard.tsx` MODIFY
+- `theseus-codex/src/components/CitationPopover.tsx` CREATE
+- `theseus-codex/src/lib/currentsApi.ts` MODIFY
+- `theseus-codex/src/__tests__/CitationPopover.test.tsx` CREATE
+- `theseus-codex/src/__tests__/OpinionCard.test.tsx` MODIFY

@@ -6,6 +6,7 @@ import AutoPageHelp from "@/components/AutoPageHelp";
 import NavTransition from "@/components/NavTransition";
 import EntranceWelcome from "@/components/EntranceWelcome";
 import { founderDisplayName } from "@/lib/founderDisplay";
+import { db } from "@/lib/db";
 
 /**
  * Shell for every signed-in Codex page. Renders the top nav (7 items),
@@ -29,6 +30,10 @@ export default async function AuthedLayout({
     redirect("/login");
   }
 
+  const unseenResponses = await db.publicResponse.count({
+    where: { organizationId: founder.organizationId, seenAt: null },
+  });
+
   return (
     <>
       <Nav
@@ -38,6 +43,7 @@ export default async function AuthedLayout({
           organizationSlug: founder.organization.slug,
           role: founder.role,
         }}
+        dashboardHasUnseenResponses={unseenResponses > 0}
       />
       <SubNav />
       <AutoPageHelp />

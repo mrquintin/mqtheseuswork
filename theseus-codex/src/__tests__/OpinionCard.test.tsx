@@ -1,4 +1,4 @@
-import React, { type ReactNode } from "react";
+import React, { type ReactElement, type ReactNode } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
 
@@ -22,7 +22,18 @@ vi.mock("next/link", () => ({
   ),
 }));
 
-function citation(index: number, sourceKind = "claim"): PublicCitation {
+type TestCitation = PublicCitation & {
+  conclusion_text?: string | null;
+  conclusion_title?: string | null;
+  public_url?: string | null;
+  source_visibility?: string | null;
+};
+
+function citation(
+  index: number,
+  sourceKind = "claim",
+  overrides: Partial<TestCitation> = {},
+): TestCitation {
   return {
     id: `citation-${index}`,
     source_kind: sourceKind,
@@ -30,6 +41,11 @@ function citation(index: number, sourceKind = "claim"): PublicCitation {
     quoted_span: `quoted span ${index}`,
     retrieval_score: 0.91,
     is_revoked: false,
+    conclusion_text: `Conclusion text ${index}`,
+    conclusion_title: `Conclusion ${index}`,
+    public_url: null,
+    source_visibility: null,
+    ...overrides,
   };
 }
 
@@ -117,10 +133,12 @@ describe("OpinionCard", () => {
     expect(html).toContain("https://twitter.com/analyst/status/external-2");
   });
 
-  it("renders at most three citation chips and a +N more marker", () => {
+  it("renders inline citation buttons and removes the rationale strip", () => {
     const html = renderToStaticMarkup(
       <OpinionCard
         opinion={opinion({
+          body_markdown:
+            "The firm leans on one conclusion [1] and one opinion [2].",
           citations: [
             citation(1, "conclusion"),
             citation(2, "claim"),
@@ -132,11 +150,11 @@ describe("OpinionCard", () => {
       />,
     );
 
-    expect(html).toContain("/currents/opinion-1#src-source-1");
-    expect(html).toContain("/currents/opinion-1#src-source-2");
-    expect(html).toContain("/currents/opinion-1#src-source-3");
-    expect(html).not.toContain("/currents/opinion-1#src-source-4");
-    expect(html).toContain("+2 more");
+    expect(html).not.toContain("Firm rationale links");
+    expect(html).not.toContain("/currents/opinion-1#src-source-1");
+    expect(html).toContain("[firm conclusion]");
+    expect(html).toContain("[opinion]");
+    expect(html).toContain('aria-haspopup="dialog"');
   });
 
   it("escapes markdown containing script tags", () => {
@@ -159,4 +177,122 @@ describe("OpinionCard", () => {
     expect(html).toContain('href="/currents/opinion-1#ask"');
     expect(html).toContain("Ask a follow-up");
   });
+
+  it("opens a citation popover when an inline opinion token is clicked", async () => {
+    vi.resetModules();
+    const harness: { cursor: number; hooks: unknown[] } = { cursor: 0, hooks: [] };
+    vi.doMock("react", async () => {
+      const actual = await vi.importActual<typeof import("react")>("react");
+      return {
+        ...actual,
+        useCallback: <T extends (...args: never[]) => unknown>(callback: T) => {
+          harness.cursor += 1;
+          return callback;
+        },
+        useId: () => {
+          const index = harness.cursor++;
+          if (!harness.hooks[index]) harness.hooks[index] = `r${index}`;
+          return harness.hooks[index];
+        },
+        useMemo: <T,>(factory: () => T) => {
+          harness.cursor += 1;
+          return factory();
+        },
+        useRef: <T,>(initial: T) => {
+          const index = harness.cursor++;
+          if (!harness.hooks[index]) harness.hooks[index] = { current: initial };
+          return harness.hooks[index];
+        },
+        useState: <T,>(initial: T | (() => T)) => {
+          const index = harness.cursor++;
+          if (!(index in harness.hooks)) {
+            harness.hooks[index] =
+              typeof initial === "function" ? (initial as () => T)() : initial;
+          }
+          const setState = (next: T | ((previous: T) => T)) => {
+            const previous = harness.hooks[index] as T;
+            harness.hooks[index] =
+              typeof next === "function"
+                ? (next as (previous: T) => T)(previous)
+                : next;
+          };
+          return [harness.hooks[index] as T, setState] as const;
+        },
+      };
+    });
+    vi.doMock("@/components/CitationPopover", () => ({
+      default: ({
+        conclusionText,
+        open,
+      }: {
+        conclusionText: string;
+        open: boolean;
+      }) => (open ? <aside role="dialog">{conclusionText}</aside> : null),
+    }));
+
+    const { OpinionMarkdownBody } = await import("@/app/currents/OpinionCard");
+    const render = () => {
+      harness.cursor = 0;
+      return OpinionMarkdownBody({
+        opinion: opinion({
+          body_markdown: "This marker opens [1].",
+          citations: [
+            citation(1, "claim", {
+              conclusion_text: "The firm stores this claim conclusion.",
+            }),
+          ],
+        }),
+      }) as ReactElement;
+    };
+
+    let tree = render();
+    const button = findAllByType(tree, "button").find(
+      (element) => textContent(element) === "[opinion]",
+    );
+    expect(button).toBeTruthy();
+
+    button?.props.onClick({ currentTarget: {} });
+    tree = render();
+
+    expect(renderToStaticMarkup(tree)).toContain(
+      "The firm stores this claim conclusion.",
+    );
+
+    vi.doUnmock("react");
+    vi.doUnmock("@/components/CitationPopover");
+    vi.resetModules();
+  });
 });
+
+function childrenOf(node: ReactNode): ReactNode[] {
+  if (!node || typeof node !== "object") return [];
+  const children = (node as ReactElement<{ children?: ReactNode }>).props?.children;
+  return Array.isArray(children) ? children : children === undefined ? [] : [children];
+}
+
+function walk(node: ReactNode, visitor: (element: ReactElement) => void): void {
+  if (!node || typeof node !== "object") return;
+  if (Array.isArray(node)) {
+    node.forEach((child) => walk(child, visitor));
+    return;
+  }
+  const element = node as ReactElement;
+  visitor(element);
+  childrenOf(element).forEach((child) => walk(child, visitor));
+}
+
+function findAllByType(tree: ReactNode, type: string): ReactElement[] {
+  const found: ReactElement[] = [];
+  walk(tree, (element) => {
+    if (element.type === type) found.push(element);
+  });
+  return found;
+}
+
+function textContent(node: ReactNode): string {
+  if (node === null || node === undefined || typeof node === "boolean") return "";
+  if (typeof node === "string" || typeof node === "number") return String(node);
+  if (Array.isArray(node)) return node.map(textContent).join("");
+  if (typeof node === "object") return childrenOf(node).map(textContent).join("");
+  return "";
+}

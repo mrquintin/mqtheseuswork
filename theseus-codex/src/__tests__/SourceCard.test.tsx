@@ -60,6 +60,14 @@ describe("SourceCard", () => {
     expect(html).toContain("Go to canonical");
   });
 
+  it("does not expose retrieval scores or drawer controls on the public card", () => {
+    const html = renderToStaticMarkup(<SourceCard source={source()} />);
+
+    expect(html).not.toContain("score 91%");
+    expect(html).not.toContain("Open in drawer");
+    expect(html).toContain("Inspect source");
+  });
+
   it("falls back to a claim canonical link when canonical_path is missing", () => {
     const html = renderToStaticMarkup(
       <SourceCard

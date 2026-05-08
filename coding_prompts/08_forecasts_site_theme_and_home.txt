@@ -1,0 +1,85 @@
+You are operating in /Users/michaelquintin/Desktop/Theseus.
+
+Goal: bring the public Forecasts surface into the rest of the site's
+visual language and ensure every Forecasts page renders the public
+header (and therefore the Home item from prompt 01). The founder
+described it as "just not following the website design and doesn't have
+a home button."
+
+Concrete intent from the founder transcript:
+- "the predictions [forecasts] page is just not following the website
+  design and doesn't have a home button. … yeah, it's just weird."
+
+Before you start — read current state:
+1. Read `theseus-codex/src/app/forecasts/layout.tsx`, `page.tsx`,
+   `[id]/page.tsx`, and `portfolio/page.tsx`. Note which use
+   `PublicHeader` today and which roll their own chrome.
+2. Read `theseus-codex/src/app/forecasts/ForecastCard.tsx`,
+   `LivePulse.tsx`, `ForecastGridClient.tsx` for their backgrounds and
+   borders. They use `var(--forecasts-bg)` and similar; locate those
+   variable assignments in `globals.css` (search `--forecasts-bg`).
+3. Read `theseus-codex/src/app/forecasts/[id]/ChatPanel.tsx` line 207 —
+   it remaps `--currents-bg-elevated` to `--forecasts-bg-elevated`,
+   which suggests the pattern is to share popover-style components
+   across the two surfaces. The fix here is to bind `--forecasts-*`
+   tokens to the site's primary tokens, not a parallel grayscale.
+4. Read prompt 01 for the `PublicHeader` placement contract; this
+   prompt assumes prompt 01 has landed.
+
+Implement or repair:
+
+A. Theme alignment
+   - In `globals.css`, rebind every `--forecasts-bg`,
+     `--forecasts-bg-elevated`, `--forecasts-border`, `--forecasts-muted`,
+     `--forecasts-parchment-dim` (and any sibling) to the same site
+     tokens that prompt 07 binds for currents. The two surfaces should
+     read as cousins of the same product, not separate products.
+   - Apply both to the dark theme and the light theme blocks.
+
+B. Public header on every Forecasts route
+   - Confirm `app/forecasts/layout.tsx` wraps its tree with
+     `PublicHeader`. If `[id]/page.tsx` or `portfolio/page.tsx` builds
+     its own chrome and bypasses the layout, fix it. The Home item from
+     prompt 01 must be visible on every page under `/forecasts`.
+   - The founder portal route at `(authed)/forecasts/operator` keeps
+     the founder-side `Nav.tsx` instead of `PublicHeader` — do not
+     touch it.
+
+C. Forecast detail page back affordance
+   - Add a "← Forecasts" back link directly under the header on
+     `app/forecasts/[id]/page.tsx`. Same chrome and aria as the
+     "← Currents" link from prompt 07.
+
+D. Audit-trail / publish-toolbar parity
+   - `app/forecasts/[id]/AuditTrail.tsx` mirrors the Currents one. The
+     founder did not explicitly call it out for forecasts, but he said
+     "if you find any other clutter in the UI design as you see it in a
+     code, remove it, too." Hide the AuditTrail on the public forecast
+     detail surface (the operator console keeps it).
+   - Apply the same removal to any `<PublishToToolbar/>` rendered on
+     public forecast detail.
+
+E. Tests
+   - `theseus-codex/src/__tests__/ForecastsTheme.test.tsx`: assert
+     `--forecasts-bg` resolves to the site `--ink` token (and the
+     elevated variant to `--stone`).
+   - `theseus-codex/src/__tests__/ForecastsDetail.chrome.test.tsx`:
+     asserts the public detail does not render `AuditTrail` or
+     `PublishToToolbar` and DOES render `PublicHeader` and a
+     "← Forecasts" back link.
+
+Constraints:
+- Operator surfaces stay rich. The trim only applies to public-facing
+  routes.
+- The Forecasts data API and pulse/SSE flows do not change.
+
+If the work already exists, inspect and only repair gaps.
+
+SCOPE
+- `theseus-codex/src/app/forecasts/layout.tsx` MODIFY
+- `theseus-codex/src/app/forecasts/[id]/page.tsx` MODIFY
+- `theseus-codex/src/app/forecasts/page.tsx` MODIFY
+- `theseus-codex/src/app/forecasts/portfolio/PortfolioShell.tsx` MODIFY
+- `theseus-codex/src/app/globals.css` MODIFY
+- `theseus-codex/src/__tests__/ForecastsTheme.test.tsx` CREATE
+- `theseus-codex/src/__tests__/ForecastsDetail.chrome.test.tsx` CREATE

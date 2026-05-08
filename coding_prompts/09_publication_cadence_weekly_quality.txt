@@ -1,0 +1,125 @@
+You are operating in /Users/michaelquintin/Desktop/Theseus.
+
+Goal: cap the publication generator at one piece per week, and rewrite
+the article generator's prompt so every published piece is a thoughtful
+synthesis of the firm's recent or central opinions — not a generic
+summary. The founder is reading multiple articles per day and finds them
+"way too general", "way too long-titled", "not really well thought
+through".
+
+Concrete intent from the founder transcript:
+- "the publications, the essays and memos … there's, like, 3 a day, …
+  4 a day. … There should really only be one every week."
+- "And it should be a summary of, like, the opinions of the firm, or
+  perhaps the newest opinions, in some way that shows a lot of thought."
+- "I think that the publications are … standard, really, really general.
+  They're very big. They're not really well thought through."
+- "the titles are way too long and they need to be shortened. They are
+  very complicated, and they should be written as actual thoughtful
+  articles, not just summaries."
+
+Before you start — read current state:
+1. Read `noosphere/noosphere/articles/triggers.py`. Note
+   `DEFAULT_DAILY_ARTICLE_CAP = 4` (line ~32) — that is the cause of
+   the 3–4/day cadence. Note `THEMATIC_WINDOW = timedelta(days=7)` and
+   `CORRECTION_WINDOW = timedelta(hours=24)`.
+2. Read `noosphere/noosphere/articles/generator.py` end-to-end. Find
+   the prompt assembly that produces title + body, and the cap logic
+   that bails out via `count_articles_since`.
+3. Read `noosphere/noosphere/articles/_prompts/` for the prompt
+   templates (markdown files).
+4. Read `coding_prompts/archive_round14_methodology_implemented/04_publication_methodology_review.txt`
+   for the existing methodology framing — the rewritten generator must
+   still respect it.
+5. Read `noosphere/tests/test_articles*` and similar test files so
+   their fixtures and cadence assertions can be updated.
+
+Implement or repair:
+
+A. Cadence cap → one per week
+   - Replace `DEFAULT_DAILY_ARTICLE_CAP = 4` with a *weekly* cap:
+     `DEFAULT_WEEKLY_ARTICLE_CAP = 1`.
+   - Refactor the call sites that consult the daily cap to consult the
+     weekly cap instead. Reuse `count_articles_since(since=now-7d)`.
+   - The CORRECTION_WINDOW path is preserved as an *exception*: a
+     correction can publish within 24 hours regardless of the weekly
+     cap. The founder explicitly drew the cadence rule for the regular
+     cadence, not for corrections.
+   - Expose env override `NOOSPHERE_ARTICLES_WEEKLY_CAP` (int ≥ 0).
+     Setting `0` disables generation entirely.
+   - Document the change in
+     `noosphere/noosphere/articles/CADENCE.md` (create if absent) with
+     the rationale: founder testimony 2026-05-07.
+
+B. Title-length policy enforcement
+   - Reject any generator output whose title exceeds 70 characters.
+     Implementation: a final validator after the LLM call that
+     re-prompts once for a shorter title; if it still overflows, mark
+     the article as `status = "needs_review"` and surface it to the
+     founder rather than publishing.
+   - Add `MAX_TITLE_CHARS = 70` as a module constant; reuse the same
+     value in the title-policy log added in prompt 04.
+
+C. Content-quality rewrite
+   - Replace the article generation prompt template (under
+     `noosphere/noosphere/articles/_prompts/`) with one that
+     explicitly directs:
+     1. Pick a SINGLE central question or claim from the firm's
+        opinions in the past 30 days.
+     2. Argue from at least three of the firm's prior conclusions, each
+        cited inline with the citation marker conventions the existing
+        renderer expects.
+     3. Forbid summaries-of-summaries: if the proposed body mostly
+        restates titles of other pieces, regenerate.
+     4. Forbid generic openings ("In recent times…", "It is widely
+        believed…", "Many people argue that…"). Add a deny-list that
+        the validator pattern-matches the first paragraph against; on a
+        hit, re-prompt once, then fail to `needs_review`.
+     5. Aim for 700–1500 words of actual prose, not bullet lists.
+     6. The output title is a noun phrase, not a sentence, and never
+        ends in punctuation.
+   - The replacement is *additive* prose in the prompt template, not a
+     code rewrite of the generator's pipeline. Keep the
+     extract→assemble→validate flow intact; only the prompt body and the
+     post-validation rules change.
+
+D. Selection: "newest opinions" weighting
+   - In `triggers.py`'s thematic candidate selection, bias the candidate
+     pool toward opinions whose `createdAt` is within the last 14 days.
+     Implementation: keep the current corpus-wide pool but
+     up-weight recent rows by `0.5 + 0.5 * exp(-age_days/7)`. Document
+     the choice in the docstring.
+   - Do not exclude older opinions entirely — a piece can still cite
+     long-standing conclusions; they just don't seed the article.
+
+E. Tests
+   - `noosphere/tests/test_articles_weekly_cap.py`:
+     (a) when 1 article was published in the last 7 days,
+         `select_thematic_candidates` returns nothing,
+     (b) when 0 were published in 7 days, it returns at least one
+         candidate,
+     (c) corrections still trigger inside the 24h window,
+     (d) `NOOSPHERE_ARTICLES_WEEKLY_CAP=0` disables all generation.
+   - `noosphere/tests/test_articles_quality_gate.py`:
+     (a) generator output with a title > 70 chars triggers a re-prompt,
+         then `needs_review` if still long,
+     (b) a body whose first paragraph matches the deny-list triggers a
+         re-prompt then `needs_review`,
+     (c) a body that cites < 3 prior conclusions triggers `needs_review`.
+
+Constraints:
+- Do NOT delete previously generated articles. The cap is forward-only.
+- Do NOT lower the weekly cap below 0 or accept negative env values.
+- The validator's deny-list lives next to the prompt template, not
+  hard-coded in `generator.py`, so the founder can edit it without a
+  redeploy.
+
+If the work already exists, inspect and only repair gaps.
+
+SCOPE
+- `noosphere/noosphere/articles/triggers.py` MODIFY
+- `noosphere/noosphere/articles/generator.py` MODIFY
+- `noosphere/noosphere/articles/_prompts/article_system.md` MODIFY
+- `noosphere/noosphere/articles/CADENCE.md` CREATE
+- `noosphere/tests/test_articles_weekly_cap.py` CREATE
+- `noosphere/tests/test_articles_quality_gate.py` CREATE

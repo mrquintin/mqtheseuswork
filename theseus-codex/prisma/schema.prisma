@@ -1000,6 +1000,7 @@ model PublicResponse {
   moderatorNote String @default("")
 
   createdAt DateTime @default(now())
+  seenAt    DateTime?
 
   organization Organization        @relation(fields: [organizationId], references: [id], onDelete: Restrict)
   published    PublishedConclusion @relation(fields: [publishedConclusionId], references: [id], onDelete: Cascade)
@@ -1007,6 +1008,7 @@ model PublicResponse {
   @@index([organizationId])
   @@index([publishedConclusionId])
   @@index([status])
+  @@index([seenAt])
 }
 
 model ContactSubmission {

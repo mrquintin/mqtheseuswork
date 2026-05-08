@@ -1,0 +1,128 @@
+You are operating in /Users/michaelquintin/Desktop/Theseus.
+
+Goal: stop the all-caps inscription font on article and conclusion titles
+("looks like it's yelling at me"), justify the article body with proper
+hyphenation, and trim the article-page sections the founder explicitly
+called clutter. This prompt is layout/typography only; the response form
+relocation lands in prompt 02 and the citation popover lands in prompt 06.
+
+Concrete intent from the founder transcript:
+- "the titles are terrible … all caps. I don't like this font, that makes
+  all the titles all caps, and it looks like it's yelling at me."
+- "I would love to see [Justify] here … with hyphenation."
+- "below the conclusions, on the article, … We don't need the strongest
+  engagement objection. We don't need the what would change our mind. We
+  don't need the evolution. We don't need the citations, so just remove
+  all of that."
+
+Before you start — read current state:
+1. Read `theseus-codex/src/app/post/[slug]/page.tsx` line by line. The h1
+   uses `fontFamily: "'Cinzel Decorative', 'Cinzel', serif"` with
+   `letterSpacing: 0.08em` — Cinzel is an inscription/all-caps face by
+   design, which is why the titles render as caps regardless of source
+   case. The h1's body text is rendered straight from `post.title`. Fix
+   the typography, not the source string.
+2. Read `theseus-codex/src/components/ConclusionView.tsx` — locate
+   the `Strongest engaged objection`, `What would change our mind`,
+   `Evolution (time machine)`, and `Citations` sections (around lines
+   158, 171, 204, 234). Also locate the `public-title` h1 at line 87 and
+   the `Cited span:` block at line 315. The page is rendered for
+   `/c/[slug]` and styles itself via `globals.css`.
+3. Read `theseus-codex/src/app/globals.css` for `.public-title`,
+   `.public-section`, `.public-card`, `.public-response-list`. Note the
+   uppercase rules sprinkled across the file — those that target *body
+   chrome* (mono labels, kickers) stay; the rule targeting the title
+   class is what changes.
+4. Read `theseus-codex/src/__tests__/post-page.test.tsx` and
+   `theseus-codex/src/__tests__/conclusion-page.test.tsx` (or similar)
+   so you know which assertions to update.
+
+Implement or repair:
+
+A. Title typography
+   - In `app/post/[slug]/page.tsx`, change the h1's font stack from
+     Cinzel-family to `'EB Garamond', 'Iowan Old Style', Georgia, serif`
+     (already loaded for body text). Drop `letterSpacing: 0.08em` (it was
+     compensating for the inscription face). Keep the amber color and
+     glow. The new size pillar:
+     `fontSize: clamp(1.85rem, 4.4vw, 2.6rem); fontWeight: 600;
+      lineHeight: 1.18; letterSpacing: -0.005em;`
+   - Apply the same change to `.public-title` in `globals.css` (used by
+     `ConclusionView.tsx`).
+   - Audit the rest of `post/[slug]/page.tsx`: keep the small monospace
+     kicker labels in `text-transform: uppercase` (they're chrome, not
+     headlines), but the article's own h2/h3/h4 must NOT be uppercase.
+     Search for any inline `textTransform: "uppercase"` on heading-level
+     elements and remove them.
+
+B. Article body justification
+   - Add a class `.public-article-body` in `globals.css` with:
+       `text-align: justify;`
+       `text-justify: inter-word;`
+       `hyphens: auto;`
+       `-webkit-hyphens: auto;`
+       `hyphenate-limit-chars: 6 3 3;`
+       `hyphenate-limit-lines: 2;`
+       `text-wrap: pretty;`
+       `max-width: 70ch;`
+   - Apply the class to the body container of
+     `app/post/[slug]/page.tsx` and to the body container of
+     `ConclusionView.tsx`'s prose section. Do NOT apply it to lists,
+     pull-quotes, or any block whose content is < 4 lines on a typical
+     viewport — justify on short blocks looks worse than rag-right; gate
+     by container, not by paragraph.
+   - Set the page `<html lang="en">` (already present per Next defaults)
+     and confirm it is honored on the public surfaces; modern browsers
+     gate `hyphens: auto` on the language attribute.
+
+C. Section trims (article + conclusion page)
+   - Delete the JSX rendering and supporting helpers for the four
+     sections the founder named clutter, in `ConclusionView.tsx`:
+     - `<h2>Strongest engaged objection</h2>` and its surrounding
+       `<section>`,
+     - `<h2>What would change our mind</h2>` and its `<section>`,
+     - `<h2>Evolution (time machine)</h2>` and its `<section>`,
+     - `<h2>Citations</h2>` and its `<section>`.
+   - Each `section` block goes; the data fields they read from stay in
+     the DB and in `PublishedConclusion` (we still want the data
+     captured), but they are no longer surfaced to the public reader.
+   - If `app/post/[slug]/page.tsx` renders any of the same sections via
+     a child component, remove those usages too.
+
+D. Title length policy (advisory + enforcement)
+   - Add a static check in `theseus-codex/src/lib/conclusionsRead.ts`
+     (or wherever `PublishedConclusion` is built) that LOGS — does not
+     fail — when a title exceeds 70 characters. The log line must be
+     specific enough to grep:
+     `console.warn("[title-policy] long title (%d chars): %s", n, title)`.
+   - Document the 70-char policy in
+     `docs/editorial/TITLE_POLICY.md`. Prompt 08 (publication cadence)
+     adds the generator-side enforcement.
+
+E. Tests
+   - Update existing tests for `/post/[slug]` and `/c/[slug]` to assert:
+     (a) the article body container has class `public-article-body`,
+     (b) the four named clutter sections do NOT render,
+     (c) the h1 text equals `post.title` byte-for-byte (no
+         server-side uppercasing — caps must come from CSS only, and now
+         they don't),
+     (d) `globals.css` does not apply `text-transform: uppercase` to
+         `.public-title`.
+
+Constraints:
+- Do NOT delete the underlying data. The four trimmed sections may yet
+  return on a per-piece basis; keep the loaders.
+- Do NOT change the amber palette or the parchment background tokens.
+- If you find any other heading-level element on the public surface
+  forced to caps via `text-transform`, remove that rule too — the
+  founder said "if you find any other clutter in the UI design as you
+  see it in a code, remove it, too."
+
+If the work already exists, inspect and only repair gaps.
+
+SCOPE
+- `theseus-codex/src/app/post/[slug]/page.tsx` MODIFY
+- `theseus-codex/src/components/ConclusionView.tsx` MODIFY
+- `theseus-codex/src/app/globals.css` MODIFY
+- `theseus-codex/src/lib/conclusionsRead.ts` MODIFY
+- `docs/editorial/TITLE_POLICY.md` CREATE

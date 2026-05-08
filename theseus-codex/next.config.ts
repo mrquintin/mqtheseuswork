@@ -39,10 +39,19 @@ export const legacyNavRedirects = [
   { source: "/scoreboard", destination: "/ops?panel=calibration", permanent: false },
 ] as const;
 
+export const retiredPublicRouteRedirects = [
+  { source: "/responses", destination: "/", permanent: true },
+] as const;
+
+export const appRedirects = [
+  ...retiredPublicRouteRedirects,
+  ...legacyNavRedirects,
+] as const;
+
 const nextConfig: NextConfig = {
   ...(isVercel ? {} : { output: "standalone" }),
   async redirects() {
-    return [...legacyNavRedirects];
+    return [...appRedirects];
   },
   experimental: {
     serverActions: {

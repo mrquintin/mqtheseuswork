@@ -19,7 +19,10 @@ from sqlmodel import asc, desc, select
 
 from noosphere.config import get_settings
 from noosphere.currents.budget import BudgetExhausted
-from noosphere.articles.triggers import dispatch_triggered_articles
+from noosphere.articles.triggers import (
+    DEFAULT_WEEKLY_ARTICLE_CAP,
+    dispatch_triggered_articles,
+)
 from noosphere.forecasts.budget import PersistentHourlyBudgetGuard
 from noosphere.forecasts.config import KalshiConfig, PolymarketConfig
 from noosphere.forecasts.forecast_generator import ForecastOutcome, generate_forecast
@@ -60,7 +63,7 @@ class SchedulerConfig:
     status_file: Path = Path("/var/lib/theseus/forecasts_status.json")
     budget_file: Path = DEFAULT_BUDGET_PATH
     max_predictions_per_cycle: int = 8
-    max_articles_per_day: int = 4
+    max_articles_per_week: int = DEFAULT_WEEKLY_ARTICLE_CAP
 
     @classmethod
     def from_env(cls) -> "SchedulerConfig":
@@ -94,9 +97,9 @@ class SchedulerConfig:
                 "FORECASTS_MAX_PREDICTIONS_PER_CYCLE",
                 cls.max_predictions_per_cycle,
             ),
-            max_articles_per_day=_env_int(
-                "FORECASTS_MAX_ARTICLES_PER_DAY",
-                cls.max_articles_per_day,
+            max_articles_per_week=_env_nonnegative_int(
+                "NOOSPHERE_ARTICLES_WEEKLY_CAP",
+                cls.max_articles_per_week,
             ),
         )
 
@@ -143,6 +146,19 @@ def _env_int(key: str, default: int) -> int:
     if not raw:
         return default
     return int(raw)
+
+
+def _env_nonnegative_int(key: str, default: int) -> int:
+    raw = os.environ.get(key, "").strip()
+    if not raw:
+        return default
+    try:
+        value = int(raw)
+    except ValueError:
+        return default
+    if value < 0:
+        return default
+    return value
 
 
 def _organization_id() -> str:
@@ -554,7 +570,7 @@ async def _tick_articles(
         articles = await dispatch_triggered_articles(
             store,
             budget=budget,
-            daily_cap=config.max_articles_per_day,
+            weekly_cap=config.max_articles_per_week,
         )
         published = len(articles)
     except BudgetExhausted as exc:
@@ -570,7 +586,7 @@ async def _tick_articles(
         duration_ms=int((time.monotonic() - started) * 1000),
         status="ok" if not errors else "error",
         succeeded=published,
-        skipped=max(0, config.max_articles_per_day - published),
+        skipped=max(0, config.max_articles_per_week - published),
         errors=tuple(errors),
     )
 
@@ -822,7 +838,7 @@ async def run_forever(store: Store, *, config: SchedulerConfig) -> None:
         status_file=str(config.status_file),
         budget_file=str(config.budget_file),
         max_predictions_per_cycle=config.max_predictions_per_cycle,
-        max_articles_per_day=config.max_articles_per_day,
+        max_articles_per_week=config.max_articles_per_week,
     )
     try:
         await stop_event.wait()

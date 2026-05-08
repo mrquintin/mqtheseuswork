@@ -1,0 +1,102 @@
+You are operating in /Users/michaelquintin/Desktop/Theseus.
+
+Goal: delete the standalone `/responses` page and re-home the
+"Submit a structured response" affordance at the TOP of every public
+article page (where it actually makes sense — a reader has just finished a
+piece and wants to talk back). The Submit button must reach a working email
+pipeline (that pipeline is implemented in prompt 03; this prompt only
+relocates and wires the form to call the new endpoint).
+
+Concrete intent from the founder transcript:
+- "the responses page is weird, and can be removed entirely. I don't get
+  what the point is there."
+- "the submit a structured response is great, but I think it should be put
+  at the top. That is an excellent idea that … should be emphasized, that
+  people can dialogue with us."
+- "make sure that the pipeline is set up for that submit structured
+  response button to actually work and actually send something to … an
+  actual email."
+
+Before you start — read current state:
+1. Read `theseus-codex/src/app/responses/page.tsx`. Note that it composes
+   `PublicHeader`, a tab strip ("Responses" / "Articles"), `RespondForm`,
+   and `listPublishedArticles`. The articles listing is duplicated work —
+   the homepage / `(home)` already lists published posts. Removing the
+   page does not lose any unique surface as long as the form is rehoused.
+2. Read `theseus-codex/src/components/RespondForm.tsx`. It POSTs to
+   `/api/public/responses`. That endpoint is what prompt 03 rewires.
+3. Read `theseus-codex/src/app/post/[slug]/page.tsx` and
+   `theseus-codex/src/app/c/[slug]/page.tsx`. These are the two public
+   article surfaces. Both need a top-of-page response affordance.
+4. Read `theseus-codex/src/components/PublicHeader.tsx` — confirm prompt
+   01's edits are in place (no Responses link). If absent, halt.
+5. Read `theseus-codex/src/lib/conclusionsRead.ts` — confirm
+   `listPublishedConclusions` is the right loader for the form's selector
+   when the form is mounted on a generic page that does not already know
+   its own conclusion id.
+
+Implement or repair:
+
+A. Delete the `/responses` route.
+   - Delete `theseus-codex/src/app/responses/page.tsx` (and any sibling
+     route file like `loading.tsx` or `route.ts` that exists under that
+     folder). Use `git rm`-equivalent via the Edit tool where required.
+   - Add a 308 redirect from `/responses` to `/` in
+     `theseus-codex/next.config.ts` (or whatever config file owns
+     `redirects()` in the project). Verify which file actually wins by
+     reading it before editing.
+   - If any sitemap, RSS feed, or static `links` array references
+     `/responses`, remove the entries.
+
+B. Rehome the response form.
+   - Create `theseus-codex/src/components/RespondCallout.tsx` — a slim
+     wrapper that renders `RespondForm` inside a collapsed disclosure
+     (`<details><summary>Submit a structured response</summary>...`).
+     Default-collapsed; the summary uses the same monospace amber chrome
+     used elsewhere on the public surface so it visually matches without
+     stealing the page from the article body.
+   - Place `<RespondCallout/>` AT THE TOP of:
+     - `app/post/[slug]/page.tsx` (immediately after the back link, BEFORE
+       the article header), with the form's `conclusions` prop scoped to
+       only this post (use `publishedConclusionId = post.id` if the post
+       has a corresponding published conclusion, else show a single
+       "Respond to this post" target).
+     - `app/c/[slug]/page.tsx` (immediately after the back link, BEFORE
+       `<ConclusionView/>`), with the form's `conclusions` prop set to
+       the single conclusion being viewed.
+   - The form retains its existing fields. Do not redesign it in this
+     prompt — only its location changes.
+
+C. RespondForm: scope-aware behavior
+   - If `conclusions.length === 1`, hide the dropdown selector and show
+     the conclusion's title above the form as static read-only context
+     ("Responding to: '<title>'").
+   - The form continues to POST to `/api/public/responses`. The endpoint
+     itself is rewired in prompt 03; do not pre-empt that work here.
+
+D. Tests
+   - Update `theseus-codex/src/__tests__/responses.test.tsx` (if present)
+     to assert the route now 308s to `/`.
+   - Add `theseus-codex/src/__tests__/RespondCallout.test.tsx` covering
+     scoped-vs-listing rendering and that the form's submit handler is
+     unchanged.
+   - Update homepage and post tests that previously linked to
+     `/responses`.
+
+E. Constraints
+   - Do not delete `RespondForm.tsx` — it stays as the implementation
+     detail behind `RespondCallout`.
+   - Do not delete `/api/public/responses` — prompt 03 rewires it.
+   - Do not relocate the form to the bottom of the article. The founder's
+     instruction is unambiguous: top.
+
+If the work already exists, inspect and only repair gaps.
+
+SCOPE
+- `theseus-codex/src/app/responses/page.tsx` MODIFY
+- `theseus-codex/next.config.ts` MODIFY
+- `theseus-codex/src/components/RespondCallout.tsx` CREATE
+- `theseus-codex/src/components/RespondForm.tsx` MODIFY
+- `theseus-codex/src/app/post/[slug]/page.tsx` MODIFY
+- `theseus-codex/src/app/c/[slug]/page.tsx` MODIFY
+- `theseus-codex/src/__tests__/RespondCallout.test.tsx` CREATE

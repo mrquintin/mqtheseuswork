@@ -1,8 +1,10 @@
 import type { Metadata } from "next";
+import Link from "next/link";
 import { notFound } from "next/navigation";
 
 import ConclusionView from "@/components/ConclusionView";
 import PublicHeader from "@/components/PublicHeader";
+import RespondCallout from "@/components/RespondCallout";
 import { getFounder } from "@/lib/auth";
 import { getConclusionBySlug, listConclusionVersions, responsesForPublishedId } from "@/lib/conclusionsRead";
 
@@ -32,7 +34,31 @@ export default async function LatestConclusionPage({ params }: PageProps) {
   return (
     <>
       <PublicHeader authed={Boolean(founder)} />
-      <ConclusionView row={row} allVersions={allVersions} responses={responses} />
+      <ConclusionView
+        row={row}
+        allVersions={allVersions}
+        responses={responses}
+        topSlot={
+          <>
+            <Link
+              href="/"
+              className="mono"
+              style={{
+                color: "var(--amber-dim)",
+                display: "inline-block",
+                fontSize: "0.6rem",
+                letterSpacing: "0.28em",
+                marginBottom: "1.5rem",
+                textDecoration: "none",
+                textTransform: "uppercase",
+              }}
+            >
+              &larr; Back to index
+            </Link>
+            <RespondCallout conclusions={[row]} />
+          </>
+        }
+      />
     </>
   );
 }

@@ -1,14 +1,27 @@
-import type { CSSProperties } from "react";
+"use client";
+
+import {
+  cloneElement,
+  isValidElement,
+  type CSSProperties,
+  type ReactElement,
+  type ReactNode,
+  useCallback,
+  useId,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import Link from "next/link";
 
 import type { PublicCitation, PublicOpinion } from "@/lib/currentsTypes";
 import { relativeTime } from "@/lib/relativeTime";
 import { renderSafeMarkdown } from "@/lib/safeMarkdown";
+import CitationPopover from "@/components/CitationPopover";
 
 import XPostEmbed from "./XPostEmbed";
 
 type StanceKey = "agrees" | "disagrees" | "complicates" | "abstained";
-type ConfidenceBand = "low" | "mid" | "high";
 
 const supportedStances = new Set<StanceKey>([
   "agrees",
@@ -29,20 +42,6 @@ function stanceKey(rawStance: string): StanceKey {
   }
   if (["abstain", "abstains"].includes(normalized)) return "abstained";
   return "abstained";
-}
-
-function confidenceBand(confidence: number): ConfidenceBand {
-  if (!Number.isFinite(confidence)) return "low";
-  if (confidence < 0.4) return "low";
-  if (confidence < 0.75) return "mid";
-  return "high";
-}
-
-function sourceLabel(citation: PublicCitation): string {
-  const normalized = citation.source_kind.trim().toLowerCase();
-  if (normalized === "conclusion") return "conclusion";
-  if (normalized === "claim") return "claim";
-  return normalized || "rationale";
 }
 
 function authorHandle(opinion: PublicOpinion): string | null {
@@ -165,25 +164,211 @@ const observedSourceTextStyle: CSSProperties = {
   WebkitLineClamp: 3,
 };
 
-const sourceStripStyle: CSSProperties = {
-  alignItems: "center",
-  borderTop: "1px solid var(--currents-border)",
-  display: "flex",
-  flexWrap: "wrap",
-  gap: "0.45rem",
-  marginTop: "0.9rem",
-  paddingTop: "0.75rem",
-};
-
 const mutedStyle: CSSProperties = {
   color: "var(--currents-muted)",
   fontSize: "0.78rem",
+};
+
+type CitationMetadata = PublicCitation & {
+  conclusion_text?: string | null;
+  conclusionText?: string | null;
+  conclusion_title?: string | null;
+  conclusionTitle?: string | null;
+  public_url?: string | null;
+  publicUrl?: string | null;
+  source_visibility?: string | null;
+  visibility?: string | null;
 };
 
 interface OpinionCardProps {
   opinion: PublicOpinion;
   className?: string;
   detailBasePath?: string;
+}
+
+interface OpinionMarkdownBodyProps {
+  opinion: PublicOpinion;
+  className?: string;
+  style?: CSSProperties;
+}
+
+const citationTokenStyle: CSSProperties = {
+  background: "transparent",
+  border: 0,
+  color: "var(--currents-amber)",
+  cursor: "pointer",
+  font: "inherit",
+  padding: 0,
+  textDecoration: "underline",
+  textDecorationStyle: "dotted",
+};
+
+function citationTokenText(citation: PublicCitation): string {
+  const normalized = citation.source_kind.trim().toLowerCase();
+  if (normalized === "claim") return "[opinion]";
+  if (normalized === "conclusion") return "[firm conclusion]";
+  return "[firm source]";
+}
+
+function citationConclusionText(citation: CitationMetadata): string {
+  return (
+    citation.conclusion_text?.trim() ||
+    citation.conclusionText?.trim() ||
+    citation.quoted_span.trim() ||
+    "Firm conclusion text unavailable."
+  );
+}
+
+function citationPublicUrl(citation: CitationMetadata): string | null {
+  return citation.public_url ?? citation.publicUrl ?? null;
+}
+
+function replaceCitationMarkers(
+  text: string,
+  keyPrefix: string,
+  citations: CitationMetadata[],
+  popoverId: string,
+  activeCitationId: string | null,
+  onOpen: (citation: CitationMetadata, anchor: HTMLButtonElement) => void,
+): ReactNode {
+  const nodes: ReactNode[] = [];
+  const markerPattern = /\[(\d+)\]/g;
+  let lastIndex = 0;
+  let match: RegExpExecArray | null;
+
+  while ((match = markerPattern.exec(text)) !== null) {
+    const citationIndex = Number.parseInt(match[1], 10) - 1;
+    const citation = citations[citationIndex];
+    if (!citation) continue;
+
+    if (match.index > lastIndex) {
+      nodes.push(text.slice(lastIndex, match.index));
+    }
+
+    nodes.push(
+      <button
+        aria-controls={popoverId}
+        aria-expanded={activeCitationId === citation.id}
+        aria-haspopup="dialog"
+        key={`${keyPrefix}-citation-${match.index}-${match[1]}`}
+        onClick={(event) => onOpen(citation, event.currentTarget)}
+        style={citationTokenStyle}
+        type="button"
+      >
+        {citationTokenText(citation)}
+      </button>,
+    );
+    lastIndex = markerPattern.lastIndex;
+  }
+
+  if (!nodes.length) return text;
+  if (lastIndex < text.length) nodes.push(text.slice(lastIndex));
+  return nodes;
+}
+
+function injectCitationTokens(
+  node: ReactNode,
+  citations: CitationMetadata[],
+  popoverId: string,
+  activeCitationId: string | null,
+  onOpen: (citation: CitationMetadata, anchor: HTMLButtonElement) => void,
+  keyPrefix = "opinion-body",
+): ReactNode {
+  if (typeof node === "string") {
+    return replaceCitationMarkers(
+      node,
+      keyPrefix,
+      citations,
+      popoverId,
+      activeCitationId,
+      onOpen,
+    );
+  }
+
+  if (Array.isArray(node)) {
+    return node.map((child, index) =>
+      injectCitationTokens(
+        child,
+        citations,
+        popoverId,
+        activeCitationId,
+        onOpen,
+        `${keyPrefix}-${index}`,
+      ),
+    );
+  }
+
+  if (isValidElement<{ children?: ReactNode }>(node)) {
+    const element = node as ReactElement<{ children?: ReactNode }>;
+    if (element.props.children === undefined) return element;
+    return cloneElement(
+      element,
+      undefined,
+      injectCitationTokens(
+        element.props.children,
+        citations,
+        popoverId,
+        activeCitationId,
+        onOpen,
+        `${keyPrefix}-${String(element.key ?? "element")}`,
+      ),
+    );
+  }
+
+  return node;
+}
+
+export function OpinionMarkdownBody({ opinion, className, style }: OpinionMarkdownBodyProps) {
+  const rawPopoverId = useId();
+  const popoverId = `opinion-citation-popover-${opinion.id}-${rawPopoverId.replace(
+    /:/g,
+    "",
+  )}`;
+  const anchorRef = useRef<HTMLElement | null>(null);
+  const [activeCitation, setActiveCitation] = useState<CitationMetadata | null>(null);
+  const citations = opinion.citations as CitationMetadata[];
+  const openCitation = useCallback(
+    (citation: CitationMetadata, anchor: HTMLButtonElement) => {
+      anchorRef.current = anchor;
+      setActiveCitation(citation);
+    },
+    [],
+  );
+  const closeCitation = useCallback(() => {
+    setActiveCitation(null);
+  }, []);
+  const renderedMarkdown = useMemo(
+    () => renderSafeMarkdown(opinion.body_markdown),
+    [opinion.body_markdown],
+  );
+  const body = useMemo(
+    () =>
+      injectCitationTokens(
+        renderedMarkdown,
+        citations,
+        popoverId,
+        activeCitation?.id ?? null,
+        openCitation,
+      ),
+    [activeCitation?.id, citations, openCitation, popoverId, renderedMarkdown],
+  );
+
+  return (
+    <div className={className} style={style}>
+      {body}
+      {activeCitation ? (
+        <CitationPopover
+          anchorRef={anchorRef}
+          citation={activeCitation}
+          conclusionText={citationConclusionText(activeCitation)}
+          id={popoverId}
+          onClose={closeCitation}
+          open
+          publicUrl={citationPublicUrl(activeCitation)}
+        />
+      ) : null}
+    </div>
+  );
 }
 
 function ObservedSourceExcerpt({ opinion }: { opinion: PublicOpinion }) {
@@ -242,11 +427,8 @@ export default function OpinionCard({
 }: OpinionCardProps) {
   const stance = stanceKey(opinion.stance);
   const stanceColor = `var(--currents-stance-${stance})`;
-  const confidence = confidenceBand(opinion.confidence);
   const href = `${detailBasePath.replace(/\/+$/, "")}/${encodeURIComponent(opinion.id)}`;
   const topic = opinion.topic_hint || opinion.event?.topic_hint || "untagged";
-  const shownCitations = opinion.citations.slice(0, 3);
-  const hiddenCitationCount = Math.max(0, opinion.citations.length - shownCitations.length);
   const handle = authorHandle(opinion);
   const observedItemName = observedItemDisplayName(opinion);
 
@@ -269,16 +451,10 @@ export default function OpinionCard({
           {stance}
         </span>
         <span
-          title={`confidence ${Math.round(opinion.confidence * 100)}%`}
-          style={{
-            ...pillBaseStyle,
-            background: "rgba(232, 225, 211, 0.08)",
-            color: "var(--currents-parchment-dim)",
-          }}
+          style={{ color: "var(--currents-parchment-dim)" }}
         >
-          {confidence}
+          {topic}
         </span>
-        <span>{topic}</span>
         <span>· {relativeTime(opinion.generated_at)}</span>
       </div>
 
@@ -296,7 +472,7 @@ export default function OpinionCard({
         </Link>
       </h2>
 
-      <div style={bodyStyle}>{renderSafeMarkdown(opinion.body_markdown)}</div>
+      <OpinionMarkdownBody opinion={opinion} style={bodyStyle} />
 
       {opinion.uncertainty_notes.length ? (
         <div
@@ -313,32 +489,6 @@ export default function OpinionCard({
               {note}
             </p>
           ))}
-        </div>
-      ) : null}
-
-      {shownCitations.length ? (
-        <div aria-label="Firm rationale links" style={sourceStripStyle}>
-          {shownCitations.map((citation) => (
-            <Link
-              key={citation.id}
-              href={`${href}#src-${encodeURIComponent(citation.source_id)}`}
-              style={{
-                border: "1px solid var(--currents-border)",
-                borderRadius: "999px",
-                color: "var(--currents-parchment-dim)",
-                fontSize: "0.78rem",
-                padding: "0.28rem 0.5rem",
-                textDecoration: "none",
-              }}
-            >
-              {sourceLabel(citation)}
-            </Link>
-          ))}
-          {hiddenCitationCount ? (
-            <span style={{ ...mutedStyle, padding: "0.28rem 0" }}>
-              +{hiddenCitationCount} more
-            </span>
-          ) : null}
         </div>
       ) : null}
 

@@ -3,8 +3,13 @@ import { notFound } from "next/navigation";
 import type { Metadata } from "next";
 
 import PublicHeader from "@/components/PublicHeader";
+import RespondCallout from "@/components/RespondCallout";
 import { db } from "@/lib/db";
 import { getFounder } from "@/lib/auth";
+import {
+  parsePublicationPayload,
+  type PublishedConclusion,
+} from "@/lib/conclusionsRead";
 import { founderDisplayName } from "@/lib/founderDisplay";
 
 /**
@@ -80,7 +85,9 @@ export default async function PostPage({ params }: PageProps) {
     },
     select: {
       id: true,
+      organizationId: true,
       title: true,
+      slug: true,
       description: true,
       authorBio: true,
       blogExcerpt: true,
@@ -99,6 +106,8 @@ export default async function PostPage({ params }: PageProps) {
   if (!post) {
     notFound();
   }
+
+  const responseTarget = await responseTargetForPost(post, slug);
 
   const date = new Date(post.publishedAt!).toLocaleDateString("en-US", {
     year: "numeric",
@@ -137,6 +146,8 @@ export default async function PostPage({ params }: PageProps) {
           ← Back to index
         </Link>
 
+        <RespondCallout conclusions={[responseTarget]} />
+
         <header style={{ marginBottom: "2rem" }}>
           <p
             className="mono"
@@ -164,14 +175,14 @@ export default async function PostPage({ params }: PageProps) {
           </p>
           <h1
             style={{
-              fontFamily: "'Cinzel Decorative', 'Cinzel', serif",
-              fontSize: "clamp(2rem, 5vw, 3rem)",
-              letterSpacing: "0.08em",
+              fontFamily: "'EB Garamond', 'Iowan Old Style', Georgia, serif",
+              fontSize: "clamp(1.85rem, 4.4vw, 2.6rem)",
+              letterSpacing: "-0.005em",
               color: "var(--amber)",
               textShadow: "var(--glow-md)",
               margin: 0,
-              lineHeight: 1.25,
-              fontWeight: 700,
+              lineHeight: 1.18,
+              fontWeight: 600,
             }}
           >
             {post.title}
@@ -258,7 +269,7 @@ export default async function PostPage({ params }: PageProps) {
         ) : null}
 
         <div
-          className="post-body"
+          className="post-body public-article-body"
           style={{
             fontFamily: "'EB Garamond', serif",
             color: "var(--parchment)",
@@ -322,6 +333,128 @@ export default async function PostPage({ params }: PageProps) {
       </article>
     </main>
   );
+}
+
+type PostResponseTargetInput = {
+  id: string;
+  organizationId: string;
+  title: string;
+  slug: string | null;
+  publishedAt: Date | null;
+};
+
+type PublishedConclusionDbRow = {
+  id: string;
+  kind: string;
+  slug: string;
+  version: number;
+  sourceConclusionId: string;
+  publishedAt: Date | string;
+  doi: string;
+  zenodoRecordId: string;
+  discountedConfidence: number;
+  statedConfidence: number;
+  calibrationDiscountReason: string;
+  payloadJson: string;
+};
+
+async function responseTargetForPost(
+  post: PostResponseTargetInput,
+  routeSlug: string,
+): Promise<PublishedConclusion> {
+  const published = await db.publishedConclusion.findFirst({
+    where: {
+      organizationId: post.organizationId,
+      OR: [
+        { id: post.id },
+        { sourceConclusionId: post.id },
+        { sourceConclusionId: `article:${post.id}` },
+        { slug: post.slug ?? routeSlug },
+      ],
+    },
+    orderBy: { publishedAt: "desc" },
+    select: {
+      id: true,
+      kind: true,
+      slug: true,
+      version: true,
+      sourceConclusionId: true,
+      publishedAt: true,
+      doi: true,
+      zenodoRecordId: true,
+      discountedConfidence: true,
+      statedConfidence: true,
+      calibrationDiscountReason: true,
+      payloadJson: true,
+    },
+  });
+
+  return published
+    ? publishedConclusionFromRow(published as PublishedConclusionDbRow)
+    : fallbackPostResponseTarget(post, routeSlug);
+}
+
+function publishedConclusionFromRow(row: PublishedConclusionDbRow): PublishedConclusion {
+  return {
+    id: row.id,
+    kind: row.kind,
+    slug: row.slug,
+    version: row.version,
+    sourceConclusionId: row.sourceConclusionId,
+    publishedAt:
+      row.publishedAt instanceof Date
+        ? row.publishedAt.toISOString()
+        : new Date(row.publishedAt).toISOString(),
+    doi: row.doi,
+    zenodoRecordId: row.zenodoRecordId,
+    discountedConfidence: row.discountedConfidence,
+    statedConfidence: row.statedConfidence,
+    calibrationDiscountReason: row.calibrationDiscountReason,
+    payload: parsePublicationPayload(row),
+  };
+}
+
+function fallbackPostResponseTarget(
+  post: PostResponseTargetInput,
+  routeSlug: string,
+): PublishedConclusion {
+  const publishedAt = post.publishedAt
+    ? post.publishedAt.toISOString()
+    : new Date().toISOString();
+  const slug = post.slug ?? routeSlug;
+
+  return {
+    id: post.id,
+    kind: "POST",
+    slug,
+    version: 1,
+    sourceConclusionId: `post:${post.id}`,
+    publishedAt,
+    doi: "",
+    zenodoRecordId: "",
+    discountedConfidence: 0,
+    statedConfidence: 0,
+    calibrationDiscountReason: "",
+    payload: {
+      schema: "theseus.publicConclusion.v1",
+      conclusionText: `Respond to this post: ${post.title}`,
+      rationale: "",
+      topicHint: "",
+      evidenceSummary: "",
+      exitConditions: [],
+      strongestObjection: { objection: "", firmAnswer: "" },
+      openQuestionsAdjacent: [],
+      voiceComparisons: [],
+      methodology: {
+        schema: "theseus.methodology.v1",
+        reviewerNarrative: "",
+        profiles: [],
+      },
+      timeline: [],
+      whatWouldChangeOurMind: [],
+      citations: [],
+    },
+  };
 }
 
 /**

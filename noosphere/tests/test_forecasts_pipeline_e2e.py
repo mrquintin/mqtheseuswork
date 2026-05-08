@@ -302,7 +302,7 @@ async def test_full_pipeline_against_fake_exchanges(
         status_file=tmp_path / "forecasts-status.json",
         budget_file=tmp_path / "forecasts-budget.json",
         max_predictions_per_cycle=5,
-        max_articles_per_day=0,
+        max_articles_per_week=0,
     )
 
     await _run_scheduler_for(fake_postgres, config=config, seconds=1.5)

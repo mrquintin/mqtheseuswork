@@ -1,10 +1,7 @@
 import type { CSSProperties } from "react";
 
-import { relativeTime } from "@/lib/relativeTime";
-
 interface LiveBannerProps {
   connected: boolean;
-  lastOpinionAt?: string | null;
 }
 
 const bannerStyle: CSSProperties = {
@@ -28,7 +25,7 @@ const dotStyle: CSSProperties = {
   width: "6px",
 };
 
-export default function LiveBanner({ connected, lastOpinionAt }: LiveBannerProps) {
+export default function LiveBanner({ connected }: LiveBannerProps) {
   return (
     <div aria-live="polite" style={bannerStyle}>
       <span
@@ -39,7 +36,6 @@ export default function LiveBanner({ connected, lastOpinionAt }: LiveBannerProps
         }}
       />
       <span>{connected ? "live" : "reconnecting…"}</span>
-      {lastOpinionAt ? <span>· last update {relativeTime(lastOpinionAt)}</span> : null}
     </div>
   );
 }

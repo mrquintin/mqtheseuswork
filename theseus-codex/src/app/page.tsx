@@ -280,8 +280,6 @@ function PublicationsRail({ articles }: { articles: PublishedConclusion[] }) {
       }}
     >
       <RailHeader
-        href="/responses?tab=articles"
-        linkLabel="View all publications →"
         title="PUBLICATIONS · ESSAYS & MEMOS"
         titleId="home-publications-title"
       />
@@ -559,8 +557,8 @@ function RailHeader({
   title,
   titleId,
 }: {
-  href: string;
-  linkLabel: string;
+  href?: string;
+  linkLabel?: string;
   title: string;
   titleId: string;
 }) {
@@ -588,20 +586,22 @@ function RailHeader({
       >
         {title}
       </h2>
-      <Link
-        className="mono"
-        href={href}
-        style={{
-          color: "var(--amber)",
-          fontSize: "0.62rem",
-          letterSpacing: "0.2em",
-          textDecoration: "none",
-          textTransform: "uppercase",
-          whiteSpace: "nowrap",
-        }}
-      >
-        {linkLabel}
-      </Link>
+      {href && linkLabel ? (
+        <Link
+          className="mono"
+          href={href}
+          style={{
+            color: "var(--amber)",
+            fontSize: "0.62rem",
+            letterSpacing: "0.2em",
+            textDecoration: "none",
+            textTransform: "uppercase",
+            whiteSpace: "nowrap",
+          }}
+        >
+          {linkLabel}
+        </Link>
+      ) : null}
     </div>
   );
 }

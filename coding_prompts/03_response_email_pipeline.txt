@@ -1,0 +1,127 @@
+You are operating in /Users/michaelquintin/Desktop/Theseus.
+
+Goal: make the "Submit structured response" form actually deliver. Today
+the form POSTs to `/api/public/responses` and persists the row, but the
+founder is not notified. Wire the endpoint to send an email to the
+"founder Alpha" address (the primary founder of the firm, configurable
+via env, defaults to a clearly-fake placeholder so no mail is ever sent
+in a misconfigured environment).
+
+Concrete intent from the founder transcript:
+- "make sure that the pipeline is set up for that submit structured
+  response button to actually work and actually send something to … an
+  actual email."
+- "Set it so that it goes to the founder alpha … to his email."
+- "with some kind of, like, interface, and it shows the response."
+
+Before you start — read current state:
+1. Read `theseus-codex/src/app/api/public/responses/route.ts` (or
+   wherever the POST handler lives — find it by `grep -rln
+   "public/responses"` first). Note the existing validation, persistence,
+   and CSRF logic. The email send is *additive*; persistence stays.
+2. Read `theseus-codex/src/lib/founders.ts` (or sibling) for how founder
+   identity is resolved server-side. The "Alpha" founder is the row whose
+   `role === "founder_alpha"` (verify by reading the schema before
+   coding) — fall back to env override if absent.
+3. Read `.env.live.template (at the repo root, not inside theseus-codex/)` and the project's existing
+   email setup (search `RESEND_`, `SENDGRID_`, `SMTP_`, `nodemailer`,
+   `mailgun`). Use whichever provider is already wired; do not introduce
+   a new one. If none is wired, add a thin abstraction at
+   `theseus-codex/src/lib/mail.ts` with a single `sendMail()` function
+   that selects the provider by env var and falls back to a no-op logger
+   in development.
+4. Read `noosphere/noosphere/founders.py` to understand whether the
+   noosphere side already names a "founder Alpha" concept. If yes,
+   reflect its semantics in the env name.
+
+Implement or repair:
+
+A. Endpoint
+   - In the existing `POST /api/public/responses` handler, after
+     successful persistence, await a call to a new
+     `notifyFounderOfResponse(response, conclusion)` helper. The handler
+     must NOT block the response on email delivery — wrap the email send
+     in a `try/catch`, log failures, and return 200 to the browser
+     regardless. (A failed email must not roll back the persisted row.)
+
+B. Helper
+   - Create `theseus-codex/src/lib/responsesEmail.ts` exposing
+     `notifyFounderOfResponse(response, conclusion)`. It composes a
+     plaintext + HTML email with:
+       - Subject: `[Theseus] Response: <kind> on "<conclusionTitle>"`.
+       - Body: respondent (email/orcid/pseudonym), kind, body, citation
+         URL, the conclusion's title and public URL, and a "Reply to this
+         person" `mailto:` link populated with the respondent's email
+         (only when not pseudonymous).
+       - "From" header set to a no-reply address derived from
+         `THESEUS_NOTIFY_FROM` env (default `notify@theseus.local`).
+       - "To" address resolved by `lookupFounderAlphaEmail()`:
+         (i) try `getFounderByRole("founder_alpha")` from the DB,
+         (ii) fall back to `FOUNDER_ALPHA_EMAIL` env,
+         (iii) fall back to `qmichael444@gmail.com` ONLY if
+              `NODE_ENV !== "production"` and a clearly-marked DEV-FALLBACK
+              header is added so a misrouted email is obvious.
+   - Provide `theseus-codex/src/lib/mail.ts` with a `sendMail({to, from,
+     subject, html, text})` function. Implementation order:
+     1. Resend (`RESEND_API_KEY`),
+     2. SMTP (`SMTP_HOST`+ creds, via nodemailer),
+     3. Console-log + return `{ delivered: false, reason: "no provider
+        configured" }`. The console fallback is required so dev runs
+        don't silently 500.
+
+C. Founder-side inbox surface
+   - The transcript says the founder wants "some kind of interface, and
+     it shows the response." A response inbox already exists implicitly
+     (rows in the DB) — surface it at `/(authed)/responses` as a simple
+     list view: columns Date, Respondent, Kind, Conclusion, body excerpt,
+     and a "Mark seen" button that toggles a `seenAt` column.
+   - Add the `seenAt` column via a small Prisma migration; default null.
+   - Add a tiny notification dot on the founder-side `Nav.tsx`
+     "Dashboard" entry (or wherever the existing pulse system already
+     publishes counts) when there are any unseen responses. Do not
+     duplicate the pulse infrastructure — reuse `CurrentsNavPulse`'s
+     pattern.
+
+D. Env + docs
+   - Document the new env vars in `.env.live.template (at the repo root, not inside theseus-codex/)`:
+     `THESEUS_NOTIFY_FROM`, `FOUNDER_ALPHA_EMAIL`, `RESEND_API_KEY`,
+     `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASS`. Each line gets a
+     one-sentence comment.
+
+E. Tests
+   - `theseus-codex/src/__tests__/responsesEmail.test.ts`:
+     (a) builds the payload from a known response + conclusion fixture,
+     (b) selects Resend when `RESEND_API_KEY` is set,
+     (c) falls back to SMTP when only SMTP env is set,
+     (d) returns the no-provider sentinel when neither is set,
+     (e) the "to" lookup walks DB → env → dev-only fallback in the right
+         order.
+   - `theseus-codex/src/__tests__/api.publicResponses.email.test.ts`:
+     (a) handler returns 200 when the email send fails,
+     (b) handler still persists the row when the email send fails,
+     (c) handler does not block on a slow mail provider (mock a 5s
+         provider; assert the response returns < 1.5s).
+   - `theseus-codex/src/__tests__/founderResponsesInbox.test.tsx`:
+     (a) renders an unseen badge when rows exist with `seenAt = null`,
+     (b) the "Mark seen" button stamps `seenAt`.
+
+Constraints:
+- Email content must reproduce verbatim what the respondent submitted,
+  with NO LLM rewriting in this path. The whole point is honest signal.
+- Do not silently change response field semantics. Persistence stays
+  byte-for-byte identical to the current row shape; only the email side
+  channel and the seen-state column are added.
+- The endpoint must remain CSRF-safe and rate-limited — read the existing
+  helpers and reuse them.
+
+If the work already exists, inspect and only repair gaps.
+
+SCOPE
+- `theseus-codex/src/lib/mail.ts` CREATE
+- `theseus-codex/src/lib/responsesEmail.ts` CREATE
+- `theseus-codex/src/app/(authed)/responses/page.tsx` CREATE
+- `.env.live.template` MODIFY
+- `theseus-codex/prisma/schema.prisma` MODIFY
+- `theseus-codex/src/__tests__/responsesEmail.test.ts` CREATE
+- `theseus-codex/src/__tests__/api.publicResponses.email.test.ts` CREATE
+- `theseus-codex/src/__tests__/founderResponsesInbox.test.tsx` CREATE

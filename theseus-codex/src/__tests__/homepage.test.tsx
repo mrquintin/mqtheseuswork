@@ -163,6 +163,7 @@ describe("PublicHomePage", () => {
     expect(html).toContain(
       "The firm has not yet published anything publicly. Reach out:",
     );
+    expect(html).not.toContain("/responses");
   });
 
   it("snapshots the populated public homepage", async () => {
@@ -200,6 +201,7 @@ describe("PublicHomePage", () => {
     expect(html).toContain("LATEST FROM THE FIRM · CURRENTS");
     expect(html).toContain("PUBLICATIONS · ESSAYS &amp; MEMOS");
     expect(html).toContain('data-testid="homepage-current-card"');
+    expect(html).not.toContain("/responses");
   });
 });
 
@@ -277,6 +279,8 @@ describe("Public methodology surfaces", () => {
               quotedSpan: "The public Currents opinion states the relevant position.",
               publicUrl: "/currents/opinion-1",
               linkable: true,
+              sourceConclusionText: "The public Currents opinion states the relevant position.",
+              sourceConclusionTitle: "Public Currents opinion",
             },
             {
               label: "S2",
@@ -285,6 +289,8 @@ describe("Public methodology surfaces", () => {
               quotedSpan: privateQuotedSpan,
               publicUrl: null,
               linkable: false,
+              sourceConclusionText: null,
+              sourceConclusionTitle: null,
             },
           ],
         },
@@ -295,9 +301,11 @@ describe("Public methodology surfaces", () => {
 
     expect(html).toContain("The firm&#x27;s perspective");
     expect(html).toContain("The firm believes public claims should cite");
-    expect(html).toContain("Firm-side sources");
+    expect(html).toContain("Sources");
     expect(html).toContain('href="/currents/opinion-1"');
     expect(html).toContain("Internal source recorded by the firm");
+    expect(html).not.toContain("Open public source");
+    expect(html).not.toContain("Cited span:");
     expect(html).not.toContain(privateQuotedSpan);
   });
 });

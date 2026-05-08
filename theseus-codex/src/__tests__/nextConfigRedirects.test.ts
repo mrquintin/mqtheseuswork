@@ -1,4 +1,8 @@
-import nextConfig, { legacyNavRedirects } from "../../next.config";
+import nextConfig, {
+  appRedirects,
+  legacyNavRedirects,
+  retiredPublicRouteRedirects,
+} from "../../next.config";
 
 type RedirectRule = {
   source: string;
@@ -25,7 +29,14 @@ function resolveRedirect(path: string, redirects: readonly RedirectRule[]) {
 describe("next.config legacy nav redirects", () => {
   it("exports the same redirect table used by Next", async () => {
     const redirects = await nextConfig.redirects?.();
-    expect(redirects).toEqual(legacyNavRedirects);
+    expect(redirects).toEqual(appRedirects);
+  });
+
+  it("permanently redirects the retired responses route to the homepage", () => {
+    expect(resolveRedirect("/responses", appRedirects)).toBe("/");
+    expect(retiredPublicRouteRedirects).toEqual([
+      { source: "/responses", destination: "/", permanent: true },
+    ]);
   });
 
   it.each([

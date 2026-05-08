@@ -4,6 +4,7 @@ import type {
   PublicFollowupMessage,
   PublicOpinion,
   PublicSource,
+  PublicCitation,
 } from "@/lib/currentsTypes";
 import { clientIpFor } from "@/lib/currentsFingerprint";
 
@@ -41,6 +42,36 @@ export interface CurrentsFetchOptions {
 }
 
 type NextRequestInit = RequestInit & { next?: NextFetchOptions };
+
+type CitationWire = PublicCitation & {
+  conclusion_text?: string | null;
+  conclusionText?: string | null;
+  conclusion_title?: string | null;
+  conclusionTitle?: string | null;
+  public_url?: string | null;
+  publicUrl?: string | null;
+  source_text?: string | null;
+  source_visibility?: string | null;
+  visibility?: string | null;
+};
+
+type SourceWire = PublicSource & {
+  conclusion_text?: string | null;
+  conclusionText?: string | null;
+  conclusion_title?: string | null;
+  conclusionTitle?: string | null;
+  public_url?: string | null;
+  publicUrl?: string | null;
+  source_visibility?: string | null;
+  visibility?: string | null;
+};
+
+interface CitationMetadata {
+  conclusionText?: string | null;
+  conclusionTitle?: string | null;
+  publicUrl?: string | null;
+  sourceVisibility?: string | null;
+}
 
 function serializeParam(value: string | Date | number | boolean): string {
   if (value instanceof Date) return value.toISOString();
@@ -93,15 +124,293 @@ async function fetchJson<T>(
   return res.json() as Promise<T>;
 }
 
+function normalizedVisibility(value: string | null | undefined): string | null {
+  const normalized = (value ?? "").trim().toLowerCase().replace(/-/g, "_");
+  return normalized || null;
+}
+
+function publicUrlForVisibility(
+  publicUrl: string | null | undefined,
+  visibility: string | null | undefined,
+): string | null {
+  const trimmed = publicUrl?.trim();
+  return trimmed && normalizedVisibility(visibility) === "org" ? trimmed : null;
+}
+
+function sourceKind(citation: PublicCitation): string {
+  return citation.source_kind.trim().toLowerCase();
+}
+
+function citationNeedsMetadata(citation: CitationWire): boolean {
+  return !(
+    citation.conclusion_text?.trim() ||
+    citation.conclusionText?.trim() ||
+    citation.source_text?.trim()
+  );
+}
+
+function opinionHasInlineCitationMarkers(opinion: PublicOpinion): boolean {
+  return /\[\d+\]/.test(opinion.body_markdown);
+}
+
+function sourceMetadata(source: SourceWire): CitationMetadata {
+  return {
+    conclusionText:
+      source.conclusion_text?.trim() ||
+      source.conclusionText?.trim() ||
+      source.source_text?.trim() ||
+      null,
+    conclusionTitle:
+      source.conclusion_title?.trim() || source.conclusionTitle?.trim() || null,
+    publicUrl: source.public_url ?? source.publicUrl ?? null,
+    sourceVisibility: source.source_visibility ?? source.visibility ?? null,
+  };
+}
+
+function normalizeCitation(
+  citation: CitationWire,
+  metadata: CitationMetadata | undefined,
+): CitationWire {
+  const visibility =
+    metadata?.sourceVisibility ??
+    citation.source_visibility ??
+    citation.visibility ??
+    null;
+  const publicUrl = publicUrlForVisibility(
+    metadata?.publicUrl ?? citation.public_url ?? citation.publicUrl ?? null,
+    visibility,
+  );
+  const conclusionText =
+    metadata?.conclusionText ??
+    citation.conclusion_text ??
+    citation.conclusionText ??
+    citation.source_text ??
+    null;
+  const conclusionTitle =
+    metadata?.conclusionTitle ??
+    citation.conclusion_title ??
+    citation.conclusionTitle ??
+    null;
+
+  return {
+    ...citation,
+    conclusion_text: conclusionText,
+    conclusion_title: conclusionTitle,
+    public_url: publicUrl,
+    source_visibility: normalizedVisibility(visibility),
+  };
+}
+
+function normalizeOpinion(
+  opinion: PublicOpinion,
+  metadataBySourceId: Map<string, CitationMetadata> = new Map(),
+): PublicOpinion {
+  return {
+    ...opinion,
+    citations: (opinion.citations as CitationWire[]).map((citation) =>
+      normalizeCitation(citation, metadataBySourceId.get(citation.source_id)),
+    ),
+  };
+}
+
+function titleFromText(text: string | null | undefined): string | null {
+  const normalized = text?.replace(/\s+/g, " ").trim();
+  if (!normalized) return null;
+  return normalized.length > 140 ? `${normalized.slice(0, 137)}...` : normalized;
+}
+
+function titleFromPayload(payloadJson: unknown): string | null {
+  if (typeof payloadJson !== "string" || !payloadJson.trim()) return null;
+  try {
+    const payload = JSON.parse(payloadJson) as { conclusionText?: unknown; title?: unknown };
+    if (typeof payload.conclusionText === "string") {
+      return titleFromText(payload.conclusionText);
+    }
+    if (typeof payload.title === "string") return titleFromText(payload.title);
+  } catch {
+    return null;
+  }
+  return null;
+}
+
+async function citationMetadataFromSources(
+  opinion: PublicOpinion,
+  options?: CurrentsFetchOptions,
+): Promise<Map<string, CitationMetadata>> {
+  const metadataBySourceId = new Map<string, CitationMetadata>();
+  if (!opinionHasInlineCitationMarkers(opinion)) return metadataBySourceId;
+  if (!(opinion.citations as CitationWire[]).some(citationNeedsMetadata)) {
+    return metadataBySourceId;
+  }
+
+  try {
+    const sources = await fetchJson<SourceWire[]>(
+      `/v1/currents/${encodeURIComponent(opinion.id)}/sources`,
+      undefined,
+      options,
+    );
+    for (const source of sources) {
+      metadataBySourceId.set(source.source_id, sourceMetadata(source));
+    }
+  } catch {
+    // Fail closed: source text may be absent, but source URLs must not leak.
+  }
+  return metadataBySourceId;
+}
+
+async function citationMetadataFromPublicDb(
+  opinions: PublicOpinion[],
+): Promise<Map<string, CitationMetadata>> {
+  const opinionsWithMarkers = opinions.filter(opinionHasInlineCitationMarkers);
+  const conclusionIds = [
+    ...new Set(
+      opinionsWithMarkers.flatMap((opinion) =>
+        (opinion.citations as CitationWire[])
+          .filter((citation) => sourceKind(citation) === "conclusion")
+          .map((citation) => citation.source_id)
+          .filter(Boolean),
+      ),
+    ),
+  ];
+  if (!conclusionIds.length) return new Map();
+
+  try {
+    const { db } = await import("@/lib/db");
+    const client = db as {
+      conclusion: {
+        findMany: (args: unknown) => Promise<
+          {
+            id: string;
+            text: string | null;
+            topicHint?: string | null;
+            sources?: {
+              upload?: {
+                visibility?: string | null;
+                deletedAt?: Date | string | null;
+              } | null;
+            }[];
+          }[]
+        >;
+      };
+      publishedConclusion: {
+        findMany: (args: unknown) => Promise<
+          {
+            sourceConclusionId: string;
+            slug: string;
+            version: number;
+            payloadJson: string;
+          }[]
+        >;
+      };
+    };
+
+    const [conclusions, publications] = await Promise.all([
+      client.conclusion.findMany({
+        where: { id: { in: conclusionIds } },
+        select: {
+          id: true,
+          text: true,
+          topicHint: true,
+          sources: {
+            select: {
+              upload: {
+                select: {
+                  visibility: true,
+                  deletedAt: true,
+                },
+              },
+            },
+          },
+        },
+      }),
+      client.publishedConclusion.findMany({
+        where: {
+          kind: "CONCLUSION",
+          sourceConclusionId: { in: conclusionIds },
+        },
+        orderBy: [{ publishedAt: "desc" }],
+        select: {
+          sourceConclusionId: true,
+          slug: true,
+          version: true,
+          payloadJson: true,
+        },
+      }),
+    ]);
+
+    const latestPublication = new Map<string, (typeof publications)[number]>();
+    for (const publication of publications) {
+      if (!latestPublication.has(publication.sourceConclusionId)) {
+        latestPublication.set(publication.sourceConclusionId, publication);
+      }
+    }
+
+    const metadata = new Map<string, CitationMetadata>();
+    for (const conclusion of conclusions) {
+      const sourceVisibilities = (conclusion.sources ?? [])
+        .map((source) => source.upload)
+        .filter((upload) => upload && !upload.deletedAt)
+        .map((upload) => normalizedVisibility(upload?.visibility));
+      const visibility = sourceVisibilities.includes("org")
+        ? "org"
+        : sourceVisibilities.find(Boolean) ?? null;
+      const publication = latestPublication.get(conclusion.id);
+      const publicUrl =
+        visibility === "org" && publication
+          ? `/c/${encodeURIComponent(publication.slug)}/v/${publication.version}`
+          : null;
+
+      metadata.set(conclusion.id, {
+        conclusionText: conclusion.text ?? null,
+        conclusionTitle:
+          titleFromPayload(publication?.payloadJson) ||
+          titleFromText(conclusion.topicHint) ||
+          titleFromText(conclusion.text),
+        publicUrl,
+        sourceVisibility: visibility,
+      });
+    }
+    return metadata;
+  } catch {
+    // No DB/env access in this runtime means no public URL. That is safer than leaking.
+    return new Map();
+  }
+}
+
+async function enrichOpinions(
+  opinions: PublicOpinion[],
+  options?: CurrentsFetchOptions,
+): Promise<PublicOpinion[]> {
+  const sourceMetadataResults = await Promise.all(
+    opinions.map((opinion) => citationMetadataFromSources(opinion, options)),
+  );
+  const dbMetadata = await citationMetadataFromPublicDb(opinions);
+
+  return opinions.map((opinion, index) => {
+    const merged = new Map(sourceMetadataResults[index]);
+    for (const [sourceId, metadata] of dbMetadata) {
+      const existing = merged.get(sourceId);
+      merged.set(sourceId, {
+        conclusionText: metadata.conclusionText ?? existing?.conclusionText ?? null,
+        conclusionTitle: metadata.conclusionTitle ?? existing?.conclusionTitle ?? null,
+        publicUrl: metadata.publicUrl ?? existing?.publicUrl ?? null,
+        sourceVisibility: metadata.sourceVisibility ?? existing?.sourceVisibility ?? null,
+      });
+    }
+    return normalizeOpinion(opinion, merged);
+  });
+}
+
 export async function listCurrents(
   params: ListCurrentsParams,
   options?: CurrentsFetchOptions,
 ): Promise<{ items: PublicOpinion[] }> {
-  return fetchJson<{ items: PublicOpinion[] }>(
+  const result = await fetchJson<{ items: PublicOpinion[] }>(
     "/v1/currents",
     searchParamsFor(params),
     options,
   );
+  return { items: await enrichOpinions(result.items, options) };
 }
 
 export async function getCurrentsHealth(options?: CurrentsFetchOptions): Promise<CurrentsHealth> {
@@ -109,7 +418,8 @@ export async function getCurrentsHealth(options?: CurrentsFetchOptions): Promise
 }
 
 export async function getCurrent(id: string): Promise<PublicOpinion> {
-  return fetchJson<PublicOpinion>(`/v1/currents/${encodeURIComponent(id)}`);
+  const opinion = await fetchJson<PublicOpinion>(`/v1/currents/${encodeURIComponent(id)}`);
+  return (await enrichOpinions([opinion]))[0];
 }
 
 export async function getCurrentSources(id: string): Promise<PublicSource[]> {

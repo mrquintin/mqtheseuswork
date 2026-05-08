@@ -1,5 +1,6 @@
 import type { CSSProperties } from "react";
 import type { Metadata } from "next";
+import Link from "next/link";
 import { notFound } from "next/navigation";
 
 import {
@@ -20,7 +21,6 @@ import type {
 } from "@/lib/forecastsTypes";
 import { SITE } from "@/lib/site";
 
-import AuditTrail from "./AuditTrail";
 import BetsPanel from "./BetsPanel";
 import ChatPanel from "./ChatPanel";
 import { CopyPermalink } from "./CopyPermalink";
@@ -307,11 +307,24 @@ export default async function ForecastDetailPage({ params }: PageProps) {
 
   return (
     <>
-      <div className="forecast-detail-grid">
-        <aside className="forecast-detail-audit">
-          <AuditTrail citations={prediction.citations} sources={sourceRows} />
-        </aside>
+      <Link
+        aria-label="Back to Forecasts"
+        href="/forecasts"
+        style={{
+          color: "var(--forecasts-cool-gold)",
+          display: "inline-flex",
+          fontFamily: "'IBM Plex Mono', monospace",
+          fontSize: "0.75rem",
+          letterSpacing: "0.08em",
+          marginBottom: "1rem",
+          textDecoration: "none",
+          textTransform: "uppercase",
+        }}
+      >
+        ← Forecasts
+      </Link>
 
+      <div className="forecast-detail-grid">
         <main className="forecast-detail-main">
           <Hero
             market={market}
@@ -338,7 +351,7 @@ export default async function ForecastDetailPage({ params }: PageProps) {
           align-items: start;
           display: grid;
           gap: 1rem;
-          grid-template-columns: minmax(180px, 250px) minmax(0, 1fr);
+          grid-template-columns: minmax(0, 1fr);
         }
 
         .forecast-detail-main {
@@ -371,10 +384,6 @@ export default async function ForecastDetailPage({ params }: PageProps) {
         @media (max-width: 900px) {
           .forecast-detail-grid {
             grid-template-columns: minmax(0, 1fr);
-          }
-
-          .forecast-detail-audit {
-            order: 2;
           }
 
           .forecast-detail-main {

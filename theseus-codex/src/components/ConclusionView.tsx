@@ -1,10 +1,9 @@
 import Link from "next/link";
+import type { ReactNode } from "react";
 
 import type { PublishedConclusion, PublicResponse } from "@/lib/conclusionsRead";
-import { SITE } from "@/lib/site";
 
 import AnswerMarkdown from "./AnswerMarkdown";
-import CopyButton from "./CopyButton";
 
 function clamp01(n: number) {
   if (Number.isNaN(n)) return 0;
@@ -20,14 +19,12 @@ function formatPatternType(value: string) {
   return formatted || "method profile";
 }
 
-function sourceLabel(value: string) {
-  return value.replace(/[_-]+/g, " ").trim() || "firm source";
-}
-
-function truncateSourceSpan(value: string, max = 220) {
-  const cleaned = value.replace(/\s+/g, " ").trim();
-  if (cleaned.length <= max) return cleaned;
-  return `${cleaned.slice(0, max - 3).trimEnd()}...`;
+function citationKindLabel(value: string) {
+  const normalized = value.replace(/[_-]+/g, " ").trim().toLowerCase();
+  if (normalized === "event opinion") return "opinion";
+  if (normalized === "current event") return "event";
+  if (normalized === "forecast postmortem") return "forecast";
+  return normalized || "source";
 }
 
 function isExternalHref(href: string) {
@@ -51,16 +48,15 @@ function MethodList({ label, items }: { label: string; items: string[] }) {
 
 export default function ConclusionView({
   row,
-  allVersions,
   responses,
+  topSlot,
 }: {
   row: PublishedConclusion;
   allVersions: PublishedConclusion[];
   responses: PublicResponse[];
+  topSlot?: ReactNode;
 }) {
   const p = row.payload;
-  const canonical = `${SITE}/c/${encodeURIComponent(row.slug)}/v/${row.version}`;
-  const citations = Array.isArray(p.citations) ? p.citations : [];
   const article = p.article;
   const isArticle = row.kind === "ARTICLE" && Boolean(article?.bodyMarkdown);
   const methodologyNarrative = p.methodology.reviewerNarrative.trim();
@@ -69,6 +65,8 @@ export default function ConclusionView({
 
   return (
     <main className="public-container">
+      {topSlot}
+
       <p className="public-muted public-kicker">
         <span>
           {isArticle ? "ARTICLE" : `v${row.version}`} · published {row.publishedAt.slice(0, 10)}
@@ -102,7 +100,9 @@ export default function ConclusionView({
       <section className="public-section">
         <h2>{isArticle ? "The firm's perspective" : "Why the firm believes this"}</h2>
         {isArticle && article ? (
-          <AnswerMarkdown>{article.bodyMarkdown}</AnswerMarkdown>
+          <div className="public-article-body">
+            <AnswerMarkdown>{article.bodyMarkdown}</AnswerMarkdown>
+          </div>
         ) : (
           <p>{p.evidenceSummary || p.rationale}</p>
         )}
@@ -154,28 +154,6 @@ export default function ConclusionView({
         </section>
       ) : null}
 
-      <section className="public-section">
-        <h2>Strongest engaged objection</h2>
-        <div className="public-card">
-          <p>
-            <span className="public-muted">Objection:</span> {p.strongestObjection?.objection}
-          </p>
-          <hr className="public-hr" />
-          <p>
-            <span className="public-muted">Firm answer:</span> {p.strongestObjection?.firmAnswer}
-          </p>
-        </div>
-      </section>
-
-      <section className="public-section">
-        <h2>What would change our mind</h2>
-        <ul>
-          {(p.exitConditions?.length ? p.exitConditions : p.whatWouldChangeOurMind ?? []).map((x) => (
-            <li key={x}>{x}</li>
-          ))}
-        </ul>
-      </section>
-
       {p.openQuestionsAdjacent?.length ? (
         <section className="public-section">
           <h2>Adjacent open questions</h2>
@@ -199,53 +177,6 @@ export default function ConclusionView({
           </ul>
         </section>
       ) : null}
-
-      <section className="public-section">
-        <h2>Evolution (time machine)</h2>
-        <p className="public-muted">Snapshots are static exports of reviewed text; past versions remain addressable for citations.</p>
-        <ol>
-          {allVersions
-            .slice()
-            .sort((a, b) => a.version - b.version)
-            .map((v) => (
-              <li key={v.id}>
-                <Link href={`/c/${encodeURIComponent(v.slug)}/v/${v.version}`}>
-                  v{v.version} ({v.publishedAt.slice(0, 10)})
-                </Link>
-                {v.version === row.version ? <span className="public-muted"> - you are here</span> : null}
-              </li>
-            ))}
-        </ol>
-        {p.timeline?.length ? (
-          <div className="public-card">
-            <ul>
-              {p.timeline.map((t) => (
-                <li key={`${t.at}:${t.label}`}>
-                  <strong>{t.label}</strong> <span className="public-muted">({t.at.slice(0, 10)})</span>
-                  {t.detail ? <div className="public-muted">{t.detail}</div> : null}
-                </li>
-              ))}
-            </ul>
-          </div>
-        ) : null}
-      </section>
-
-      <section className="public-section">
-        <h2>Citations</h2>
-        <p className="public-muted">
-          Stable path: <code>{`/c/${row.slug}/v/${row.version}`}</code> · canonical: <code>{canonical}</code>
-        </p>
-
-        {citations.map((c) => (
-          <div key={c.format} className="public-citation">
-            <div className="public-citation-head">
-              <div className="public-muted mono">{c.format}</div>
-              <CopyButton label={`Copy ${c.format}`} text={c.block} />
-            </div>
-            <pre className="public-pre">{c.block}</pre>
-          </div>
-        ))}
-      </section>
 
       {responses.length ? (
         <section className="public-section">
@@ -272,9 +203,6 @@ export default function ConclusionView({
         </section>
       ) : null}
 
-      <p className="public-footer-link">
-        <Link href="/responses">Submit a structured response</Link>
-      </p>
     </main>
   );
 }
@@ -287,40 +215,39 @@ function ArticleSourceList({
   if (!citations.length) return null;
 
   return (
-    <section className="public-section">
-      <h2>Firm-side sources</h2>
-      <p className="public-muted">
-        Citation links are exposed only when the cited source has a public surface. Internal firm sources remain
-        non-clickable here.
-      </p>
-      <ul className="public-response-list">
+    <section aria-labelledby="article-sources-title" className="public-section">
+      <h2 id="article-sources-title">Sources</h2>
+      <ol className="firm-source-list">
         {citations.map((citation) => {
-          const href = citation.publicUrl;
+          const sourceText = citation.sourceConclusionText?.trim() || null;
+          const href = sourceText ? citation.publicUrl : null;
+          const sourceKind = citationKindLabel(citation.sourceKind);
           return (
-            <li className="public-card" key={`${citation.label}:${citation.sourceKind}:${citation.sourceId}`}>
-              <div className="public-muted mono">
-                {citation.label} · {sourceLabel(citation.sourceKind)}
-              </div>
-              {href ? (
+            <li className="firm-source-row" key={`${citation.label}:${citation.sourceKind}:${citation.sourceId}`}>
+              {sourceText ? (
                 <>
-                  <p>
-                    <a
+                  {href ? (
+                    <Link
                       href={href}
                       rel={isExternalHref(href) ? "noreferrer" : undefined}
                       target={isExternalHref(href) ? "_blank" : undefined}
                     >
-                      Open public source
-                    </a>
-                  </p>
-                  <p className="public-muted">Cited span: {truncateSourceSpan(citation.quotedSpan)}</p>
+                      {sourceText}
+                    </Link>
+                  ) : (
+                    <span>{sourceText}</span>
+                  )}
+                  <small aria-hidden="true" className="mono">
+                    {sourceKind}
+                  </small>
                 </>
               ) : (
-                <p className="public-muted">Internal source recorded by the firm; no public link is available.</p>
+                <span className="public-muted">Internal source recorded by the firm</span>
               )}
             </li>
           );
         })}
-      </ul>
+      </ol>
     </section>
   );
 }

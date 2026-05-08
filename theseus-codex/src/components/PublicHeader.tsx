@@ -5,18 +5,18 @@ import { ForecastsNavPulse } from "./ForecastsNavPulse";
 import ThemeToggle from "./ThemeToggle";
 
 /**
- * Public-side header — renders on `/` and `/post/:slug` only.
+ * Public-side header — renders on public reader-facing routes.
  *
  * Three controls on the right:
  *   - <ThemeToggle/>          → flip amber-on-stone ↔︎ ink-on-parchment
  *   - public route links      → migrated public pages
  *   - `authed=false`          → "Founder login →"
- *   - `authed=true`           → "Dashboard →" (direct bounce back to
+ *   - `authed=true`           → "Founder Portal →" (direct bounce back to
  *                                the private workspace)
  *
-   * This is deliberately minimal: no search and no deep sitemap. The blog is
-   * primarily for reading, so we keep the chrome out of the way and let
-   * typography carry the brand.
+ * This is deliberately minimal: no search and no deep sitemap. The blog is
+ * primarily for reading, so we keep the chrome out of the way and let
+ * typography carry the brand.
  */
 export default function PublicHeader({ authed }: { authed: boolean }) {
   return (
@@ -94,6 +94,9 @@ export default function PublicHeader({ authed }: { authed: boolean }) {
           textTransform: "uppercase",
         }}
       >
+        <Link href="/" style={{ color: "var(--amber-dim)", textDecoration: "none" }}>
+          Home
+        </Link>
         <Link href="/about" style={{ color: "var(--amber-dim)", textDecoration: "none" }}>
           About
         </Link>
@@ -102,9 +105,6 @@ export default function PublicHeader({ authed }: { authed: boolean }) {
         </Link>
         <CurrentsNavPulse label="Currents" />
         <ForecastsNavPulse label="Forecasts" />
-        <Link href="/responses" style={{ color: "var(--amber-dim)", textDecoration: "none" }}>
-          Responses
-        </Link>
       </nav>
 
       <div style={{ display: "flex", gap: "0.6rem", alignItems: "center" }}>
@@ -124,7 +124,7 @@ export default function PublicHeader({ authed }: { authed: boolean }) {
             transition: "all 0.18s ease",
           }}
         >
-          {authed ? "Dashboard →" : "Founder login →"}
+          {authed ? "Founder Portal →" : "Founder login →"}
         </Link>
       </div>
     </header>

@@ -23,6 +23,7 @@ from noosphere.models import (
     ForecastResolution,
     OpinionCitation,
     PublishedConclusion,
+    ReviewItem,
 )
 
 
@@ -50,6 +51,8 @@ class Article:
     source_ids: list[str]
     citations: list[ArticleCitation]
     published_at: datetime
+    status: str = "published"
+    review_reasons: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -63,14 +66,19 @@ class _SourceBlock:
 
 
 ARTICLE_MAX_TOKENS = 2_600
+MAX_TITLE_CHARS = 70
+MIN_THEMATIC_PRIOR_CONCLUSION_CITATIONS = 3
 MAX_JSON_FAILURES = 3
 MAX_CITATION_FAILURES = 2
 MAX_BODY_FAILURES = 2
+MAX_TITLE_REVISIONS = 1
+MAX_OPENING_REVISIONS = 1
 FIRM_VOICE_RE = re.compile(r"\bthe\s+firm\b", re.IGNORECASE)
 SOURCE_RECAP_RE = re.compile(
     r"(?im)(^\s{0,3}#{1,6}\s*(retrieved\s+)?(source|sources|transcript|essay)\b|^\s*\[SOURCE\s+\d+\])"
 )
 PUBLIC_RELATIVE_PATH_RE = re.compile(r"^/(?:c|post|currents|forecasts)(?:/|$)")
+OPENING_DENYLIST_PROMPT = "article_opening_denylist.md"
 
 
 def _prompt_path(name: str) -> Path:
@@ -79,6 +87,25 @@ def _prompt_path(name: str) -> Path:
 
 def _read_system_prompt(name: str) -> str:
     return _prompt_path(name).read_text(encoding="utf-8").strip()
+
+
+def _read_opening_denylist() -> tuple[str, ...]:
+    try:
+        raw = _prompt_path(OPENING_DENYLIST_PROMPT).read_text(encoding="utf-8")
+    except FileNotFoundError:
+        return ()
+
+    phrases: list[str] = []
+    for line in raw.splitlines():
+        phrase = line.strip()
+        if not phrase or phrase.startswith("#"):
+            continue
+        if phrase.startswith(("-", "*")):
+            phrase = phrase[1:].strip()
+        phrase = phrase.strip("\"'` ")
+        if phrase:
+            phrases.append(phrase)
+    return tuple(phrases)
 
 
 def _utcnow() -> datetime:
@@ -111,6 +138,26 @@ def _slugify(text: str, max_len: int = 84) -> str:
     slug = re.sub(r"[^a-z0-9]+", "-", text.lower()).strip("-")
     slug = re.sub(r"-{2,}", "-", slug)
     return (slug or "theseus-article")[:max_len].strip("-") or "theseus-article"
+
+
+def _first_paragraph(body_markdown: str) -> str:
+    for block in re.split(r"\n\s*\n", body_markdown.strip()):
+        candidate = block.strip()
+        if candidate:
+            return re.sub(r"\s+", " ", candidate)
+    return ""
+
+
+def _generic_opening_hit(body_markdown: str) -> str | None:
+    first = _first_paragraph(body_markdown)
+    if not first:
+        return None
+    normalized = first.lstrip("#> -*\t").lower()
+    for phrase in _read_opening_denylist():
+        candidate = phrase.rstrip(".").lower()
+        if re.match(rf"^{re.escape(candidate)}(?:\b|[,.!?;:])", normalized):
+            return phrase
+    return None
 
 
 def _source_key(kind: ArticleKind, source_ids: list[str]) -> str:
@@ -383,6 +430,41 @@ def validate_article_body(body_markdown: str) -> list[str]:
     return errors
 
 
+def validate_article_headline(headline: str) -> list[str]:
+    if len(headline.strip()) <= MAX_TITLE_CHARS:
+        return []
+    return [f"headline exceeds {MAX_TITLE_CHARS} characters"]
+
+
+def validate_article_opening(body_markdown: str) -> list[str]:
+    hit = _generic_opening_hit(body_markdown)
+    if hit is None:
+        return []
+    return [f"first paragraph begins with generic opening {hit!r}"]
+
+
+def _minimum_valid_citations(kind: ArticleKind, sources: list[_SourceBlock]) -> int:
+    if (
+        kind == ArticleKind.THEMATIC
+        and len(sources) >= MIN_THEMATIC_PRIOR_CONCLUSION_CITATIONS
+    ):
+        return MIN_THEMATIC_PRIOR_CONCLUSION_CITATIONS
+    return 1
+
+
+def validate_article_citation_floor(
+    citations: list[ArticleCitation],
+    *,
+    min_valid_citations: int,
+) -> list[str]:
+    if len(citations) >= min_valid_citations:
+        return []
+    return [
+        "article must cite at least "
+        f"{min_valid_citations} prior firm conclusions; got {len(citations)}"
+    ]
+
+
 def _article_payload(
     *,
     kind: ArticleKind,
@@ -486,6 +568,11 @@ def _published_article_row_to_article(row: PublishedConclusion) -> Article:
         ),
         citations=citations,
         published_at=_as_utc(row.published_at),
+        status=(
+            str(article_payload.get("status") or "published")
+            if isinstance(article_payload, dict)
+            else "published"
+        ),
     )
 
 
@@ -590,6 +677,7 @@ def _persist_article(
         published_at=published_at,
     )
     payload["article"]["sourceKey"] = source_key
+    payload["article"]["status"] = "published"
     organization_id = sources[0].organization_id if sources else "default"
     row = PublishedConclusion(
         organization_id=organization_id,
@@ -613,6 +701,76 @@ def _persist_article(
         session.commit()
         session.refresh(row)
         return _published_article_row_to_article(row)
+
+
+def _queue_article_review_item(
+    store: Any,
+    *,
+    kind: ArticleKind,
+    source_key: str,
+    headline: str,
+    body_markdown: str,
+    source_ids: list[str],
+    reasons: list[str],
+    created_at: datetime,
+) -> None:
+    put_review_item = getattr(store, "put_review_item", None)
+    if not callable(put_review_item):
+        return
+    payload = {
+        "status": "needs_review",
+        "kind": kind.value,
+        "headline": headline,
+        "source_ids": source_ids,
+        "reasons": reasons,
+        "body_preview": body_markdown[:800],
+    }
+    put_review_item(
+        ReviewItem(
+            id=f"article_review:{source_key}",
+            claim_a_id=f"article:{source_key}",
+            claim_b_id="publication_quality_gate",
+            reason=json.dumps(payload, sort_keys=True),
+            status="open",
+            created_at=created_at,
+        )
+    )
+
+
+def _needs_review_article(
+    store: Any,
+    *,
+    kind: ArticleKind,
+    headline: str,
+    body_markdown: str,
+    source_ids: list[str],
+    citations: list[ArticleCitation],
+    reasons: list[str],
+) -> Article:
+    created_at = _utcnow()
+    source_key = _source_key(kind, source_ids)
+    _queue_article_review_item(
+        store,
+        kind=kind,
+        source_key=source_key,
+        headline=headline,
+        body_markdown=body_markdown,
+        source_ids=source_ids,
+        reasons=reasons,
+        created_at=created_at,
+    )
+    return Article(
+        id=f"article_review:{source_key}",
+        slug=_slugify(headline or "article-needs-review"),
+        kind=kind,
+        headline=headline,
+        body_markdown=body_markdown,
+        source_ids=source_ids,
+        citations=citations,
+        published_at=created_at,
+        status="needs_review",
+        review_reasons=tuple(reasons),
+    )
 
 
 async def generate_article(
@@ -647,6 +805,8 @@ async def generate_article(
     json_failures = 0
     citation_failures = 0
     body_failures = 0
+    title_failures = 0
+    opening_failures = 0
     client = None
 
     while (
@@ -712,6 +872,63 @@ async def generate_article(
                 + ". Copy quoted_span exactly from the cited source text."
             )
             continue
+
+        title_errors = validate_article_headline(headline)
+        if title_errors:
+            title_failures += 1
+            if title_failures > MAX_TITLE_REVISIONS:
+                return _needs_review_article(
+                    store,
+                    kind=kind,
+                    headline=headline,
+                    body_markdown=body_markdown,
+                    source_ids=clean_source_ids,
+                    citations=citations,
+                    reasons=title_errors,
+                )
+            corrective = (
+                "\n\nCorrection: the previous headline violated the title policy: "
+                + "; ".join(title_errors)
+                + f". Return a noun-phrase headline of {MAX_TITLE_CHARS} characters "
+                "or fewer, with no terminal punctuation."
+            )
+            continue
+
+        opening_errors = validate_article_opening(body_markdown)
+        if opening_errors:
+            opening_failures += 1
+            if opening_failures > MAX_OPENING_REVISIONS:
+                return _needs_review_article(
+                    store,
+                    kind=kind,
+                    headline=headline,
+                    body_markdown=body_markdown,
+                    source_ids=clean_source_ids,
+                    citations=citations,
+                    reasons=opening_errors,
+                )
+            corrective = (
+                "\n\nCorrection: the previous body violated the opening policy: "
+                + "; ".join(opening_errors)
+                + ". Start with a concrete Theseus claim or question, not a generic "
+                "scene-setting phrase."
+            )
+            continue
+
+        citation_floor_errors = validate_article_citation_floor(
+            citations,
+            min_valid_citations=_minimum_valid_citations(kind, sources),
+        )
+        if citation_floor_errors:
+            return _needs_review_article(
+                store,
+                kind=kind,
+                headline=headline,
+                body_markdown=body_markdown,
+                source_ids=clean_source_ids,
+                citations=citations,
+                reasons=citation_floor_errors,
+            )
 
         return _persist_article(
             store,

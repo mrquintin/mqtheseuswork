@@ -1,0 +1,120 @@
+You are operating in /Users/michaelquintin/Desktop/Theseus.
+
+Goal: rewrite the "Firm-side sources" listing on the public conclusion /
+article page so it stops repeating boilerplate ("S1 event opinion / event
+opinion", "Open public source", the verbose "Cited span:" prefix on every
+row) and presents each source as a single, compact line: the conclusion's
+text, with a link to its public page only when that source was published
+publicly. Internal-only sources show conclusion text without a link.
+
+Concrete intent from the founder transcript:
+- "the way that the firm-side sources are listed is interesting, but it's
+  kind of confusing. We can remove the … S1 event opinion, as to event
+  opinion part. We can remove the repeating, open public source part of
+  that interface."
+- "instead, just structure, like, [cited span] — you should definitely
+  reframe it as just, like, conclusion, and then write the conclusion
+  below it. … you can make it a lot more compact."
+- "this, like, massive list. It's massive array of, like, massive list
+  of boxes, which I think is just ridiculous, and we don't need."
+
+Before you start — read current state:
+1. Read `theseus-codex/src/components/ConclusionView.tsx` lines ~290–325
+   (the `Firm-side sources` section). Note `citations.map`, the per-row
+   `<li className="public-card">`, the `{citation.label} ·
+   {sourceLabel(citation.sourceKind)}` boilerplate row, the
+   `Open public source` link copy, and the `Cited span: ...` line.
+2. Read `theseus-codex/src/lib/conclusionsRead.ts` for the
+   `PublishedConclusion["citations"]` shape — fields `label`,
+   `sourceKind`, `sourceId`, `quotedSpan`, `publicUrl`. We need one more
+   piece of data: the *conclusion text* of the cited source so the new
+   row can render that as the headline. Verify whether the loader
+   already joins to the underlying conclusion; if not, extend it.
+3. Read `theseus-codex/src/app/globals.css` for `.public-card`,
+   `.public-section`, `.public-response-list`. The new compact layout
+   needs a new class set; the old card style stays for unrelated rows.
+4. Read every test file under `theseus-codex/src/__tests__/` that
+   touches the conclusion view and the citations rendering.
+
+Implement or repair:
+
+A. Loader extension
+   - Extend `PublishedConclusion["citations"]` with
+     `sourceConclusionText: string | null` and `sourceConclusionTitle:
+     string | null`. Populate them from the joined source row (or set to
+     null when the citation is to a non-conclusion artifact like a
+     transcript chunk).
+   - When `publicUrl` is null, do not also blank the text — internal
+     sources still get `sourceConclusionText`, just no link.
+
+B. Compact list component
+   - Replace the `<ul className="public-response-list">` block in the
+     "Firm-side sources" section with a new compact list:
+     - Container: `<ol className="firm-source-list">` (ordered to match
+       the implicit ordering of citations).
+     - Row: `<li className="firm-source-row">` containing
+       (a) the conclusion text (`sourceConclusionText`) wrapped in
+           a `<Link/>` to `publicUrl` when present, or a plain
+           `<span/>` when not,
+       (b) a small monospace caption `<small className="mono"/>` with
+           the citation kind only (e.g. `claim`, `principle`) — this
+           replaces the verbose `S1 event opinion · event opinion`
+           label.
+     - The `Cited span: ...` line is gone. The conclusion text *is* the
+       row.
+     - When `publicUrl` is null AND `sourceConclusionText` is null,
+       render a single faint line "Internal source recorded by the firm"
+       and nothing else.
+   - Add `.firm-source-list` and `.firm-source-row` CSS in
+     `globals.css`: tight padding (`0.45rem 0`), single-pixel separator
+     `border-bottom: 1px dashed var(--border)`, no card chrome, no
+     box-shadow. Long conclusions wrap; we do not truncate.
+
+C. Public-vs-private gating
+   - The user's rule: "show the source of that conclusion only if that
+     source was made public when it was uploaded. Only then. No
+     exception."
+   - The link is rendered only when `publicUrl` is non-null AND the
+     loader has confirmed the cited source is published with
+     `visibility = "org"` (verify the existing visibility logic in
+     `conclusionsRead.ts`). If either is missing, the row renders the
+     conclusion text as plain prose with no link.
+   - Add a unit test that fabricates a citation row whose source is
+     `visibility = "private"` and asserts the link element is absent
+     from the rendered output.
+
+D. Section heading
+   - Rename the section heading from `Firm-side sources` to
+     `Sources`. It is shorter and matches the founder's compactness
+     directive without losing meaning. Keep the existing
+     `aria-labelledby` wiring.
+   - Drop the explanatory paragraph that begins "Citation links are
+     exposed only when…". The founder called it repetitive boilerplate.
+     The same gate is enforced in code; readers do not need the
+     paragraph in the page.
+
+E. Tests
+   - Update or add `theseus-codex/src/__tests__/ConclusionView.firm-sources.test.tsx`:
+     (a) renders one row per citation,
+     (b) rows with `publicUrl` are anchored,
+     (c) rows without `publicUrl` are plain text,
+     (d) no row contains the literal strings `Open public source`,
+         `Cited span:`, `S1 event opinion`, or `event opinion`,
+     (e) the section heading reads `Sources`.
+
+Constraints:
+- Do not delete `quotedSpan` from the data model; some downstream
+  exports may still consume it.
+- Do not change the citation insertion logic that the LLM uses on the
+  noosphere side. This is a render-side trim.
+- The compact row must remain accessible: the `<small>` caption gets
+  `aria-hidden="true"` if its text is purely cosmetic; the conclusion
+  text is the primary readable element.
+
+If the work already exists, inspect and only repair gaps.
+
+SCOPE
+- `theseus-codex/src/components/ConclusionView.tsx` MODIFY
+- `theseus-codex/src/lib/conclusionsRead.ts` MODIFY
+- `theseus-codex/src/app/globals.css` MODIFY
+- `theseus-codex/src/__tests__/ConclusionView.firm-sources.test.tsx` CREATE

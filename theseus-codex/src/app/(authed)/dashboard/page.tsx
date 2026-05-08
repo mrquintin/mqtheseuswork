@@ -441,7 +441,7 @@ function getUploadVisibilityScope(tenant: TenantContext): Prisma.UploadWhereInpu
 }
 
 async function AttentionSignals({ tenant }: { tenant: TenantContext }) {
-  const [decayRecords, activeContradictions, pendingConclusionDeletions] =
+  const [decayRecords, activeContradictions, pendingConclusionDeletions, unseenResponses] =
     await Promise.all([
       fetchDecayRecords(tenant.organizationId).catch((err) => {
         console.error("[dashboard] decay query failed:", err);
@@ -449,6 +449,7 @@ async function AttentionSignals({ tenant }: { tenant: TenantContext }) {
       }),
       getActiveContradictionCount(tenant),
       getPendingConclusionDeletionCount(tenant),
+      getUnseenPublicResponseCount(tenant),
     ]);
   const decaying = decayRecords.filter((r) => r.status === "decaying");
   const expired = decayRecords.filter((r) => r.status === "expired");
@@ -502,6 +503,38 @@ async function AttentionSignals({ tenant }: { tenant: TenantContext }) {
             View decay dashboard →
           </Link>
         </div>
+      )}
+
+      {unseenResponses > 0 && (
+        <Link href="/responses" style={{ textDecoration: "none", display: "block" }}>
+          <div
+            className="portal-card"
+            style={{
+              padding: "0.7rem 1rem",
+              marginBottom: "1rem",
+              display: "flex",
+              justifyContent: "space-between",
+              alignItems: "center",
+              fontSize: "0.8rem",
+              borderLeft: "3px solid var(--amber)",
+            }}
+          >
+            <span style={{ color: "var(--amber)" }}>
+              {unseenResponses} unseen structured response
+              {unseenResponses > 1 ? "s" : ""}
+            </span>
+            <span
+              className="mono"
+              style={{
+                fontSize: "0.6rem",
+                color: "var(--amber-dim)",
+                textTransform: "uppercase",
+              }}
+            >
+              Open inbox -&gt;
+            </span>
+          </div>
+        </Link>
       )}
 
       {activeContradictions > 0 && (
@@ -595,6 +628,19 @@ async function getPendingConclusionDeletionCount(tenant: TenantContext) {
       where: {
         conclusion: { organizationId: tenant.organizationId },
         status: "pending",
+      },
+    });
+  } catch {
+    return 0;
+  }
+}
+
+async function getUnseenPublicResponseCount(tenant: TenantContext) {
+  try {
+    return await db.publicResponse.count({
+      where: {
+        organizationId: tenant.organizationId,
+        seenAt: null,
       },
     });
   } catch {

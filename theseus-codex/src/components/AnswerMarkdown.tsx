@@ -126,11 +126,10 @@ const blockquoteStyle: CSSProperties = {
 };
 
 const headingStyle: CSSProperties = {
-  fontFamily: "'Cinzel', serif",
-  fontSize: "1rem",
+  fontFamily: "'EB Garamond', 'Iowan Old Style', Georgia, serif",
+  fontSize: "1.12rem",
   lineHeight: 1.35,
-  letterSpacing: "0.08em",
-  textTransform: "uppercase",
+  letterSpacing: "-0.005em",
   color: "var(--amber)",
   margin: "0.85rem 0 0.45rem",
   fontWeight: 600,

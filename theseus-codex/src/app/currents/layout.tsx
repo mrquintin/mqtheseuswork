@@ -1,5 +1,8 @@
 import type { CSSProperties, ReactNode } from "react";
 
+import PublicHeader from "@/components/PublicHeader";
+import { getFounder } from "@/lib/auth";
+
 export const metadata = { title: "Current events — Theseus" };
 
 const containerStyle: CSSProperties = {
@@ -9,7 +12,9 @@ const containerStyle: CSSProperties = {
   paddingRight: "1.25rem",
 };
 
-export default function CurrentsLayout({ children }: { children: ReactNode }) {
+export default async function CurrentsLayout({ children }: { children: ReactNode }) {
+  const founder = await getFounder();
+
   return (
     <div
       style={{
@@ -19,6 +24,7 @@ export default function CurrentsLayout({ children }: { children: ReactNode }) {
         paddingBottom: "4rem",
       }}
     >
+      <PublicHeader authed={Boolean(founder)} />
       <header
         style={{
           padding: "2rem 0 1rem",

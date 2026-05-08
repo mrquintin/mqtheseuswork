@@ -1,9 +1,7 @@
 import type { Metadata } from "next";
 
 import DetailClient from "@/app/currents/[id]/DetailClient";
-import { getFounder } from "@/lib/auth";
 import { getCurrent, getCurrentSources } from "@/lib/currentsApi";
-import { canWrite } from "@/lib/roles";
 import { SITE } from "@/lib/site";
 
 export const dynamic = "force-dynamic";
@@ -44,11 +42,10 @@ export async function generateMetadata({ params }: PageProps): Promise<Metadata>
 
 export default async function CurrentDetailPage({ params }: PageProps) {
   const { id } = await params;
-  const [opinion, sources, founder] = await Promise.all([
+  const [opinion, sources] = await Promise.all([
     getCurrent(id),
     getCurrentSources(id),
-    getFounder().catch(() => null),
   ]);
 
-  return <DetailClient canPublish={Boolean(founder && canWrite(founder.role))} opinion={opinion} sources={sources} />;
+  return <DetailClient opinion={opinion} sources={sources} />;
 }

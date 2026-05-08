@@ -1,0 +1,92 @@
+You are operating in /Users/michaelquintin/Desktop/Theseus.
+
+Goal: verify the work landed by prompts 01–09 with a single regression
+pass and produce a report file the next agent can read instead of
+re-running every unit test from scratch. This prompt does not write any
+new feature code.
+
+Before you start:
+1. Confirm prompts 01–09 left their declared SCOPE files on disk; flag
+   any missing path before running tests so the report names the gap.
+2. Re-run `python coding_prompts/_audit_implementation.py` and copy the
+   "ACTIVE TOP-LEVEL PROMPT SCOPES" section into the report verbatim.
+
+Run, in order, and capture each command's exit status and a 30-line tail
+into the report:
+
+A. Static checks
+   - `pnpm --filter theseus-codex lint`
+   - `pnpm --filter theseus-codex tsc --noEmit`
+   - `ruff check noosphere`
+   - `ruff format --check noosphere`
+
+B. Unit + integration
+   - `pnpm --filter theseus-codex test -- PublicHeader RespondCallout
+        ConclusionView OpinionCard CitationPopover CurrentsDetail.chrome
+        CurrentsTheme ForecastsTheme ForecastsDetail.chrome
+        responsesEmail api.publicResponses.email founderResponsesInbox`
+   - `pytest noosphere/tests -q -k "articles or methodology"`
+   - `pytest noosphere/tests/test_articles_weekly_cap.py
+        noosphere/tests/test_articles_quality_gate.py`
+
+C. Smoke
+   - `python coding_prompts/_audit_implementation.py` — every active
+     top-level prompt MUST report IMPLEMENTED. If any reports
+     PARTIAL/NOT_IMPLEMENTED, list which scope files are missing.
+   - `bash scripts/migrate_production_dry_run.sh --allow-localhost`
+     should still report zero pending migrations on a clean checkout
+     (Round 15 prompt 08 produced this script; its presence is
+     unrelated to this round but the dry-run is a useful canary).
+
+D. Visual + manual
+   - Boot the theseus-codex dev server, navigate to:
+     - `/` (home),
+     - `/post/<any-published-slug>` (article),
+     - `/c/<any-published-slug>` (conclusion),
+     - `/founder-currents` (currents grid),
+     - `/founder-currents/<id>` (currents detail),
+     - `/forecasts/portfolio`,
+     - `/forecasts/<id>`.
+   - Manually verify, per page:
+     1. Top-right reads `Founder Portal →` (or `Founder login →`).
+     2. Nav reads `Home · About · Methodology · Currents · Forecasts`
+        (no Responses).
+     3. Article titles are NOT all-caps and the body is justified with
+        hyphenation. The four removed sections (Strongest engaged
+        objection / What would change our mind / Evolution / Citations)
+        do not render.
+     4. The Submit-structured-response disclosure appears at the TOP
+        of `/post/[slug]` and `/c/[slug]`.
+     5. On a Currents card, every citation token reads `[opinion]` /
+        `[firm conclusion]`; clicking opens the popover. The popover
+        shows the conclusion text and shows a public-source link only
+        when the source is published with `visibility = "org"`.
+     6. Currents and Forecasts pages share the site's dark amber
+        palette — no grayish background.
+     7. Currents detail does NOT show `Publish to`, the rationale
+        drawer, or the audit trail.
+     8. Both Currents detail and Forecasts detail show a back link
+        ("← Currents", "← Forecasts").
+   - Capture one screenshot per surface to
+     `docs/regression/2026-05-07_round16/<surface>.png`.
+
+E. Email pipeline rehearsal
+   - With `RESEND_API_KEY` unset and `SMTP_*` unset, submit a test
+     response from `/post/[slug]`. Verify in the server log that the
+     mail-send fallback emitted the no-provider sentinel and that the
+     row was persisted.
+   - With `FOUNDER_ALPHA_EMAIL=qmichael444@gmail.com` and a working
+     provider, submit again and verify the email arrives. (If you do
+     not have a working provider configured in the dev env, skip this
+     step and record the skip reason.)
+
+Write the report to
+`docs/regression/2026-05-07_round16_ui_cleanup_and_publication_cadence.md`
+with sections matching A–E, the exit status of every command, and a final
+go / no-go line.
+
+If a check fails, file the gap in the report and stop. Do not edit
+production code in this prompt.
+
+SCOPE
+- `docs/regression/2026-05-07_round16_ui_cleanup_and_publication_cadence.md` CREATE

@@ -1,0 +1,130 @@
+You are operating in /Users/michaelquintin/Desktop/Theseus.
+
+Goal: bring the public Currents surface into the rest of the site's visual
+language (black/parchment/amber, not grayish), and remove the controls the
+founder explicitly named clutter — the "Publish to" toolbar, the rationale
+drawer, and the audit trail. The Currents detail page also needs the
+Home/Theseus header that prompt 01 requires across the public site.
+
+Concrete intent from the founder transcript:
+- "the currents themselves … follow, like, a fundamentally different
+  design than the rest of the website. They don't have a black
+  background. They have a weird, like, grayish background that we need to
+  bring into the style."
+- "I don't get this 'published 2' button. I don't know why there's a
+  'published 2' on the currents, and why the user can just randomly
+  control that. That should be removed entirely."
+- "the rationale drawer, you can remove that. The audit trail, you can
+  also remove that."
+- "if you find any other clutter in the UI design as you see it in the
+  code, remove it, too."
+- "(the page of an article and the page of a) currents doesn't have a
+  clear, like, home button."
+
+Before you start — read current state:
+1. Read `theseus-codex/src/app/currents/layout.tsx` and `page.tsx`. Note
+   the page background `var(--currents-bg)` (#141210) defined in
+   `globals.css` line 951 and the elevated card `var(--currents-bg-elevated)`
+   (#1c1916). These are intentionally separate from `var(--ink)` /
+   `var(--parchment)` etc. Either retire them and reuse the site
+   tokens, or rebind them to the site tokens — pick one consistently.
+2. Read `theseus-codex/src/app/currents/[id]/DetailClient.tsx`. Locate:
+   - the `<PublishToToolbar/>` import and usage (line ~7 + render),
+   - the `<SourceDrawer/>` import and usage (the rationale drawer),
+   - the `<AuditTrail/>` import and usage.
+3. Read `theseus-codex/src/components/PublishToToolbar.tsx`. The
+   `Publish to` dropdown wraps Substack and X publish actions and is
+   founder-only (`canPublish` prop). It must remain available inside
+   the founder portal (`/(authed)/social/...` and elsewhere) but must
+   not render on the public Currents detail surface.
+4. Read `theseus-codex/src/app/currents/[id]/SourceDrawer.tsx` and
+   `AuditTrail.tsx` to know what data they consume — those data flows
+   stay; only the rendered chrome goes.
+5. Read prompt 01 — `PublicHeader` should already wrap the Currents
+   layout. If not, reapply that change first.
+6. Read `theseus-codex/src/app/globals.css` to find every `--currents-*`
+   token.
+
+Implement or repair:
+
+A. Site-theme alignment
+   - Decide: rebind `--currents-bg` and `--currents-bg-elevated` (and
+     siblings `--currents-border`, `--currents-muted`,
+     `--currents-parchment-dim`) to the site's existing dark tokens —
+     `var(--ink)`, `var(--stone)`, `var(--border)`, `var(--parchment-dim)`
+     — by editing the variable assignments in
+     `theseus-codex/src/app/globals.css` (lines around 951–960). Do NOT
+     do a sweeping rename across components. Component files keep using
+     `--currents-bg`; the *value* changes.
+   - For both the dark and light theme blocks (search the file for
+     `[data-theme="light"]` or whatever convention the file uses), set
+     the bound values explicitly. Do not assume one theme.
+   - Audit `globals.css` for any `--currents-bg-*` value that still
+     resolves to a grayish color and rebind it to the site palette.
+
+B. Remove publish toolbar from public Currents detail
+   - In `app/currents/[id]/DetailClient.tsx`, delete the import and the
+     render of `<PublishToToolbar/>`. Drop the `canPublish` prop from the
+     component's props and from the `page.tsx` that builds them.
+   - The toolbar component itself stays (other surfaces use it). Do NOT
+     delete `PublishToToolbar.tsx`.
+   - If a server-side check for `canPublish` is now unused in
+     `currents/[id]/page.tsx`, drop it.
+
+C. Remove rationale drawer + audit trail from public Currents detail
+   - Delete `<SourceDrawer/>` and `<AuditTrail/>` imports and renders in
+     `DetailClient.tsx`. The components themselves remain in the repo
+     in case the founder reverses (they are useful diagnostic surfaces),
+     but they are not mounted publicly.
+   - Where `DetailClient.tsx` previously kept `selectedSourceId`-style
+     state to drive the drawer, remove the state and any associated hash
+     side effects (`#src-…`) so URLs don't carry orphaned anchors.
+   - `SourceCard` rows that previously linked into the drawer now use
+     the citation popover from prompt 06.
+
+D. Home/back affordance on Currents
+   - Confirm `PublicHeader` wraps both `app/currents/layout.tsx` and
+     `app/currents/[id]/page.tsx`. If only the index has it, extend the
+     layout so the detail page inherits it.
+   - On the detail page, add a "← Currents" link directly under the
+     header (separate from the global "Home" — the founder asked for
+     "a back button of some kind" specifically on detail).
+
+E. General clutter sweep on public Currents
+   - Audit `OpinionCard.tsx`, `FilterBar.tsx`, `LiveBanner.tsx`,
+     `TopicClusters.tsx` for elements whose only purpose is to expose
+     internal mechanics — score badges, retrieval-rank badges, debug
+     timestamps in mono font. Remove anything that does not help a
+     reader. Document each removal in the commit message; do not silently
+     delete features the founder might want back.
+
+F. Tests
+   - `theseus-codex/src/__tests__/CurrentsDetail.chrome.test.tsx`:
+     (a) does NOT render `PublishToToolbar`,
+     (b) does NOT render `SourceDrawer`,
+     (c) does NOT render `AuditTrail`,
+     (d) renders `PublicHeader`,
+     (e) renders a "← Currents" back link.
+   - `theseus-codex/src/__tests__/CurrentsTheme.test.tsx`:
+     (a) `--currents-bg` resolves to the same value as the site `--ink`
+         token, and `--currents-bg-elevated` to `--stone` — read via
+         a styled snapshot.
+
+Constraints:
+- Do not delete the underlying components (`PublishToToolbar.tsx`,
+  `SourceDrawer.tsx`, `AuditTrail.tsx`). Other routes use or may yet
+  use them.
+- Do not change the Currents data API. This is a render trim and a
+  theme rebind, nothing more.
+- Do not change the X embed (prompt R15/01 already settled the
+  cosmetic; the founder confirmed it is fine).
+
+If the work already exists, inspect and only repair gaps.
+
+SCOPE
+- `theseus-codex/src/app/currents/[id]/DetailClient.tsx` MODIFY
+- `theseus-codex/src/app/currents/[id]/page.tsx` MODIFY
+- `theseus-codex/src/app/currents/layout.tsx` MODIFY
+- `theseus-codex/src/app/globals.css` MODIFY
+- `theseus-codex/src/__tests__/CurrentsDetail.chrome.test.tsx` CREATE
+- `theseus-codex/src/__tests__/CurrentsTheme.test.tsx` CREATE

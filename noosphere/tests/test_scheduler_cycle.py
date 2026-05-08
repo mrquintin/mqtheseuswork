@@ -178,8 +178,8 @@ def test_run_cycle_dispatches_public_articles_when_enabled(
             errors=[],
         )
 
-    async def fake_dispatch_triggered_articles(store, *, budget, daily_cap):
-        calls.append(daily_cap)
+    async def fake_dispatch_triggered_articles(store, *, budget, weekly_cap):
+        calls.append(weekly_cap)
         return [SimpleNamespace(id="article_1")]
 
     monkeypatch.setenv(
@@ -187,7 +187,7 @@ def test_run_cycle_dispatches_public_articles_when_enabled(
         str(tmp_path / "articles_last_run.json"),
     )
     monkeypatch.setenv("ARTICLES_DISPATCH_INTERVAL_SECONDS", "60")
-    monkeypatch.setenv("ARTICLES_MAX_PER_DAY", "7")
+    monkeypatch.setenv("NOOSPHERE_ARTICLES_WEEKLY_CAP", "7")
     monkeypatch.setattr(scheduler, "ingest_once", fake_ingest_once)
     monkeypatch.setattr(
         scheduler,

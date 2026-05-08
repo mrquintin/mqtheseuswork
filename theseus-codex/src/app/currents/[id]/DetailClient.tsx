@@ -1,39 +1,18 @@
 "use client";
 
-import type { MouseEvent } from "react";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 
 import type { PublicOpinion, PublicSource } from "@/lib/currentsTypes";
-import { renderSafeMarkdown } from "@/lib/safeMarkdown";
-import PublishToToolbar from "@/components/PublishToToolbar";
 
-import AuditTrail from "./AuditTrail";
 import { CopyLinkButton } from "./CopyLinkButton";
 import FollowupChat from "./FollowupChat";
 import SourceCard from "./SourceCard";
-import SourceDrawer from "./SourceDrawer";
+import { OpinionMarkdownBody } from "../OpinionCard";
 import XPostEmbed from "../XPostEmbed";
 
 interface DetailClientProps {
-  canPublish?: boolean;
   opinion: PublicOpinion;
   sources: PublicSource[];
-}
-
-function sourceIdFromHash(hash: string): string | null {
-  const raw = hash.startsWith("#") ? hash.slice(1) : hash;
-  if (!raw.startsWith("src-")) return null;
-
-  const encodedId = raw.slice(4);
-  try {
-    return decodeURIComponent(encodedId);
-  } catch {
-    return encodedId;
-  }
-}
-
-function sourceHash(sourceId: string): string {
-  return `#src-${encodeURIComponent(sourceId)}`;
 }
 
 function topicFor(opinion: PublicOpinion): string {
@@ -161,7 +140,6 @@ function ObservedEventPanel({ opinion }: { opinion: PublicOpinion }) {
           marginTop: "0.75rem",
         }}
       >
-        {event.external_id ? <span>item id {event.external_id}</span> : null}
         {event.url ? (
           <a
             href={event.url}
@@ -177,78 +155,27 @@ function ObservedEventPanel({ opinion }: { opinion: PublicOpinion }) {
   );
 }
 
-export default function DetailClient({ canPublish = false, opinion, sources }: DetailClientProps) {
-  const sourceIds = useMemo(
-    () => new Set(sources.map((source) => source.source_id)),
-    [sources],
-  );
-  const [selectedSourceId, setSelectedSourceId] = useState<string | null>(null);
-  const selectedSource = useMemo(
-    () =>
-      sources.find((source) => source.source_id === selectedSourceId) ?? null,
-    [selectedSourceId, sources],
-  );
-
-  const flashSource = useCallback((sourceId: string) => {
-    window.requestAnimationFrame(() => {
-      const element = document.getElementById(`src-${sourceId}`);
-      if (!element) return;
-
-      element.scrollIntoView({ block: "start", behavior: "smooth" });
-      element.classList.remove("currents-source-flash");
-      void element.offsetWidth;
-      element.classList.add("currents-source-flash");
-      window.setTimeout(() => {
-        element.classList.remove("currents-source-flash");
-      }, 1300);
-    });
-  }, []);
-
-  const activateSource = useCallback(
-    (sourceId: string, options: { pushHash?: boolean; scroll?: boolean } = {}) => {
-      if (!sourceIds.has(sourceId)) return;
-
-      setSelectedSourceId(sourceId);
-      if (options.pushHash) {
-        window.history.pushState(null, "", sourceHash(sourceId));
-      }
-      if (options.scroll !== false) {
-        flashSource(sourceId);
-      }
-    },
-    [flashSource, sourceIds],
-  );
-
-  useEffect(() => {
-    const syncHash = () => {
-      const sourceId = sourceIdFromHash(window.location.hash);
-      if (sourceId) activateSource(sourceId);
-    };
-
-    syncHash();
-    window.addEventListener("hashchange", syncHash);
-    return () => window.removeEventListener("hashchange", syncHash);
-  }, [activateSource]);
-
-  const handleCitationClick = (
-    event: MouseEvent<HTMLAnchorElement>,
-    sourceId: string,
-  ) => {
-    event.preventDefault();
-    activateSource(sourceId, { pushHash: true });
-  };
-
+export default function DetailClient({ opinion, sources }: DetailClientProps) {
   return (
     <>
-      <div className="currents-detail-grid">
-        <div className="currents-detail-audit">
-          <AuditTrail
-            opinion={opinion}
-            sources={sources}
-            onSourceSelect={(sourceId) => activateSource(sourceId, { pushHash: true })}
-          />
-        </div>
+      <Link
+        aria-label="Back to Currents"
+        href="/currents"
+        style={{
+          color: "var(--currents-gold)",
+          display: "inline-flex",
+          fontFamily: "'IBM Plex Mono', monospace",
+          fontSize: "0.75rem",
+          letterSpacing: "0.08em",
+          marginBottom: "1rem",
+          textDecoration: "none",
+          textTransform: "uppercase",
+        }}
+      >
+        ← Currents
+      </Link>
 
+      <div className="currents-detail-grid">
         <main className="currents-detail-main">
           <div
             style={{
@@ -269,9 +196,6 @@ export default function DetailClient({ canPublish = false, opinion, sources }: D
               {opinion.stance} · {topicFor(opinion)}
             </span>
             <span style={{ alignItems: "center", display: "inline-flex", flexWrap: "wrap", gap: "0.5rem" }}>
-              {canPublish ? (
-                <PublishToToolbar artifactId={opinion.id} artifactType="currents-opinion" />
-              ) : null}
               <CopyLinkButton opinionId={opinion.id} />
             </span>
           </div>
@@ -301,15 +225,14 @@ export default function DetailClient({ canPublish = false, opinion, sources }: D
           >
             The firm's opinion
           </div>
-          <div
+          <OpinionMarkdownBody
+            opinion={opinion}
             style={{
               color: "var(--currents-parchment)",
               fontSize: "1.05rem",
               lineHeight: 1.7,
             }}
-          >
-            {renderSafeMarkdown(opinion.body_markdown)}
-          </div>
+          />
 
           {opinion.uncertainty_notes.length ? (
             <section
@@ -332,49 +255,8 @@ export default function DetailClient({ canPublish = false, opinion, sources }: D
             </section>
           ) : null}
 
-          {sources.length ? (
-            <nav
-              aria-label="Citation links"
-              style={{
-                borderTop: "1px solid var(--currents-border)",
-                display: "flex",
-                flexWrap: "wrap",
-                gap: "0.45rem",
-                marginTop: "1.2rem",
-                paddingTop: "0.85rem",
-              }}
-            >
-              {sources.map((source, index) => (
-                <a
-                  key={source.id}
-                  href={sourceHash(source.source_id)}
-                  onClick={(event) => handleCitationClick(event, source.source_id)}
-                  style={{
-                    background:
-                      selectedSourceId === source.source_id
-                        ? "rgba(212, 160, 23, 0.13)"
-                        : "transparent",
-                    border:
-                      selectedSourceId === source.source_id
-                        ? "1px solid var(--currents-gold)"
-                        : "1px solid var(--currents-border)",
-                    borderRadius: "999px",
-                    color: source.is_revoked
-                      ? "var(--currents-amber)"
-                      : "var(--currents-parchment-dim)",
-                    fontSize: "0.78rem",
-                    padding: "0.32rem 0.55rem",
-                    textDecoration: "none",
-                  }}
-                >
-                  {index + 1}. {source.source_kind.toLowerCase()}
-                </a>
-              ))}
-            </nav>
-          ) : null}
-
           <section
-            aria-label="Internal rationale"
+            aria-label="Firm sources"
             style={{
               display: "grid",
               gap: "0.9rem",
@@ -391,42 +273,28 @@ export default function DetailClient({ canPublish = false, opinion, sources }: D
                 textTransform: "uppercase",
               }}
             >
-              Internal rationale
+              Firm sources
             </h2>
             {sources.length ? (
               sources.map((source) => (
-                <SourceCard
-                  key={source.id}
-                  source={source}
-                  onSelect={(sourceId) =>
-                    activateSource(sourceId, { pushHash: true })
-                  }
-                />
+                <SourceCard key={source.id} source={source} />
               ))
             ) : (
               <p style={{ color: "var(--currents-muted)", margin: 0 }}>
-                No internal rationale returned for this opinion.
+                No firm sources returned for this opinion.
               </p>
             )}
           </section>
 
           <FollowupChat opinionId={opinion.id} sources={sources} />
         </main>
-
-        <div className="currents-detail-drawer">
-          <SourceDrawer
-            selectedSource={selectedSource}
-            sources={sources}
-            onSelect={(sourceId) => activateSource(sourceId, { pushHash: true })}
-          />
-        </div>
       </div>
 
       <style>{`
         .currents-detail-grid {
           display: grid;
           gap: 1rem;
-          grid-template-columns: minmax(160px, 220px) minmax(0, 1fr) minmax(220px, 280px);
+          grid-template-columns: minmax(0, 1fr);
           align-items: start;
         }
 
@@ -436,45 +304,13 @@ export default function DetailClient({ canPublish = false, opinion, sources }: D
           padding: 0.03rem 0.12rem;
         }
 
-        .currents-source-flash {
-          animation: currents-source-flash 1.2s ease-out;
-        }
-
-        @keyframes currents-source-flash {
-          0% {
-            border-color: var(--currents-gold);
-            box-shadow: 0 0 0 3px rgba(212, 160, 23, 0.32);
-          }
-          100% {
-            box-shadow: 0 0 0 0 rgba(212, 160, 23, 0);
-          }
-        }
-
         @media (max-width: 980px) {
           .currents-detail-grid {
             grid-template-columns: minmax(0, 1fr);
           }
 
-          .currents-detail-audit {
-            order: 1;
-          }
-
           .currents-detail-main {
-            order: 2;
-          }
-
-          .currents-detail-drawer {
-            order: 3;
-          }
-
-          .currents-detail-drawer aside {
-            position: static !important;
-          }
-        }
-
-        @media (prefers-reduced-motion: reduce) {
-          .currents-source-flash {
-            animation: none;
+            order: 1;
           }
         }
       `}</style>

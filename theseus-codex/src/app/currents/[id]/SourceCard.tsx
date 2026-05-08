@@ -1,12 +1,15 @@
+"use client";
+
 import type { CSSProperties } from "react";
+import { useRef, useState } from "react";
 import Link from "next/link";
 
 import type { PublicSource } from "@/lib/currentsTypes";
 import { highlightSubstring } from "@/lib/highlight";
+import CitationPopover from "@/components/CitationPopover";
 
 interface SourceCardProps {
   source: PublicSource;
-  onSelect?: (sourceId: string) => void;
 }
 
 const cardStyle: CSSProperties = {
@@ -14,7 +17,6 @@ const cardStyle: CSSProperties = {
   border: "1px solid var(--currents-border)",
   borderRadius: "6px",
   padding: "1rem",
-  scrollMarginTop: "1.25rem",
 };
 
 const metaStyle: CSSProperties = {
@@ -73,20 +75,25 @@ export function canonicalHref(source: PublicSource): string {
   return source.canonical_path || fallbackCanonicalPath(source);
 }
 
-function retrievalPercent(score: number): string {
-  if (!Number.isFinite(score)) return "0%";
-  const normalized = Math.abs(score) <= 1 ? score * 100 : score;
-  return `${Math.round(normalized)}%`;
-}
-
-export default function SourceCard({ source, onSelect }: SourceCardProps) {
+export default function SourceCard({ source }: SourceCardProps) {
+  const anchorRef = useRef<HTMLButtonElement | null>(null);
+  const [popoverOpen, setPopoverOpen] = useState(false);
   const kind = normalizedKind(source);
   const reason = source.revoked_reason?.trim() || "rationale revoked";
   const sourceText = source.source_text || "[internal rationale unavailable]";
+  const popoverPublicUrl = source.canonical_path || null;
+  const popoverCitation = {
+    id: source.id,
+    is_revoked: source.is_revoked,
+    quoted_span: source.quoted_span,
+    retrieval_score: source.retrieval_score,
+    source_id: source.source_id,
+    source_kind: source.source_kind,
+    source_visibility: popoverPublicUrl ? "org" : null,
+  };
 
   return (
     <article
-      id={`src-${source.source_id}`}
       style={{
         ...cardStyle,
         borderColor: source.is_revoked
@@ -96,8 +103,6 @@ export default function SourceCard({ source, onSelect }: SourceCardProps) {
     >
       <div style={metaStyle}>
         <span style={kindStyle}>{kind}</span>
-        <span>score {retrievalPercent(source.retrieval_score)}</span>
-        <span>{source.source_id}</span>
       </div>
 
       {source.is_revoked ? (
@@ -138,25 +143,34 @@ export default function SourceCard({ source, onSelect }: SourceCardProps) {
         >
           Go to canonical
         </Link>
-        {onSelect ? (
-          <button
-            onClick={() => onSelect(source.source_id)}
-            style={{
-              background: "transparent",
-              border: "1px solid var(--currents-border)",
-              borderRadius: "999px",
-              color: "var(--currents-parchment-dim)",
-              cursor: "pointer",
-              fontFamily: "'IBM Plex Mono', monospace",
-              fontSize: "0.72rem",
-              padding: "0.3rem 0.5rem",
-            }}
-            type="button"
-          >
-            Open in drawer
-          </button>
-        ) : null}
+        <button
+          aria-expanded={popoverOpen}
+          aria-haspopup="dialog"
+          onClick={() => setPopoverOpen(true)}
+          ref={anchorRef}
+          style={{
+            background: "transparent",
+            border: "1px solid var(--currents-border)",
+            borderRadius: "999px",
+            color: "var(--currents-parchment-dim)",
+            cursor: "pointer",
+            fontFamily: "'IBM Plex Mono', monospace",
+            fontSize: "0.72rem",
+            padding: "0.3rem 0.5rem",
+          }}
+          type="button"
+        >
+          Inspect source
+        </button>
       </div>
+      <CitationPopover
+        anchorRef={anchorRef}
+        citation={popoverCitation}
+        conclusionText={sourceText}
+        onClose={() => setPopoverOpen(false)}
+        open={popoverOpen}
+        publicUrl={popoverPublicUrl}
+      />
     </article>
   );
 }

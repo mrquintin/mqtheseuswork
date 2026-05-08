@@ -493,7 +493,7 @@ def test_invariant_8_revoked_source_propagation(
                 status_file=tmp_path / "status.json",
                 budget_file=tmp_path / "budget.json",
                 max_predictions_per_cycle=0,
-                max_articles_per_day=0,
+                max_articles_per_week=0,
             ),
         )
     )

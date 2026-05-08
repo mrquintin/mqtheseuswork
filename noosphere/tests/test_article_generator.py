@@ -596,7 +596,7 @@ def test_correction_trigger_requires_recent_citation_revocation() -> None:
     assert asyncio.run(correction_trigger_check(store)) == []
 
 
-def test_daily_cap_defers_trigger_candidates_to_next_day(monkeypatch) -> None:
+def test_weekly_cap_defers_trigger_candidates_to_next_week(monkeypatch) -> None:
     store = _store()
     prediction_ids = [_seed_postmortem(store, idx) for idx in range(5)]
     payloads = [
@@ -626,19 +626,28 @@ def test_daily_cap_defers_trigger_candidates_to_next_day(monkeypatch) -> None:
         dispatch_triggered_articles(
             store,
             budget=RecordingBudget(),
-            daily_cap=4,
+            weekly_cap=1,
             now=NOW,
         )
     )
-    second_day = asyncio.run(
+    same_week = asyncio.run(
         dispatch_triggered_articles(
             store,
             budget=RecordingBudget(),
-            daily_cap=4,
+            weekly_cap=1,
             now=NOW + timedelta(days=1),
         )
     )
+    next_week = asyncio.run(
+        dispatch_triggered_articles(
+            store,
+            budget=RecordingBudget(),
+            weekly_cap=1,
+            now=NOW + timedelta(days=8),
+        )
+    )
 
-    assert len(first_day) == 4
-    assert len(second_day) == 1
-    assert len(_article_rows(store)) == 5
+    assert len(first_day) == 1
+    assert same_week == []
+    assert len(next_week) == 1
+    assert len(_article_rows(store)) == 2

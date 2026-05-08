@@ -1,5 +1,8 @@
 import type { CSSProperties, ReactNode } from "react";
 
+import PublicHeader from "@/components/PublicHeader";
+import { getFounder } from "@/lib/auth";
+
 export const metadata = { title: "Forecasts — Theseus" };
 
 const containerStyle: CSSProperties = {
@@ -9,17 +12,19 @@ const containerStyle: CSSProperties = {
   paddingRight: "1.25rem",
 };
 
-export default function ForecastsLayout({ children }: { children: ReactNode }) {
+export default async function ForecastsLayout({ children }: { children: ReactNode }) {
+  const founder = await getFounder();
+
   return (
     <div
       style={{
         background: "var(--forecasts-bg)",
         color: "var(--forecasts-parchment)",
-        colorScheme: "dark",
         minHeight: "100vh",
         paddingBottom: "4rem",
       }}
     >
+      <PublicHeader authed={Boolean(founder)} />
       <header
         style={{
           borderBottom: "1px solid var(--forecasts-border)",

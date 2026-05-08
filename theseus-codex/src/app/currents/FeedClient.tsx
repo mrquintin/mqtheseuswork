@@ -25,21 +25,6 @@ interface FeedClientProps {
   detailBasePath?: string;
 }
 
-function latestOpinionAt(opinions: PublicOpinion[]): string | null {
-  let latest: string | null = null;
-  let latestTime = -Infinity;
-
-  for (const opinion of opinions) {
-    const time = new Date(opinion.generated_at).getTime();
-    if (Number.isFinite(time) && time > latestTime) {
-      latestTime = time;
-      latest = opinion.generated_at;
-    }
-  }
-
-  return latest;
-}
-
 function matchFilterKey(filter: Filter): string {
   return filterToParams({ ...filter, view: "feed" }).toString();
 }
@@ -114,7 +99,6 @@ export default function FeedClient({
     () => opinions.filter((opinion) => matches(opinion, filter)),
     [filter, opinions],
   );
-  const lastOpinionAt = useMemo(() => latestOpinionAt(opinions), [opinions]);
   const activeCriteria = hasActiveMatchFilter(filter);
 
   useEffect(() => {
@@ -154,7 +138,7 @@ export default function FeedClient({
   return (
     <section aria-label="Current-events opinions">
       <DisabledBanner health={health} />
-      <LiveBanner connected={connected} lastOpinionAt={lastOpinionAt} />
+      <LiveBanner connected={connected} />
       <FilterBar opinions={opinions} />
 
       {otherFilterCount ? (

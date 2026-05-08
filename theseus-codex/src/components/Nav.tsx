@@ -70,8 +70,10 @@ const TOP_NAV_LINKS: ReadonlyArray<{
 ];
 
 export default function Nav({
+  dashboardHasUnseenResponses = false,
   founder,
 }: {
+  dashboardHasUnseenResponses?: boolean;
   founder: {
     name: string;
     username: string;
@@ -171,7 +173,19 @@ export default function Nav({
             <Link
               key={link.label}
               href={link.href}
+              aria-label={
+                link.href === "/dashboard" && dashboardHasUnseenResponses
+                  ? "Dashboard - unseen responses"
+                  : undefined
+              }
               style={{
+                ...(link.href === "/dashboard" && dashboardHasUnseenResponses
+                  ? {
+                      alignItems: "center",
+                      display: "inline-flex",
+                      gap: "0.35rem",
+                    }
+                  : {}),
                 fontFamily: "'Cinzel', serif",
                 fontSize: "0.7rem",
                 letterSpacing: "0.14em",
@@ -184,6 +198,9 @@ export default function Nav({
               }}
             >
               {link.label}
+              {link.href === "/dashboard" && dashboardHasUnseenResponses ? (
+                <span aria-hidden className="currents-pulse" />
+              ) : null}
             </Link>
           ))}
         </div>
