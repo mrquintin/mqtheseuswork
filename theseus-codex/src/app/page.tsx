@@ -632,6 +632,7 @@ function summarizeOpinion(opinion: PublicOpinion): string {
 
 function stripMarkdown(text: string): string {
   return text
+    .replace(/\[(?:\d+|C:[^\]\s]+)\]/g, "the firm")
     .replace(/`([^`]+)`/g, "$1")
     .replace(/\*\*([^*]+)\*\*/g, "$1")
     .replace(/\*([^*]+)\*/g, "$1")

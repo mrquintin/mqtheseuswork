@@ -203,6 +203,22 @@ describe("PublicHomePage", () => {
     expect(html).toContain('data-testid="homepage-current-card"');
     expect(html).not.toContain("/responses");
   });
+
+  it("does not leak raw Currents citation tokens in homepage previews", async () => {
+    mocks.listCurrents.mockResolvedValue({
+      items: [
+        opinion({
+          body_markdown:
+            'While [C:c_123] indicates that "AI changes knowledge work," the firm remains uncertain.',
+        }),
+      ],
+    });
+
+    const html = await renderHomepage();
+
+    expect(html).toContain("While the firm indicates");
+    expect(html).not.toContain("[C:c_123]");
+  });
 });
 
 describe("Public methodology surfaces", () => {
