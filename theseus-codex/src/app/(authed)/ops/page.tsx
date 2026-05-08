@@ -32,6 +32,7 @@ type OpsSearchParams = {
   showResolved?: string;
   author?: string;
   engage?: string;
+  domain?: string;
 };
 
 const OPS_PANELS = [
@@ -102,7 +103,9 @@ export default async function OpsPage({
       />
     );
   }
-  if (panel === "open-questions") return <OpenQuestionsPage />;
+  if (panel === "open-questions") {
+    return <OpenQuestionsPage searchParams={Promise.resolve({ domain: sp.domain })} />;
+  }
   if (panel === "adversarial") return <AdversarialPage />;
   if (panel === "layer-review") return <ReviewQueuePage />;
   if (panel === "calibration") {
@@ -493,7 +496,7 @@ async function ObservabilityPanel() {
                 </span>
                 <span>{a.method}</span>
                 <span className="mono" style={{ fontSize: "0.72rem" }}>
-                  {a.metric} = {a.value.toFixed(3)} (>{a.threshold})
+                  {a.metric} = {a.value.toFixed(3)} (&gt;{a.threshold})
                 </span>
                 <span className="mono" style={{ fontSize: "0.72rem", color: "var(--parchment-dim)" }}>
                   {a.firedAt.toISOString().replace("T", " ").slice(0, 19)}
