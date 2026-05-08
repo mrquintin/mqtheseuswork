@@ -17,12 +17,12 @@ type SearchParams = {
 export default async function CounterfactualPage({
   searchParams,
 }: {
-  searchParams?: Promise<SearchParams> | SearchParams;
+  searchParams?: Promise<SearchParams>;
 }) {
   const tenant = await requireTenantContext();
   if (!tenant) redirect("/login");
 
-  const params = (await Promise.resolve(searchParams)) ?? {};
+  const params = (await searchParams) ?? {};
   const manifest = loadCounterfactualManifest();
 
   const focused =

@@ -7,7 +7,7 @@ import {
   driftColor,
   driftLabel,
   type ManifestMethod,
-} from "@/lib/methodologyManifest";
+} from "@/lib/methodologyManifestShared";
 
 type SortKey =
   | "name"

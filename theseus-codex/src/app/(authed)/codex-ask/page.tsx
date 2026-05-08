@@ -2,7 +2,7 @@ import AskForm from "./AskForm";
 import SculptureBackdrop from "@/components/SculptureBackdrop";
 
 /**
- * Ask the Codex. RAG surface for the /api/ask endpoint: type a
+ * Ask the Codex. Authenticated RAG surface for the /api/ask endpoint: type a
  * question, see a grounded answer with inline source citations.
  *
  * Backend: Claude Opus 4.7 (configurable via ASK_LLM_MODEL) with

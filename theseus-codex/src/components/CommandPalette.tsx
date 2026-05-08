@@ -57,7 +57,7 @@ const NAV_TARGETS: ReadonlyArray<{ label: string; href: string; keywords?: strin
   { label: "Dashboard", href: "/dashboard", keywords: "forum home" },
   { label: "Knowledge", href: "/knowledge", keywords: "library conclusions" },
   { label: "Explorer", href: "/explorer", keywords: "semantic map embeddings" },
-  { label: "Ask", href: "/ask", keywords: "oracle query" },
+  { label: "Ask", href: "/codex-ask", keywords: "oracle query" },
   { label: "Currents", href: "/founder-currents", keywords: "feed x twitter" },
   { label: "Forecasts", href: "/forecasts/portfolio", keywords: "kalshi polymarket" },
   { label: "Social", href: "/social" },

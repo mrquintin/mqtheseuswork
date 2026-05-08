@@ -13,6 +13,7 @@ const CSRF_COOKIE = "theseus_csrf";
 
 const PROTECTED_PREFIXES = [
   "/dashboard",
+  "/codex-ask",
   "/upload",
   "/founders",
   "/conclusions",
@@ -114,6 +115,7 @@ export async function middleware(request: NextRequest) {
 export const config = {
   matcher: [
     "/dashboard/:path*",
+    "/codex-ask/:path*",
     "/upload/:path*",
     "/founders/:path*",
     "/conclusions/:path*",

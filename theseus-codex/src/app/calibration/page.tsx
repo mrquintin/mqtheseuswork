@@ -35,10 +35,10 @@ type SearchParams = {
 export default async function CalibrationPage({
   searchParams,
 }: {
-  searchParams?: Promise<SearchParams> | SearchParams;
+  searchParams?: Promise<SearchParams>;
 }) {
   const founder = await getFounder();
-  const params = (await Promise.resolve(searchParams)) ?? {};
+  const params = (await searchParams) ?? {};
   const filter: CalibrationFilter = {
     domain: params.domain ?? null,
     methodName: params.method ?? null,

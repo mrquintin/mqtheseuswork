@@ -3,7 +3,7 @@ import type { CSSProperties, ReactNode } from "react";
 import {
   decimalsInDisplay,
   formatPercent,
-} from "@/lib/recalibration";
+} from "@/lib/recalibrationShared";
 
 /**
  * Static ASCII sigil for a conclusion's confidence tier.

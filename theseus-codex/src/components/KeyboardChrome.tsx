@@ -18,7 +18,7 @@ const GLOBAL_JUMPS: Record<string, string> = {
   d: "/dashboard",
   k: "/knowledge",
   e: "/explorer",
-  a: "/ask",
+  a: "/codex-ask",
   c: "/founder-currents",
   f: "/forecasts/portfolio",
   o: "/ops",

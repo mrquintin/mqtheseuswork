@@ -4,7 +4,7 @@ import AttentionItem, {
 import {
   ATTENTION_QUEUE_LABELS,
   type AttentionQueueId,
-} from "@/lib/attention";
+} from "@/lib/attentionShared";
 
 /**
  * Primary surface of the founder dashboard — the unified attention

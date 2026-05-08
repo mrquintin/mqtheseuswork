@@ -7,7 +7,7 @@ import {
   MAX_SNOOZE_DAYS,
   type AttentionQueueId,
   type AttentionSeverity,
-} from "@/lib/attention";
+} from "@/lib/attentionShared";
 
 export type AttentionItemViewModel = {
   queue: AttentionQueueId;

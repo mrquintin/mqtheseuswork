@@ -46,10 +46,10 @@ const TOP_NAV_LINKS: ReadonlyArray<{
       pathname.startsWith("/library/") ||
       pathname.startsWith("/transcripts/"),
   },
-  // `/ask` is the LLM-grounded query surface — the central value
+  // `/codex-ask` is the LLM-grounded query surface — the central value
   // proposition of the Codex (ask the oracle a question, get an answer
   // grounded in the firm's recorded conclusions).
-  { href: "/ask", label: "Ask" },
+  { href: "/codex-ask", label: "Ask" },
   {
     href: "/founder-currents",
     label: "Currents",

@@ -10,7 +10,7 @@ import PublicHeader from "@/components/PublicHeader";
  * and pilled with methodology + confidence.
  *
  * Pure retrieval. No generation lives on this surface; the founder
- * workspace's `/ask` (under the `(authed)` group) keeps the LLM-driven
+ * workspace's `/codex-ask` keeps the LLM-driven
  * answer pipeline. A reader who wants to know what the firm thinks
  * gets a structured pointer to the firm's actual public output, never
  * a paraphrase.
