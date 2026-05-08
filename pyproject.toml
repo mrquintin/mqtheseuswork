@@ -25,6 +25,8 @@ dev = [
 
 [tool.setuptools.packages.find]
 where = ["noosphere", "dialectic"]
+include = ["noosphere", "noosphere.*", "dialectic", "dialectic.*"]
+exclude = ["tests*", "scripts*", "installer*", "assets*", "alembic*"]
 
 # ---- Ruff ----
 [tool.ruff]
