@@ -1,0 +1,77 @@
+You are operating in /Users/michaelquintin/Desktop/Theseus.
+
+Goal: every method gets explicit, machine-checkable bounds on its domain
+of applicability. Domain Sensitivity is criterion #5 in THE_META_METHOD,
+but right now the firm's only check is a vague LLM-judged
+"does this seem in domain". That is fragile and not auditable. Replace
+or augment it with declarative domain bounds: a method declares the
+embedding regions and topic taxonomies in which it is allowed to
+operate, and the firm refuses or down-grades conclusions outside those
+bounds.
+
+Before you start — read:
+1. `noosphere/noosphere/coherence/locality.py` — the existing locality
+   index (Round 15) is the right primitive to reuse here.
+2. `noosphere/noosphere/methods/extract_methodology.py` and the broader
+   methods/ tree.
+3. `theseus-codex/prisma/schema.prisma` — verify what `DomainTag` /
+   topic vocabulary already exists.
+4. `noosphere/noosphere/embeddings.py` — embedding model + dim.
+
+Implement:
+
+A. Domain declaration syntax. Each method registers a domain bound via a
+   `domain: DomainBound` field on the decorator. `DomainBound` accepts
+   one of: a list of explicit topic tags from the firm's vocabulary, a
+   set of "anchor" embedding centroids with a max angular distance, or
+   a logical combination of the two. Provide a deterministic loader.
+
+B. Add `noosphere/noosphere/methods/domain_bounds.py` implementing the
+   anchor-centroid distance check and the tag-set check. The check
+   returns one of {in_bounds, edge_case, out_of_bounds} with a numeric
+   margin. Edge_case triggers a softer warning, not a hard refusal.
+
+C. Refusal pipeline. When a method is invoked on a conclusion outside
+   bounds, the orchestrator routes through a refusal helper rather than
+   silently producing output. The refusal is recorded in the ledger
+   with the failing margin and the method+conclusion ids. Surface this
+   to MQS as Domain Sensitivity = 0 and gate the composite to 0
+   regardless of other sub-scores.
+
+D. Anchor curation. Add a CLI subcommand
+   `noosphere methods anchors propose <method>` that proposes anchor
+   centroids from the conclusions historically labeled in-domain for
+   that method (k-medoids on their embeddings). The human edits +
+   accepts; nothing auto-commits.
+
+E. UI. The conclusion detail page shows, for each method that ran, a
+   small "in domain" / "edge" / "out" badge with hover-tooltip
+   explaining the margin. The methods graph page (prompt 05) gets a
+   "domain coverage" mini-map — which embedding regions are covered by
+   any method at all.
+
+F. Tests: synthetic embeddings + tags + anchors, exercise all three
+   verdicts; assert the refusal helper writes the ledger entry; assert
+   that an out-of-bounds run gates MQS composite to 0.
+
+Constraints
+- Anchors are versioned. Re-curating anchors creates a new
+  AnchorRevision rather than mutating the old one; older conclusions
+  retain the verdict produced by the anchors that were active at run
+  time.
+- The anchor-distance metric is angular cosine, not Euclidean. The
+  threshold lives in the method declaration, not as a global default.
+- Do not invent a new embedding model. Use whatever the codebase
+  already canonicalizes in noosphere/embeddings.py; if there are
+  multiple models in flight, anchors store a `embedding_model`
+  identifier and refuse cross-model comparisons.
+
+SCOPE
+- `noosphere/noosphere/methods/_decorator.py` MODIFY
+- `noosphere/noosphere/methods/domain_bounds.py` CREATE
+- `noosphere/noosphere/methods/anchor_curator.py` CREATE
+- `noosphere/noosphere/cli_commands/methods.py` MODIFY
+- `noosphere/tests/test_domain_bounds.py` CREATE
+- `theseus-codex/prisma/schema.prisma` MODIFY
+- `theseus-codex/src/components/DomainBoundBadge.tsx` CREATE
+- `theseus-codex/src/app/(authed)/methods/graph/page.tsx` MODIFY

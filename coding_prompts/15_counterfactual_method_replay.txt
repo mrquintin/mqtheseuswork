@@ -1,0 +1,67 @@
+You are operating in /Users/michaelquintin/Desktop/Theseus.
+
+Goal: a counterfactual replay engine. For any past resolved forecast or
+published opinion, the firm should be able to ask: "what if we had used
+method X instead of Y? Would we have done better?" This is essential to
+distinguish luck from skill, and to make the methods registry an
+empirical comparator rather than a vibes-based catalog.
+
+Before you start — read:
+1. `noosphere/noosphere/temporal_replay.py` — there is an existing
+   replay scaffold; reuse and extend.
+2. `noosphere/noosphere/methods/_registry.py`.
+3. The MQS work (prompt 01), method-outcome linkage (prompt 02), and
+   the calibration scorecard (prompt 12) — counterfactual replay
+   leans on all three.
+
+Implement:
+
+A. Replay engine in
+   `noosphere/noosphere/evaluation/counterfactual_replay.py`. Given
+   (Conclusion, alternative_method), reconstruct the inputs the
+   alternative method would have seen at the conclusion's
+   creation time (sources, embeddings, prior firm state) — using the
+   ledger's time replay primitives — and run the alternative method.
+   Output: an alternative confidence + reasoning trace.
+
+B. Comparison metric. For every (resolved forecast, alternative
+   method) pair, score by absolute Brier difference. Aggregate per
+   alternative method to produce a "would-have-been-better" matrix.
+
+C. CLI: `noosphere replay counterfactual --conclusion <id> --method
+   <name>` prints a side-by-side; `--all-methods` runs every
+   compatible method.
+
+D. UI. Founder workspace gets a
+   `(authed)/counterfactual/page.tsx` showing the would-have-been-
+   better matrix with sample-size pills. Drill-down per cell shows
+   the worked examples.
+
+E. Public surface — restrained. Add a single line to the calibration
+   scorecard: "alternative-method analysis available privately". Do
+   not publish counterfactual numbers; they will be misread (people
+   will assume the firm should have used the best-cell method,
+   ignoring that domain bounds and inputs differed).
+
+F. Tests on a synthetic ledger with two methods of known relative
+   performance; assert the engine reproduces the relative ranking.
+
+Constraints
+- The replay must be bounded by data the firm actually had at the
+  time. Anachronism is the central failure mode. Time-replay must
+  respect the existing ledger's `as_of` semantics; do not invent.
+- Method compatibility: not every method can be re-run on every
+  conclusion (extract_methodology cannot be replayed against a
+  conclusion that did not have a transcript). The engine errors loud
+  on incompatibility.
+- Caching: a counterfactual run is expensive; cache by
+  (method_version, conclusion_id, ledger_snapshot_id).
+
+SCOPE
+- `noosphere/noosphere/evaluation/counterfactual_replay.py` CREATE
+- `noosphere/noosphere/temporal_replay.py` MODIFY
+- `noosphere/noosphere/cli_commands/replay.py` CREATE
+- `noosphere/tests/test_counterfactual_replay.py` CREATE
+- `theseus-codex/src/app/(authed)/counterfactual/page.tsx` CREATE
+- `theseus-codex/src/lib/counterfactualReplayApi.ts` CREATE
+- `theseus-codex/src/app/calibration/page.tsx` MODIFY

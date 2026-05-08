@@ -1,0 +1,69 @@
+You are operating in /Users/michaelquintin/Desktop/Theseus.
+
+Goal: close the resolution loop on outstanding firm forecasts. Many of
+the firm's forecasts are tied to Polymarket / Kalshi markets that have
+since resolved. The firm should not require a human to walk through
+each one — the backfiller pulls resolutions from the relevant venues
+and writes ForecastResolution rows.
+
+Before you start — read:
+1. `noosphere/noosphere/forecasts/_polymarket_client.py`,
+   `_polymarket_live_client.py`, `_kalshi_client.py`,
+   `_kalshi_live_client.py`.
+2. `noosphere/noosphere/forecasts/resolution_tracker.py`.
+3. The schema for `ForecastResolution` in
+   `theseus-codex/prisma/schema.prisma`.
+4. `noosphere/noosphere/forecasts/budget.py` to understand existing
+   API budget envelopes.
+
+Implement:
+
+A. Backfill driver in
+   `noosphere/noosphere/forecasts/resolution_backfill.py` that walks
+   every `ForecastPrediction` whose linked market has resolved upstream
+   but lacks a `ForecastResolution` row, and writes the resolution.
+   Idempotent.
+
+B. Venue adapters. Polymarket and Kalshi each get a
+   `fetch_resolution(market_id) -> Optional[ResolutionRecord]` method
+   on the existing client classes. Resolution records carry: outcome,
+   resolution timestamp, source URL, and a venue-specific raw payload
+   for audit.
+
+C. Discrepancy handling. If the venue reports a resolution but the
+   firm has manually overridden it (some forecast types resolve
+   off-venue — e.g. a court ruling), the override wins and the venue
+   discrepancy is recorded. The override mechanism must be auditable —
+   a `ResolutionOverride` row with reason, citation, founder id.
+
+D. CLI. `noosphere forecasts backfill-resolutions
+   [--venue polymarket|kalshi|all] [--since DATE]`. Dry-run flag
+   prints what would be written without committing.
+
+E. Recompute. After a backfill batch, automatically recompute the
+   public calibration manifest (prompt 12) and the per-method track
+   record (prompt 02). Do not let stale aggregates linger.
+
+F. Tests. Mock the venue clients; assert: idempotent re-runs, override
+   precedence, discrepancy logging, recomputation triggers.
+
+Constraints
+- Do not silently retro-resolve a prediction whose `target_date` is
+  more than 7 days after the venue's resolution date — that signals a
+  market mismatch (firm's forecast was about a different question).
+  Such cases write a `ResolutionMismatch` row for human review and
+  skip the resolution write.
+- Budget: a single backfill run honors the existing forecast budget
+  cap. Partial completion is acceptable; the next run resumes.
+- Do not delete or overwrite existing `ForecastResolution` rows. New
+  evidence creates a `ResolutionRevision`.
+
+SCOPE
+- `noosphere/noosphere/forecasts/resolution_backfill.py` CREATE
+- `noosphere/noosphere/forecasts/_polymarket_client.py` MODIFY
+- `noosphere/noosphere/forecasts/_kalshi_client.py` MODIFY
+- `noosphere/noosphere/forecasts/resolution_tracker.py` MODIFY
+- `noosphere/noosphere/cli_commands/forecasts.py` MODIFY (or CREATE if absent)
+- `noosphere/tests/test_resolution_backfill.py` CREATE
+- `theseus-codex/prisma/schema.prisma` MODIFY
+- `theseus-codex/src/app/(authed)/forecasts/page.tsx` MODIFY

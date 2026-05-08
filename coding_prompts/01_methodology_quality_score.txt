@@ -1,0 +1,92 @@
+You are operating in /Users/michaelquintin/Desktop/Theseus.
+
+Goal: turn the five working criteria from THE_META_METHOD.md (Progressivity,
+Severity, Aim-Method Fit, Compressibility, Domain Sensitivity) into a
+per-conclusion Methodology Quality Score (MQS) that the firm can compute,
+display, and re-evaluate. Right now those criteria live only in prose; they
+should become an operational evaluation layer attached to every Conclusion
+that has an associated MethodologyProfile.
+
+Why this matters: the firm has staked its identity on being about HOW to
+arrive at truth, not which truths. A criterion the firm cannot compute is a
+criterion the firm cannot improve. The five working criteria must therefore
+become numerical, audit-ready, and visible in both the founder workspace
+and (in summary form) on public articles.
+
+Before you start — read:
+1. `THE_META_METHOD.md` — the source-of-truth definitions of the five
+   criteria. Read it carefully; the implementation must reflect what the
+   criteria actually mean (e.g. severity is not just "is there a
+   counterexample listed" — it asks whether the test would have caught
+   the claim if false).
+2. `noosphere/noosphere/methodology.py` and
+   `noosphere/noosphere/codex_methodology.py` — current methodology
+   profile shape and persistence.
+3. `noosphere/noosphere/methods/extract_methodology.py` — how methodology
+   is currently extracted from a transcript/document.
+4. `theseus-codex/prisma/schema.prisma` — `MethodologyProfile` model and
+   its relations to `Conclusion`. Look for any existing score columns;
+   you will add MQS columns rather than overwrite.
+5. `theseus-codex/src/lib/methodologyProfiles.ts` — current bridge.
+6. `noosphere/noosphere/evaluation/metrics.py` — the firm's existing
+   metric vocabulary; align with it.
+
+Implement:
+
+A. Define the MQS as a Pydantic model in noosphere with five sub-scores
+   (each in [0,1]) and a composite. Specify each sub-score with: a written
+   rubric, the inputs the rubric reads (claim text, methodology profile
+   fields, available evidence/objections, prior outcomes if any), and an
+   `evidence` JSON blob explaining the score so a human reviewer can
+   contest it. The composite must NOT be a simple mean — Domain Sensitivity
+   acts as a gate (low domain fit caps the rest).
+
+B. Implement an MQS scorer in `noosphere/noosphere/evaluation/mqs.py` that
+   produces an MQS for a Conclusion using LLM judging where structured
+   reasoning is required, and deterministic logic where it is not (e.g.
+   Progressivity is partially deterministic: does the conclusion have any
+   ForecastPrediction or check-back date attached?). Make the scorer
+   composable with the existing peer review swarm so MQS becomes one more
+   reviewer, not a competing system.
+
+C. Persist MQS rows: a new Prisma model `MethodologyQualityScore` linked
+   1:1 with `Conclusion`, with the five sub-scores, the composite, the
+   evidence JSON, and the model+prompt-version that produced it. Do not
+   embed it in `MethodologyProfile`; the score should be re-runnable
+   without rewriting the profile.
+
+D. Backfill: add a CLI subcommand `noosphere mqs backfill` that scores all
+   conclusions missing an MQS, idempotently. Mirror the structure of the
+   existing methodology backfill script.
+
+E. Surface MQS:
+   - Founder side: add an MQS card to the conclusion detail page in
+     `theseus-codex/src/app/(authed)/conclusions/[id]/` with the five
+     sub-scores as a small radial chart and the rubric evidence below.
+   - Public side: add a single composite MQS pill to the published
+     article view (no evidence — just the score and a link to the
+     methodology page that explains how MQS is computed).
+
+F. Tests: at minimum, a deterministic test that fixes the LLM judge to a
+   stub, asserts the gate behavior on Domain Sensitivity, and asserts the
+   evidence schema round-trips through Prisma without loss.
+
+Constraints
+- Do not silently change any existing methodology field. MQS is additive.
+- The composite formula must be documented in
+  `docs/methods/MQS_Specification.md` (LaTeX optional). The doc and the
+  code must agree; CI should fail if they drift.
+- Public article display shows the score only when the conclusion is
+  published AND has an MQS that is fresher than the conclusion's last
+  edit.
+
+SCOPE
+- `noosphere/noosphere/evaluation/mqs.py` CREATE
+- `noosphere/noosphere/cli_commands/mqs.py` CREATE
+- `noosphere/tests/test_mqs.py` CREATE
+- `theseus-codex/prisma/schema.prisma` MODIFY
+- `theseus-codex/src/lib/methodologyProfiles.ts` MODIFY
+- `theseus-codex/src/app/(authed)/conclusions/[id]/MqsCard.tsx` CREATE
+- `theseus-codex/src/components/MqsPill.tsx` CREATE
+- `docs/methods/MQS_Specification.md` CREATE
+- `scripts/check_mqs_doc_consistency.py` CREATE

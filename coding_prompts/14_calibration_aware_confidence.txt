@@ -1,0 +1,64 @@
+You are operating in /Users/michaelquintin/Desktop/Theseus.
+
+Goal: when the firm displays a confidence (a percentage on a forecast,
+a confidence tier on a conclusion), that number should be conditioned
+on the firm's actual calibration history rather than taken at face
+value from the producing model. If the firm's "70% confident"
+conclusions historically resolve at 55%, the public should see that
+context.
+
+Before you start — read:
+1. The public calibration scorecard from prompt 12.
+2. `theseus-codex/src/components/ConfidenceTierSigil.tsx`.
+3. `noosphere/noosphere/coherence/calibration.py`.
+4. `theseus-codex/src/lib/calibrationData.ts` (created in prompt 12).
+
+Implement:
+
+A. Recalibration model. Implement an isotonic regression in
+   `noosphere/noosphere/coherence/recalibration.py` mapping raw
+   confidence → calibrated confidence using only resolved forecasts.
+   Re-fit weekly, persisted as a versioned `CalibrationModel` row in
+   Prisma. Each model carries a fit timestamp, sample size, and
+   training-resolution hash so a UI can pinpoint exactly which model
+   produced a displayed number.
+
+B. Display layer. Update `ConfidenceTierSigil.tsx` (and any other
+   confidence display component) to render the raw number AND, when
+   the calibration model has sufficient sample size for that domain,
+   the calibrated number. The calibrated number is presented as
+   "calibrated estimate: X%" with a hover-tooltip linking to the
+   scorecard. If sample size is insufficient, show only the raw
+   number with a "uncalibrated — small sample" tag.
+
+C. Admin override. A founder can opt a specific conclusion out of
+   recalibration display (e.g. when the conclusion is itself the
+   subject of a methodology change). Override is logged.
+
+D. API surface. `GET /api/public/calibration/recalibrate?p=<float>&domain=<str>`
+   returns the calibrated probability + the calibration model id used.
+
+E. Conservative-by-default. Until the calibration model has at least
+   N=20 resolutions for a domain, recalibration is disabled in that
+   domain. The threshold lives in a config value, not a magic number.
+
+F. Tests on isotonic fit + display threshold + override behavior.
+
+Constraints
+- The recalibration is one-directional in display: it does NOT mutate
+  the stored raw confidence. The raw is the firm's stated belief; the
+  calibrated is its track-record-conditional translation.
+- Domain partitioning matters. A firm strong in macro and weak in
+  geopolitics should not have its macro track record flatter its
+  geopolitics confidence. The default is: separate calibration models
+  per declared domain.
+- Do not display calibrated numbers with more precision than the raw.
+
+SCOPE
+- `noosphere/noosphere/coherence/recalibration.py` CREATE
+- `noosphere/noosphere/forecasts/scheduler.py` MODIFY
+- `noosphere/tests/test_recalibration.py` CREATE
+- `theseus-codex/prisma/schema.prisma` MODIFY
+- `theseus-codex/src/components/ConfidenceTierSigil.tsx` MODIFY
+- `theseus-codex/src/app/api/public/calibration/recalibrate/route.ts` CREATE
+- `theseus-codex/src/lib/recalibration.ts` CREATE

@@ -1,0 +1,69 @@
+You are operating in /Users/michaelquintin/Desktop/Theseus.
+
+Goal: an ablation study on the Householder reflection step inside the
+contradiction-geometry pipeline. The reflection is part of the firm's
+unique claim — that contradicting claims live in a learned reflection
+direction in embedding space. The ablation answers: what does the
+reflection contribute, separately from the difference vector and from
+the learned direction? Is it pulling its weight or is it an artifact
+inherited from an earlier prototype?
+
+Before you start — read:
+1. `noosphere/noosphere/methods/contradiction_geometry.py` — current
+   implementation.
+2. `noosphere/noosphere/coherence/contradiction_direction.py`.
+3. `ideologicalOntology/Contradiction_Geometry/` — any rationale that
+   motivates the reflection step.
+
+Implement:
+
+A. Variant runners in
+   `noosphere/noosphere/benchmarks/qh_ablations.py`:
+   (1) full pipeline (control)
+   (2) no reflection (skip the Householder step, otherwise identical)
+   (3) random reflection (replace the learned reflection with a random
+       unit vector, fixed seed)
+   (4) reflection only on positive instances (asymmetric ablation)
+   (5) reflection on raw embedding rather than difference vector
+   Each variant must produce results on the QH benchmark from prompt 08.
+
+B. Statistical test: paired McNemar on per-item correctness between
+   control and each variant. Report effect size and CI alongside
+   p-values; the firm should not over-interpret a marginal p<0.05 on
+   1,000 items.
+
+C. Decision rule. If the no-reflection variant is statistically
+   indistinguishable from the control on the benchmark (and on any
+   firm-internal eval set), the firm has a choice: (a) keep the step
+   for principled reasons documented in a new RATIONALE entry, (b)
+   remove it. The prompt does not pre-commit to either; it asks the
+   agent to write the analysis honestly and produce a recommendation
+   in the PDF.
+
+D. Auto-generated PDF: `docs/research/Householder_Ablation.pdf` and
+   `.tex`. Numbers from code, no hand-edits.
+
+E. Public methodology page update. The contradiction-geometry method
+   page (`/methodology/contradiction_geometry/`) gets a "What we
+   tested" section linking the ablation PDF.
+
+F. Tests on the harness itself, with a fake embedding function so the
+   ablation can run deterministically in CI.
+
+Constraints
+- The ablation must use exactly the production
+  contradiction-geometry code path for the control. If a fork is
+  needed, the fork must be a thin wrapper, not a re-implementation.
+- The benchmark items used must be the v1 frozen set from prompt 08.
+  Do not silently regenerate.
+- If the no-reflection variant wins, do not edit the production code
+  in this prompt. Code change would require a separate prompt with a
+  full review trail. This prompt is research, not refactor.
+
+SCOPE
+- `noosphere/noosphere/benchmarks/qh_ablations.py` CREATE
+- `noosphere/scripts/run_householder_ablation.sh` CREATE
+- `noosphere/tests/test_qh_ablations.py` CREATE
+- `docs/research/Householder_Ablation.tex` CREATE
+- `docs/research/Householder_Ablation.pdf` CREATE
+- `theseus-codex/src/app/methodology/contradiction_geometry/page.tsx` MODIFY

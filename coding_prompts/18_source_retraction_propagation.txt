@@ -1,0 +1,67 @@
+You are operating in /Users/michaelquintin/Desktop/Theseus.
+
+Goal: when a source the firm has cited gets retracted, corrected, or
+otherwise loses standing, the firm's downstream conclusions and
+articles must surface the change automatically. Right now a retracted
+paper that the firm cited continues to look like a clean citation in
+the public article view; that is a credibility bomb.
+
+Before you start — read:
+1. `noosphere/noosphere/literature.py` — current external literature
+   handling.
+2. `theseus-codex/src/lib/oracleCitations.ts` — citation resolution.
+3. The lineage work from prompt 17.
+4. The revision engine from prompt 16.
+
+Implement:
+
+A. Source standing model. Add to Prisma a `SourceStanding` row keyed
+   by source identifier (DOI / URL hash) with an enum status
+   {ACTIVE, RETRACTED, CORRECTED, DISPUTED, EXPIRED} and a free-text
+   reason. Status transitions are append-only.
+
+B. External pollers. Implement
+   `noosphere/noosphere/literature/standing_polls/` with adapters
+   for at minimum: Retraction Watch (where a feed exists), arXiv
+   withdrawal flags, and a generic URL-fetcher that detects HTTP 410
+   / DNS death / page replacement. Pollers run on the existing
+   noosphere scheduler, write SourceStanding rows.
+
+C. Cascade. When a SourceStanding flips to RETRACTED or CORRECTED,
+   trigger the revision engine (prompt 16) for every Conclusion
+   that cites that source. The revision input is "evidence weight
+   removed", not "evidence weight inverted" (a retracted paper does
+   not become evidence for the opposite claim).
+
+D. Public surface. Conclusions and articles that cite a non-ACTIVE
+   source render the citation with a status pill (red for retracted,
+   amber for disputed). The article view links to a "this source has
+   been retracted" explainer.
+
+E. Founder triage queue. New non-ACTIVE standing events that affect
+   firm conclusions land in a triage queue at
+   `(authed)/source-triage/page.tsx`. The founder must explicitly
+   confirm or override each propagation.
+
+F. Tests on synthetic source pollers + mock retractions. Assert:
+   no propagation for ACTIVE→ACTIVE no-ops; revision triggered for
+   ACTIVE→RETRACTED; idempotent re-poll.
+
+Constraints
+- A retraction notice is itself a source; record its provenance.
+- Source identity is hard. Two URLs may point to the same paper.
+  Adopt a deterministic canonicalization rule (DOI > arXiv ID >
+  normalized URL) and document it.
+- The poller honors robots.txt and per-host rate limits. No silent
+  bypass.
+
+SCOPE
+- `noosphere/noosphere/literature/standing.py` CREATE
+- `noosphere/noosphere/literature/standing_polls/__init__.py` CREATE
+- `noosphere/noosphere/literature/standing_polls/retraction_watch.py` CREATE
+- `noosphere/noosphere/literature/standing_polls/arxiv.py` CREATE
+- `noosphere/noosphere/literature/standing_polls/generic_url.py` CREATE
+- `noosphere/tests/test_source_standing.py` CREATE
+- `theseus-codex/prisma/schema.prisma` MODIFY
+- `theseus-codex/src/app/(authed)/source-triage/page.tsx` CREATE
+- `theseus-codex/src/components/CitationPopover.tsx` MODIFY

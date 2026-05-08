@@ -1,0 +1,81 @@
+You are operating in /Users/michaelquintin/Desktop/Theseus.
+
+Goal: every registered method gets a curated failure-mode catalog —
+human-edited, machine-checked, exposed both to the founder workspace
+during conclusion review and to the public methodology page. A method
+without a documented failure mode is a method whose limits the firm has
+not actually thought about; the catalog forces that thinking and prevents
+the slow drift toward treating each method as universally applicable.
+
+Before you start — read:
+1. `noosphere/noosphere/methods/_registry.py` — registry shape; methods
+   already carry RATIONALE markdown.
+2. `noosphere/noosphere/methods/*.RATIONALE.md` — the existing rationales
+   are the right precedent; failure-mode docs should sit alongside.
+3. `THE_META_METHOD.md` — Domain Sensitivity criterion.
+4. `theseus-codex/src/app/methodology/` — current public methodology
+   surface.
+5. `noosphere/noosphere/peer_review/reviewers/` — these reviewers can
+   exploit the failure-mode catalog as priors when red-teaming.
+
+Implement:
+
+A. Define a `FailureMode` schema (YAML stored alongside each method as
+   `<method>.FAILURES.yaml`) with fields: name, description (≥ 2
+   sentences), worked example (≥ 1 historical or constructed case),
+   trigger conditions (free-text), mitigation suggestion, severity
+   estimate ∈ {low, medium, high}, and citation list. The schema must
+   be validated by a strict Pydantic loader at module import time;
+   missing or malformed catalogs must fail CI, not warn.
+
+B. Implement `noosphere/noosphere/methods/failure_modes.py` to load,
+   validate, query, and merge failure catalogs across methods. Provide a
+   query API: `failure_modes_for(method, conclusion)` that returns the
+   catalog filtered to the entries whose trigger conditions plausibly
+   apply to the conclusion (LLM-assisted match — use a deterministic
+   threshold and persist the match decision so it is auditable).
+
+C. Wire it into peer review. The blindspot reviewer
+   (`noosphere/noosphere/peer_review/blindspot.py`) and the inverse
+   reviewer (`noosphere/noosphere/peer_review/inverse.py`) take the
+   filtered failure modes as priors for objection generation. Reviewers
+   cite which failure mode they're operationalizing in each objection.
+
+D. Founder UI. On the conclusion detail page, add a Failure Modes card
+   that lists the matched modes and exposes the "Was this mode
+   considered?" affirmation. The reviewer cannot publish without
+   acknowledging each high-severity matched mode (acknowledge ≠ accept;
+   it just means: "I saw it and here is my response").
+
+E. Public UI. On `theseus-codex/src/app/methodology/[method]/page.tsx`,
+   render the catalog as a collapsible list. Public visibility shows
+   only entries where `public: true` is set; default is private to give
+   the firm room to develop catalogs internally first.
+
+F. Author-time tooling. CLI: `noosphere methods failures init <method>`
+   scaffolds the YAML; `noosphere methods failures lint` validates all
+   catalogs.
+
+Constraints
+- The LLM-assisted match in (B) must persist its decision (input hash,
+  match output, model+prompt version) so the same conclusion repeated
+  yields the same matched set without paying for inference twice.
+- A method may have zero failure modes only if explicitly opted out
+  with `failures: deliberately-empty` and a justification ≥ 2 sentences.
+  CI fails otherwise.
+- Do not auto-generate failure modes from LLMs as the primary source.
+  The catalog is a curated artifact. LLM may suggest, the human must
+  approve.
+
+SCOPE
+- `noosphere/noosphere/methods/failure_modes.py` CREATE
+- `noosphere/noosphere/methods/six_layer_coherence.FAILURES.yaml` CREATE
+- `noosphere/noosphere/methods/contradiction_geometry.FAILURES.yaml` CREATE
+- `noosphere/noosphere/methods/extract_methodology.FAILURES.yaml` CREATE
+- `noosphere/noosphere/methods/synthesize_conclusion.FAILURES.yaml` CREATE
+- `noosphere/noosphere/peer_review/blindspot.py` MODIFY
+- `noosphere/noosphere/peer_review/inverse.py` MODIFY
+- `noosphere/noosphere/cli_commands/methods.py` MODIFY
+- `noosphere/tests/test_failure_modes.py` CREATE
+- `theseus-codex/src/app/(authed)/conclusions/[id]/FailureModesCard.tsx` CREATE
+- `theseus-codex/src/app/methodology/[method]/page.tsx` MODIFY

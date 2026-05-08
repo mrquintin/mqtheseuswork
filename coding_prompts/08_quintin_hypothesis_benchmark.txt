@@ -1,0 +1,77 @@
+You are operating in /Users/michaelquintin/Desktop/Theseus.
+
+Goal: build a standardized, public, replicable benchmark for the Quintin
+Hypothesis (logical coherence as a geometric property of embedding
+space). Right now the contradiction-geometry experiments live as ad-hoc
+notebooks and rationale files. The hypothesis is either an empirical
+claim or it is not — the firm should treat it as an empirical claim and
+publish a benchmark dataset, a benchmark harness, and a leaderboard the
+firm itself can lose on.
+
+Before you start — read:
+1. `ideologicalOntology/Contradiction_Geometry/` and
+   `ideologicalOntology/Embedding_Geometry_Conjecture/` — the existing
+   research and experiment artifacts.
+2. `noosphere/noosphere/methods/contradiction_geometry.py` and
+   `contradiction_probe.py` — current production implementations.
+3. `noosphere/noosphere/coherence/contradiction_direction.py` — the
+   learned-direction logic.
+
+Implement:
+
+A. Dataset format. Define a frozen JSONL schema for benchmark items:
+   each item is (premise, candidate_continuation, label ∈
+   {coherent, contradicting, orthogonal}, source, license). The schema
+   is published in `docs/benchmarks/QH_Benchmark_Schema.md`.
+
+B. Seed dataset. Curate v1 of the dataset under
+   `benchmarks/quintin_hypothesis/v1/` with at minimum 1,000 items
+   spanning at least three topical domains. Items must be either
+   firm-authored or drawn from public-domain sources with explicit
+   licensing. No silent inclusion of copyrighted material.
+
+C. Benchmark harness. `noosphere/noosphere/benchmarks/qh_runner.py`
+   accepts a model identifier, runs the contradiction-geometry probe on
+   every item, and writes a results JSON with: per-item predicted
+   label, predicted score, latency. Three baseline runners: (1) random,
+   (2) cosine-only, (3) the firm's full contradiction-geometry probe.
+   Reproducibility: fixed seed, fixed model versions, recorded git SHA.
+
+D. Metrics. Compute accuracy, AUROC (treating coherent vs contradicting
+   as binary), and a calibration ECE. Output a JSON metrics report and
+   a Markdown summary. Both written under `benchmarks/quintin_hypothesis/v1/results/`.
+
+E. CLI. `noosphere benchmark qh --runner <name>` runs end-to-end.
+   `--validate` checks that no benchmark item appears in the firm's
+   training/conditioning set (data leakage guard).
+
+F. Public publication. Add `theseus-codex/src/app/methodology/benchmark/qh/page.tsx`
+   that renders the leaderboard, the dataset card, the metrics, and a
+   link to download the dataset (v1 frozen). The page must be honest:
+   if cosine-only beats the firm's probe on a slice, show it.
+
+G. CI. A nightly job re-runs the benchmark against a pinned model and
+   uploads the result; the page surfaces the trend. Drift on this
+   benchmark is a much louder alert than method drift — it is the firm
+   losing its own thesis.
+
+Constraints
+- Do not modify the contradiction-geometry production code to "match"
+  the benchmark. The benchmark is downstream evidence; if the
+  production code fails, that is the finding.
+- Items must be deduplicated by paraphrase. Use a near-duplicate
+  filter (n-gram + embedding) at curation time.
+- The benchmark version is immutable once published. Improvements ship
+  as v2 with separate tracking.
+
+SCOPE
+- `benchmarks/quintin_hypothesis/v1/dataset.jsonl` CREATE
+- `benchmarks/quintin_hypothesis/v1/dataset_card.md` CREATE
+- `noosphere/noosphere/benchmarks/__init__.py` CREATE
+- `noosphere/noosphere/benchmarks/qh_runner.py` CREATE
+- `noosphere/noosphere/benchmarks/qh_metrics.py` CREATE
+- `noosphere/noosphere/cli_commands/benchmark.py` CREATE
+- `noosphere/tests/test_qh_benchmark.py` CREATE
+- `docs/benchmarks/QH_Benchmark_Schema.md` CREATE
+- `theseus-codex/src/app/methodology/benchmark/qh/page.tsx` CREATE
+- `.github/workflows/qh_benchmark.yml` CREATE

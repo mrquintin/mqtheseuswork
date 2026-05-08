@@ -1,0 +1,81 @@
+You are operating in /Users/michaelquintin/Desktop/Theseus.
+
+Goal: build the method-outcome linkage so the firm can answer "of all
+conclusions reached using method M, what is the realized track record?"
+This converts the methods registry from a static catalog into a measured
+empirical artifact. Without this, MQS (prompt 01) is judged in a vacuum.
+
+The link must run in both directions:
+- Method → Conclusions reached with that method → ForecastPredictions →
+  ForecastResolutions
+- Conclusion → which method produced it (already partially captured in
+  MethodologyProfile)
+
+Before you start — read:
+1. `noosphere/noosphere/methods/_registry.py` — the method registry and
+   decorator system.
+2. `noosphere/noosphere/forecasts/resolution_tracker.py` — how resolutions
+   are currently captured.
+3. `theseus-codex/prisma/schema.prisma`, especially `ForecastPrediction`,
+   `ForecastResolution`, `MethodologyProfile`, `Conclusion`.
+4. `noosphere/noosphere/forecasts/forecast_generator.py` — how
+   conclusions become forecast predictions today (or whether the linkage
+   is implicit).
+5. `theseus-codex/src/lib/forecastPortfolioData.ts` — the existing
+   portfolio aggregation surface.
+
+Implement:
+
+A. Schema. Add a join model `ConclusionMethod` (Conclusion ↔ Method) with
+   a `weight` ∈ [0,1] capturing how much that method contributed to that
+   conclusion (a single conclusion may compose multiple methods). Add a
+   `MethodTrackRecord` model that materializes per-method aggregates:
+   resolved-prediction count, weighted Brier, calibration slope, severity
+   pass rate. Materialized rather than computed on every page load — but
+   the materialization job must be idempotent and cheap to re-run.
+
+B. Backfill linker. Implement
+   `noosphere/noosphere/evaluation/method_outcome_linker.py` that walks
+   every Conclusion with a MethodologyProfile, infers which registered
+   methods produced it (LLM judge with the registry as the closed
+   vocabulary), and writes ConclusionMethod rows. Idempotent: re-running
+   updates weights rather than appending duplicates.
+
+C. Aggregator. Implement
+   `noosphere/noosphere/evaluation/method_track_record.py` that rolls up
+   resolved ForecastPredictions linked to each method through
+   ConclusionMethod, weighted by `weight`. Output schema must include
+   sample size and a p-value or bootstrap CI on the calibration slope so
+   the UI can show "n=12 — confidence band wide" rather than implying
+   precision the data does not have.
+
+D. CLI. `noosphere methods track-record` prints a table; same command
+   with `--rebuild` triggers the linker + aggregator pipeline.
+
+E. UI. Add a "Track record" card on the methods page in the founder
+   workspace at
+   `theseus-codex/src/app/(authed)/methods/[name]/`. On the public site,
+   add a `/methodology/[method]/track-record` page that shows the same
+   numbers (sample size, calibration slope CI) at the public-visibility
+   level only.
+
+F. Coupling with MQS (prompt 01): the Severity sub-score may consult
+   MethodTrackRecord — methods with thin or poor track records cannot
+   score high on Severity for new conclusions in their domain.
+
+Constraints
+- Do not auto-publish any track-record page until sample size ≥ 5.
+- Do not mix unresolved predictions into the slope estimator. Resolution
+  status must be a hard filter.
+- The aggregator must NOT silently smooth across domains. Track record
+  is computed per-domain when domain labels exist on the conclusions.
+
+SCOPE
+- `noosphere/noosphere/evaluation/method_outcome_linker.py` CREATE
+- `noosphere/noosphere/evaluation/method_track_record.py` CREATE
+- `noosphere/noosphere/cli_commands/methods.py` MODIFY
+- `noosphere/tests/test_method_track_record.py` CREATE
+- `theseus-codex/prisma/schema.prisma` MODIFY
+- `theseus-codex/src/app/(authed)/methods/[name]/page.tsx` MODIFY
+- `theseus-codex/src/app/methodology/[method]/track-record/page.tsx` CREATE
+- `theseus-codex/src/lib/methodTrackRecord.ts` CREATE

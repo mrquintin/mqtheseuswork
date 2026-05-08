@@ -5,7 +5,10 @@ import { listForecasts } from "@/lib/forecastsApi";
 import type { PublicForecast } from "@/lib/forecastsTypes";
 import { SITE } from "@/lib/site";
 
-export const revalidate = 15;
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
+
+const SEED_FETCH_TIMEOUT_MS = 8_000;
 
 function meanBrierDescription(value: number | null | undefined): string {
   if (value === null || value === undefined || !Number.isFinite(value)) {
@@ -51,7 +54,7 @@ export default async function ForecastsPage() {
   try {
     const resp = await listForecasts(
       { limit: 20, seeded: true },
-      { next: { revalidate: 15, tags: ["forecasts-seed"] } },
+      { cache: "no-store", timeoutMs: SEED_FETCH_TIMEOUT_MS },
     );
     seed = Array.isArray(resp.items) ? resp.items : [];
   } catch (err) {

@@ -1,0 +1,67 @@
+You are operating in /Users/michaelquintin/Desktop/Theseus.
+
+Goal: a citation-chain validator. When the firm publishes "X supports
+Y, see source S," the validator confirms that source S actually
+supports X — at the textual level, not at the "we cited it" level.
+This catches the most common credibility failure mode: paraphrasing
+drift, where a chain of citations slowly turns the original source
+into something its author would not endorse.
+
+Before you start — read:
+1. `theseus-codex/src/lib/oracleCitations.ts`.
+2. `noosphere/noosphere/methods/external_claim_match.py`.
+3. The source-standing and credibility work from prompts 18–19.
+
+Implement:
+
+A. Validator in
+   `noosphere/noosphere/literature/citation_chain.py`. For each
+   `OpinionCitation` / `ForecastCitation` / `ConclusionSource`,
+   extract: (a) the firm's stated claim about the source, (b) the
+   underlying source text excerpt, (c) the relation type (supports /
+   contradicts / qualifies / mentions). Run an NLI-style judge with
+   the existing `noosphere/noosphere/methods/nli_scorer.py` and
+   record an entailment verdict per citation.
+
+B. Verdict schema. Each verdict carries: relation_holds ∈
+   {entails, contradicts, neutral, ambiguous}, confidence ∈ [0,1],
+   excerpt_used, model_version. Persist as
+   `CitationVerdict` rows.
+
+C. Failure handling. When a verdict is `contradicts` or `neutral`
+   on a `supports` citation, surface in the founder triage queue
+   (extend prompt 18's queue). The article cannot be published
+   until every supports-citation has at least an `entails` or
+   `ambiguous` verdict, or an explicit founder override with a
+   reason.
+
+D. Public surface. CitationPopover shows the verdict pill (green
+   for entails, red for contradicts, gray for ambiguous). The
+   public reader sees that the firm checks its own citations.
+
+E. Recompute trigger. When a source's standing changes (prompt 18)
+   or the source text is updated (a journal correction), every
+   citation against that source is re-validated.
+
+F. Tests on synthetic citation pairs with known entailment.
+   Mock the NLI judge for deterministic CI runs.
+
+Constraints
+- The validator must not call the LLM judge on the entire source —
+  use the cited excerpt + a window of context. A verdict written
+  using a 200-word excerpt must record exactly that excerpt.
+- A `mentions` relation is the weakest possible: do not promote it
+  to `supports` even if the LLM judge claims entailment.
+- An `ambiguous` verdict is a finding, not a failure. Do not
+  escalate it unless the citation is load-bearing (cascade weight
+  above a threshold) — then it goes to triage.
+
+SCOPE
+- `noosphere/noosphere/literature/citation_chain.py` CREATE
+- `noosphere/noosphere/methods/citation_entailment.py` CREATE
+- `noosphere/noosphere/methods/citation_entailment.RATIONALE.md` CREATE
+- `noosphere/tests/test_citation_chain.py` CREATE
+- `theseus-codex/prisma/schema.prisma` MODIFY
+- `theseus-codex/src/components/CitationPopover.tsx` MODIFY
+- `theseus-codex/src/app/(authed)/source-triage/page.tsx` MODIFY
+- `theseus-codex/src/lib/citationVerdict.ts` CREATE

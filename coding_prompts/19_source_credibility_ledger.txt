@@ -1,0 +1,64 @@
+You are operating in /Users/michaelquintin/Desktop/Theseus.
+
+Goal: a source-credibility ledger. Each cited source accrues a track
+record over time — how often does evidence drawn from this source hold
+up under later scrutiny? The credibility score is not a single number
+that the firm trusts; it is a Bayesian update layered on the firm's
+prior (which itself depends on source type — a peer-reviewed paper has
+a different prior than an X post).
+
+Before you start — read:
+1. The source standing work from prompt 18.
+2. `noosphere/noosphere/literature.py`.
+3. `theseus-codex/prisma/schema.prisma` for `ConclusionSource`,
+   `OpinionCitation`, `ForecastCitation`, etc.
+
+Implement:
+
+A. Define a `SourcePrior` rule set in
+   `noosphere/noosphere/literature/source_priors.py`: source-type →
+   (prior_credibility, prior_strength). Source types include
+   peer-reviewed-paper, conference-paper, preprint, government-data,
+   firm-podcast, news-major, news-tabloid, x-post, blog-self-pub,
+   personal-correspondence. Document the priors with citations to the
+   firm's reasoning. Each prior is a Beta distribution.
+
+B. Update rule. When a conclusion citing source S resolves
+   (forecast resolution, retraction event, peer-review verdict on
+   the conclusion itself), the source's credibility posterior is
+   updated. Updates are weighted: a forecast on which the source was
+   load-bearing counts more than one where the source was tangential.
+
+C. Persisted as `SourceCredibility` rows in Prisma. Time-series.
+   `current_credibility` is a view computed from the latest update.
+
+D. Display. The CitationPopover (and the founder-side citation list)
+   shows the source credibility as a 0–100 strip with the underlying
+   posterior. Hover reveals "n updates, n+ confirmations, n- failures".
+
+E. Effect on inference. The cascade weight of a `supports` edge is
+   modulated by source credibility. A claim supported only by
+   low-credibility sources cannot escape low confidence regardless of
+   how many such sources exist (the multiplication of weak evidence
+   does not produce strong evidence).
+
+F. Tests on synthetic update sequences: confirm posterior moves in
+   the expected direction, at the expected rate; confirm cascade
+   weight modulation; confirm credibility never goes outside [0,1].
+
+Constraints
+- The firm's own outputs (firm podcast, firm conclusion) start with
+  a neutral prior, not a self-flattering one. The firm earns its
+  credibility from the same loop everyone else does.
+- A small number of updates does not produce confident credibility.
+  The display is "n=K updates" until K reaches a threshold.
+- Source identity uses the same canonicalization rule from prompt 18.
+
+SCOPE
+- `noosphere/noosphere/literature/source_priors.py` CREATE
+- `noosphere/noosphere/literature/source_credibility.py` CREATE
+- `noosphere/tests/test_source_credibility.py` CREATE
+- `theseus-codex/prisma/schema.prisma` MODIFY
+- `theseus-codex/src/components/CitationPopover.tsx` MODIFY
+- `theseus-codex/src/lib/sourceCredibility.ts` CREATE
+- `noosphere/noosphere/cascade/graph.py` MODIFY

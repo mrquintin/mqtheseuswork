@@ -1,0 +1,76 @@
+You are operating in /Users/michaelquintin/Desktop/Theseus.
+
+Goal: a one-command replication harness so an external researcher can
+clone the repo, run a single command, and reproduce the firm's headline
+empirical claims (QH benchmark from prompt 08, cross-model study from
+prompt 09, Householder ablation from prompt 10). Replication is an
+implicit part of the methodological reorientation: the firm's claims
+should be checkable.
+
+Before you start — read:
+1. `Makefile`, `pyproject.toml`, `noosphere/requirements.txt` — current
+   build entry points.
+2. `scripts/check_packaging_selfcontainment.py` — there is already a
+   self-containment audit; reuse the philosophy.
+3. The benchmark/study artifacts produced by prompts 08–10.
+
+Implement:
+
+A. `replication/Makefile` with targets:
+   - `make qh-benchmark`     (runs prompt 08 dataset on the firm's
+                              probe + cosine baseline)
+   - `make cross-model`      (runs prompt 09 with whichever models
+                              the user has API keys for; gracefully
+                              skips the rest)
+   - `make ablation`         (runs prompt 10)
+   - `make all`              (runs everything in sequence)
+   The targets read API keys from environment variables documented in
+   `replication/README.md`. No keys baked in. Skips are explicit.
+
+B. Reproducibility envelope. Before a target runs, the harness records:
+   git SHA, Python version, OS, model identifiers, and a hash of the
+   dataset shard. After the run, it writes the same record alongside
+   the results. Two replications are "compatible" iff their envelopes
+   match on the structural fields. The harness has a `make verify
+   PRIOR_RUN=<dir>` target that compares two run directories and
+   reports whether their numbers agree within a tolerance the firm
+   declares.
+
+C. Deterministic-mode flag. Each runner accepts a `--deterministic`
+   flag that uses fixed seeds, disables nondeterministic kernels where
+   feasible, and skips runners whose backend cannot be made
+   deterministic (with a clear log line). Replication results in
+   deterministic mode are bit-stable across runs on the same machine.
+
+D. README. `replication/README.md` is the canonical instruction set:
+   prereqs, how to obtain the dataset, environment variables, expected
+   numbers (with their CIs), and a rubric for "your replication
+   succeeded".
+
+E. Public landing. Add `theseus-codex/src/app/methodology/replicate/page.tsx`
+   linking the README, the dataset cards, and a "what to do if your
+   numbers differ" section.
+
+F. CI replication. A minimal CI replication runs nightly on a small
+   shard so silent breakage is caught early. The badge goes on the
+   public replication page.
+
+Constraints
+- No required services other than Python, a working pip install, and
+  whatever embedding model API the user opts into. No Docker required.
+  A Docker option is fine; required, no.
+- Do not bundle proprietary data into the public repository. The
+  replication dataset must be the public QH v1 dataset from prompt 08
+  or a subset thereof.
+- A failed replication target prints a stack trace AND a one-paragraph
+  human explanation of likely causes (missing env var, off-by-one
+  Python, model API rate limit).
+
+SCOPE
+- `replication/Makefile` CREATE
+- `replication/README.md` CREATE
+- `replication/lib/envelope.py` CREATE
+- `replication/lib/verify.py` CREATE
+- `replication/tests/test_envelope.py` CREATE
+- `theseus-codex/src/app/methodology/replicate/page.tsx` CREATE
+- `.github/workflows/nightly_replication.yml` CREATE

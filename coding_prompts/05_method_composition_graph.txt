@@ -1,0 +1,71 @@
+You are operating in /Users/michaelquintin/Desktop/Theseus.
+
+Goal: render the firm's methods as a composition DAG and use that DAG
+during conclusion review. Methods today are catalogued individually but
+they actually depend on each other: `synthesize_conclusion` rests on
+`extract_claims`, `nli_scorer`, `six_layer_coherence`, and so on. When a
+downstream method drifts (prompt 04) or has a high-severity unresolved
+failure mode (prompt 03), every method that composes it should inherit
+risk. Without the DAG, that risk inheritance is invisible.
+
+Before you start — read:
+1. `noosphere/noosphere/methods/_registry.py` — current registry +
+   decorator.
+2. Every `<method>.RATIONALE.md` in `noosphere/noosphere/methods/` to
+   understand which methods are atomic vs composed.
+3. `noosphere/noosphere/cascade/graph.py` — there is already a graph
+   primitive in cascade; reuse where possible.
+
+Implement:
+
+A. Extend the method decorator with an optional `depends_on=[...]`
+   parameter listing other registered method names. The decorator
+   validates at import time that each dependency resolves to a
+   registered method; an unknown name is an error, not a warning.
+
+B. Add `noosphere/noosphere/methods/composition.py` with a function that
+   builds the dependency DAG, detects cycles, and computes the transitive
+   closure. Cycle detection failure is a CI failure.
+
+C. Risk inheritance. When method M has a drift alert (prompt 04) or an
+   unmitigated high-severity failure mode triggered (prompt 03), every
+   method M' with M ∈ closure(M') inherits a `risk_inherited` flag at
+   that magnitude. The MQS Severity sub-score (prompt 01) reads the
+   inherited flag, not just the leaf flag.
+
+D. Visualization. Add
+   `theseus-codex/src/app/(authed)/methods/graph/page.tsx` — a server-
+   rendered force-layout of the method DAG using the existing 3D/SVG
+   primitives in `theseus-codex/src/components/CascadeTree3D*.tsx`.
+   Color: green (clean), amber (inherited risk), red (own drift /
+   active failure mode). Click → method detail page.
+
+E. Public-side. A simplified, non-interactive composition map at
+   `/methodology/composition` showing only public methods and using
+   only the public-visible parts of the catalog.
+
+F. Tests: build a fake registry with three methods A, B, C where
+   B depends_on A and C depends_on B. Assert: closure, risk inheritance
+   both directions (cleaning A's drift cleans inheritance), and cycle
+   detection (introduce A depends_on C and assert that import fails).
+
+Constraints
+- depends_on declarations live in code, not in YAML — they are part of
+  the executable contract. A docstring/RATIONALE that disagrees with
+  the declaration is documentation drift; the doc-drift script (already
+  in scripts/) must surface this.
+- The graph page must not require running noosphere as a service to
+  load. Materialize it as a JSON snapshot via a build step and serve
+  the snapshot. Re-materialize on every Vercel deploy.
+- Do not introduce a new graph library. Reuse the cascade primitives.
+
+SCOPE
+- `noosphere/noosphere/methods/_decorator.py` MODIFY
+- `noosphere/noosphere/methods/composition.py` CREATE
+- `noosphere/noosphere/methods/__init__.py` MODIFY
+- `noosphere/tests/test_method_composition.py` CREATE
+- `noosphere/scripts/dump_method_graph.py` CREATE
+- `scripts/check_doc_drift.py` MODIFY
+- `theseus-codex/public/method-graph.json` CREATE
+- `theseus-codex/src/app/(authed)/methods/graph/page.tsx` CREATE
+- `theseus-codex/src/app/methodology/composition/page.tsx` CREATE

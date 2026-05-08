@@ -1,0 +1,77 @@
+You are operating in /Users/michaelquintin/Desktop/Theseus.
+
+Goal: implement a real belief-revision engine — closer to AGM-style
+revision than the current "edit a conclusion" flow. When new evidence
+arrives that contradicts a published conclusion, the firm should be
+able to compute the minimal-distance revision: which downstream
+conclusions are affected, what the new entailments are, and what
+remains stable.
+
+METHODOLOGICAL_REORIENTATION.md notes that the current Belief Revision
+System is mostly "time replay, conclusion lineage, and reanalysis hooks,
+but not a full AGM belief-revision implementation." This prompt is the
+first concrete step toward that.
+
+Before you start — read:
+1. `noosphere/noosphere/cascade/graph.py` — the firm's working belief
+   graph primitive.
+2. `noosphere/noosphere/cascade/traverse.py`.
+3. `noosphere/noosphere/temporal.py` and `temporal_replay.py`.
+4. The relations vocabulary in `noosphere/noosphere/models.py` —
+   supports / contradicts / refines / instantiates.
+
+Implement:
+
+A. Define `RevisionInput`: a tuple (claim_id, new_evidence, evidence
+   weight). Multiple inputs can be batched.
+
+B. Revision algorithm in
+   `noosphere/noosphere/cascade/revision.py`:
+   1. Mark the targeted claim with the new evidence.
+   2. Re-run coherence on the local neighborhood.
+   3. For every conclusion connected through `supports` /
+      `refines` / `instantiates` to the targeted claim, recompute its
+      composite confidence using the cascade weights.
+   4. Output a `RevisionPlan`: conclusions whose confidence changed by
+      more than δ, conclusions newly contradicted (entropic
+      distance > θ), conclusions newly supported.
+   The minimum-distance principle: prefer plans that change fewest
+   downstream nodes when multiple revisions satisfy the new evidence.
+
+C. Operator UX. When a founder marks new evidence on a claim from the
+   conclusion detail page, the UI shows a "Revision impact preview"
+   modal listing every affected conclusion before the revision is
+   committed. Confirm-to-commit; cancel reverts the marker.
+
+D. Audit trail. Every committed revision writes a `RevisionEvent` row
+   with the input, the plan applied, and a snapshot of pre-revision
+   confidence values. The ledger references this so the time-replay
+   primitives can reconstruct prior states exactly.
+
+E. Public surface — narrow. Public articles whose underlying
+   conclusion is revised get an "updated" pill linking to a
+   `/revisions/<event-id>` page that shows the diff in plain prose
+   ("we previously concluded X with confidence Y; new evidence Z has
+   changed the conclusion to ...").
+
+F. Tests on a synthetic graph: revise a deep node, assert the correct
+   set of ancestors is impacted; revise to a contradicting state,
+   assert at most one minimum-distance plan; assert the revert path.
+
+Constraints
+- The revision algorithm must be deterministic: same inputs and same
+  graph snapshot always produce the same plan. Tie-breaks documented.
+- A revision cannot silently delete a claim. Retracting a claim is a
+  separate operation that itself produces a revision.
+- The UI must NOT auto-commit a revision that affects more than K
+  conclusions; above K it requires a typed confirmation.
+
+SCOPE
+- `noosphere/noosphere/cascade/revision.py` CREATE
+- `noosphere/noosphere/cascade/graph.py` MODIFY
+- `noosphere/noosphere/cascade/__init__.py` MODIFY
+- `noosphere/tests/test_revision.py` CREATE
+- `theseus-codex/prisma/schema.prisma` MODIFY
+- `theseus-codex/src/app/(authed)/conclusions/[id]/RevisionPreview.tsx` CREATE
+- `theseus-codex/src/app/revisions/[id]/page.tsx` CREATE
+- `theseus-codex/src/lib/revisionApi.ts` CREATE

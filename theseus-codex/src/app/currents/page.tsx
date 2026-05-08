@@ -7,15 +7,27 @@ import {
 } from "@/lib/currentsApi";
 import type { PublicOpinion } from "@/lib/currentsTypes";
 
-export const revalidate = 15;
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
+
+const SEED_FETCH_TIMEOUT_MS = 8_000;
 
 export default async function CurrentsPage() {
   let seed: PublicOpinion[] = [];
   let health: CurrentsHealth | null = null;
 
   const [seedResult, healthResult] = await Promise.allSettled([
-    listCurrents({ limit: 20 }, { next: { revalidate: 15, tags: ["currents-seed"] } }),
-    getCurrentsHealth({ next: { revalidate: 15, tags: ["currents-health"] } }),
+    listCurrents(
+      { limit: 20 },
+      {
+        cache: "no-store",
+        signal: AbortSignal.timeout(SEED_FETCH_TIMEOUT_MS),
+      },
+    ),
+    getCurrentsHealth({
+      cache: "no-store",
+      signal: AbortSignal.timeout(SEED_FETCH_TIMEOUT_MS),
+    }),
   ] as const);
   if (seedResult.status === "fulfilled") {
     seed = seedResult.value.items;

@@ -1,0 +1,74 @@
+You are operating in /Users/michaelquintin/Desktop/Theseus.
+
+Goal: run a cross-model embedding geometry study. The Quintin Hypothesis
+is a structural claim about embedding space; if it holds only for
+text-embedding-3-large, it is a claim about that model, not about
+language. Stress-test by running the contradiction-geometry probe across
+several embedding models and comparing the results.
+
+Before you start — read:
+1. The QH benchmark introduced in prompt 08. This study uses that
+   dataset; run prompt 08 first.
+2. `noosphere/noosphere/embeddings.py` — current embedding
+   abstraction; verify it can swap models cleanly.
+3. `ideologicalOntology/Embedding_Geometry_Conjecture/` for any prior
+   cross-model notes.
+
+Implement:
+
+A. Adapter layer in `noosphere/noosphere/embeddings/multi.py` that
+   wraps at minimum: OpenAI text-embedding-3-large, Voyage AI
+   voyage-3, Cohere embed-english-v3, BGE-large, and one open-source
+   sentence-transformer. Pluggable. Each adapter records dim, max
+   tokens, latency, and a content hash of the input that produced the
+   vector.
+
+B. Run the QH benchmark (prompt 08) for each model. Persist results
+   keyed by (model, item_id, runner). Storage: parquet under
+   `benchmarks/quintin_hypothesis/v1/results/cross_model/`.
+
+C. Cross-model analysis script in
+   `noosphere/noosphere/benchmarks/cross_model_analysis.py`:
+   - per-model accuracy / AUROC / ECE
+   - inter-model agreement matrix on the binary label
+   - per-domain breakdown (does the hypothesis hold uniformly or
+     only in some domains?)
+   - statistical test for whether mean accuracy differs across models
+     after controlling for domain (mixed-effects logistic if sample
+     allows; permutation test otherwise)
+
+D. Write the results into a paper-ready PDF. Reuse the
+   `scripts/build_robustness_ledger_pdf.sh` pattern. The PDF
+   (`docs/research/Cross_Model_Geometry_Study.pdf`) gets a
+   corresponding `.tex` source. Numbers and figures are auto-generated
+   from the analysis script — no hand-edited numbers in the PDF.
+
+E. Public artifact. A page at
+   `theseus-codex/src/app/methodology/benchmark/qh/cross-model/page.tsx`
+   shows the cross-model bar chart, the agreement matrix as a
+   heatmap, and a download link to the PDF.
+
+F. Honest negative-result handling. If the firm's probe loses to a
+   cosine baseline on any model, the page surfaces that fact in the
+   first 200 words and the PDF abstract acknowledges it. The firm's
+   credibility on the methodological reorientation depends on
+   publishing failures, not just successes.
+
+Constraints
+- Each model is an external API call with a per-dataset budget cap.
+  Honor the cap; if the cap is hit, write partial results and a
+  prominent "n=K of N items" note rather than silently truncating.
+- Do not call any API key the runner cannot find in the environment;
+  fail loud.
+- Do not commit any embedding vector blobs to git. Persist them under
+  `~/.theseus/data/cross_model/` with a manifest.
+
+SCOPE
+- `noosphere/noosphere/embeddings/multi.py` CREATE
+- `noosphere/noosphere/benchmarks/cross_model_runner.py` CREATE
+- `noosphere/noosphere/benchmarks/cross_model_analysis.py` CREATE
+- `noosphere/scripts/run_cross_model_study.sh` CREATE
+- `noosphere/tests/test_cross_model.py` CREATE
+- `docs/research/Cross_Model_Geometry_Study.tex` CREATE
+- `docs/research/Cross_Model_Geometry_Study.pdf` CREATE
+- `theseus-codex/src/app/methodology/benchmark/qh/cross-model/page.tsx` CREATE

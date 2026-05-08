@@ -1,0 +1,70 @@
+You are operating in /Users/michaelquintin/Desktop/Theseus.
+
+Goal: a first-class lineage visualization for every conclusion — the
+chain from raw source(s) through claim extraction, methodology, peer
+review, revision events, calibration, and (where applicable) public
+publication. Right now this information exists as scattered DB tables;
+a reader cannot reconstruct the path without three queries.
+
+Before you start — read:
+1. `noosphere/noosphere/temporal.py` and `temporal_replay.py`.
+2. `theseus-codex/src/components/TemporalReplayBar.tsx` — the existing
+   primitive.
+3. The cascade and revision work from prompt 16.
+4. `theseus-codex/prisma/schema.prisma` — `Conclusion` relations.
+
+Implement:
+
+A. Lineage data assembler in
+   `noosphere/noosphere/temporal/lineage.py` (create the temporal/
+   subdir if needed). Given a conclusion id, returns a fully
+   typed `Lineage` object: source documents, extracted claims,
+   methodology profile, peer-review verdicts, drift events,
+   revisions, calibration outcomes, citations on public articles.
+   Each node carries timestamps; the timeline is sorted causally.
+
+B. JSON API. `GET /api/conclusion/[id]/lineage` (founder-only) returns
+   the lineage. Public-visible lineage is exposed via
+   `GET /api/public/conclusion/[id]/lineage` filtering to
+   public-visible nodes.
+
+C. UI. Founder side:
+   `theseus-codex/src/app/(authed)/conclusions/[id]/LineagePanel.tsx`
+   renders the timeline with an interactive scrub. Hovering a node
+   surfaces its content; clicking opens the underlying record.
+   Public side: `theseus-codex/src/app/post/[slug]/lineage/page.tsx`
+   renders a stripped-down version showing only public-visible nodes.
+
+D. Lineage diff. Two snapshots in time should produce a "what
+   changed" diff (used by prompt 16's revision events). Implement
+   `lineage_diff(t1, t2) -> LineageDiff`.
+
+E. Export. `noosphere lineage export <conclusion-id>` writes a
+   self-contained JSON + Markdown bundle suitable for a research
+   appendix.
+
+F. Tests on synthetic data: the lineage assembly is order-stable; the
+   public filter does not leak private nodes; the export is
+   round-trippable.
+
+Constraints
+- Do not introduce a new graph storage layer. Read the existing
+  cascade graph + Prisma rows and project them into the Lineage
+  type.
+- Public-visible lineage must not leak the existence of private
+  nodes (no "[redacted] step at 2026-04-12"). Either show or omit;
+  do not gesture.
+- Performance: lineage assembly for a conclusion with 100+ events
+  must complete in under 500ms cold. Cache where the data is
+  immutable.
+
+SCOPE
+- `noosphere/noosphere/temporal/__init__.py` MODIFY (or CREATE)
+- `noosphere/noosphere/temporal/lineage.py` CREATE
+- `noosphere/noosphere/cli_commands/lineage.py` CREATE
+- `noosphere/tests/test_lineage.py` CREATE
+- `theseus-codex/src/app/api/conclusion/[id]/lineage/route.ts` CREATE
+- `theseus-codex/src/app/api/public/conclusion/[id]/lineage/route.ts` CREATE
+- `theseus-codex/src/app/(authed)/conclusions/[id]/LineagePanel.tsx` CREATE
+- `theseus-codex/src/app/post/[slug]/lineage/page.tsx` CREATE
+- `theseus-codex/src/lib/lineage.ts` CREATE

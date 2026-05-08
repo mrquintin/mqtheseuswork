@@ -1,0 +1,78 @@
+You are operating in /Users/michaelquintin/Desktop/Theseus.
+
+Goal: turn `/methodology` into a flagship public surface — not a
+laundry-list, but an explorer that lets a serious outside reader see
+exactly what the firm's methods are, how they relate, what they have
+been tested against, and where they have failed. The firm's
+intellectual product is the meta-method. The current /methodology page
+under-sells it. Fix that.
+
+Before you start — read:
+1. `theseus-codex/src/app/methodology/page.tsx` and any sub-routes
+   under `methodology/` to inventory what is already there.
+2. `theseus-codex/src/app/methodology/[method]/page.tsx` (or its
+   equivalent — verify the actual route shape).
+3. `THE_META_METHOD.md`, `METHODOLOGICAL_REORIENTATION.md` — the prose
+   the explorer must reflect without simply pasting.
+4. The artifacts produced by prompts 01–06 (MQS, track records,
+   failure modes, drift, composition, domain bounds). The explorer
+   reads them; it does not own the data.
+
+Implement:
+
+A. Top-level `/methodology` becomes a directory:
+   - Hero: a one-paragraph statement of what the meta-method is, why
+     the firm publishes it, and a single CTA: "explore the methods".
+   - Method index table with columns: name, one-line description,
+     domain, # of conclusions produced, calibration slope (if track
+     record sample size threshold met), drift status pill, last review
+     date. Sortable. Filterable by domain.
+   - Five-criterion microsite (`/methodology/criteria`) describing
+     Progressivity / Severity / Aim-Method Fit / Compressibility /
+     Domain Sensitivity with the exact rubric used in MQS.
+   - Composition map link (prompt 05).
+   - Failure-mode catalog link (prompt 03), public entries only.
+   - Open questions link (separate prompt later).
+
+B. Per-method page (`/methodology/[method]`) reorganizes into tabs:
+   Overview · Track record · Domain · Composition · Failure modes ·
+   Conclusions produced. Tab routing must be URL-driven so each tab is
+   shareable.
+
+C. Embeddable summary. Add a 1-line public Open Graph card per method
+   so a tweet linking to `/methodology/six_layer_coherence` renders
+   with the method name + slope + domain badge.
+
+D. JSON API. `GET /api/public/methodology/manifest` returns the full
+   public-visible methodology graph (methods, edges, public failure
+   modes, public track records). Stable schema versioned via a `v`
+   field. This is what an external researcher would call to replicate
+   firm analysis.
+
+E. Search. Add a client-side fuzzy search over the method index. No
+   server round-trip; the manifest is small enough to ship.
+
+F. Accessibility. The explorer must pass the existing accessibility
+   review patterns used elsewhere on the public site (PublicHeader
+   contrast, focus order, skip-link). Run the existing axe-style tests
+   if present; add coverage if missing.
+
+Constraints
+- No private data on the explorer. The visibility filter on every
+  query is `public_visible = true`. Do not introduce a leak.
+- The explorer must remain server-rendered for the initial paint so
+  outsiders don't see a flash of "loading methodology".
+- Do not delete or rename existing methodology routes — extend them.
+  External links exist.
+
+SCOPE
+- `theseus-codex/src/app/methodology/page.tsx` MODIFY
+- `theseus-codex/src/app/methodology/criteria/page.tsx` CREATE
+- `theseus-codex/src/app/methodology/[method]/page.tsx` MODIFY
+- `theseus-codex/src/app/methodology/[method]/track-record/page.tsx` MODIFY
+- `theseus-codex/src/app/methodology/[method]/domain/page.tsx` CREATE
+- `theseus-codex/src/app/methodology/[method]/failures/page.tsx` CREATE
+- `theseus-codex/src/app/api/public/methodology/manifest/route.ts` CREATE
+- `theseus-codex/src/components/MethodologyIndexTable.tsx` CREATE
+- `theseus-codex/src/components/MethodTabs.tsx` CREATE
+- `theseus-codex/src/lib/methodologyManifest.ts` CREATE

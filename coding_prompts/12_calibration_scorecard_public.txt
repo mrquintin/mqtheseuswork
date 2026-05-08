@@ -1,0 +1,73 @@
+You are operating in /Users/michaelquintin/Desktop/Theseus.
+
+Goal: a public calibration scorecard. The firm publishes opinions and
+forecasts; the public should see how those have actually fared. Right
+now the calibration data is computed internally (Brier scores, slopes)
+but is not exposed in a way that lets a serious reader judge the firm
+without running the firm's tooling.
+
+Before you start — read:
+1. `noosphere/noosphere/forecasts/resolution_tracker.py` and
+   `forecast_generator.py`.
+2. `noosphere/noosphere/coherence/calibration.py`.
+3. `theseus-codex/src/lib/forecastPortfolioData.ts` and the operator
+   forecasts API at
+   `theseus-codex/src/app/api/forecasts/`.
+4. The MQS work from prompt 01 — calibration feeds Severity. Reuse the
+   metric calculator, do not fork.
+
+Implement:
+
+A. Public route `theseus-codex/src/app/calibration/page.tsx` showing:
+   - Aggregate Brier score over all resolved forecasts, with rolling
+     30/90/365-day windows.
+   - Calibration plot (predicted probability vs realized frequency,
+     binned, with bootstrap CIs).
+   - Top-decile and bottom-decile forecasts by Brier — surfacing the
+     firm's best and worst calls.
+   - A "no cherry-picking" disclaimer with a hash of the resolution
+     set as of the publish time.
+   - Filter by domain and by source method (which uses prompt 02).
+
+B. JSON manifest. `GET /api/public/calibration/manifest` returns the
+   data backing the page so external auditors can verify. Versioned;
+   stable schema.
+
+C. Auto-publish. Add a scheduled job that re-renders the calibration
+   manifest nightly and triggers a static-revalidation of the page.
+   Idempotent; safe to re-run.
+
+D. Honesty constraints. The page must visually distinguish:
+   - resolved forecasts (full weight in metrics)
+   - unresolved-but-stale forecasts (flagged, not silently dropped)
+   - withdrawn / revoked forecasts (excluded from calibration but
+     counted toward "% withdrawn" — abandoning a bad call without
+     resolution should not be free).
+
+E. Per-method drill-down. Clicking a method on the scorecard lands on
+   a detail view showing the same plot filtered to that method
+   (linking back to prompt 02).
+
+F. Tests against synthetic resolution data: a known calibration plot
+   reconstructed from synthetic forecasts; the binned plot must agree
+   to within a documented tolerance.
+
+Constraints
+- The page must not show CIs that imply more precision than the data
+  supports. If a bin has fewer than 5 resolved items, label it
+  explicitly.
+- Brier with non-binary outcomes (e.g. continuous markets) must be
+  computed with a clearly named alternative metric, not silently
+  averaged.
+- The hash of the resolution set is a SHA-256 of a canonicalized
+  representation. The hashing function lives in code, not in prose.
+
+SCOPE
+- `noosphere/noosphere/coherence/calibration.py` MODIFY
+- `noosphere/noosphere/evaluation/public_calibration.py` CREATE
+- `noosphere/tests/test_public_calibration.py` CREATE
+- `theseus-codex/src/app/calibration/page.tsx` CREATE
+- `theseus-codex/src/app/api/public/calibration/manifest/route.ts` CREATE
+- `theseus-codex/src/components/CalibrationPlot.tsx` CREATE
+- `theseus-codex/src/lib/calibrationData.ts` CREATE
+- `noosphere/noosphere/forecasts/scheduler.py` MODIFY

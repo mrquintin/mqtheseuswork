@@ -1,0 +1,74 @@
+You are operating in /Users/michaelquintin/Desktop/Theseus.
+
+Goal: detect and alert on method drift — the slow degradation of a
+method's track record relative to its own historical baseline. A method
+that worked well in 2024 may stop working in 2026 (regime change,
+saturation of the edge, model updates upstream). The firm should know
+this BEFORE a quarter of bad calls reveals it post hoc.
+
+Before you start — read:
+1. `noosphere/noosphere/decay/freshness.py` and
+   `noosphere/noosphere/decay/policies.py` — the existing decay machinery
+   for conclusions; method drift is the same concept lifted one level.
+2. `noosphere/noosphere/forecasts/resolution_tracker.py` — resolution
+   data feeds the drift estimator.
+3. The MethodTrackRecord schema introduced in prompt 02. This prompt
+   depends on prompt 02 landing first.
+
+Implement:
+
+A. Drift estimator in `noosphere/noosphere/evaluation/method_drift.py`
+   that computes, per method per rolling window (e.g. 30/90/180 days),
+   the calibration slope, the Brier mean, and the directional bias
+   (over-/under-confident). Compare each window to the method's
+   trailing baseline (median of prior windows). Use a permutation test
+   or BCa bootstrap for the drift p-value rather than a parametric
+   z-test — sample sizes will be small and parametric assumptions will
+   not hold.
+
+B. Alert policy in
+   `noosphere/noosphere/decay/method_drift_policies.py`. Drift events
+   are written to `DriftEvent` (already in Prisma — verify by reading
+   `prisma/schema.prisma` for the existing model and extend if it does
+   not carry a `methodName` field). Policies: warn at 1.5σ, escalate at
+   2σ. Hysteresis: do not flip back to "OK" until two clean windows.
+
+C. Wire drift into MQS (prompt 01). When a method has an active drift
+   alert, every new conclusion's MQS Severity sub-score for that method
+   is downweighted with a documented multiplicative penalty. The
+   penalty function lives in
+   `docs/methods/MQS_Specification.md` and is referenced from code.
+
+D. Operator surface. `theseus-codex/src/app/(authed)/methods/page.tsx`
+   gets a "Drift" column; the row goes red on active drift. Drift
+   detail page shows the calibration trend chart and the alert history.
+
+E. Public surface. The public method page shows only the existence of
+   drift alerts and the date of the most recent one — not the
+   underlying numbers. Public users don't need to know whether the
+   slope dropped from 0.8 to 0.6; they need to know the firm flags its
+   own methods.
+
+F. Scheduler. Drift evaluation runs nightly through the existing
+   noosphere scheduler. Add the job idempotently — re-running on the
+   same window should not create duplicate DriftEvents.
+
+Constraints
+- The estimator must NOT smooth across regime breaks the firm has
+  manually flagged. If a method was retired-and-revived (a Conclusion
+  Lineage event), exclude pre-revival data unless the human reviewer
+  explicitly opts to include it.
+- Permutation tests use a fixed seed for reproducibility. The seed must
+  be recorded with the DriftEvent so the test can be re-run.
+- No drift alert is allowed for n < 8 resolutions. Below that threshold,
+  the UI shows "insufficient data".
+
+SCOPE
+- `noosphere/noosphere/evaluation/method_drift.py` CREATE
+- `noosphere/noosphere/decay/method_drift_policies.py` CREATE
+- `noosphere/noosphere/evaluation/scheduler_drift.py` CREATE
+- `noosphere/tests/test_method_drift.py` CREATE
+- `theseus-codex/prisma/schema.prisma` MODIFY
+- `theseus-codex/src/app/(authed)/methods/page.tsx` MODIFY
+- `theseus-codex/src/app/(authed)/methods/[name]/DriftPanel.tsx` CREATE
+- `theseus-codex/src/app/methodology/[method]/page.tsx` MODIFY

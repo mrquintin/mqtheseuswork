@@ -1,0 +1,68 @@
+You are operating in /Users/michaelquintin/Desktop/Theseus.
+
+Goal: extend the existing peer-review swarm to rotate across multiple
+LLM providers (Claude, GPT, Gemini, an open-source model) rather than
+relying on one. A swarm built on a single provider is implicitly
+trusting that provider's failure modes. The point of the swarm is
+diverse adversarial pressure; that requires architectural diversity.
+
+Before you start — read:
+1. `noosphere/noosphere/peer_review/reviewer.py`,
+   `swarm.py`, `reviewers/` — the existing swarm.
+2. `noosphere/noosphere/llm.py` — current LLM client abstraction.
+3. The blindspot and inverse reviewers — the failure-mode work from
+   prompt 03 already feeds them.
+
+Implement:
+
+A. Provider adapters under
+   `noosphere/noosphere/peer_review/providers/`:
+   `anthropic.py`, `openai.py`, `gemini.py`, `mistral_oss.py`. Each
+   adapter exposes a consistent interface: produce_objection(claim,
+   methodology, context, max_tokens, temperature, seed). Adapters
+   record cost and latency.
+
+B. Swarm composition policy. A swarm run by default rotates across
+   all available providers (where "available" = API key present).
+   Per-provider weights are tunable. A run with only one available
+   provider is permitted but logged as a warning ("monoculture
+   review").
+
+C. Disagreement detection. When two providers produce contradictory
+   objections (one says "this assumption is hidden", the other says
+   "the assumption is explicit"), the swarm output flags
+   inter-reviewer disagreement and routes to a human escalation
+   step. Inter-reviewer agreement is a metric the firm should track
+   over time as a sanity check on the methodology.
+
+D. Cost governance. Each swarm run honors an explicit max_cost_usd.
+   If the budget runs out before all providers finish, the run is
+   flagged "partial" and downstream reviews must not treat it as a
+   complete swarm.
+
+E. Operator UI. On the conclusion review page, show the swarm
+   results grouped by provider with a "diverge" badge where
+   inter-provider disagreement was detected.
+
+F. Tests with mocked adapters; assert: rotation visits each
+   available provider, monoculture warning is emitted, disagreement
+   detection works on canned outputs, partial-run flag propagates.
+
+Constraints
+- Provider keys live in env vars only; never in code or git.
+- Do not hardcode model names; each adapter has a configurable
+  default that lives in a config module.
+- Disagreement detection uses NLI on the objection text, not string
+  comparison. Reuse `nli_scorer.py`.
+
+SCOPE
+- `noosphere/noosphere/peer_review/providers/__init__.py` CREATE
+- `noosphere/noosphere/peer_review/providers/anthropic.py` CREATE
+- `noosphere/noosphere/peer_review/providers/openai.py` CREATE
+- `noosphere/noosphere/peer_review/providers/gemini.py` CREATE
+- `noosphere/noosphere/peer_review/providers/mistral_oss.py` CREATE
+- `noosphere/noosphere/peer_review/swarm.py` MODIFY
+- `noosphere/noosphere/peer_review/reviewer.py` MODIFY
+- `noosphere/tests/test_multi_provider_swarm.py` CREATE
+- `theseus-codex/src/app/(authed)/peer-review/[id]/page.tsx` MODIFY
+- `theseus-codex/src/components/SwarmDisagreementBadge.tsx` CREATE
