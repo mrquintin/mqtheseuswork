@@ -1,0 +1,73 @@
+You are operating in /Users/michaelquintin/Desktop/Theseus.
+
+Goal: an explicit data retention and lifecycle policy, encoded in
+code, applied uniformly. Today data accumulates: spans, embeddings,
+draft conclusions, retired transcripts. Without retention, the firm's
+storage and observability costs grow indefinitely; worse, the firm
+has no documented answer to "what do you do with my data" if a
+respondent or interviewee asks.
+
+Before you start — read:
+1. The existing `noosphere/noosphere/decay/` package (freshness,
+   retirement).
+2. The span persistence from prompt 44.
+3. The PublicResponse and ContactSubmission models in the Prisma
+   schema.
+
+Implement:
+
+A. Retention policy table in
+   `noosphere/noosphere/decay/retention_policies.py`. Each
+   class of data has: TTL, archive-vs-delete decision, and a
+   visibility constraint on the founder's ability to override.
+   Examples: spans 30 days → roll up + delete; PublicResponse
+   raw 7 years (legal); embeddings indefinite while their
+   underlying source exists, deleted within 30 days of source
+   deletion; transcripts indefinite with founder confirmation
+   required for deletion.
+
+B. Lifecycle runner.
+   `noosphere/noosphere/decay/retention_runner.py` runs nightly,
+   surveys each policy, and emits {to_archive, to_delete}
+   targets. Founder sees a daily preview; default is
+   confirm-to-execute, with auto-execute for policies the
+   founder has explicitly marked safe.
+
+C. Data Subject Request (DSR) handler. A small handler at
+   `noosphere/noosphere/decay/dsr.py` that, given an email or
+   identifier, surveys every store and produces a JSON
+   "everything we have" report and (on confirmation) a
+   deletion plan. This is required if the firm wants to claim
+   GDPR/CCPA-aligned practice publicly.
+
+D. Public surface. A `/privacy` page that summarizes the
+   retention table in plain prose with concrete numbers — not a
+   generic privacy template. The page is generated from the
+   policy table so prose and behavior cannot drift.
+
+E. Founder UI. `(authed)/ops/retention/page.tsx` shows pending
+   archive/delete previews with confirm/cancel.
+
+F. Tests. Synthetic dataset; assert each policy reaches the
+   expected target; assert the DSR report is comprehensive
+   against the synthetic data.
+
+Constraints
+- Auto-execute is opt-in per policy. The default is
+  confirmation-required, and a missed daily confirmation does
+  not silently auto-execute on day 2.
+- Deletion is real deletion. Tombstones are allowed only if the
+  policy explicitly requires them.
+- The /privacy page generation is part of the deploy build;
+  drift from the policy table is a build failure.
+
+SCOPE
+- `noosphere/noosphere/decay/retention_policies.py` CREATE
+- `noosphere/noosphere/decay/retention_runner.py` CREATE
+- `noosphere/noosphere/decay/dsr.py` CREATE
+- `noosphere/noosphere/cli_commands/decay.py` MODIFY
+- `noosphere/tests/test_retention.py` CREATE
+- `theseus-codex/src/app/privacy/page.tsx` CREATE
+- `theseus-codex/src/app/(authed)/ops/retention/page.tsx` CREATE
+- `theseus-codex/src/lib/retentionApi.ts` CREATE
+- `scripts/check_privacy_page_consistency.py` CREATE

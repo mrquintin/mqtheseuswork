@@ -1,0 +1,67 @@
+You are operating in /Users/michaelquintin/Desktop/Theseus.
+
+Goal: a public inquiry-search box. The firm's intellectual capital is
+buried under a tabbed founder workspace and a few public articles. A
+serious outside reader should be able to type a question into a single
+box on theseuscodex.com and get back the firm's relevant conclusions,
+opinions, articles, and open questions, ranked by relevance and shown
+with their methodology and confidence pills.
+
+Before you start — read:
+1. `theseus-codex/src/app/(authed)/ask/page.tsx` — the existing
+   founder-side ask UI.
+2. `noosphere/noosphere/inference/_engine.py` and the existing
+   founder-side semantic explorer.
+3. `theseus-codex/src/app/(home)/page.tsx`.
+
+Implement:
+
+A. Public retrieval API. `POST /api/public/ask` takes a query,
+   returns: top conclusions, top opinions, top articles, top open
+   questions, each with relevance score and a snippet. Reuses the
+   firm's existing embedding model and indexing — no new infra.
+
+B. Public UI. Add a search box to the public homepage and a
+   `/ask` page that handles the result rendering. Keyboard-first
+   (slash to focus, arrows to navigate, enter to open).
+
+C. Honesty constraints:
+   - Snippets are extracted, not generated (no LLM rewriting).
+   - Each result carries the methodology pill (prompt 07) and
+     confidence pill so a reader sees both the substance and the
+     epistemic frame at once.
+   - When no result clears a relevance threshold, the page shows
+     "the firm has not addressed this directly" plus the closest
+     open question (prompt 25).
+
+D. Rate limits and abuse. Public endpoint, anonymous usage. Apply
+   the existing rate-limit middleware. Do not log full queries
+   in any place a reader could later reconstruct what others
+   asked; if logging at all, hash + bucket.
+
+E. Synonym handling. The retriever uses embedding similarity, not
+   keyword. But also surfaces a "suggested rephrasings" row when
+   the embedding score is borderline.
+
+F. Tests. Synthetic corpus + golden queries; assert ranking
+   stability under small query perturbations; assert the
+   no-result fallback fires at the right threshold.
+
+Constraints
+- The /ask page must NOT freeform-generate text. It returns
+  retrieval results. Generation is reserved for the founder
+  workspace.
+- Snippets respect the same private/public visibility filter as
+  every other public surface.
+- Latency budget: a query must return under 1.5s p50 with a
+  warm index.
+
+SCOPE
+- `theseus-codex/src/app/api/public/ask/route.ts` CREATE
+- `theseus-codex/src/app/ask/page.tsx` CREATE
+- `theseus-codex/src/components/PublicAskBox.tsx` CREATE
+- `theseus-codex/src/lib/publicAsk.ts` CREATE
+- `theseus-codex/src/app/(home)/page.tsx` MODIFY
+- `noosphere/noosphere/inference/public_retrieval.py` CREATE
+- `noosphere/tests/test_public_retrieval.py` CREATE
+- `theseus-codex/src/__tests__/PublicAskBox.test.tsx` CREATE

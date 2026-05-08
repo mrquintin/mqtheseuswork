@@ -1,0 +1,66 @@
+You are operating in /Users/michaelquintin/Desktop/Theseus.
+
+Goal: extend the Dialectic live-conversation analyzer with per-speaker
+methodology models. Each known speaker (the founder, frequent
+collaborators) accumulates a profile of their characteristic reasoning
+moves over many sessions. During a live conversation, Dialectic
+surfaces "this is unusual for you" or "this is consistent with your
+historic move set" — a real-time methodology mirror.
+
+Before you start — read:
+1. `dialectic/dialectic/` — the dialectic package; verify current
+   structure.
+2. `noosphere/noosphere/methods/decompose_voice.py` and `voices.py`
+   — there is already voice infrastructure.
+3. `noosphere/noosphere/methodology.py`.
+
+Implement:
+
+A. SpeakerProfile schema. Per speaker: a methodology distribution
+   across the registered methods, characteristic premises (top-K
+   claims they invoke repeatedly), characteristic objections they
+   raise, and a "novelty" baseline. Persisted in the noosphere
+   store; a Dialectic session loads the relevant profiles at
+   start.
+
+B. Live comparator. As Dialectic transcribes, each new utterance is
+   classified against the current speaker's profile. Output: a
+   real-time "consistency" indicator (consistent / novel / sharp
+   departure) plus a short reason.
+
+C. End-of-session report. Dialectic's session export includes a
+   per-speaker methodology summary: which methods showed up, which
+   were absent, where the speaker's moves departed from baseline.
+
+D. UI in Dialectic. A small live panel showing each active
+   speaker's consistency dot. Hover for the reason. The panel must
+   not steal attention from the main transcript view.
+
+E. Profile update. After session end, the speaker profiles are
+   updated with the new session. The update is decay-weighted (the
+   distant past matters less). Updates are reversible (a noisy
+   session can be excluded from the profile retroactively).
+
+F. Tests on synthetic transcripts with planted speaker moves;
+   assert profile drift detection; assert the consistency
+   indicator fires on planted departures.
+
+Constraints
+- The profile system is opt-in per speaker. Speakers without a
+  profile get a "no baseline" indicator rather than being assumed
+  to match a default.
+- Privacy: speaker profiles never leave the founder's local
+  machine unless explicitly synced. They are not part of the
+  public site.
+- Do not silently retro-edit historical session transcripts when
+  a profile gets corrected.
+
+SCOPE
+- `dialectic/dialectic/speaker_profile.py` CREATE
+- `dialectic/dialectic/speaker_consistency.py` CREATE
+- `dialectic/tests/test_speaker_profile.py` CREATE
+- `noosphere/noosphere/voices/profile_store.py` CREATE
+- `noosphere/noosphere/voices/__init__.py` MODIFY
+- `noosphere/tests/test_voice_profile_store.py` CREATE
+- `dialectic/dialectic/ui/speaker_panel.py` CREATE
+- `dialectic/run.py` MODIFY

@@ -1,0 +1,68 @@
+You are operating in /Users/michaelquintin/Desktop/Theseus.
+
+Goal: a print-quality view of every published article (and a
+batch-export of the firm's quarter of work). Long-form serious
+arguments deserve a print-optimized rendering that preserves
+typography, footnotes, citations, and the methodology + confidence
+context — and that prints to PDF cleanly without any of the web
+chrome.
+
+Before you start — read:
+1. `theseus-codex/src/app/post/[slug]/page.tsx`,
+   `c/[slug]/page.tsx`.
+2. `theseus-codex/src/components/ConclusionView.tsx`.
+3. The provenance heatmap (prompt 26) and lineage (prompt 17).
+
+Implement:
+
+A. Print stylesheet. A separate CSS layer that activates on
+   `@media print`. Hide PublicHeader, footer, toolbars, popovers.
+   Render citations as endnotes with full bibliographic info,
+   not popovers. Convert pull-quote styling to print-safe
+   variants. Page-break rules so paragraphs do not split.
+
+B. Print-only metadata block. The first printed page carries:
+   title, byline, publish date, methodology pill (text), MQS
+   composite (text), confidence (text), signature fingerprint
+   (prompt 30), URL of the canonical web version. The block is
+   small but unmissable.
+
+C. Endnote conversion. The provenance and citation popovers
+   become numbered endnotes at the article's end. Numbering is
+   stable and matches the linked source-credibility data.
+
+D. Batch export. A founder-side CLI:
+   `noosphere docs export-articles --since DATE --format pdf
+   --out PATH` produces a single bound PDF of every published
+   article in the window, with a TOC. Each article begins on a
+   right-hand page; ToC links jump.
+
+E. Public download button. Each public article gets a "PDF"
+   icon in its toolbar that triggers the print stylesheet via
+   the browser's "Save as PDF" path. No server-side rendering
+   required (use the print stylesheet); but if a server-side
+   renderer already exists in the codebase, prefer it for
+   consistency.
+
+F. Tests. Snapshot the print HTML at each route; assert the
+   metadata block is present; assert no toolbars are visible in
+   the print snapshot.
+
+Constraints
+- The print stylesheet must NOT regress screen rendering.
+- Endnotes must hyperlink (in PDF) where the underlying source
+  is public and the source has a public URL.
+- The batch CLI does not embed private content even if the
+  founder runs it on their own machine. The visibility filter is
+  the same as the public site.
+
+SCOPE
+- `theseus-codex/src/app/print.css` CREATE
+- `theseus-codex/src/app/post/[slug]/page.tsx` MODIFY
+- `theseus-codex/src/app/c/[slug]/page.tsx` MODIFY
+- `theseus-codex/src/components/PrintMetadataBlock.tsx` CREATE
+- `theseus-codex/src/components/PrintEndnotes.tsx` CREATE
+- `theseus-codex/src/components/ConclusionView.tsx` MODIFY
+- `noosphere/noosphere/docgen/articles_export.py` CREATE
+- `noosphere/noosphere/cli_commands/docs_cmd.py` MODIFY
+- `noosphere/tests/test_articles_export.py` CREATE

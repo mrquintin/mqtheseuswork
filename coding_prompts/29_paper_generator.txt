@@ -1,0 +1,70 @@
+You are operating in /Users/michaelquintin/Desktop/Theseus.
+
+Goal: an automated paper-generator that turns a coherent cluster of
+firm conclusions, methodology, and outcomes into a draft research
+paper PDF — abstract, introduction, methods, results, discussion,
+limits, references. The point is not to publish the draft as-is; it
+is to make it cheap for the firm to convert what it already knows
+into outward research output.
+
+Before you start — read:
+1. `noosphere/noosphere/docgen/` — current docgen package.
+2. `scripts/build_robustness_ledger_pdf.sh` — the existing pdflatex
+   build pattern.
+3. The lineage and methodology surfaces from prompts 07 + 17.
+4. `docs/Theseus_Codex_User_Guide.tex` for the existing TeX style.
+
+Implement:
+
+A. Cluster selector. `noosphere/noosphere/docgen/paper_clustering.py`
+   chooses a candidate cluster of conclusions: a connected
+   subgraph in the cascade, with a shared methodology root, and
+   at least one resolved forecast that touches the cluster.
+
+B. Paper template. A `paper_template.tex.jinja` with sections
+   that pull from the firm's existing artifacts: abstract from
+   the cluster's distilled principle, methods from the
+   methodology profiles, results from the resolved-forecast
+   numbers, discussion from the peer-review swarm output, limits
+   from the failure-mode catalog (prompt 03), references from
+   the citation set.
+
+C. Generator. `noosphere/noosphere/docgen/paper_generator.py`
+   takes a cluster id, fills the template, and emits a `.tex` +
+   `.pdf` pair under `docs/research/auto/<slug>/`. The generator
+   never invents numbers; every number in the paper resolves to
+   a row in the database. Numbers without a row generate a
+   visible TODO marker rather than fabrication.
+
+D. Review queue. The founder workspace gets a "papers" review
+   tab where drafts can be triaged: edit-and-keep, edit-and-
+   publish, reject. Edits land in the .tex file via the founder
+   workspace's existing text-editing primitives.
+
+E. Public surface. Published auto-papers live under
+   `theseus-codex/src/app/research/[slug]/page.tsx` with the PDF
+   embedded and a plain-prose summary. Each paper carries a
+   "machine-drafted, founder-reviewed" disclosure label.
+
+F. Tests. Synthetic cluster → generator → assert no-fabrication
+   property, assert all numerical claims resolve to row IDs,
+   assert pdflatex compiles without errors.
+
+Constraints
+- The generator does NOT auto-publish. The publication step is
+  always human-confirmed.
+- The .tex file is the source of truth. PDF is a build artifact;
+  do not edit the PDF directly.
+- The disclosure label is non-removable. A "founder-reviewed"
+  paper still says machine-drafted in the byline.
+
+SCOPE
+- `noosphere/noosphere/docgen/paper_clustering.py` CREATE
+- `noosphere/noosphere/docgen/paper_generator.py` CREATE
+- `noosphere/noosphere/docgen/paper_template.tex.jinja` CREATE
+- `noosphere/noosphere/cli_commands/docs_cmd.py` MODIFY
+- `noosphere/tests/test_paper_generator.py` CREATE
+- `theseus-codex/src/app/(authed)/papers/page.tsx` CREATE
+- `theseus-codex/src/app/research/[slug]/page.tsx` CREATE
+- `theseus-codex/src/lib/papersApi.ts` CREATE
+- `scripts/build_auto_paper.sh` CREATE

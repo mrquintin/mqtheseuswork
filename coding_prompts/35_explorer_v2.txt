@@ -1,0 +1,68 @@
+You are operating in /Users/michaelquintin/Desktop/Theseus.
+
+Goal: redesign the embedding Explorer. The current Explorer is a
+plot, but a plot is not enough. Make it a navigation surface — let
+the founder land on a region of embedding space, see the conclusions
+in that region, see which methods produced them, see the contradiction
+edges from prompt 24's geometric blindspot detector, and pivot
+fluidly across all of it.
+
+Before you start — read:
+1. The existing explorer route under
+   `theseus-codex/src/app/(authed)/explorer/`.
+2. `theseus-codex/src/lib/embeddingAxes.ts` and
+   `embeddingHealth.ts`.
+3. The blindspot detector (prompt 24) and the methods graph (prompt
+   05).
+
+Implement:
+
+A. Explorer canvas. WebGL or SVG (whichever the existing primitive
+   uses — do not introduce a new renderer) that renders the
+   firm's claim/conclusion embeddings projected to 2D via a
+   chosen reducer (UMAP / PCA). Reducer is selectable from the
+   toolbar; the chosen reducer is part of the URL state.
+
+B. Region selector. Drag a lasso to select a region; the right
+   pane fills with: count, the methods that produced these,
+   the calibration of these conclusions where applicable, and a
+   list of the actual conclusions ranked by centrality.
+
+C. Edge overlay. Toggle `Contradicts` to draw the geometric
+   contradiction edges from prompt 24 across the canvas. Toggle
+   `Supports` to draw the cascade-graph supports edges within
+   the selection.
+
+D. Pivot. Clicking a conclusion node opens a side-panel with
+   the full conclusion view (reuse the existing
+   `ConclusionView.tsx` in compact mode). From the side panel,
+   "show neighborhood" recenters the canvas on this conclusion's
+   embedding region.
+
+E. Saved views. Each navigation state (reducer, selection,
+   overlays, focused conclusion) is shareable as a URL. A
+   "save view" affordance pins the URL to a sidebar list of
+   saved views.
+
+F. Tests on synthetic embedding data; assert the lasso selection
+   covers the planted region; assert URL state round-trip;
+   assert overlays do not bleed across selections.
+
+Constraints
+- The reducer outputs are cached. Recomputing UMAP for 5,000
+  embeddings on every page load is unacceptable.
+- The Explorer must work for a founder with 10,000+ embeddings
+  without crashing the browser. Use level-of-detail rendering.
+- Do not display claims marked private in the Explorer when the
+  Explorer is being viewed in a public-preview mode (a future
+  prompt may add public preview; design for it now).
+
+SCOPE
+- `theseus-codex/src/app/(authed)/explorer/page.tsx` MODIFY
+- `theseus-codex/src/components/ExplorerCanvas.tsx` CREATE
+- `theseus-codex/src/components/ExplorerToolbar.tsx` CREATE
+- `theseus-codex/src/components/ExplorerSelectionPane.tsx` CREATE
+- `theseus-codex/src/lib/explorerState.ts` CREATE
+- `theseus-codex/src/lib/dimReduce.ts` CREATE
+- `theseus-codex/src/__tests__/ExplorerCanvas.test.tsx` CREATE
+- `noosphere/noosphere/inference/explorer_index.py` CREATE

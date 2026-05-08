@@ -1,0 +1,64 @@
+You are operating in /Users/michaelquintin/Desktop/Theseus.
+
+Goal: a diff view across methodology versions. The firm's methods
+evolve — the contradiction-geometry probe of today is not the same
+algorithm as six months ago. Readers (and the firm itself) should be
+able to see what changed and how the change affected the firm's
+results.
+
+Before you start — read:
+1. `noosphere/noosphere/methods/_registry.py` — methods register a
+   version; verify the version field.
+2. The methodology profile work (`codex_methodology.py`) — these
+   profiles are time-stamped per upload.
+3. The replication harness (prompt 11) — version diffs feed into
+   replication envelope comparisons.
+
+Implement:
+
+A. Versioned method snapshots. Every method's source content
+   (the Python code, the RATIONALE, the FAILURES.yaml from
+   prompt 03) is hashed and stored in a `MethodVersion` row at
+   each release. The hash is the canonical identifier for "this
+   version of this method."
+
+B. Diff renderer. `noosphere methods diff <method> <vA> <vB>`
+   prints a side-by-side: code changes, RATIONALE changes,
+   failure-mode adds/removes, domain-bound changes (prompt 06).
+
+C. Effect-on-results report. For each method version pair, the
+   report computes: which conclusions were re-analyzed, how
+   their MQS sub-scores changed, and how their calibration
+   downstream changed (where applicable). This is the
+   "what did this change actually do" answer.
+
+D. Public surface. `/methodology/[method]/changelog` lists
+   version transitions with the public-visible portions of the
+   diff and the effect summary. Each transition has a stable
+   anchor URL.
+
+E. Notification hook. When a method version changes, every
+   subscriber of that method (prompt 39) gets a digest item.
+
+F. Tests. Two synthetic versions of a stub method, one
+   conclusion analyzed under each; assert diff render, effect
+   report, anchor URL stability.
+
+Constraints
+- Method version hashes are stable across machines. Use a
+  canonical hash that excludes mtime / line endings.
+- Diff content respects public/private visibility — private
+  failure modes do not appear in the public changelog.
+- Do not silently rewrite historic conclusions when a method's
+  version changes. Re-analysis is opt-in via the existing
+  reanalyze-codex.sh path.
+
+SCOPE
+- `noosphere/noosphere/methods/version_snapshot.py` CREATE
+- `noosphere/noosphere/methods/version_diff.py` CREATE
+- `noosphere/noosphere/cli_commands/methods.py` MODIFY
+- `noosphere/tests/test_method_version_diff.py` CREATE
+- `theseus-codex/prisma/schema.prisma` MODIFY
+- `theseus-codex/src/app/methodology/[method]/changelog/page.tsx` CREATE
+- `theseus-codex/src/lib/methodChangelog.ts` CREATE
+- `noosphere/noosphere/social/digest_builder.py` MODIFY

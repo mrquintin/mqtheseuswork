@@ -1,0 +1,59 @@
+You are operating in /Users/michaelquintin/Desktop/Theseus.
+
+Goal: a single founder dashboard that surfaces "what needs your
+attention right now" across every founder-side queue (drift events,
+peer-review escalations, source-triage, response triage, open
+questions, citation verdicts, retraction propagations, calibration
+breaches). The current dashboard is fragmented across many tabs;
+priority items get lost.
+
+Before you start — read:
+1. `theseus-codex/src/app/(authed)/dashboard/page.tsx` and the
+   `DashboardHearth.tsx` component family.
+2. The queues introduced in earlier prompts in this batch: 04
+   (drift), 16 (revision impact), 18 (source triage), 20
+   (citation verdicts), 22 (severity-weighted objections), 31
+   (response triage).
+
+Implement:
+
+A. Unified queue API. `GET /api/founder/attention` returns a
+   ranked list of items across every queue, with: queue name,
+   item id, severity (low/medium/high), age, preview, link.
+
+B. Ranking. Severity > age > queue identity. Within severity,
+   age weights up: a high-severity item that has sat for 7 days
+   ranks above a fresh high-severity item.
+
+C. Dashboard redesign. The dashboard's primary surface becomes
+   the unified attention list. Existing widgets (Hearth, Pulse)
+   move to a secondary row.
+
+D. Snooze and dismiss. Each item supports snooze-until and
+   dismiss with reason. Snoozed items return at the chosen time.
+   Dismissed items are recorded; a high rate of dismissals on a
+   given queue is itself a signal that the queue needs tuning.
+
+E. Notifications. A daily morning email summary (using the
+   existing email pipeline) lists open high-severity items. The
+   email link deeplinks to the dashboard.
+
+F. Tests on a synthetic queue mix; assert ranking, snooze
+   behavior, dismiss audit log.
+
+Constraints
+- The dashboard does NOT auto-resolve anything. It surfaces; the
+  founder decides.
+- Snooze cannot be longer than 14 days; longer = dismissal with
+  reason "deferred indefinitely".
+- The email summary is opt-in per founder.
+
+SCOPE
+- `theseus-codex/src/app/api/founder/attention/route.ts` CREATE
+- `theseus-codex/src/app/(authed)/dashboard/page.tsx` MODIFY
+- `theseus-codex/src/components/AttentionQueue.tsx` CREATE
+- `theseus-codex/src/components/AttentionItem.tsx` CREATE
+- `theseus-codex/src/lib/attention.ts` CREATE
+- `theseus-codex/prisma/schema.prisma` MODIFY
+- `theseus-codex/src/__tests__/AttentionQueue.test.tsx` CREATE
+- `theseus-codex/src/lib/dailyDigestEmail.ts` CREATE

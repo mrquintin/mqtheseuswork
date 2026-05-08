@@ -1,0 +1,68 @@
+You are operating in /Users/michaelquintin/Desktop/Theseus.
+
+Goal: turn Currents from a one-shot opinion generator into a small
+dialectic engine. Each Currents opinion gets at least one canonical
+counter-claim drawn from the firm's own knowledge graph plus a
+worked-out reconciliation (or an explicit "we cannot reconcile —
+here is what we'd need to know"). This makes the firm's public
+opinions argumentatively rigorous on first contact rather than
+reactively defensive.
+
+Before you start — read:
+1. `noosphere/noosphere/currents/opinion_generator.py`,
+   `relevance.py`, `enrich.py`.
+2. `theseus-codex/src/app/currents/[slug]/page.tsx`.
+3. The geometric blindspot work (prompt 24).
+4. The severity-weighted objections work (prompt 22).
+
+Implement:
+
+A. Counter-claim retrieval. For each newly generated EventOpinion,
+   surface the K nearest opposing claims in the firm's own graph
+   (geometric — use the contradiction direction probe). Filter to
+   non-revoked, non-private claims that the firm itself has
+   endorsed at some point.
+
+B. Reconciliation generator. The opinion generator gets a follow-up
+   pass that takes (opinion, top counter-claim) and writes a
+   "where this could be wrong" paragraph: either a reconciliation
+   or an explicit unresolved-tension note. The pass uses the
+   firm's strongest-objection prompt template, not a generic
+   "consider the other side" template — the goal is severity, not
+   diplomacy.
+
+C. Display. The public Currents page surfaces the reconciliation
+   as a collapsible section under the opinion. By default open if
+   the unresolved-tension flag is set, closed otherwise.
+
+D. Skip rule. If no counter-claim above a similarity threshold
+   exists in the firm's graph, the opinion is published with an
+   explicit "no canonical counter-claim found in firm history"
+   note, so the absence is honest rather than hidden.
+
+E. Audit. Every reconciliation records which counter-claim it
+   referenced, plus the cascade weight at the time. Later
+   revisions of the counter-claim should propagate (revision
+   engine, prompt 16) into the reconciliation.
+
+F. Tests. Synthetic graph with a planted opposing claim; assert
+   reconciliation references it; assert the no-counter case
+   prints the honest note rather than fabricating a strawman.
+
+Constraints
+- The reconciliation must NOT generate counter-claims out of thin
+  air. Every counter-claim must resolve to an existing firm
+  Conclusion or a cited public source.
+- Strawmanning is the cardinal failure mode. The generator's
+  prompt must require the strongest available form of the
+  counter-claim, and the peer-review swarm should reject
+  reconciliations that down-weight the counter-claim's force.
+
+SCOPE
+- `noosphere/noosphere/currents/dialectic.py` CREATE
+- `noosphere/noosphere/currents/opinion_generator.py` MODIFY
+- `noosphere/noosphere/currents/_prompts/reconciliation.txt` CREATE
+- `noosphere/tests/test_currents_dialectic.py` CREATE
+- `theseus-codex/src/app/currents/[slug]/page.tsx` MODIFY
+- `theseus-codex/src/components/CurrentsReconciliation.tsx` CREATE
+- `theseus-codex/src/lib/currentsApi.ts` MODIFY

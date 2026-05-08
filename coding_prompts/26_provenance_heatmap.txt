@@ -1,0 +1,64 @@
+You are operating in /Users/michaelquintin/Desktop/Theseus.
+
+Goal: a provenance heatmap on every public article. Each sentence is
+shaded by the cascade weight of its supporting evidence. Strong-evidence
+sentences read normally; weak-evidence sentences are visibly weak. This
+turns the article into an inspectable artifact — readers can see at a
+glance which claims rest on what.
+
+Before you start — read:
+1. `theseus-codex/src/components/ConclusionView.tsx` — current article
+   rendering.
+2. `theseus-codex/src/components/CitationPopover.tsx`.
+3. `noosphere/noosphere/cascade/graph.py` — cascade weights.
+4. The lineage work from prompt 17.
+5. The source-credibility work from prompt 19.
+
+Implement:
+
+A. Per-sentence evidence assembler. For each sentence in a published
+   article, walk the cascade graph from the sentence's anchored
+   conclusion(s) to the supporting sources, multiply edge weights ×
+   source credibility, sum and normalize. Output: a `provenance` ∈
+   [0,1] per sentence.
+
+B. Visual treatment. Render shading as a faint background tint along
+   the gutter, NOT inline highlighting (which fights the typography).
+   A toggle ("Show provenance") in the article toolbar reveals/hides
+   the gutter. Default off; a one-time tooltip on first article view
+   teaches the reader.
+
+C. Sentence-level pop-over. Clicking a low-provenance sentence opens
+   a small panel listing every supporting source and edge with the
+   cascade weights, source credibility, and citation verdict (prompt
+   20).
+
+D. Accessibility. The shading does NOT carry information that is not
+   also available textually. The panel is keyboard-reachable. A
+   screen reader can request "provenance summary for this sentence."
+
+E. Performance. The heatmap data ships with the article HTML at
+   render time, not on hover. A 3,000-word article must add no more
+   than 25KB gzipped of provenance data.
+
+F. Tests. A snapshot test that the heatmap data round-trips through
+   a published article view; an a11y test that the shading is not
+   the only signal; a perf test on a synthetic 5,000-word article.
+
+Constraints
+- The shading does not let a reader infer the identity of private
+  sources. If a sentence rests partially on a private source, the
+  provenance number includes it (so the firm is honest about its
+  evidence base) but the panel hides the private source's identity.
+- The toggle state persists per visitor (cookie/localStorage). If
+  storage is restricted, default to off.
+
+SCOPE
+- `noosphere/noosphere/temporal/lineage.py` MODIFY
+- `noosphere/noosphere/cascade/sentence_provenance.py` CREATE
+- `noosphere/tests/test_sentence_provenance.py` CREATE
+- `theseus-codex/src/lib/sentenceProvenance.ts` CREATE
+- `theseus-codex/src/components/ConclusionView.tsx` MODIFY
+- `theseus-codex/src/components/ProvenanceGutter.tsx` CREATE
+- `theseus-codex/src/components/ProvenancePanel.tsx` CREATE
+- `theseus-codex/src/__tests__/ProvenanceGutter.test.tsx` CREATE

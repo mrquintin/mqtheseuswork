@@ -1,0 +1,71 @@
+You are operating in /Users/michaelquintin/Desktop/Theseus.
+
+Goal: a blindspot detector that uses contradiction geometry rather than
+keyword heuristics. The current blindspot reviewer
+(`noosphere/noosphere/peer_review/blindspot.py`) is largely prompt-
+driven. Use the firm's actual unique capability — embedding-space
+contradiction detection — to surface neighboring claims the
+conclusion's argument fails to engage.
+
+Before you start — read:
+1. `noosphere/noosphere/peer_review/blindspot.py`.
+2. `noosphere/noosphere/methods/contradiction_geometry.py` and
+   `contradiction_probe.py`.
+3. The Quintin Hypothesis benchmark (prompt 08) for the geometric
+   primitives.
+4. `noosphere/noosphere/coherence/locality.py` for neighborhood
+   construction.
+
+Implement:
+
+A. Geometric blindspot algorithm in
+   `noosphere/noosphere/peer_review/geometric_blindspot.py`:
+   1. Build the embedding-space neighborhood of the conclusion's
+      core claim within radius r (param).
+   2. Filter to claims that the conclusion does NOT cite as
+      supports / contradicts / refines / instantiates.
+   3. Run the contradiction-direction probe on each. Surface as
+      candidate blindspots: claims that score high on the
+      contradiction direction but were not engaged.
+   4. Rank by combined contradiction score × cascade weight of
+      the source the unengaged claim itself rests on.
+
+B. Plug into the swarm as `geometric_blindspot` reviewer with
+   severity scoring (prompt 22) wired the same way the existing
+   blindspot reviewer is. The two coexist; their union is the
+   reviewer's output.
+
+C. Visualization. Founder workspace adds a "geometric blindspots"
+   tab to the conclusion review page showing, on the existing
+   embedding explorer canvas, the conclusion + its known supports
+   + the unengaged neighborhood. Click → drill into the unengaged
+   claim's source.
+
+D. Severity wiring. The cascade weight × contradiction score
+   product feeds the severity rubric (prompt 22). High-product
+   blindspots are high-severity by construction.
+
+E. Tests. Construct a synthetic embedding space with planted
+   blindspots; assert the detector recovers them; assert it does
+   NOT flag the conclusion's actual citations as blindspots
+   (regression: easy false-positive direction).
+
+F. Public-side surface — minimal. The public methodology page for
+   `geometric_blindspot` describes the method and links to the
+   QH benchmark page (prompt 08).
+
+Constraints
+- The detector reads from the same embeddings the rest of
+  noosphere uses. No new model.
+- Computational budget: a single blindspot run for one conclusion
+  must complete in under 5s warm cache and under 30s cold.
+- Do not silently merge the two blindspot reviewers' outputs into
+  one bag of objections. Each carries its provenance.
+
+SCOPE
+- `noosphere/noosphere/peer_review/geometric_blindspot.py` CREATE
+- `noosphere/noosphere/peer_review/swarm.py` MODIFY
+- `noosphere/tests/test_geometric_blindspot.py` CREATE
+- `theseus-codex/src/app/(authed)/conclusions/[id]/BlindspotsPanel.tsx` CREATE
+- `theseus-codex/src/app/methodology/geometric_blindspot/page.tsx` CREATE
+- `noosphere/noosphere/methods/geometric_blindspot.RATIONALE.md` CREATE

@@ -1,0 +1,61 @@
+You are operating in /Users/michaelquintin/Desktop/Theseus.
+
+Goal: a live argument map in Dialectic — not just a transcript, but a
+running graph of claims, supports, contradictions, and unresolved
+questions, updated turn-by-turn as the conversation unfolds. After the
+session, the map is the export, not the raw transcript.
+
+Before you start — read:
+1. `dialectic/dialectic/` to inventory current capabilities.
+2. The conversation-geometry work archived under
+   `coding_prompts/archive_round13_conversation_geometry_implemented/`.
+3. `noosphere/noosphere/cascade/graph.py`.
+
+Implement:
+
+A. Live builder. As each utterance is finalized by the transcriber,
+   extract claims (reuse `noosphere/noosphere/methods/extract_claims.py`)
+   and link them to existing nodes. New utterance → one or more
+   new claim nodes; relations are inferred (supports / contradicts /
+   refines / asks_about) using NLI.
+
+B. Map renderer. PyQt6 widget alongside the transcript that draws
+   the live map. Layout uses a force-directed graph; nodes color-
+   coded by claim type and by speaker. New nodes pulse briefly to
+   draw attention.
+
+C. Drift indicator. The map flags topic drift — when the active
+   subgraph shifts more than threshold θ from the conversation's
+   recent center. Drift is not bad; the indicator helps the
+   participant notice and decide whether to follow.
+
+D. Unresolved-question highlight. When a claim's relation type is
+   `asks_about` and no answering claim arrives within K turns, the
+   node turns amber. After 2K turns, it goes red. This is the
+   live signal for "we're letting questions die."
+
+E. Export. End-of-session: the argument map is exported as JSON,
+   SVG, and a Markdown summary. The Markdown summary is what
+   feeds into noosphere ingestion (replacing the current transcript-
+   only export, but keeping the transcript as a fallback artifact).
+
+F. Tests with a synthetic transcript stream; assert the map builds
+   in real time without drift in node identity (same claim seen
+   twice should hit the same node).
+
+Constraints
+- The renderer must not stutter the transcribe loop. The map
+  builder runs on a separate thread with a backpressure-aware
+  queue.
+- Node deduplication uses embedding similarity, not string
+  comparison. Threshold tuning belongs in a config file.
+- Privacy: the map can be saved locally only by default. Sync to
+  the codex is opt-in per session.
+
+SCOPE
+- `dialectic/dialectic/argument_map_builder.py` CREATE
+- `dialectic/dialectic/ui/argument_map_widget.py` CREATE
+- `dialectic/dialectic/exports/argument_map_export.py` CREATE
+- `dialectic/tests/test_argument_map_builder.py` CREATE
+- `dialectic/run.py` MODIFY
+- `noosphere/noosphere/ingester.py` MODIFY

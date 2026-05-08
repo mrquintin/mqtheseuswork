@@ -1,0 +1,68 @@
+You are operating in /Users/michaelquintin/Desktop/Theseus.
+
+Goal: a recurring self-critique pass over the firm's published corpus.
+Once a quarter, every published article is re-read by a fresh
+adversarial swarm with the explicit task: "find what the firm got
+wrong, what aged poorly, and what is now embarrassing." The swarm's
+findings either: (a) trigger a revision, (b) attach as a "later view"
+addendum on the article, or (c) get explicitly dismissed with reason.
+
+Before you start — read:
+1. The peer-review swarm (prompt 21).
+2. The revision engine (prompt 16).
+3. The publication signing work (prompt 30).
+
+Implement:
+
+A. Self-critique scheduler. A quarterly job (existing scheduler)
+   selects every published article whose latest review is older
+   than 90 days, queues each for a self-critique run.
+
+B. Self-critique reviewer. A new reviewer in
+   `noosphere/noosphere/peer_review/self_critique.py` that
+   takes (article, original_evidence_at_publish_time,
+   evidence_now). The reviewer's prompt is explicit: identify
+   claims that have aged poorly, citations whose source has
+   changed, predictions that resolved against the firm, and
+   blind spots that have become visible.
+
+C. Verdict shape. The reviewer outputs structured findings:
+   {claim, was_supported_by, now_supported_by, verdict ∈
+   {still holds, weakened, contradicted by new evidence, no
+   longer supported}, recommended_action ∈ {revise, addend,
+   dismiss}}.
+
+D. Founder triage. Findings land in the unified attention
+   queue (prompt 34) at high severity. The founder picks
+   action per finding.
+
+E. Public addendum. When the action is `addend`, the article
+   page renders a dated addendum block: "On <date> the firm
+   re-reviewed this article and found <summary>. See the
+   appended note." The addendum is not a stealth rewrite —
+   the original text remains unchanged; the addendum is
+   visibly later content.
+
+F. Tests. Synthetic article + synthetic later evidence;
+   assert findings shape; assert the addendum lifecycle.
+
+Constraints
+- The self-critique uses fresh evidence the firm gathered after
+  publication. It does NOT use evidence available at publish
+  time and pretend that was an unfair surprise.
+- Original article text is immutable through this path. Only
+  the revision engine (prompt 16) edits original text; this
+  prompt produces addenda.
+- The self-critique swarm uses a different reviewer
+  configuration from the original publication's swarm to
+  reduce shared blind spots.
+
+SCOPE
+- `noosphere/noosphere/peer_review/self_critique.py` CREATE
+- `noosphere/noosphere/peer_review/scheduler_self_critique.py` CREATE
+- `noosphere/tests/test_self_critique.py` CREATE
+- `theseus-codex/prisma/schema.prisma` MODIFY
+- `theseus-codex/src/app/post/[slug]/Addendum.tsx` CREATE
+- `theseus-codex/src/app/c/[slug]/Addendum.tsx` CREATE
+- `theseus-codex/src/components/ConclusionView.tsx` MODIFY
+- `theseus-codex/src/lib/addendumApi.ts` CREATE

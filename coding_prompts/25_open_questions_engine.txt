@@ -1,0 +1,67 @@
+You are operating in /Users/michaelquintin/Desktop/Theseus.
+
+Goal: a first-class "open questions" engine. The firm's transcripts and
+conversations contain dozens of unresolved questions that simply fall
+out of view — they get mentioned, no one answers them, and the next
+topic begins. Surface them, track them, prioritize them, and make
+them a public artifact of the firm's intellectual humility.
+
+Before you start — read:
+1. `theseus-codex/src/app/(authed)/open-questions/page.tsx` and the
+   companion `OpenQuestionPortal.tsx` component (these exist; verify
+   their current scope).
+2. `noosphere/noosphere/methods/suggest_research.py`.
+3. `theseus-codex/prisma/schema.prisma` for `OpenQuestion`.
+
+Implement:
+
+A. Question extractor. `noosphere/noosphere/methods/extract_open_questions.py`:
+   given a transcript or document, surface questions that satisfy
+   ALL of: (1) interrogative form OR phrasing like "I don't know
+   whether", (2) not answered within K turns of the same speaker,
+   (3) not redundant with an existing OpenQuestion (paraphrase-
+   match against the live registry).
+
+B. Prioritization. Each question gets a priority score from:
+   - centrality (does it affect existing firm conclusions?)
+   - replayability (would resolving it require expensive new
+     work, or is it a literature lookup?)
+   - calibration relevance (does it bear on a domain where the
+     firm's track record is thin?)
+   The score is recomputed on a schedule.
+
+C. Linkage. Open questions can be linked to conclusions whose
+   confidence depends on them. When the question gets resolved,
+   the linked conclusions go through the revision engine
+   (prompt 16) automatically.
+
+D. UI upgrade. The founder workspace open-questions page becomes
+   a triage queue with priority sort, filter by domain, and a
+   "promote to research" action that writes a `ResearchSuggestion`.
+
+E. Public surface. `theseus-codex/src/app/methodology/open-questions/page.tsx`
+   shows public-visible open questions with their dates, a
+   "candidate methods to address" list, and (where relevant) the
+   linked conclusion-ids that are gated on resolution.
+
+F. Tests on synthetic transcripts; assert the extractor catches
+   the planted questions and rejects rhetorical questions that
+   the speaker immediately answers.
+
+Constraints
+- A question that has already been resolved must not re-surface.
+  The resolution event is a write-once row.
+- Priority scoring is bounded; do not let centrality dominate
+  every other input — a niche but answerable question can still
+  rank high if its expected value of information is high.
+- Public-visible open questions render the firm's questions, not
+  the firm's gossip. The visibility filter is strict.
+
+SCOPE
+- `noosphere/noosphere/methods/extract_open_questions.py` CREATE
+- `noosphere/noosphere/methods/extract_open_questions.RATIONALE.md` CREATE
+- `noosphere/noosphere/evaluation/question_priority.py` CREATE
+- `noosphere/tests/test_open_questions.py` CREATE
+- `theseus-codex/src/app/(authed)/open-questions/page.tsx` MODIFY
+- `theseus-codex/src/app/methodology/open-questions/page.tsx` CREATE
+- `theseus-codex/src/lib/openQuestionsApi.ts` CREATE

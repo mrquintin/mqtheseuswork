@@ -1,0 +1,58 @@
+You are operating in /Users/michaelquintin/Desktop/Theseus.
+
+Goal: a load test harness that simulates an article going viral and
+verifies the public site stays responsive. Run it as part of CI on
+every Vercel deploy candidate. The cost of a public surge today is
+unknown; that uncertainty is its own risk.
+
+Before you start — read:
+1. `theseus-codex/playwright.config.ts` and existing e2e tests.
+2. `theseus-codex/src/app/api/public/` — the public API surfaces
+   that an article-going-viral hits hardest.
+3. The observability spans from prompt 44.
+
+Implement:
+
+A. Load test runner. `tests/load/article_viral.py` (or .ts —
+   match the codebase's e2e tooling) that opens K concurrent
+   sessions, each loading a published article, scrolling, and
+   making the public-API calls a typical reader makes (citation
+   popovers, lineage if visible, methodology link, ask-search).
+   K is configurable; default 200 concurrent.
+
+B. Profile. Three load profiles: "light" (50), "viral" (200),
+   "spike" (peaking to 500 with sub-30s ramp).
+
+C. Pass criteria. p50 < 1.0s, p95 < 3.0s, error rate < 1.0%,
+   no DB connection-pool exhaustion. Budget per profile is
+   logged with each run.
+
+D. CI integration. The light profile runs on every preview
+   deploy; viral runs nightly against staging; spike is
+   manual-trigger only (it can hit upstream API rate limits).
+
+E. Reporting. Each run writes a results JSON; a small
+   dashboard at `theseus-codex/src/app/(authed)/ops/load/page.tsx`
+   shows the trend.
+
+F. Tests. The harness itself has unit tests on its result
+   parsing.
+
+Constraints
+- The harness MUST NOT load-test third-party APIs (Polymarket,
+  Kalshi, OpenAI). Mock or skip those calls.
+- Synthetic traffic carries a recognizable User-Agent so
+  observability spans (prompt 44) can filter it out of real
+  traffic metrics.
+- A failed CI run blocks the deploy. Manual override requires a
+  recorded reason.
+
+SCOPE
+- `tests/load/article_viral.py` CREATE
+- `tests/load/profiles.json` CREATE
+- `tests/load/lib/runner.py` CREATE
+- `tests/load/tests/test_runner.py` CREATE
+- `.github/workflows/load_test_preview.yml` CREATE
+- `.github/workflows/load_test_nightly.yml` CREATE
+- `theseus-codex/src/app/(authed)/ops/load/page.tsx` CREATE
+- `theseus-codex/src/lib/loadTestData.ts` CREATE

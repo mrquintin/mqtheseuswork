@@ -1,0 +1,69 @@
+You are operating in /Users/michaelquintin/Desktop/Theseus.
+
+Goal: an explicit invitation channel for outside experts to critique
+specific firm conclusions, with a structured response form, a
+moderation flow, and a bounty/credit mechanism that materially
+incentivizes high-quality submissions. The firm's methodological
+edge depends on inviting the strongest possible external critique;
+hoping critique arrives is not enough.
+
+Before you start — read:
+1. The PublicResponse model and email pipeline.
+2. The response triage work (prompt 31).
+3. The signed authorship work (prompt 30) — published critiques
+   should be signed similarly when they are accepted.
+
+Implement:
+
+A. Open-critique surfaces. Each public article gets a
+   "challenge this" affordance with a structured form: which
+   specific claim, what counter-evidence, what method they
+   used to derive the counter-evidence, citations.
+
+B. Submission triage. Submissions land in a moderation queue
+   distinct from general PublicResponses (prompt 31). The
+   queue requires structured judgment: accept (publish + credit
+   the critic), partial (private discussion), reject (with
+   reason).
+
+C. Credit and bounty mechanism. Accepted critiques publish
+   alongside the article with the critic's name and chosen URL.
+   For severe critiques (per the severity rubric, prompt 22)
+   that meaningfully change the conclusion, the firm pays a
+   bounty (configurable, default starts at $500) via the
+   firm's existing payouts pipeline OR an explicit "donate to
+   charity X" choice the critic selects.
+
+D. Founder UX. Accepting an accepted critique optionally
+   triggers the revision engine (prompt 16) and updates the
+   article via an addendum (prompt 43). The critic's name and
+   contribution are tracked in the lineage.
+
+E. Public listing. A `/critiques` page lists all accepted
+   critiques as a hall-of-fame, with the critic's bio (where
+   provided) and the article they affected.
+
+F. Tests. Synthetic submission flow; assert moderation states;
+   assert credit attribution survives revision; assert the
+   bounty payout path is gated by founder confirmation only.
+
+Constraints
+- No payout fires without founder confirmation. The system can
+  prepare and queue payments; it cannot send them.
+- Bounty exists to incentivize substance, not volume. The
+  rubric for "severe critique" is published on the /critiques
+  page so submitters know what counts.
+- A critic's contribution remains visible even if a later
+  revision moves the firm's position elsewhere. The lineage
+  is honest about what changed why.
+
+SCOPE
+- `theseus-codex/prisma/schema.prisma` MODIFY
+- `theseus-codex/src/components/ChallengeThisCta.tsx` CREATE
+- `theseus-codex/src/app/api/public/critique/submit/route.ts` CREATE
+- `theseus-codex/src/app/(authed)/critiques/queue/page.tsx` CREATE
+- `theseus-codex/src/app/(authed)/critiques/[id]/page.tsx` CREATE
+- `theseus-codex/src/app/critiques/page.tsx` CREATE
+- `theseus-codex/src/lib/critiquesApi.ts` CREATE
+- `noosphere/noosphere/social/critique_routing.py` CREATE
+- `noosphere/tests/test_critique_routing.py` CREATE

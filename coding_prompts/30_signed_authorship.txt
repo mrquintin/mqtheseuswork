@@ -1,0 +1,69 @@
+You are operating in /Users/michaelquintin/Desktop/Theseus.
+
+Goal: every public publication carries a cryptographically signed
+provenance trail. The firm's claim to having a methodological edge is
+worth nothing if a reader cannot verify "this is what Theseus
+actually said, on this date, with this evidence base." Signing the
+publication moments commits the firm to its record.
+
+Before you start — read:
+1. `noosphere/noosphere/ledger/` — the existing ledger package and
+   keys module.
+2. `noosphere/noosphere/ledger/verify.py`.
+3. `theseus-codex/src/lib/publicationService.ts`.
+
+Implement:
+
+A. Signing key management. Use the existing
+   `noosphere/noosphere/ledger/keys.py` primitive. The firm's
+   publication key is generated once, persisted under
+   `~/.theseus/keys/`, and loaded at publish time. Key rotation
+   is supported: a new key signs new publications; old keys
+   remain valid for verifying historical material.
+
+B. Publication signing. At the moment a Conclusion or article
+   transitions to "published", compute a canonical hash of:
+   conclusion text, methodology profile id, citation set,
+   confidence, MQS (prompt 01), publication timestamp. Sign the
+   hash. Persist the signature alongside the PublishedConclusion.
+
+C. Public verification. A reader can fetch a `signature.json`
+   from any published article URL. Add
+   `theseus-codex/src/app/api/public/signature/[slug]/route.ts`
+   returning the canonical-input + signature + key fingerprint.
+
+D. CLI verifier. `noosphere ledger verify-publication <slug>`
+   pulls the signature, recomputes the canonical hash from the
+   live database, and checks the signature. A mismatch means
+   either the database has been mutated or the signature is
+   stale — both are bugs the firm should know about.
+
+E. Public proof page. `theseus-codex/src/app/proof/page.tsx`
+   explains the signing scheme in plain prose, links the
+   verifier CLI, and shows the active key fingerprint.
+
+F. Tests. Sign-and-verify round trip; mutated content fails
+   verification; revoked key fails verification on new
+   signatures but verifies historical material; canonical-hash
+   stability under whitespace changes that should not matter.
+
+Constraints
+- Canonicalization rules are explicit and code-defined: e.g.
+  Markdown is rendered to a normalized HTML before hashing; line
+  endings unified; trailing whitespace stripped. The
+  canonicalizer must be the same in the signer and the verifier.
+- Private keys NEVER live in the web app. Only the noosphere
+  CLI signs. The web app stores signatures and serves them.
+- A publication that fails verification surfaces a red banner;
+  it is not silently hidden.
+
+SCOPE
+- `noosphere/noosphere/ledger/publication_signing.py` CREATE
+- `noosphere/noosphere/ledger/canonicalize.py` CREATE
+- `noosphere/noosphere/cli_commands/ledger.py` MODIFY
+- `noosphere/tests/test_publication_signing.py` CREATE
+- `theseus-codex/prisma/schema.prisma` MODIFY
+- `theseus-codex/src/app/api/public/signature/[slug]/route.ts` CREATE
+- `theseus-codex/src/app/proof/page.tsx` CREATE
+- `theseus-codex/src/lib/publicationService.ts` MODIFY
+- `theseus-codex/src/components/SignatureBanner.tsx` CREATE

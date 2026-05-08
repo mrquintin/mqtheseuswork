@@ -1,0 +1,66 @@
+You are operating in /Users/michaelquintin/Desktop/Theseus.
+
+Goal: a public follow-mechanism that lets an outside researcher track
+specific topics, methods, or methodology criteria. When the firm
+publishes new material in the followed area — including revisions and
+retractions — the follower receives a digest. This is what turns the
+public site from a brochure into an active subscription.
+
+Before you start — read:
+1. The publication pipeline at
+   `theseus-codex/src/lib/publicationService.ts`.
+2. The lineage and revision work (prompts 16, 17).
+3. Existing email pipeline in
+   `theseus-codex/src/lib/responsesEmail.ts`.
+
+Implement:
+
+A. Subscription model. `Subscriber` row with: email, opt-in
+   timestamp, scope (one of: methodology[name], domain[tag],
+   conclusion[id], firm-wide), unsubscribe token, last-sent
+   timestamp. Double opt-in via emailed confirmation link.
+
+B. Subscription form. Public surface; lives on every method
+   page (/methodology/[method]), every domain page, every
+   article (the article's domain), and the homepage as
+   firm-wide. Form posts to
+   `POST /api/public/subscribe`.
+
+C. Digest builder. A scheduled job (existing scheduler)
+   computes per-scope updates since each subscriber's
+   last-sent timestamp: new publications, revisions
+   (prompt 16), retraction propagations (prompt 18),
+   significant calibration breaches (prompt 12). The
+   builder emits a single digest per subscriber.
+
+D. Digest content. Plain text + HTML; each item has a one-
+   line summary and a stable URL. The digest is honest about
+   negative news: revisions and retractions are not
+   downplayed.
+
+E. Unsubscribe. The token in every email maps to a
+   one-click unsubscribe. The unsubscribe is recorded with
+   reason (free-text optional) for the firm's signal.
+
+F. Tests. Synthetic subscribers + canned events; assert
+   correct content per scope; assert double opt-in flow;
+   assert unsubscribe returns within one digest cycle.
+
+Constraints
+- No tracking pixels in digests.
+- No third-party email vendor with telemetry the firm cannot
+  audit. Use the existing transport (Resend / SMTP). Receipts
+  go through the same path.
+- Default delivery cadence: weekly. Subscribers can opt for
+  immediate (firm-wide major events only) or monthly.
+
+SCOPE
+- `theseus-codex/prisma/schema.prisma` MODIFY
+- `theseus-codex/src/app/api/public/subscribe/route.ts` CREATE
+- `theseus-codex/src/app/api/public/unsubscribe/[token]/route.ts` CREATE
+- `theseus-codex/src/components/SubscribeForm.tsx` CREATE
+- `theseus-codex/src/app/methodology/[method]/page.tsx` MODIFY
+- `theseus-codex/src/app/(home)/page.tsx` MODIFY
+- `noosphere/noosphere/social/digest_builder.py` CREATE
+- `noosphere/noosphere/social/scheduler.py` MODIFY (or CREATE if absent)
+- `noosphere/tests/test_digest_builder.py` CREATE

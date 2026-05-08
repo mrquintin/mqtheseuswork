@@ -1,0 +1,69 @@
+You are operating in /Users/michaelquintin/Desktop/Theseus.
+
+Goal: a quarterly research review document, auto-assembled from the
+firm's own machinery. The document summarizes: which methods
+performed, which drifted, which were retired, the calibration
+trend, the open-questions resolved and added, the published articles,
+the principles distilled, the most-edited conclusions, and the
+firm's own self-critique findings (prompt 43). The point is to make
+the firm's quarter audit-ready as a matter of course.
+
+Before you start — read:
+1. The MQS / track record / drift work (prompts 01–04).
+2. The principle distillation (prompt 40).
+3. The self-critique pass (prompt 43).
+4. The auto paper generator (prompt 29) — the same docgen pattern
+   applies here.
+
+Implement:
+
+A. Review assembler in
+   `noosphere/noosphere/docgen/seasonal_review.py`. Inputs: a
+   quarter window. Outputs a structured `SeasonalReview` object
+   that is purely derived — no LLM-generated commentary at this
+   stage, just the numbers and the names.
+
+B. Narrative writer. A second pass takes the
+   structured object and produces narrative prose, in the firm's
+   established voice, for each section. The prose pass is LLM-
+   driven but constrained to cite numbers from the structured
+   object. Number drift between prose and structured object is
+   a build failure.
+
+C. PDF build. Reuse the pdflatex pattern from
+   `scripts/build_robustness_ledger_pdf.sh`. Output:
+   `docs/seasonal/<year>_Q<n>_Review.pdf` and `.tex`.
+
+D. Public surface. `/research/seasonal/page.tsx` lists past
+   seasonal reviews as a directory; each links the PDF and a
+   web view of the same content. The web view is the
+   structured-object rendering; the PDF is the narrative.
+
+E. Founder triage. The auto-generated review enters the
+   founder's queue (prompt 34) for sign-off. Sign-off is
+   required to publish.
+
+F. Tests. Synthetic quarter with known values; assert the
+   structured object matches; assert the narrative-prose pass
+   does not invent numbers; assert the PDF compiles.
+
+Constraints
+- The review is only as good as the underlying data. If a
+  metric is missing for a quarter, the section is omitted with
+  a "data not available" note rather than estimated.
+- The narrative pass uses the firm's existing tone files (any
+  prompt under `noosphere/noosphere/_prompts/` if present);
+  do not introduce a separate voice.
+- The review must include a "what we got wrong" section,
+  populated from the self-critique pass (prompt 43). It
+  cannot be silenced.
+
+SCOPE
+- `noosphere/noosphere/docgen/seasonal_review.py` CREATE
+- `noosphere/noosphere/docgen/seasonal_template.tex.jinja` CREATE
+- `noosphere/noosphere/cli_commands/docs_cmd.py` MODIFY
+- `noosphere/tests/test_seasonal_review.py` CREATE
+- `theseus-codex/src/app/research/seasonal/page.tsx` CREATE
+- `theseus-codex/src/app/research/seasonal/[slug]/page.tsx` CREATE
+- `theseus-codex/src/lib/seasonalReviewApi.ts` CREATE
+- `scripts/build_seasonal_review.sh` CREATE

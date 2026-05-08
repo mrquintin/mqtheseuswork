@@ -1,0 +1,63 @@
+You are operating in /Users/michaelquintin/Desktop/Theseus.
+
+Goal: a red-team tournament — periodically run a fixed conclusion set
+through the adversarial swarm with rotated provider configurations and
+publish the leaderboard. The tournament gives a structured signal on
+how the firm's robustness is evolving and how different reviewer
+configurations compare on consistent material.
+
+Before you start — read:
+1. The multi-model swarm work (prompt 21).
+2. The severity-weighted objections work (prompt 22).
+3. `noosphere/noosphere/redteam.py` and any existing tournament
+   scaffold under `docs/redteam/`.
+
+Implement:
+
+A. Tournament harness in
+   `noosphere/noosphere/peer_review/tournament.py`. Inputs: a
+   conclusion set (frozen to avoid leakage from new evidence),
+   a list of reviewer configurations (provider mix, prompt
+   variant, temperature). Outputs: per-config severity-weighted
+   objection counts, judge cross-validation scores.
+
+B. Conclusion bench. Maintain a versioned tournament bench at
+   `benchmarks/redteam/v1/` — selected conclusions whose status is
+   stable enough to be a fair test bed. Accompanying card
+   describes selection criteria, license, and freezing date.
+
+C. Cross-validation. The tournament uses one configuration's
+   objections as the evaluation target for another configuration:
+   "given config A's objection set, can config B reproduce the
+   high-severity items?" This estimates inter-config agreement
+   beyond accuracy on a known label.
+
+D. Public leaderboard at `theseus-codex/src/app/methodology/redteam/page.tsx`.
+   Columns: configuration, severity-weighted score, agreement,
+   cost, latency. The point of the page is showing which
+   configurations the firm trusts and why.
+
+E. Recurring run. The tournament runs on a cadence (weekly or
+   monthly), with results archived. Drift in the tournament's
+   results across runs is itself a signal for prompt 04's drift
+   detector.
+
+F. Tests on a stub conclusion bench + canned reviewer outputs.
+
+Constraints
+- Tournament bench is frozen. Add v2 rather than mutate v1.
+- Reviewer configurations are content-addressable: same provider,
+  prompt, temperature, seed → same configuration id. This is what
+  lets the leaderboard be honest.
+- The leaderboard must not promote configurations whose results
+  cannot be replicated — every tournament row links to its
+  reproducibility envelope (from prompt 11).
+
+SCOPE
+- `noosphere/noosphere/peer_review/tournament.py` CREATE
+- `benchmarks/redteam/v1/conclusion_bench.jsonl` CREATE
+- `benchmarks/redteam/v1/card.md` CREATE
+- `noosphere/scripts/run_redteam_tournament.sh` CREATE
+- `noosphere/tests/test_redteam_tournament.py` CREATE
+- `theseus-codex/src/app/methodology/redteam/page.tsx` CREATE
+- `.github/workflows/redteam_tournament.yml` CREATE

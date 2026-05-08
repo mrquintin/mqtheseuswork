@@ -1,0 +1,66 @@
+You are operating in /Users/michaelquintin/Desktop/Theseus.
+
+Goal: every objection produced by the peer-review swarm gets a severity
+score. Severity = "would, if true, change the conclusion's confidence
+by how much?" Right now objections accumulate flat; that means a
+nitpick is treated like a structural blow. Severity-weighting fixes
+that and feeds back into the MQS Severity sub-score.
+
+Before you start — read:
+1. The peer-review tree (esp. `noosphere/noosphere/peer_review/`).
+2. The MQS work (prompt 01).
+3. `noosphere/noosphere/cascade/graph.py` for cascade weighting.
+
+Implement:
+
+A. Severity rubric. An objection's severity is computed from:
+   - the cascade-weight of the supporting edge it attacks
+   - the centrality of the attacked claim in the conclusion's
+     argument graph (compute via existing cascade traversal)
+   - whether the objection points to a high-severity matched
+     failure mode (prompt 03)
+   - the credibility of any source the objection invokes (prompt 19)
+   - the LLM judge's own estimated severity, capped — the rubric
+     does not let the model self-promote without grounding.
+
+B. Implement scorer in
+   `noosphere/noosphere/peer_review/severity.py`. Output is
+   {low, medium, high} plus a numeric value in [0,1]. Each
+   objection is annotated.
+
+C. Weighted aggregation. Replace the flat "objection count" feeding
+   MQS with a severity-weighted count and a max-severity gate. Two
+   high-severity objections that both stand drop the conclusion's
+   MQS Severity sub-score below the publish threshold; ten
+   low-severity objections do not.
+
+D. UI. Reviewer queue
+   (`(authed)/peer-review/`) sorts by severity, with a colored bar
+   per objection. The conclusion detail page shows only the top-K
+   severity objections by default with "show all" affordance.
+
+E. Author response loop. When an objection is annotated severity
+   {high}, the firm cannot publish the conclusion until the
+   reviewer or founder writes a response. Severity {medium}
+   responses are encouraged; {low} are optional.
+
+F. Tests on synthetic objections of known structure. Assert: the
+   severity is monotonic in cascade-weight; the max-severity gate
+   triggers; the response-required flag fires for high.
+
+Constraints
+- The LLM judge can never produce severity higher than the
+  cascade/centrality input allows. The judge estimates within a
+  bracket the rubric defines.
+- A severity score expires when the conclusion is materially
+  revised (revision engine, prompt 16). Stale severities are not
+  carried forward.
+
+SCOPE
+- `noosphere/noosphere/peer_review/severity.py` CREATE
+- `noosphere/noosphere/peer_review/swarm.py` MODIFY
+- `noosphere/noosphere/peer_review/reviewer.py` MODIFY
+- `noosphere/noosphere/evaluation/mqs.py` MODIFY
+- `noosphere/tests/test_objection_severity.py` CREATE
+- `theseus-codex/src/app/(authed)/peer-review/page.tsx` MODIFY
+- `theseus-codex/src/app/(authed)/conclusions/[id]/ObjectionList.tsx` CREATE

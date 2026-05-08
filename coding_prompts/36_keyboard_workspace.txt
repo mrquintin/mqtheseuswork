@@ -1,0 +1,62 @@
+You are operating in /Users/michaelquintin/Desktop/Theseus.
+
+Goal: a keyboard-driven founder workspace. The founder's day involves
+moving between conclusions, queues, the explorer, the dashboard, and
+the dialectic export — usually with a chain of mouse clicks. A
+keyboard-first scheme cuts that to seconds and reduces context-switch
+cost.
+
+Before you start — read:
+1. `theseus-codex/src/components/Nav.tsx` and any existing
+   keyboard hook in the workspace.
+2. The unified attention queue (prompt 34).
+3. Existing global hotkeys (some may exist; verify via grep).
+
+Implement:
+
+A. Command palette. Cmd+K (and Ctrl+K on non-Mac) opens a
+   palette with: navigate to page X, jump to conclusion id /
+   slug, snooze item Y, advance the next attention queue item,
+   and execute frequently-used queries. The palette is
+   keyboard-only — no mouse needed.
+
+B. Page-level keymaps. Conclusion view: j/k navigate, e edit,
+   r review, p publish (gated). Explorer: l lasso, s save view,
+   o toggle overlays. Dashboard: enter on item to focus, n
+   next, x dismiss. The map is documented in a "?" overlay.
+
+C. Focus management. Always have a clear focused element with
+   a visible focus ring. Tab order matches reading order. The
+   command palette sits above all of this in z-order.
+
+D. Hotkey conflict resolution. The keymap library used (if
+   any exists; otherwise pick a small one and document the
+   choice) must respect editable inputs — j/k inside a textarea
+   does not navigate.
+
+E. Discoverability. First-time visitors get a "press ? for
+   shortcuts" hint, dismissible. A help page lists the full
+   map.
+
+F. Tests. Component tests on the palette open/close behavior;
+   integration test on at least one navigation path; a11y test
+   on focus visibility and keyboard reachability.
+
+Constraints
+- The palette must NOT import a heavy framework — it is one
+  search input plus a list. ~10KB minified.
+- Hotkeys are lower-case letters, plus modifier-prefixed
+  commands. Do not steal browser shortcuts (Cmd+T, Cmd+W).
+- Hotkeys are scoped per page; the same key can mean different
+  things on different pages, but the help overlay shows the
+  scoped set when invoked.
+
+SCOPE
+- `theseus-codex/src/components/CommandPalette.tsx` CREATE
+- `theseus-codex/src/components/KeymapHelp.tsx` CREATE
+- `theseus-codex/src/lib/hotkeys.ts` CREATE
+- `theseus-codex/src/app/(authed)/conclusions/[id]/page.tsx` MODIFY
+- `theseus-codex/src/app/(authed)/dashboard/page.tsx` MODIFY
+- `theseus-codex/src/app/(authed)/explorer/page.tsx` MODIFY
+- `theseus-codex/src/app/(authed)/layout.tsx` MODIFY
+- `theseus-codex/src/__tests__/CommandPalette.test.tsx` CREATE

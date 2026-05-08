@@ -1,0 +1,65 @@
+You are operating in /Users/michaelquintin/Desktop/Theseus.
+
+Goal: link Currents opinions to the firm's forecast portfolio. When
+the firm publishes a Currents opinion, if the underlying claim is
+tradable on Polymarket / Kalshi at non-zero edge versus the firm's
+stated confidence, the system surfaces the gap to the founder. Closes
+the loop between "the firm thinks X" and "the firm bets on X".
+
+Before you start — read:
+1. `noosphere/noosphere/currents/opinion_generator.py`,
+   `relevance.py`.
+2. `noosphere/noosphere/forecasts/_polymarket_client.py`,
+   `_kalshi_client.py`.
+3. The forecast generator and portfolio surfaces:
+   `noosphere/noosphere/forecasts/forecast_generator.py`,
+   `theseus-codex/src/lib/forecastPortfolioData.ts`.
+
+Implement:
+
+A. Market matcher. Given an EventOpinion's stated probability
+   on a yes/no question, search the firm's market index for
+   markets whose resolution criteria entail or are entailed by
+   the question. Use NLI + a strict overlap threshold — silent
+   matches are worse than no matches.
+
+B. Edge calculator. For each match: edge = firm_p − market_p.
+   Edge ≥ ε (config) is surfaced; below is logged but not
+   surfaced.
+
+C. Founder UI. Per-Currents surfaces show "Edge available:
+   yes (Polymarket K%, firm P%, Δ=N pts)" with a link to the
+   forecast workspace pre-filled with the position size
+   suggested by the firm's existing paper-betting engine.
+
+D. No auto-trading. The link surfaces; the founder explicitly
+   confirms any position. The CLAUDE.md / system contract on
+   financial actions stays in force; this prompt does not bend
+   it.
+
+E. Public-side restraint. The public Currents page does NOT
+   show the edge or the position. It is firm-internal signal.
+   Public-side, the linkage is only visible later, ex post,
+   on the calibration page (prompt 12) where forecast
+   resolutions feed back.
+
+F. Tests. Synthetic Currents opinion + synthetic markets;
+   assert match, edge calculation, and the no-show-public
+   constraint.
+
+Constraints
+- The matcher must NOT match on superficial keyword overlap
+  ("China" — many markets reference China). Use claim-level
+  NLI with a high threshold.
+- Liquidity check: if the market's open interest is below a
+  threshold, mark the match as low-liquidity and do not surface
+  position sizing — only the edge.
+- Honor existing forecast budget caps (`forecasts/budget.py`).
+
+SCOPE
+- `noosphere/noosphere/currents/market_linker.py` CREATE
+- `noosphere/noosphere/forecasts/edge_calc.py` CREATE
+- `noosphere/tests/test_currents_market_link.py` CREATE
+- `theseus-codex/src/app/(authed)/founder-currents/page.tsx` MODIFY
+- `theseus-codex/src/components/EdgeBadge.tsx` CREATE
+- `theseus-codex/src/lib/edgeApi.ts` CREATE

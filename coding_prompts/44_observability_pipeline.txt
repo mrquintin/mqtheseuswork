@@ -1,0 +1,65 @@
+You are operating in /Users/michaelquintin/Desktop/Theseus.
+
+Goal: end-to-end observability across the noosphere processing
+pipeline, with method-level metrics. When a publish-day surge of
+uploads hits, the founder needs a clean answer to "where is each
+upload, what's slow, what failed silently?" today's logs answer
+that with grep.
+
+Before you start — read:
+1. `noosphere/noosphere/observability.py`.
+2. `noosphere/noosphere/orchestrator.py`.
+3. `theseus-codex/src/app/(authed)/ops/page.tsx` if it exists.
+4. The structured-log pattern in `~/.theseus/logs/noosphere.jsonl`
+   referenced in the README.
+
+Implement:
+
+A. Span model. Every method invocation, every cascade traversal,
+   every external API call gets a structured span: trace_id,
+   span_id, parent_span_id, name, start, end, status, attrs.
+   Spans persist as `Span` rows for queryable inspection.
+
+B. Trace propagation. From upload → ingester → claim_extractor →
+   methodology → embedding → publication, the trace_id is
+   threaded. Public endpoints originate new traces; founder
+   actions can attach to an existing trace via header.
+
+C. Method-level metrics. Per method per window: invocation
+   count, p50/p95 latency, error rate, cost ($) per call.
+   Materialized via the same nightly job that computes track
+   record (prompt 02).
+
+D. Operator dashboard. `(authed)/ops/page.tsx` shows: in-flight
+   uploads, recent traces, error spikes, method latency
+   trendlines, cost burndown vs budget. Drill-down on any row
+   opens the trace.
+
+E. Alerting. Threshold-based rules (e.g. error rate > 5%
+   sustained 15 min) fire to a webhook (existing
+   integrations) and to the unified attention queue
+   (prompt 34).
+
+F. Tests. Synthetic spans; assert trace propagation across at
+   least three hops; assert dashboard aggregation; assert alert
+   rule fires on planted spike.
+
+Constraints
+- Span persistence must NOT bloat the database. Default
+  retention 30 days; older spans aggregated to per-method
+  rollups and archived.
+- Span attrs sanitize input — no PII, no API keys.
+- Logging schema is stable; downstream log readers should not
+  break on a new optional attr.
+
+SCOPE
+- `noosphere/noosphere/observability/__init__.py` CREATE
+- `noosphere/noosphere/observability/spans.py` CREATE
+- `noosphere/noosphere/observability/metrics.py` CREATE
+- `noosphere/noosphere/observability.py` MODIFY
+- `noosphere/noosphere/orchestrator.py` MODIFY
+- `noosphere/tests/test_spans.py` CREATE
+- `theseus-codex/prisma/schema.prisma` MODIFY
+- `theseus-codex/src/app/(authed)/ops/page.tsx` MODIFY
+- `theseus-codex/src/components/TraceDrillDown.tsx` CREATE
+- `theseus-codex/src/lib/opsApi.ts` CREATE

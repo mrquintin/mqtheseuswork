@@ -1,0 +1,70 @@
+You are operating in /Users/michaelquintin/Desktop/Theseus.
+
+Goal: a principle-distillation pipeline that runs across the firm's
+entire conclusion corpus and surfaces stable cross-domain principles
+— the latent organizing claims the firm keeps re-deriving without
+naming. The output is a curated principles index visible to founders
+and (where flagged) to the public, with each principle backed by the
+conclusions that instantiated it.
+
+Before you start — read:
+1. `noosphere/noosphere/ontology.py` — there is already a principle
+   distillation primitive; extend it rather than reinvent.
+2. `noosphere/noosphere/cascade/graph.py`.
+3. `noosphere/noosphere/methods/synthesize_conclusion.py`.
+
+Implement:
+
+A. Cluster principles. Run hierarchical clustering on the
+   embedding-space neighborhood of all firm conclusions. Use a
+   conservative cluster threshold; the firm prefers fewer, more
+   defensible principles over many narrow ones.
+
+B. Principle generator. For each cluster, generate a candidate
+   principle (single-sentence claim) using the firm's existing
+   LLM client, with the cluster's conclusions as the only
+   context. Each principle's draft text must directly cite the
+   conclusions it generalizes — no free invention.
+
+C. Founder triage. The principles land in
+   `(authed)/principles/queue/page.tsx` as drafts. Founder
+   accepts (with edits), rejects (with reason), or merges with
+   an existing principle.
+
+D. Principle store. Accepted principles are
+   `Principle` rows with: text, generalized-conclusions list,
+   creation timestamp, conviction score (computed from the
+   number and centrality of underlying conclusions).
+
+E. Public surface. `/methodology/principles` lists public
+   principles with conviction-weighted ordering. Each links to
+   its underlying conclusions. The page treats principles as
+   reviewable artifacts, not slogans.
+
+F. Re-derivation. Principles are not eternal. A scheduled job
+   re-runs distillation; if a principle's underlying cluster
+   has shifted (new conclusions, retractions), the principle
+   surfaces in the founder queue for re-validation.
+
+Constraints
+- Principles are not inferred axioms; they are summaries of the
+  firm's working positions. The text must read as a position the
+  firm is willing to defend.
+- The conviction score is conservative: a single high-centrality
+  conclusion does not produce conviction; convergence across
+  domains does.
+- Public principles must declare their domain. The firm avoids
+  publishing universal-sounding principles whose underlying
+  evidence is domain-narrow.
+
+SCOPE
+- `noosphere/noosphere/ontology.py` MODIFY
+- `noosphere/noosphere/distillation/principle_distillation.py` CREATE
+- `noosphere/noosphere/distillation/__init__.py` CREATE
+- `noosphere/noosphere/cli_commands/principles.py` CREATE
+- `noosphere/tests/test_principle_distillation.py` CREATE
+- `theseus-codex/prisma/schema.prisma` MODIFY
+- `theseus-codex/src/app/(authed)/principles/queue/page.tsx` CREATE
+- `theseus-codex/src/app/(authed)/principles/[id]/page.tsx` CREATE
+- `theseus-codex/src/app/methodology/principles/page.tsx` CREATE
+- `theseus-codex/src/lib/principlesApi.ts` CREATE

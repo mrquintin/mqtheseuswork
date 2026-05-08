@@ -1,0 +1,74 @@
+You are operating in /Users/michaelquintin/Desktop/Theseus.
+
+Goal: a structured response → triage → dialog loop. Right now public
+readers can submit a response (Round 16 prompts 02–03). Those land in
+the founder inbox and stop there. Build the next half: triage the
+incoming responses (substantive vs noise), surface the substantive
+ones to the founder workspace queue, allow a private or public
+follow-up, and if a response identifies a concrete weakness, route
+the response to the revision engine.
+
+Before you start — read:
+1. `theseus-codex/src/components/RespondForm.tsx` and the email
+   pipeline at `theseus-codex/src/lib/responsesEmail.ts`.
+2. `theseus-codex/prisma/schema.prisma` for `PublicResponse`.
+3. The revision engine (prompt 16).
+
+Implement:
+
+A. Triage classifier in
+   `noosphere/noosphere/literature/response_triage.py`. Classify
+   each PublicResponse into: SUBSTANTIVE_OBJECTION (points to a
+   concrete claim and offers a counter), CLARIFICATION_REQUEST
+   (asks a question), GENERAL_ENGAGEMENT (commentary), SPAM_NOISE.
+   The classifier uses the firm's existing LLM client and writes
+   a `ResponseTriage` row.
+
+B. Founder queue. `(authed)/responses/queue/page.tsx` lists
+   substantive responses sorted by their potential severity (use
+   the severity rubric from prompt 22 on the implied objection).
+   Spam_noise is filtered out, archive-able with reason.
+
+C. Reply primitives. The founder can:
+   - Reply privately (email back the responder).
+   - Promote to a `PublicReply` that publishes alongside the
+     original article ("From the responses").
+   - Promote the implied objection to the conclusion's review
+     queue.
+   - Trigger a revision (prompt 16) if the response surfaces
+     genuinely new evidence.
+
+D. Public reply rendering. The article view (post/[slug] and
+   c/[slug]) displays a "Reader responses" appendix when public
+   replies exist, with the reader's response and the firm's
+   reply. No anonymous trolling: public reply requires founder
+   confirmation per response.
+
+E. Spam policy. The classifier records why each response was
+   judged spam. The founder can audit and override. Repeated
+   spam from the same sender (hashed) raises a flag.
+
+F. Tests on synthetic responses; assert the triage labels are
+   stable across small phrasing changes; assert spam path
+   reaches archive; assert the promote-to-revision path writes
+   the right RevisionInput.
+
+Constraints
+- The classifier is a coarse pre-filter, not the gatekeeper. The
+  founder always has the last word on triage.
+- Public replies must not expose the responder's email or any
+  information they did not opt to make public. The form should
+  ask explicitly for "may we publish your response if we reply?".
+- Keep all of this on the existing email pipeline; do not
+  introduce a new transport.
+
+SCOPE
+- `noosphere/noosphere/literature/response_triage.py` CREATE
+- `noosphere/tests/test_response_triage.py` CREATE
+- `theseus-codex/prisma/schema.prisma` MODIFY
+- `theseus-codex/src/app/(authed)/responses/queue/page.tsx` CREATE
+- `theseus-codex/src/app/(authed)/responses/[id]/page.tsx` CREATE
+- `theseus-codex/src/app/post/[slug]/ReaderResponses.tsx` CREATE
+- `theseus-codex/src/app/c/[slug]/ReaderResponses.tsx` CREATE
+- `theseus-codex/src/lib/responseTriageApi.ts` CREATE
+- `theseus-codex/src/components/RespondForm.tsx` MODIFY

@@ -1,0 +1,65 @@
+You are operating in /Users/michaelquintin/Desktop/Theseus.
+
+Goal: make the public site (theseuscodex.com) excellent on mobile. The
+firm publishes long-form articles; an unreadable mobile experience
+silently caps readership. The fix is a reading-first layout that
+preserves the firm's typography choices but works at 360–414px width.
+
+Before you start — read:
+1. `theseus-codex/src/app/(home)/page.tsx`,
+   `theseus-codex/src/app/post/[slug]/page.tsx`,
+   `theseus-codex/src/app/c/[slug]/page.tsx`.
+2. `theseus-codex/src/components/PublicHeader.tsx`.
+3. `theseus-codex/src/components/ConclusionView.tsx`.
+4. The existing CSS / Tailwind setup (`globals.css`, etc.).
+
+Implement:
+
+A. Responsive nav. PublicHeader collapses to a hamburger drawer
+   below 720px. Drawer is keyboard-accessible, focus-trapped,
+   closes on outside-tap and on route change.
+
+B. Article typography on mobile. Body text comfortable at 17–
+   18px; line length 60–66 ch; paragraph spacing increased
+   slightly versus desktop; quote blocks and footnotes do not
+   overflow horizontally. Hyphenation enabled (already in place
+   from Round 16's typography prompt — verify it survives at
+   small viewports).
+
+C. Citation popover behavior on touch. Tap opens; tap-outside
+   dismisses; popover is positioned to never escape the
+   viewport. The "show provenance" toggle from prompt 26 is
+   reachable from a bottom toolbar on mobile.
+
+D. Currents and Forecasts grids. Currents/Forecasts cards
+   reflow to a single column at small widths. No horizontal
+   scroll. Pulse indicators remain visible.
+
+E. Image / SVG handling. Hero ASCII art and other heavy SVG
+   elements either downscale gracefully or are replaced by a
+   smaller variant on mobile. Document the breakpoint.
+
+F. Tests. Playwright responsive tests at 375px and 414px for:
+   PublicHeader, post/[slug], c/[slug], currents/, forecasts/,
+   methodology/. Include scroll-to-top, focus-ring, and citation-
+   popover tests.
+
+Constraints
+- Do not introduce a separate mobile route tree. One responsive
+  codebase.
+- Do not regress desktop typography. Run the existing visual
+  regression tests if present.
+- Performance: mobile First Contentful Paint must stay under
+  1.5s on a throttled 4G profile.
+
+SCOPE
+- `theseus-codex/src/components/PublicHeader.tsx` MODIFY
+- `theseus-codex/src/components/MobileNavDrawer.tsx` CREATE
+- `theseus-codex/src/components/ConclusionView.tsx` MODIFY
+- `theseus-codex/src/components/CitationPopover.tsx` MODIFY
+- `theseus-codex/src/app/globals.css` MODIFY
+- `theseus-codex/src/app/post/[slug]/page.tsx` MODIFY
+- `theseus-codex/src/app/c/[slug]/page.tsx` MODIFY
+- `theseus-codex/src/app/currents/page.tsx` MODIFY
+- `theseus-codex/src/app/forecasts/page.tsx` MODIFY
+- `theseus-codex/playwright/mobile.spec.ts` CREATE
