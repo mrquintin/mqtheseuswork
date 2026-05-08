@@ -17,12 +17,14 @@ on:
       - 'replication/**'
       - 'noosphere/noosphere/benchmarks/**'
       - 'benchmarks/quintin_hypothesis/**'
+      - 'pyproject.toml'
       - '.github/workflows/nightly_replication.yml'
   push:
     branches: [main]
     paths:
       - 'replication/**'
       - 'noosphere/noosphere/benchmarks/**'
+      - 'pyproject.toml'
       - '.github/workflows/nightly_replication.yml'
 
 permissions:
