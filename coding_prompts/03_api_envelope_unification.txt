@@ -1,0 +1,72 @@
+You are operating in /Users/michaelquintin/Desktop/Theseus.
+
+Goal: every API route added in Round 17 (and earlier) returns its own
+slightly-different shape: some return `{ data, error }`, some return
+`{ ok, ...payload }`, some return raw JSON. Pagination is per-route.
+Error codes are inconsistent. This is a unification pass: define one
+envelope, one pagination contract, one error shape, and migrate
+existing endpoints to use them.
+
+Before you start — read:
+1. `theseus-codex/src/app/api/public/**/route.ts` and
+   `theseus-codex/src/app/api/**/route.ts` — inventory the response
+   shapes.
+2. `theseus-codex/src/lib/publicCors.ts`, `rateLimit.ts` — existing
+   middleware primitives.
+3. `theseus-codex/src/lib/auth.ts`, `apiKeyAuth.ts`.
+
+Implement:
+
+A. Envelope. Define `ApiResponse<T>` in
+   `theseus-codex/src/lib/api/envelope.ts`:
+   `{ ok: true, data: T, meta?: { ... } }` for success;
+   `{ ok: false, error: { code, message, details?, correlationId } }`
+   for failure. Error codes are typed as a closed enum.
+
+B. Pagination. Cursor-based pagination via
+   `meta: { nextCursor: string | null, hasMore: boolean, total?: number }`.
+   `total` is opt-in; routes that cannot cheaply compute it omit it
+   rather than computing on each request.
+
+C. Helpers. `withApiHandler(handler)` wraps a Next.js route handler:
+   normalizes errors, attaches a correlationId, applies CORS and
+   rate-limit, and serializes the envelope. Existing route handlers
+   are migrated route-by-route.
+
+D. Migration plan. Migrate the public routes first
+   (`/api/public/**`). For each, write a regression test asserting
+   the new envelope, then flip the handler. Founder routes follow.
+
+E. Client lib alignment. `theseus-codex/src/lib/*Api.ts` files (the
+   per-feature API clients written across Round 17) consume the new
+   envelope; replace ad-hoc decoding with a single
+   `parseEnvelope<T>` helper.
+
+F. External-API consumers. The public methodology manifest API
+   (Round 17 prompt 07), calibration manifest, ask, etc. version
+   their schema explicitly: `meta.schemaVersion = 1`. A schema bump
+   requires a documented changelog entry.
+
+Constraints
+- Do NOT change response payloads (the `data` content) in this
+  prompt. Only the envelope shape.
+- Public-side breaking changes to the envelope require a one-week
+  alias period — both old and new shapes served, with the old
+  emitting a deprecation header.
+- Do not add a third-party validation framework. Reuse Zod if it's
+  already in `package.json`; otherwise, hand-rolled types are fine.
+
+SCOPE
+- `theseus-codex/src/lib/api/envelope.ts` CREATE
+- `theseus-codex/src/lib/api/handler.ts` CREATE
+- `theseus-codex/src/lib/api/parseEnvelope.ts` CREATE
+- `theseus-codex/src/__tests__/api-envelope.test.ts` CREATE
+- `theseus-codex/src/app/api/public/methodology/manifest/route.ts` MODIFY
+- `theseus-codex/src/app/api/public/calibration/manifest/route.ts` MODIFY
+- `theseus-codex/src/app/api/public/ask/route.ts` MODIFY
+- `theseus-codex/src/app/api/public/subscribe/route.ts` MODIFY
+- `theseus-codex/src/app/api/public/critique/submit/route.ts` MODIFY
+- `theseus-codex/src/app/api/founder/attention/route.ts` MODIFY
+- `theseus-codex/src/lib/methodologyManifest.ts` MODIFY
+- `theseus-codex/src/lib/calibrationData.ts` MODIFY
+- `docs/architecture/API_Envelope_Contract.md` CREATE

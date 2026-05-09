@@ -1,0 +1,67 @@
+You are operating in /Users/michaelquintin/Desktop/Theseus.
+
+Goal: configuration is currently scattered. Round 17 prompts each
+introduced their own env-var lookups (`THESEUS_LOG_FILE`,
+`NOOSPHERE_*`, per-feature thresholds, model defaults). Threshold
+values appear inline as magic numbers in code. Consolidate.
+
+Before you start — read:
+1. `.env.live.template`, `.env`, and any other env reference
+   files.
+2. `noosphere/noosphere/config.py`,
+   `noosphere/noosphere/forecasts/config.py`,
+   `noosphere/noosphere/currents/config.py`.
+3. Inline `os.getenv` and `process.env.X` references across
+   noosphere and theseus-codex.
+
+Implement:
+
+A. Single config module per language.
+   - Python: `noosphere/noosphere/core/config.py` (post prompt 05's
+     reorganization) becomes the only place env vars are read.
+     Pydantic-settings model with a `Settings` singleton.
+   - TypeScript: `theseus-codex/src/lib/config.ts` exposes a
+     typed `config` object built from `process.env` at boot.
+
+B. Magic-number registry. Thresholds discovered during Round 17
+   (similarity cutoffs, severity multipliers, drift sigma values,
+   sample-size mins, retention TTLs, latency budgets) are
+   centralized as named constants under a single config module
+   with rationale comments. No bare numbers in code.
+
+C. Per-environment overlays. The settings model loads
+   `<env>.yaml` overlays in this order: defaults → environment
+   file → process env. Environment files live under
+   `config/` and are committed (no secrets — secrets remain env
+   vars).
+
+D. Migration. Every existing `os.getenv` / `process.env.X`
+   reference is migrated to read from the new settings object.
+   References that need a runtime override pattern (e.g. for
+   tests) use the settings object's typed `with_overrides`
+   helper.
+
+E. CI gate. A `scripts/check_no_inline_env_reads.py` that fails
+   on `os.getenv` or `process.env.` outside the config modules.
+
+F. Tests. Settings round-trip; overlay precedence; missing
+   required-env error message is helpful (names the variable
+   and the doc anchor).
+
+Constraints
+- Secrets remain env-only. Do not commit secret values.
+- Do not change runtime behavior of existing thresholds.
+  Centralizing them is a refactor; tuning is a separate prompt.
+- The settings object is read-only at runtime; any mutation
+  raises.
+
+SCOPE
+- `noosphere/noosphere/core/config.py` MODIFY (or CREATE if absent post-05)
+- `theseus-codex/src/lib/config.ts` CREATE
+- `config/defaults.yaml` CREATE
+- `config/development.yaml` CREATE
+- `config/production.yaml` CREATE
+- `noosphere/tests/test_config.py` CREATE
+- `theseus-codex/src/__tests__/config.test.ts` CREATE
+- `scripts/check_no_inline_env_reads.py` CREATE
+- `docs/architecture/Configuration.md` CREATE

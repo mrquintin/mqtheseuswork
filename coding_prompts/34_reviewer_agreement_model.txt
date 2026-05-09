@@ -1,0 +1,65 @@
+You are operating in /Users/michaelquintin/Desktop/Theseus.
+
+Goal: build a predictive model of reviewer agreement. The red-team
+tournament (prompt 16 above) collects when reviewers agree and
+disagree on objection severity. Use that data to predict, for a new
+conclusion, whether the swarm will likely converge — and surface
+that prediction at review time so the founder knows when to expect
+contention.
+
+Before you start — read:
+1. The tournament results from prompt 16.
+2. `noosphere/noosphere/peer_review/swarm.py`.
+3. `noosphere/noosphere/peer_review/severity.py`.
+
+Implement:
+
+A. Feature extraction. From the tournament corpus, extract
+   features per (conclusion, swarm-config, objection): topic
+   embedding, claim type, source mix, methodology used,
+   originating swarm config, severity, reviewer-id (provider).
+
+B. Agreement model. Train a simple model predicting
+   inter-reviewer agreement (a continuous score) from the
+   conclusion's features. Use a held-out tournament shard for
+   evaluation.
+
+C. Pre-review prediction. At new-conclusion review time, the
+   model predicts expected agreement; the prediction surfaces
+   on the review page as a "expected contention" pill.
+
+D. Use case: reviewer routing. When predicted agreement is
+   low, the swarm rotates additional reviewers (more
+   diversity, more cost). When predicted agreement is high,
+   the swarm runs a smaller config (cost discipline). The
+   policy is documented and ablation-testable.
+
+E. Founder dashboard. A "reviewer agreement trends" widget on
+   the dashboard tracks the model's calibration over time —
+   does it actually predict agreement, or is it just adding
+   noise?
+
+F. Tests. Synthetic tournament data with planted agreement
+   structure; assert the model recovers the structure;
+   assert routing policy honors the predicted agreement.
+
+Constraints
+- The model is a predictive aid, not a gate. A predicted
+  high-agreement conclusion still gets the full swarm if
+  the founder requests it.
+- Cost savings from routing must be reported alongside any
+  potential loss in coverage. The firm should not silently
+  prefer cheap swarms.
+- The model itself is subject to drift; track its calibration
+  and surface drift via the existing drift detector.
+
+SCOPE
+- `noosphere/noosphere/peer_review/agreement_model.py` CREATE
+- `noosphere/noosphere/peer_review/agreement_features.py` CREATE
+- `noosphere/noosphere/peer_review/swarm_router.py` CREATE
+- `noosphere/noosphere/peer_review/swarm.py` MODIFY
+- `noosphere/scripts/train_agreement_model.sh` CREATE
+- `noosphere/tests/test_agreement_model.py` CREATE
+- `theseus-codex/src/app/(authed)/peer-review/[id]/page.tsx` MODIFY
+- `theseus-codex/src/components/ExpectedContentionPill.tsx` CREATE
+- `theseus-codex/src/app/(authed)/dashboard/page.tsx` MODIFY

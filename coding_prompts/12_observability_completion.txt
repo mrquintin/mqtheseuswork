@@ -1,0 +1,68 @@
+You are operating in /Users/michaelquintin/Desktop/Theseus.
+
+Goal: prompt 44 from Round 17 introduced span-based observability,
+but later prompts in that round (45–50) were authored independently
+and may not have instrumented their new code paths. Audit and complete
+coverage so every method invocation, every cascade traversal, every
+external API call shows up in the trace.
+
+Before you start — read:
+1. `noosphere/noosphere/observability/spans.py` and the existing
+   `traced` decorator (verify form).
+2. Every Python entry point added in Round 17: MQS scorer, method
+   linker, drift estimator, citation-chain validator, swarm
+   tournament, etc.
+3. `theseus-codex/src/app/(authed)/ops/page.tsx` — the operator
+   dashboard.
+
+Implement:
+
+A. Coverage survey. A script that inspects each public function
+   in `noosphere/noosphere/inquiry/`, `temporal/`, `literature/`,
+   `methods/` (post prompt 05) and reports which are NOT
+   wrapped by the `traced` decorator. Output:
+   `docs/architecture/Trace_Coverage.md`.
+
+B. Auto-wrap pass. For methods identified as missing trace
+   instrumentation, add the decorator with a sensible span name.
+   Hot-path functions (called > 1k times/min) get a sampling
+   parameter so they don't bloat the span store.
+
+C. External API calls. Every call to OpenAI, Anthropic, Voyage,
+   Polymarket, Kalshi, Retraction Watch, etc. wraps the request
+   in a span with attributes (model, route, status_code, retry
+   count). Errors are recorded.
+
+D. Frontend instrumentation. The Next.js side of the codex emits
+   page-load and API-call spans linked back to the noosphere
+   trace ids when a request crosses the boundary.
+
+E. Trace UI improvements. The operator dashboard renders the
+   trace as a flame graph (or fall back to a simple Gantt
+   timeline). Clicking a span shows attributes and links back
+   to the source line.
+
+F. Tests. Synthetic invocations + assert spans are emitted for
+   every traced function; assert error attribution; assert
+   sampling rate honored.
+
+Constraints
+- Do not regress span privacy. Attrs do not include user
+  utterances or raw transcript content.
+- The frontend span library should not add > 5KB gzipped.
+- The operator dashboard must remain usable when the span
+  store is empty (dev mode).
+
+SCOPE
+- `scripts/survey_trace_coverage.py` CREATE
+- `docs/architecture/Trace_Coverage.md` CREATE
+- `noosphere/noosphere/observability/spans.py` MODIFY
+- `noosphere/noosphere/observability/external_api.py` CREATE
+- `noosphere/noosphere/inquiry/mqs.py` MODIFY
+- `noosphere/noosphere/inquiry/method_outcome_linker.py` MODIFY
+- `noosphere/noosphere/temporal/lineage.py` MODIFY
+- `noosphere/noosphere/literature/citation_chain.py` MODIFY
+- `theseus-codex/src/lib/observability/clientSpans.ts` CREATE
+- `theseus-codex/src/components/TraceFlamegraph.tsx` CREATE
+- `theseus-codex/src/app/(authed)/ops/page.tsx` MODIFY
+- `noosphere/tests/test_trace_coverage.py` CREATE

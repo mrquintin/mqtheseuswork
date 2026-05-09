@@ -1,0 +1,72 @@
+You are operating in /Users/michaelquintin/Desktop/Theseus.
+
+Goal: end the type drift between (a) Prisma generated types,
+(b) hand-written TypeScript types in `theseus-codex/src/lib/*`, and
+(c) Pydantic models in `noosphere/noosphere/`. Round 17 prompts
+introduced parallel type definitions for shared concepts (Conclusion,
+MQS, MethodTrackRecord, RevisionEvent, CitationVerdict). One source
+of truth per concept; everything else derives.
+
+Before you start — read:
+1. `theseus-codex/prisma/schema.prisma` (post prompt 01).
+2. `noosphere/noosphere/models.py` — Pydantic data models.
+3. The lib/*.ts files added in Round 17 (`mqs.ts`,
+   `methodTrackRecord.ts`, `lineage.ts`, `revisionApi.ts`,
+   `citationVerdict.ts`, etc.).
+
+Implement:
+
+A. Identify the canonical definition site for each shared concept:
+   - Database-backed entities → Prisma (TS types generated).
+   - Computational primitives that exist only in noosphere → Pydantic.
+   - Shared API payloads (cross-language) → JSON Schema, generated
+     to both Pydantic and TS.
+
+B. JSON Schema bridge. Author shared payloads under
+   `packages/shared-schemas/` as JSON Schema files. Generate
+   Pydantic via `datamodel-code-generator` and TypeScript via
+   `json-schema-to-typescript`. Generation runs in CI; drift fails
+   the build.
+
+C. Migrate the duplicates. For each concept where TS and Pydantic
+   were hand-written separately in Round 17, replace one side with
+   the generated type. Where the Prisma side is canonical, replace
+   the hand-written TS interface with `Prisma.X`.
+
+D. Runtime validation. At every cross-language boundary
+   (noosphere ↔ codex via API or shared DB), validate payloads
+   against the JSON schema. Validation failure logs and surfaces in
+   the unified attention queue (Round 17 prompt 34) rather than
+   silently drifting.
+
+E. Tests. A "type contract" test that imports both the Pydantic
+   model and the TS type for each shared schema and round-trips a
+   golden fixture through both.
+
+F. Documentation. Add `docs/architecture/Type_Boundaries.md`
+   describing which side owns which concept and why.
+
+Constraints
+- Do not introduce a new RPC framework. The point is alignment, not
+  re-platforming.
+- Generated code goes under a clearly-marked `_generated/` directory,
+  excluded from manual edits via a CI lint.
+- The generation toolchain must be installable via the existing
+  pyproject + package.json without new top-level deps when possible.
+
+SCOPE
+- `packages/shared-schemas/conclusion.schema.json` CREATE
+- `packages/shared-schemas/mqs.schema.json` CREATE
+- `packages/shared-schemas/method_track_record.schema.json` CREATE
+- `packages/shared-schemas/revision_event.schema.json` CREATE
+- `packages/shared-schemas/citation_verdict.schema.json` CREATE
+- `packages/shared-schemas/lineage.schema.json` CREATE
+- `packages/shared-schemas/scripts/generate_pydantic.py` CREATE
+- `packages/shared-schemas/scripts/generate_typescript.ts` CREATE
+- `packages/shared-schemas/README.md` CREATE
+- `noosphere/noosphere/_generated/__init__.py` CREATE
+- `theseus-codex/src/lib/_generated/index.ts` CREATE
+- `theseus-codex/src/__tests__/type-contracts.test.ts` CREATE
+- `noosphere/tests/test_type_contracts.py` CREATE
+- `docs/architecture/Type_Boundaries.md` CREATE
+- `.github/workflows/type-contracts.yml` CREATE

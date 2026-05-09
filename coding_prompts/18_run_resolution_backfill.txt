@@ -1,0 +1,60 @@
+You are operating in /Users/michaelquintin/Desktop/Theseus.
+
+Goal: actually run forecast resolution backfill (Round 17 prompt 13)
+across both Polymarket and Kalshi. Recompute the public calibration
+manifest. The first real number on the firm's public scorecard
+should arrive from this prompt.
+
+Before you start — read:
+1. `noosphere/noosphere/forecasts/resolution_backfill.py`.
+2. The public calibration page (Round 17 prompt 12).
+3. `noosphere/noosphere/forecasts/budget.py`.
+
+Implement:
+
+A. Pre-flight. Confirm Polymarket + Kalshi keys present; confirm
+   resolution_backfill.py imports cleanly; confirm budget cap
+   set.
+
+B. Dry-run. Run with `--dry-run` first; produce a report at
+   `docs/runs/resolution_backfill_<stamp>_dryrun.md` of what
+   would change.
+
+C. Apply. Run for real. Capture write counts, override conflicts,
+   discrepancies. Each ResolutionMismatch row goes to the
+   founder triage queue.
+
+D. Recompute. After backfill, recompute:
+   - public calibration manifest (the scorecard page from
+     Round 17 prompt 12);
+   - per-method track records (Round 17 prompt 02);
+   - calibration recalibration model (Round 17 prompt 14).
+
+E. Verify. Spot-check at least 10 random newly-resolved
+   forecasts: do their venue resolutions match the firm's
+   recorded forecast? Discrepancies > 5% sample size halts
+   automation; founder reviews.
+
+F. Publish summary. A short note appended to
+   `docs/runs/resolution_backfill_<stamp>.md` with: how many
+   resolutions written, how many overrides triggered, how many
+   mismatches sent to triage, the new headline calibration
+   number, and a comparison to the firm's prior internal
+   estimate.
+
+Constraints
+- Do not silently overwrite existing resolutions. Every change
+  to a resolution row creates a ResolutionRevision (per the
+  Round 17 prompt 13 contract).
+- Budget is non-negotiable. If the API budget runs out partway,
+  partial-completion is recorded and the next run resumes.
+- The public calibration page rebuilds via static
+  revalidation; verify the new numbers actually surface.
+
+SCOPE
+- `docs/runs/resolution_backfill_<stamp>_dryrun.md` CREATE
+- `docs/runs/resolution_backfill_<stamp>.md` CREATE
+- `noosphere/scripts/run_resolution_backfill.sh` CREATE
+- `noosphere/noosphere/forecasts/resolution_backfill.py` MODIFY (only if integration reveals a bug)
+- `theseus-codex/src/app/calibration/page.tsx` MODIFY (only if the rebuild path needs fixing)
+- `noosphere/tests/test_resolution_backfill_integration.py` CREATE

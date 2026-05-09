@@ -1,0 +1,68 @@
+You are operating in /Users/michaelquintin/Desktop/Theseus.
+
+Goal: formalize the MQS specification (`docs/methods/MQS_Specification.md`
+from Round 17 prompt 01). The first version was prose with worked
+examples; the firm needs a mathematically precise specification —
+exact composite formula, exact gating function, the role of each
+sub-score, the calibration interactions. This is what makes MQS
+auditable beyond "the LLM said".
+
+Before you start — read:
+1. `docs/methods/MQS_Specification.md` (current draft).
+2. `noosphere/noosphere/inquiry/mqs.py`.
+3. The Aim-Method Fit rubric (prompt 31), the severity calibration
+   (prompt 37), and the MQS-feeding sub-scores defined in
+   Round 17.
+
+Implement:
+
+A. Notation. Introduce explicit notation: c for conclusion,
+   m for method, s_P, s_S, s_AMF, s_C, s_DS for the five
+   sub-scores in [0,1]. Each sub-score's formula expressed
+   in terms of typed inputs.
+
+B. Composite. Replace any "weighted average" hand-wave with
+   the actual formula. The Domain-Sensitivity gate becomes
+   a piecewise function, not a soft penalty: if s_DS < θ,
+   composite is 0. The remaining four sub-scores combine
+   via a documented operator (minimum / harmonic mean /
+   weighted geometric mean) with the choice justified.
+
+C. Boundary cases. The spec lists every boundary: what
+   happens when a sub-score is undefined (insufficient data),
+   what happens at the gating threshold, what happens when
+   inputs disagree. Each boundary is a paragraph of prose
+   plus an explicit code-level test.
+
+D. Compliance test. A property-based test that exercises
+   the spec's formal claims: monotonicity, gating, identity
+   under perfect inputs. Hypothesis-style tests in
+   `noosphere/tests/test_mqs_spec.py`.
+
+E. PDF version. `docs/methods/MQS_Specification.pdf` from
+   pdflatex. The TeX source uses real math, not Markdown
+   $$. Equations are numbered; the body refers to them.
+
+F. Code-doc consistency. The
+   `scripts/check_mqs_doc_consistency.py` from Round 17 is
+   strengthened: every constant in the spec must appear in
+   code, every code constant must appear in the spec.
+
+Constraints
+- A formal spec is not an aspiration. If MQS's current code
+  uses a different formula than the prose described, the
+  prompt picks one: change code or change spec, and writes
+  the change explicitly with rationale.
+- Spec versioning. The first formal version is v1. Future
+  changes bump the version and add a changelog row.
+- The spec should not require an LLM judge in the formula.
+  The judge produces sub-score *evidence* but the formula
+  uses numbers.
+
+SCOPE
+- `docs/methods/MQS_Specification.md` MODIFY
+- `docs/methods/MQS_Specification.tex` CREATE
+- `docs/methods/MQS_Specification.pdf` CREATE
+- `noosphere/noosphere/inquiry/mqs.py` MODIFY
+- `noosphere/tests/test_mqs_spec.py` CREATE
+- `scripts/check_mqs_doc_consistency.py` MODIFY

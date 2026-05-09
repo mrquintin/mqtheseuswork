@@ -1,0 +1,63 @@
+You are operating in /Users/michaelquintin/Desktop/Theseus.
+
+Goal: actually run the QH benchmark v1 (built in Round 17 prompt 08)
+end to end against the firm's contradiction-geometry probe and the
+two baselines. Publish the results. The benchmark exists; without a
+first real run, it is just code.
+
+Before you start — read:
+1. `benchmarks/quintin_hypothesis/v1/dataset_card.md` — confirm the
+   dataset is curated and frozen.
+2. `noosphere/noosphere/benchmarks/qh_runner.py` and `qh_metrics.py`.
+3. `theseus-codex/src/app/methodology/benchmark/qh/page.tsx`.
+
+Implement:
+
+A. Pre-flight. Verify dataset is at v1 frozen state; verify
+   embedding model availability; verify a test run succeeds on a
+   100-item shard.
+
+B. Full run. Execute three runners (random, cosine-only, firm
+   probe) over the v1 dataset. Log the run envelope (git SHA,
+   model versions, seeds). Store results under
+   `benchmarks/quintin_hypothesis/v1/results/<timestamp>/`.
+
+C. Statistical analysis. Compute accuracy, AUROC, ECE per runner.
+   Compute paired bootstrap CIs (10k resamples, BCa) for the
+   firm-vs-cosine differences; compute McNemar where applicable.
+   Effect sizes alongside p-values.
+
+D. Publish. Update the public benchmark page to show the live
+   results: leaderboard, calibration plots, per-domain breakdown.
+   Honest negative-result framing if cosine wins on any slice.
+
+E. PDF artifact. Generate
+   `docs/research/QH_Benchmark_v1_Results.pdf` and `.tex` via
+   the existing pdflatex pipeline. Numbers from code; no
+   hand-edited values.
+
+F. Subscribe + announce. Trigger the Round 17 prompt 39 digest so
+   research-followers receive the new artifact. Tweet via the
+   firm's existing X bot ONLY if MQS-on-the-firm-probe ≥ a
+   minimum threshold (don't promote a weak result).
+
+Constraints
+- The run consumes embedding-API credits. Honor the budget
+  in `noosphere/noosphere/forecasts/budget.py` (extend if
+  there's no benchmark-side budget yet).
+- If any runner fails partway, the partial result is published
+  with explicit "n=K of N" notation rather than dropped or
+  smoothed.
+- The first run sets the baseline against which future runs
+  are compared. Do not silently re-run on different seeds and
+  pick the best — every run is recorded with its envelope.
+
+SCOPE
+- `benchmarks/quintin_hypothesis/v1/results/<run-stamp>/results.json` CREATE
+- `benchmarks/quintin_hypothesis/v1/results/<run-stamp>/envelope.json` CREATE
+- `benchmarks/quintin_hypothesis/v1/results/<run-stamp>/analysis.md` CREATE
+- `docs/research/QH_Benchmark_v1_Results.tex` CREATE
+- `docs/research/QH_Benchmark_v1_Results.pdf` CREATE
+- `theseus-codex/src/app/methodology/benchmark/qh/page.tsx` MODIFY
+- `noosphere/scripts/run_qh_full.sh` CREATE
+- `noosphere/tests/test_qh_full_run_integration.py` CREATE

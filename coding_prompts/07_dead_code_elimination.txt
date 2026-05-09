@@ -1,0 +1,65 @@
+You are operating in /Users/michaelquintin/Desktop/Theseus.
+
+Goal: identify and remove dead code introduced or orphaned during
+Round 17. Some interfaces were drafted but never consumed; some flags
+were wired through but never toggled; some routes were added in
+service of components that were later restructured. Untouched code
+rots — it confuses readers and inflates the security surface.
+
+Before you start — read:
+1. The full `theseus-codex/src/` and `noosphere/noosphere/` trees.
+2. `tsconfig.json` — verify `strict` and `noUnusedLocals` settings.
+3. The existing `scripts/check_*.py` invariant scripts.
+
+Implement:
+
+A. Dead-export survey.
+   - TypeScript: run `ts-prune` (or `knip` if already in
+     `package.json`) and pipe the output to
+     `docs/architecture/Dead_Code_Survey.md`.
+   - Python: run `vulture noosphere/ --min-confidence 70` and
+     append.
+   - Each candidate gets a row: file, symbol, last commit, my
+     decision (remove, keep with comment, mark for follow-up).
+
+B. Removal pass. For each "remove" row, delete the symbol or file.
+   Stage these as a single commit with a summary of what was
+   removed and why. Commits referencing dead exports go through
+   the same regression test suite as live code.
+
+C. Flag audit. Search for boolean config flags introduced in
+   Round 17 (e.g. `feature.<name>` in env config). For each:
+   verify it is reachable from at least one runtime decision; if
+   not, remove the flag and the unreachable branch.
+
+D. Route audit. Each `app/api/.../route.ts` is matched against
+   client callers. Routes with no callers in the past 30 days of
+   traffic logs (or no callers in code) are quarantined under a
+   `legacy` route group with a sunset header.
+
+E. Component audit. Components imported from zero call sites are
+   removed; components imported only by removed pages are
+   transitively removed.
+
+F. Tests. After the removal pass, `tsc --noEmit`, `pytest`,
+   `playwright test`, and the existing CI invariant scripts
+   must all pass. The dead-code survey itself becomes a CI
+   artifact published per build.
+
+Constraints
+- Do not remove tests. A test for a removed symbol is removed
+  in the same commit, with the symbol.
+- Do not remove signed-publication artifacts (Round 17 prompt 30)
+  even if they appear unused. The signing key path is
+  intentionally referenced indirectly.
+- This prompt is destructive — keep removals small, atomic, and
+  reversible. A single mass-deletion commit is harder to bisect
+  than ten focused ones.
+
+SCOPE
+- `docs/architecture/Dead_Code_Survey.md` CREATE
+- `scripts/run_dead_code_survey.sh` CREATE
+- `scripts/check_dead_code_no_regression.py` CREATE
+- `.github/workflows/dead-code-survey.yml` CREATE
+- (every removed file in this pass — listed in the survey
+  document, not enumerated here because the set is discovered)

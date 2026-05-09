@@ -1,0 +1,70 @@
+You are operating in /Users/michaelquintin/Desktop/Theseus.
+
+Goal: Round 17 added at minimum nine new GitHub Actions workflows
+(qh_benchmark.yml, redteam_tournament.yml, type-contracts.yml,
+nightly_replication.yml, load_test_preview.yml, load_test_nightly.yml,
+dead-code-survey.yml, schema-audit.yml, …). Without consolidation,
+each runs its own setup matrix, flakes independently, and races for
+the same secrets. Stabilize.
+
+Before you start — read:
+1. `.github/workflows/` end to end.
+2. The existing reusable workflows (if any) under
+   `.github/workflows/_*.yml`.
+3. `pyproject.toml`, `package.json`, `requirements.txt` —
+   dependencies referenced by these workflows.
+
+Implement:
+
+A. Reusable setup. Extract `.github/workflows/_setup_python.yml`,
+   `_setup_node.yml`, and `_setup_db.yml`. Each new and existing
+   workflow calls these reusables instead of duplicating
+   actions/setup-python steps.
+
+B. Concurrency groups. Every workflow declares a concurrency group
+   keyed by ref. Multiple pushes to the same PR cancel previous
+   runs.
+
+C. Caching strategy. A single hash-based cache key per language
+   ecosystem (lockfile hash). No more per-workflow cache keys.
+
+D. Flake quarantine. Workflows that have failed > 5% in the last
+   90 days enter a quarantine list at
+   `.github/workflows/_quarantine.md`. Quarantine is signal: while
+   in quarantine the workflow runs but does not block PRs, and
+   the team is expected to fix or remove it within 14 days.
+
+E. Secret hygiene. The new workflows reference secrets in a
+   centralized `.github/workflows/_secrets.yml` notes file
+   (documentation only — secrets stay in GitHub's vault). Each
+   secret listed with: which workflow uses it, which env var
+   name, and a justification line.
+
+F. CI dashboard. A small page at
+   `theseus-codex/src/app/(authed)/ops/ci/page.tsx` showing the
+   firm's view of CI health: green/red per workflow, p50 wall
+   time per workflow, last-known flake rate. Pulls from GitHub
+   API via the founder's existing token.
+
+Constraints
+- This is consolidation; do not add new workflows in this prompt.
+- Do not weaken the CI gates by relaxing assertions. A red
+  workflow blocks merges; quarantine is the only escape, and it
+  is time-boxed.
+- Reusable workflows live under `.github/workflows/_*.yml` to
+  signal their non-runnable status.
+
+SCOPE
+- `.github/workflows/_setup_python.yml` CREATE
+- `.github/workflows/_setup_node.yml` CREATE
+- `.github/workflows/_setup_db.yml` CREATE
+- `.github/workflows/_quarantine.md` CREATE
+- `.github/workflows/_secrets.yml` CREATE
+- `theseus-codex/src/app/(authed)/ops/ci/page.tsx` CREATE
+- `theseus-codex/src/lib/ciHealth.ts` CREATE
+- `.github/workflows/qh_benchmark.yml` MODIFY
+- `.github/workflows/redteam_tournament.yml` MODIFY
+- `.github/workflows/nightly_replication.yml` MODIFY
+- `.github/workflows/type-contracts.yml` MODIFY
+- `.github/workflows/load_test_preview.yml` MODIFY
+- `.github/workflows/load_test_nightly.yml` MODIFY

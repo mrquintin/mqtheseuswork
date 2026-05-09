@@ -1,0 +1,62 @@
+You are operating in /Users/michaelquintin/Desktop/Theseus.
+
+Goal: improve the public inquiry-search box (Round 17 prompt 28).
+First-version retrieval ranks by embedding similarity. In practice
+that surfaces near-duplicate snippets and misses queries the firm
+actually wants to handle well — open questions, unresolved
+contradictions, methodology questions.
+
+Before you start — read:
+1. `theseus-codex/src/app/api/public/ask/route.ts`.
+2. `theseus-codex/src/components/PublicAskBox.tsx`.
+3. `noosphere/noosphere/inference/public_retrieval.py`.
+
+Implement:
+
+A. Query understanding. Classify each query into one of:
+   factual-claim, methodology-question, prediction-request,
+   counter-argument-request, browse. Routing is rule-based +
+   light LLM judge. Each class has its own retrieval and
+   rendering path.
+
+B. Diverse retrieval. Use Maximum Marginal Relevance to ensure
+   the top results are not five paraphrases of the same
+   conclusion. The MMR λ is configurable; default favors
+   relevance with a meaningful diversity component.
+
+C. Honest empty result. The "the firm has not addressed this
+   directly" branch is enriched: surface (a) the closest open
+   question, (b) the closest related conclusion, (c) a
+   "submit a research suggestion" form (the
+   ResearchSuggestion model exists). The empty result becomes
+   a useful page rather than a dead end.
+
+D. Result freshness signal. Each result carries a date and a
+   "still considered current" pill (or its opposite). Stale
+   conclusions are not silently de-ranked; readers see they
+   are stale.
+
+E. Query log discipline. Logged queries are hashed and
+   bucketed for analytics; raw query strings are not retained
+   beyond 24 hours. The retention policy is enforced by the
+   retention runner (Round 17 prompt 46).
+
+F. Tests. Synthetic corpus + golden queries; assert
+   classification accuracy; assert MMR diversity; assert
+   no-result enrichment fires; assert log retention.
+
+Constraints
+- The /ask page does NOT freeform-generate text. Retrieval +
+  rendering only.
+- Latency p50 budget remains 1.5s.
+- Query logs respect retention even on staging.
+
+SCOPE
+- `theseus-codex/src/app/api/public/ask/route.ts` MODIFY
+- `theseus-codex/src/components/PublicAskBox.tsx` MODIFY
+- `theseus-codex/src/app/ask/page.tsx` MODIFY
+- `theseus-codex/src/lib/publicAsk.ts` MODIFY
+- `noosphere/noosphere/inference/public_retrieval.py` MODIFY
+- `noosphere/noosphere/inference/query_classifier.py` CREATE
+- `noosphere/tests/test_public_ask_quality.py` CREATE
+- `theseus-codex/src/__tests__/PublicAskBox.test.tsx` MODIFY

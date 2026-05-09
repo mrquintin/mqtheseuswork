@@ -1,0 +1,60 @@
+You are operating in /Users/michaelquintin/Desktop/Theseus.
+
+Goal: refine the unified founder attention queue (Round 17 prompt 34).
+After Round 17 + Round 18 prompts 13–20 ran, the queue is now
+populated by real findings. The first-version ranking is too coarse;
+high-severity items pile up faster than the founder can triage, and
+the dashboard becomes ignorable.
+
+Before you start — read:
+1. `theseus-codex/src/app/(authed)/dashboard/page.tsx`.
+2. `theseus-codex/src/components/AttentionQueue.tsx`.
+3. `theseus-codex/src/lib/attention.ts`.
+
+Implement:
+
+A. Daily-budget triage. The attention queue presents at most K
+   (configurable, default 7) items per day with the rest
+   collapsed under "more". The selection of K is severity-and-
+   age weighted but also diversity-weighted: the daily slice
+   should not be all from one queue.
+
+B. Bulk-action affordance. Multi-select + bulk-snooze + bulk-
+   dismiss-with-reason. Without bulk actions a populated queue
+   is unmaintainable.
+
+C. Queue-health signal. Each underlying queue (drift, citation
+   verdicts, source standing, peer review, response triage,
+   etc.) gets a "health" indicator based on: rate of new items
+   vs rate of triage. A queue accumulating faster than it
+   drains is a queue the firm has under-resourced or whose
+   producer needs throttling.
+
+D. Founder-feedback loop. When the founder dismisses an item
+   with reason "wrong call by the system", the dismissal is
+   logged as training data for the producer's threshold tuning
+   — the citation-chain validator, the drift detector, etc.
+   This is how the system learns from triage.
+
+E. Snooze reasons-required. A snooze without a reason is not
+   permitted. The reason becomes a searchable annotation.
+
+F. Tests. Synthetic mixed queue; assert daily-budget honored;
+   assert diversity weighting; assert bulk actions; assert
+   queue-health calculation.
+
+Constraints
+- The dashboard does NOT auto-resolve anything. The bulk
+  actions remain founder-driven.
+- The "training data" path for false positives is opt-in per
+  queue. The firm should not have a quiet feedback loop it
+  did not consent to.
+
+SCOPE
+- `theseus-codex/src/app/(authed)/dashboard/page.tsx` MODIFY
+- `theseus-codex/src/components/AttentionQueue.tsx` MODIFY
+- `theseus-codex/src/components/AttentionItem.tsx` MODIFY
+- `theseus-codex/src/components/QueueHealthIndicator.tsx` CREATE
+- `theseus-codex/src/components/BulkActionBar.tsx` CREATE
+- `theseus-codex/src/lib/attention.ts` MODIFY
+- `theseus-codex/src/__tests__/attention-queue-v2.test.tsx` CREATE

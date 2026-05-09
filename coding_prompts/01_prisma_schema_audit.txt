@@ -1,0 +1,64 @@
+You are operating in /Users/michaelquintin/Desktop/Theseus.
+
+Goal: Round 17 added roughly 25 new Prisma models in scattered prompts.
+Without an integrating audit, the schema now has duplicated naming,
+inconsistent timestamp/audit columns, redundant indices, orphan
+relations, and probably one or two pairs of models that are conceptually
+the same row in two places. This prompt is a single consolidating audit
++ surgical fixes — not a rewrite.
+
+Before you start — read:
+1. `theseus-codex/prisma/schema.prisma` end to end. Build a mental
+   inventory of models added in Round 17 (MQS, MethodTrackRecord,
+   ConclusionMethod, AnchorRevision, DriftEvent extensions,
+   SourceStanding, SourceCredibility, CitationVerdict, RevisionEvent,
+   MethodVersion, etc.). Round 17's archived prompts in
+   `coding_prompts/archive_round17_methodology_implementation/` declare
+   the SCOPE files; cross-reference them.
+2. `theseus-codex/prisma/migrations/` — the migration tail that
+   accumulated; identify migrations that touch overlapping tables.
+
+Implement:
+
+A. Inventory document. Produce
+   `docs/architecture/Schema_Audit_Round18.md` listing every Round-17
+   model with: purpose, primary fields, relations, redundancy with
+   other models, index coverage, naming consistency notes. Numbers and
+   names are pulled from the schema, not invented.
+
+B. Surgical consolidation. Where two models cover the same row (e.g.
+   if both `MethodTrackRecord` and an ad-hoc `MethodCalibration`
+   exist), merge to one with a Prisma migration that preserves data.
+   Migrations are forward-only and idempotent.
+
+C. Naming + timestamps. Every audit-shaped row should carry
+   `createdAt`, `updatedAt`, `tenantId` (where relevant) using the
+   firm's existing convention. Repair drift only — do not invent new
+   conventions.
+
+D. Index sweep. For every `@@index` and `@@unique`, justify it in a
+   comment. Drop unjustified indices. Add indices for the queries
+   visibly served by `theseus-codex/src/lib/*` files.
+
+E. Foreign-key sweep. Every relation declares
+   `onDelete`/`onUpdate` explicitly. The default of "no action" is
+   recorded with a comment explaining why.
+
+F. Tests. Run `prisma migrate diff` and assert idempotency. Add a
+   schema-shape test (parse the schema, assert invariants programmatically) at
+   `theseus-codex/src/__tests__/schema-shape.test.ts`.
+
+Constraints
+- This is a consolidation pass, not a redesign. Renaming models with
+  data attached requires a documented data-migration step.
+- Do not delete a model that is reachable from any imported TypeScript
+  file. Use `tsc --noEmit` + a grep across `src/` as the safety net.
+- Do not change column types in ways that break in-flight rows
+  without a backfill.
+
+SCOPE
+- `docs/architecture/Schema_Audit_Round18.md` CREATE
+- `theseus-codex/prisma/schema.prisma` MODIFY
+- `theseus-codex/prisma/migrations/round18_consolidation/migration.sql` CREATE
+- `theseus-codex/src/__tests__/schema-shape.test.ts` CREATE
+- `scripts/check_schema_audit_consistency.py` CREATE

@@ -1,0 +1,62 @@
+You are operating in /Users/michaelquintin/Desktop/Theseus.
+
+Goal: run the first red-team tournament (Round 17 prompt 23) and
+publish the leaderboard. This is the firm telling outsiders: here
+is how our reviewer configurations actually compare on shared
+material, including the ones we are unhappy with.
+
+Before you start — read:
+1. `benchmarks/redteam/v1/conclusion_bench.jsonl` and `card.md`.
+2. `noosphere/noosphere/peer_review/tournament.py`.
+3. The multi-provider swarm work from Round 17 prompt 21.
+
+Implement:
+
+A. Configurations. Define at minimum 6 reviewer configs:
+   - Anthropic-only (production default)
+   - OpenAI-only
+   - Gemini-only
+   - Anthropic + OpenAI rotation
+   - All-providers rotation
+   - All-providers rotation with seeded prompt variant
+   Each config gets a deterministic id (provider mix + prompt
+   version + temperature + seed).
+
+B. Run the tournament with the v1 conclusion bench. Capture the
+   per-config severity-weighted score, inter-config agreement,
+   cost, and latency.
+
+C. Analysis. Test whether multi-provider configs produce
+   meaningfully different objection sets compared to single-
+   provider. The expected result is: more diverse swarms surface
+   more high-severity objections per dollar; if that fails, the
+   firm's "monoculture review is bad" claim is empirically
+   weaker than supposed.
+
+D. Public leaderboard. Update
+   `theseus-codex/src/app/methodology/redteam/page.tsx` with the
+   live tournament results.
+
+E. Founder memo. `docs/research/internal/Redteam_Tournament_<stamp>.md`
+   summarizes the run, calls out which config the firm now
+   prefers, and lists configs the firm will retire.
+
+F. Schedule the next tournament. The seasonal review (Round 17
+   prompt 47) consumes tournament drift over time; this run
+   establishes the first data point.
+
+Constraints
+- Every config must run on the SAME conclusion bench. Re-curating
+  the bench between configs invalidates the tournament.
+- The leaderboard is honest about cost. A config that wins on
+  severity at 10x cost is presented with that cost.
+- If a provider's API is degraded mid-run, the affected config
+  is marked partial; do not silently skip its missing items.
+
+SCOPE
+- `benchmarks/redteam/v1/results/<stamp>/results.json` CREATE
+- `benchmarks/redteam/v1/results/<stamp>/envelope.json` CREATE
+- `benchmarks/redteam/v1/results/<stamp>/leaderboard.csv` CREATE
+- `docs/research/internal/Redteam_Tournament_<stamp>.md` CREATE
+- `theseus-codex/src/app/methodology/redteam/page.tsx` MODIFY
+- `noosphere/scripts/run_redteam_tournament_v1.sh` CREATE

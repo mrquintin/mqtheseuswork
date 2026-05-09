@@ -1,0 +1,60 @@
+You are operating in /Users/michaelquintin/Desktop/Theseus.
+
+Goal: refine the public calibration scorecard (Round 17 prompt 12).
+With the first real run from prompt 18 above, the scorecard now has
+substance. Make it a page a serious reader actually trusts.
+
+Before you start — read:
+1. `theseus-codex/src/app/calibration/page.tsx`.
+2. The calibration manifest API.
+3. The first calibration numbers from prompt 18.
+
+Implement:
+
+A. Headline number discipline. The hero number on the page is
+   the firm's overall Brier score with explicit sample size and
+   bootstrap CI. If sample size is below a threshold (e.g. 25
+   resolutions), the headline reads "n=K — too few resolutions
+   for a stable score" rather than reporting a flattering point
+   estimate.
+
+B. Calibration plot quality. The reliability diagram uses
+   bootstrap CIs per bin (not analytic), labels bins by sample
+   size, and grays out bins below the firm's display
+   threshold. The diagonal-line "perfect calibration" reference
+   is drawn.
+
+C. Comparator. Add a "what this means" section comparing the
+   firm's Brier to: (a) random forecasting (Brier 0.25),
+   (b) always-50% forecasting (also 0.25), (c) the prior of
+   each market. The point is that "0.18" is meaningless without
+   the comparators.
+
+D. Slice surface. Filter chips for domain, source method,
+   resolution time horizon, market venue. The selected slice's
+   sample size is always visible.
+
+E. Resolution audit link. Every resolved forecast in the
+   numerator is reachable from the page (one click to the
+   underlying record). This is what makes the scorecard
+   non-fakeable: every number has a paper trail.
+
+F. Tests. Synthetic resolution sets exercise edge cases:
+   tiny n, all-correct, all-wrong, perfectly calibrated,
+   anti-calibrated. Assert the page renders honestly in each.
+
+Constraints
+- Do not show numbers more precise than the data supports.
+- The "no cherry-picking" hash from Round 17 prompt 12 stays;
+  add a date next to it and a link explaining what it means.
+- Mobile rendering of the reliability diagram must remain
+  comprehensible (Round 17 prompt 37 set the patterns).
+
+SCOPE
+- `theseus-codex/src/app/calibration/page.tsx` MODIFY
+- `theseus-codex/src/components/CalibrationPlot.tsx` MODIFY
+- `theseus-codex/src/components/CalibrationComparators.tsx` CREATE
+- `theseus-codex/src/components/CalibrationSliceFilter.tsx` CREATE
+- `theseus-codex/src/lib/calibrationData.ts` MODIFY
+- `theseus-codex/src/__tests__/calibration-scorecard-v2.test.tsx` CREATE
+- `noosphere/noosphere/coherence/calibration.py` MODIFY (only if metric drift uncovered)

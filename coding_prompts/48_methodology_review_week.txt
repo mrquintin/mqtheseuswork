@@ -1,0 +1,67 @@
+You are operating in /Users/michaelquintin/Desktop/Theseus.
+
+Goal: schedule and tool the firm's first "Methodology Review Week" —
+a structured, time-boxed period where the firm focuses exclusively
+on reviewing its own methods. This is the firm putting its
+methodological commitments into practice as a calendared event,
+not as a vague intention.
+
+Before you start — read:
+1. The methods registry, MQS spec, drift detector, retirement
+   workflow (Round 17–18).
+2. The seasonal review (prompt 46) — methodology review week
+   produces inputs for it.
+
+Implement:
+
+A. Schedule. Set up a recurring quarterly Methodology Review
+   Week (5 working days). The schedule lives in the firm's
+   own scheduler, with named day-by-day focus:
+   Day 1: drift events review
+   Day 2: failure-mode catalog review
+   Day 3: domain-bound review
+   Day 4: retirement candidate review
+   Day 5: write the methodology section of the seasonal
+   review
+
+B. Tooling. Each day surfaces a focused queue at
+   `(authed)/methodology-review-week/<day>/page.tsx`. The
+   queue is a curated subset of the unified attention queue
+   (Round 17 prompt 34) filtered to the day's focus.
+
+C. Day-end checkpoints. Each day's tooling expects a written
+   summary by end-of-day. The summary feeds the seasonal
+   review's methodology section.
+
+D. Review-week historical archive. Past review weeks are
+   browseable at
+   `(authed)/methodology-review-week/history/page.tsx`. Past
+   summaries are signed and immutable.
+
+E. Public hint. The public methodology page surfaces "Last
+   review week: <date>; next review week: <date>" so outside
+   readers know the firm is on a cadence.
+
+F. Tests. Schedule generation; queue filtering per day;
+   summary persistence; signed-summary round trip.
+
+Constraints
+- Review Week is opt-in per founder. The schedule does not
+  punish missed weeks; it logs them and continues.
+- Summaries are not auto-generated; the founder writes them.
+  The agent can DRAFT a summary based on the day's queue,
+  but the draft is clearly a draft and the founder's edits
+  are tracked.
+- Public-facing dates are accurate. If a review week is
+  postponed, the public hint updates.
+
+SCOPE
+- `noosphere/noosphere/inquiry/methodology_review_week.py` CREATE
+- `noosphere/scripts/schedule_methodology_review_week.sh` CREATE
+- `theseus-codex/src/app/(authed)/methodology-review-week/[day]/page.tsx` CREATE
+- `theseus-codex/src/app/(authed)/methodology-review-week/history/page.tsx` CREATE
+- `theseus-codex/src/app/(authed)/methodology-review-week/page.tsx` CREATE
+- `theseus-codex/src/app/methodology/page.tsx` MODIFY
+- `theseus-codex/src/lib/methodologyReviewWeek.ts` CREATE
+- `theseus-codex/prisma/schema.prisma` MODIFY
+- `noosphere/tests/test_methodology_review_week.py` CREATE

@@ -1,0 +1,74 @@
+You are operating in /Users/michaelquintin/Desktop/Theseus.
+
+Goal: open the replication harness (Round 17 prompt 11) to outside
+researchers. The harness exists; nothing pulls outsiders to actually
+use it. Run a small targeted outreach, instrument the experience, and
+respond to what they find.
+
+Before you start — read:
+1. `replication/README.md` and the harness contents.
+2. The QH benchmark + cross-model + ablation results from Round 18
+   prompts 13–15.
+3. The reader guide from prompt 41.
+
+Implement:
+
+A. Targeted outreach list. Identify at minimum 8 candidate
+   researchers (academic + industry) whose work plausibly
+   intersects the firm's claims. The list is built from
+   citation analysis of the firm's existing references and
+   public Twitter/X bibliography mining. Output:
+   `docs/external/Replication_Outreach_Targets.md`. The
+   PROMPTED AGENT compiles the list; the founder reviews and
+   sends.
+
+B. Reproducibility envelope hardening. Run the harness on
+   three machines (a laptop, a CI runner, a clean VM) and
+   verify the deterministic-mode flag actually produces
+   matching numbers. Discrepancies are filed as bugs, not
+   handwaved.
+
+C. Pre-flight troubleshooting guide. From the three-machine
+   run above, capture every snag and write it as a
+   `replication/TROUBLESHOOTING.md`. Outside researchers
+   running into the same snags should not have to debug from
+   first principles.
+
+D. Reproducibility certificate. When an outside researcher
+   completes a replication, the harness emits a signed
+   certificate (reusing the firm's signing key from Round 17
+   prompt 30). The firm publishes a "researchers who have
+   replicated us" page from these certificates with each
+   researcher's consent.
+
+E. Outreach debrief. After the outreach window:
+   `docs/external/Replication_Outreach_Debrief_<stamp>.md`
+   summarizing who replicated, what worked, what didn't,
+   what the firm changed because of the feedback.
+
+F. Tests. Three-machine determinism test in CI as a manual
+   trigger (it costs API credits to run); certificate
+   round-trip test deterministic.
+
+Constraints
+- The harness must remain self-contained (pyproject + npm,
+  no exotic deps). Outside researchers should not have to
+  install niche tooling.
+- Certificates are not vouched-for accuracy — they certify
+  that the harness reproduced the firm's published numbers
+  on the researcher's hardware. The page distinguishes
+  these clearly.
+- No outreach happens via this prompt's automation. The
+  drafts and target lists are produced; the founder sends.
+
+SCOPE
+- `docs/external/Replication_Outreach_Targets.md` CREATE
+- `docs/external/Replication_Outreach_Letter_Draft.md` CREATE
+- `replication/TROUBLESHOOTING.md` CREATE
+- `replication/lib/certificate.py` CREATE
+- `replication/lib/verify.py` MODIFY
+- `theseus-codex/src/app/methodology/replicators/page.tsx` CREATE
+- `theseus-codex/src/lib/replicators.ts` CREATE
+- `replication/tests/test_certificate.py` CREATE
+- `docs/external/Replication_Outreach_Debrief_<stamp>.md` CREATE
+- `.github/workflows/replication_three_machine_check.yml` CREATE

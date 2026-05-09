@@ -1,0 +1,57 @@
+You are operating in /Users/michaelquintin/Desktop/Theseus.
+
+Goal: execute the Householder reflection ablation (Round 17 prompt 10)
+and publish the result. This is the test that decides whether the
+reflection step is doing real work or is theatre. The firm should
+take the result seriously either way.
+
+Before you start — read:
+1. `noosphere/noosphere/benchmarks/qh_ablations.py`.
+2. `noosphere/noosphere/methods/contradiction_geometry.py`.
+3. The QH benchmark v1 results (prompt 13).
+
+Implement:
+
+A. Run all five variants (control, no-reflection, random-reflection,
+   asymmetric, raw-embedding-reflection) over the v1 dataset.
+   Fixed seeds; captured envelope.
+
+B. Statistical analysis. Paired McNemar between control and each
+   variant; bootstrap CIs on accuracy deltas; effect sizes.
+
+C. Decision. Based on the analysis, the prompt's deliverable
+   includes the firm's recommendation: KEEP / REMOVE / KEEP-WITH-
+   FURTHER-WORK. The recommendation is signed by an author
+   identifier; it is a conclusion the firm publishes.
+
+D. PDF. Build `docs/research/Householder_Ablation.pdf`. Abstract
+   states the recommendation in the first 100 words. Body shows
+   the numbers and the test details.
+
+E. Public page. Update the methodology page for
+   contradiction_geometry to link the PDF + a one-line summary
+   of the ablation finding.
+
+F. If the recommendation is REMOVE, this prompt does NOT remove
+   the production code path. It writes a follow-up prompt
+   (`coding_prompts/_proposed/remove_householder.txt`) for
+   founder consideration. Surgery is separate from research.
+
+Constraints
+- The control variant is exactly the production code. No subtle
+  variation.
+- An effect size below 1 percentage point on accuracy is
+  reported as "indistinguishable in this dataset," not as a
+  victory for the variant.
+- The recommendation lives in the PDF AND in a structured row
+  in `docs/research/internal/Ablation_Decisions.md` for
+  later reference.
+
+SCOPE
+- `benchmarks/quintin_hypothesis/v1/results/ablations/<run-stamp>/results.json` CREATE
+- `benchmarks/quintin_hypothesis/v1/results/ablations/<run-stamp>/envelope.json` CREATE
+- `docs/research/Householder_Ablation.tex` MODIFY
+- `docs/research/Householder_Ablation.pdf` MODIFY
+- `docs/research/internal/Ablation_Decisions.md` CREATE
+- `coding_prompts/_proposed/remove_householder.txt` CREATE (only if recommendation = REMOVE)
+- `theseus-codex/src/app/methodology/contradiction_geometry/page.tsx` MODIFY

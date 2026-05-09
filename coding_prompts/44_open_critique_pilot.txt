@@ -1,0 +1,67 @@
+You are operating in /Users/michaelquintin/Desktop/Theseus.
+
+Goal: instrument and run a pilot of the open critique invitation
+(Round 17 prompt 48). The infrastructure is in place; the firm has
+not yet exposed it to outside critics. Open the channel, run a
+focused pilot with three to five named outside reviewers, and learn.
+
+Before you start — read:
+1. `theseus-codex/src/components/ChallengeThisCta.tsx`,
+   `theseus-codex/src/app/api/public/critique/submit/route.ts`,
+   `theseus-codex/src/app/(authed)/critiques/queue/page.tsx`.
+2. The bounty mechanism described in Round 17 prompt 48.
+3. The signed-publication path (Round 17 prompt 30).
+
+Implement:
+
+A. Pilot reviewer recruitment. The PROMPTED AGENT does NOT
+   contact reviewers. It produces a drafted invitation
+   email at `docs/external/Critique_Pilot_Invitation_Draft.md`
+   that the founder can send. The draft names what is being
+   asked, the bounty structure, and the timeline.
+
+B. Pilot scope. Identify three published articles that are
+   substantive and stable (not fresh, not under active
+   revision). These are the pilot's targets.
+
+C. Tracking. Add a pilot-specific tag on submissions so the
+   pilot's reviewers can be analyzed separately. The
+   submission form, when accessed via a per-reviewer
+   pre-shared link, auto-tags the submission.
+
+D. Expedited triage. During the pilot window (configurable),
+   pilot submissions are routed to the top of the founder
+   queue. Standard triage continues for non-pilot
+   submissions.
+
+E. Pilot debrief. After the pilot window closes, compile
+   `docs/external/Critique_Pilot_Debrief_<stamp>.md`:
+   reviewers, submissions received, accept rate, severity
+   distribution, what the firm changed because of the pilot,
+   what the firm did not change and why.
+
+F. Improvements log. The pilot will surface gaps in the
+   intake form, the moderation queue, the bounty pipeline,
+   the public hall-of-fame. Each gap becomes a row in
+   `coding_prompts/_proposed/critique_pilot_followups.md`.
+
+Constraints
+- No bounty payments are sent in this prompt. Payment queue
+  populates; founder confirms each.
+- Pilot reviewers' identities are public only with their
+  consent. The intake form requires explicit consent before
+  any name appears on the public hall-of-fame.
+- The pilot must NOT cherry-pick favorable findings. Every
+  pilot submission is recorded; rejected ones are recorded
+  with reason.
+
+SCOPE
+- `docs/external/Critique_Pilot_Invitation_Draft.md` CREATE
+- `docs/external/Critique_Pilot_Targets.md` CREATE
+- `theseus-codex/src/app/api/public/critique/submit/route.ts` MODIFY
+- `theseus-codex/src/app/(authed)/critiques/queue/page.tsx` MODIFY
+- `theseus-codex/prisma/schema.prisma` MODIFY
+- `noosphere/noosphere/social/critique_routing.py` MODIFY
+- `docs/external/Critique_Pilot_Debrief_<stamp>.md` CREATE
+- `coding_prompts/_proposed/critique_pilot_followups.md` CREATE
+- `theseus-codex/src/__tests__/critique-pilot.test.ts` CREATE

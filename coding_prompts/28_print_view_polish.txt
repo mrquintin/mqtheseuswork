@@ -1,0 +1,64 @@
+You are operating in /Users/michaelquintin/Desktop/Theseus.
+
+Goal: refine the print views (Round 17 prompt 38). First version
+turned articles into clean PDFs but the metadata block, endnotes, and
+batch export had rough edges. With the auto-paper from prompt 20 in
+play, the firm's printed output is now in front of real readers.
+
+Before you start — read:
+1. `theseus-codex/src/app/print.css`.
+2. `theseus-codex/src/components/PrintMetadataBlock.tsx` and
+   `PrintEndnotes.tsx`.
+3. `noosphere/noosphere/docgen/articles_export.py`.
+
+Implement:
+
+A. Metadata block. The first printed page should be a true title
+   page: title, author, methodology pill, MQS, confidence,
+   publication date, signature fingerprint, canonical URL. No
+   running header on the title page; running header starts on
+   page 2.
+
+B. Endnotes layout. Endnotes use small caps for source names,
+   include the source-credibility (Round 17 prompt 19) score
+   inline, and break across pages cleanly. URL endnotes wrap at
+   sensible characters.
+
+C. Page numbering. Numbered footers from page 2 onward.
+   Numbering style matches the firm's existing PDFs in
+   `docs/`.
+
+D. Batch export. The CLI batch export
+   (`noosphere docs export-articles`) gets:
+   - a `--cover` option that prepends a single cover page;
+   - a `--toc` (default on) that produces a clickable
+     table of contents;
+   - a `--start-each-on-right` option for binding;
+   - a `--privacy strict|tolerant` switch governing whether
+     private sources appear in the appendix at all.
+
+E. Long-form testing. Build a 50-page test PDF from a synthetic
+   bound export and confirm: TOC entries link, page numbers
+   continue across articles, no orphaned headings, signature
+   fingerprints match the canonical web record.
+
+F. Tests. Snapshot HTML for the print stylesheet at three
+   article lengths; assert metadata block content; assert
+   endnote numbering stable across reloads.
+
+Constraints
+- The print stylesheet does not regress screen rendering.
+- Endnote URLs are clickable (in PDF) only where the source is
+  public.
+- Do not embed images at higher resolution than the print
+  budget supports — the PDFs should be < 2MB per article in
+  most cases.
+
+SCOPE
+- `theseus-codex/src/app/print.css` MODIFY
+- `theseus-codex/src/components/PrintMetadataBlock.tsx` MODIFY
+- `theseus-codex/src/components/PrintEndnotes.tsx` MODIFY
+- `theseus-codex/src/components/PrintCover.tsx` CREATE
+- `theseus-codex/src/components/PrintTOC.tsx` CREATE
+- `noosphere/noosphere/docgen/articles_export.py` MODIFY
+- `noosphere/tests/test_articles_export_polish.py` CREATE

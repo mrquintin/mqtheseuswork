@@ -1,0 +1,82 @@
+You are operating in /Users/michaelquintin/Desktop/Theseus.
+
+Goal: a single verification + regression pass after the entire
+Round 18 batch has been attempted. The pass produces a written
+report identifying which prompts landed cleanly, which left
+inconsistencies, and which empirical executions (prompts 13–20)
+genuinely changed the firm's published artifacts.
+
+This prompt MUST be run last.
+
+Before you start — read:
+1. `coding_prompts/_audit_implementation.py`.
+2. The previous round's verification (Round 17 prompt 50)
+   for the precedent.
+
+Implement / execute:
+
+A. Run the test suites:
+   - noosphere: `python -m pytest -x -q`
+   - theseus-codex: `npm test -- --run`
+   - dialectic: `python -m pytest -x -q`
+   - replication harness: `make -C replication light` if the
+     light path exists.
+   Capture the output in
+   `docs/runs/round18_verification_<stamp>/test_output.md`.
+
+B. Run the existing scripts/check_*.py invariants (Round 17
+   set + the new Round 18 ones):
+   - schema audit consistency
+   - migration linearity
+   - architecture consistency
+   - rationale structure
+   - MQS doc consistency
+   - no inline env reads
+   - no hardcoded colors
+   - no tracking pixels
+   - no secrets in code
+   - signing key not in web
+
+C. Audit the prompt round:
+   `python3 coding_prompts/_audit_implementation.py`.
+   Report per-prompt verdict.
+
+D. Spot-check the empirical artifacts. For each of prompts
+   13, 14, 15, 16, 17, 18, 19, 20: confirm the expected
+   output files exist, are nonempty, and contain numbers
+   (not template placeholders). Flag drafts vs published
+   artifacts clearly.
+
+E. Cross-prompt coupling. Round 18's stabilization prompts
+   (01–12) altered abstractions used by Round 17 code.
+   Verify by static analysis that no Round-17-archived
+   prompt SCOPE file's exports were silently dropped
+   without a compatibility shim.
+
+F. Final report at
+   `docs/runs/round18_verification_<stamp>/REPORT.md`:
+   - test suite summary
+   - invariant check summary
+   - per-prompt verdict
+   - empirical artifact spot-check
+   - cross-prompt coupling analysis
+   - explicit gaps + recommended follow-ups
+   - founder questions surfaced by the round
+
+Constraints
+- Do not edit production code in this prompt except trivial
+  repairs (typos, missing imports, dead-code regressions
+  the dead-code prompt missed). Substantive issues become
+  follow-up prompts.
+- The report is the deliverable. Red suites and failed
+  invariants are recorded honestly.
+- Do not move any prompts to archive. Founder runs the
+  audit script and decides.
+
+SCOPE
+- `docs/runs/round18_verification_<stamp>/REPORT.md` CREATE
+- `docs/runs/round18_verification_<stamp>/test_output.md` CREATE
+- `docs/runs/round18_verification_<stamp>/empirical_spotcheck.md` CREATE
+- `docs/runs/round18_verification_<stamp>/coupling_analysis.md` CREATE
+- `scripts/round18_smoke.sh` CREATE
+- `scripts/round18_verification.py` CREATE

@@ -1,0 +1,60 @@
+You are operating in /Users/michaelquintin/Desktop/Theseus.
+
+Goal: the migration tail from Round 17 plus prompt 01 needs a clean
+production application path. Multiple environments (dev, staging,
+prod) must be brought to the same schema state without data loss,
+with a verified dry-run, and with a clear rollback if anything goes
+wrong mid-flight.
+
+Before you start — read:
+1. `scripts/migrate_production.sh` and `migrate_production_dry_run.sh`
+   — the existing pattern.
+2. `theseus-codex/prisma/migrations/` — current migration list.
+3. `docs/Vercel_Supabase_Deploy.md` — deploy runbook.
+
+Implement:
+
+A. Migration linearity check. A script
+   `scripts/check_migration_linearity.py` that reads the migrations
+   directory and asserts no two migrations touch the same table in
+   ways that contradict each other. Failure prints a tabular report.
+
+B. Schema-from-prod snapshot. Add
+   `scripts/snapshot_production_schema.sh` that pulls a
+   structure-only dump (no data) of the production Postgres into
+   `docs/architecture/snapshots/<timestamp>.sql`. Snapshots are
+   committed weekly via the existing scheduler.
+
+C. Apply path. Update `migrate_production.sh` to:
+   - take a Postgres snapshot first;
+   - run migrations inside a single transaction where possible;
+   - on failure, print the exact rollback SQL the operator must
+     run.
+
+D. Dry-run path. `migrate_production_dry_run.sh` should produce a
+   diff between current prod schema and the migrations on disk, and
+   refuse to proceed if the diff is empty (signal that the migration
+   was already applied) or contains unexpected DROP COLUMN /
+   DROP TABLE without a justification comment in the migration.
+
+E. Documentation. Update
+   `docs/operations/Migration_Runbook.md` with the new procedure and
+   the failure-mode table.
+
+F. Tests on a synthetic Postgres container; assert dry-run
+   reports the exact set of operations; assert apply is idempotent.
+
+Constraints
+- No destructive operations without explicit operator confirmation.
+- Foreign-key changes must use the firm's existing pattern
+  (drop-FK, alter, recreate-FK) rather than ALTER COLUMN cascades
+  that lock tables on Supabase.
+- Migration scripts assume Postgres; do not branch for SQLite.
+
+SCOPE
+- `scripts/check_migration_linearity.py` CREATE
+- `scripts/snapshot_production_schema.sh` CREATE
+- `scripts/migrate_production.sh` MODIFY
+- `scripts/migrate_production_dry_run.sh` MODIFY
+- `docs/operations/Migration_Runbook.md` CREATE
+- `tests/migration/test_migration_linearity.py` CREATE

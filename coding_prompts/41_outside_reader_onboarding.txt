@@ -1,0 +1,63 @@
+You are operating in /Users/michaelquintin/Desktop/Theseus.
+
+Goal: an onboarding guide for outside readers. A serious researcher
+or financier landing on theseuscodex.com needs a path from "what is
+this firm?" to "I understand what they claim and how I would test
+it" within 30 minutes. Right now there is no such path.
+
+Before you start — read:
+1. The public homepage and the public-site README pages.
+2. The methodology explorer (prompt 21 above).
+3. The replication harness (Round 17 prompt 11).
+4. The QH benchmark and cross-model results (prompts 13–14).
+
+Implement:
+
+A. Page structure. `theseus-codex/src/app/about/reader-guide/page.tsx`
+   organized as a guided tour:
+   1. What Theseus does (one paragraph)
+   2. The methodological commitment (link to THE_META_METHOD)
+   3. The five working criteria (link to /methodology/criteria)
+   4. The empirical claims the firm has tested (links to QH
+      benchmark, cross-model study, ablation)
+   5. How to challenge the firm (link to /critiques and the
+      response form)
+   6. How to replicate (link to /methodology/replicate)
+   7. How to subscribe (link to subscriber form)
+
+B. Reading time. Each step is annotated with reading time. A
+   reader can pick the depth they want.
+
+C. Reading-tour mode. A "tour me" button that walks the reader
+   through key pages with a small overlay explaining what they
+   are looking at. The overlay is dismissible at any point;
+   reaching the end emits a "you've completed the tour" state
+   that affects nothing material — no badges, no gates, just a
+   record the reader can export if they want.
+
+D. PDF reading guide. `docs/Reader_Guide.pdf` is a 6–8 page
+   PDF version of the same content, suitable for printing or
+   for Theseus to send to journalists.
+
+E. SEO + metadata. Each guide page has clean Open Graph
+   metadata and a one-line description so a link to it
+   renders well.
+
+F. Tests. Snapshot tests on each step page; navigation test
+   on the tour mode (next/prev/dismiss).
+
+Constraints
+- The guide does not flatten the firm's intellectual content.
+  It indexes; it doesn't replace the underlying surfaces.
+- No marketing language. The guide is a reading map.
+- The PDF is built via pdflatex and uses the firm's existing
+  TeX style files.
+
+SCOPE
+- `theseus-codex/src/app/about/reader-guide/page.tsx` CREATE
+- `theseus-codex/src/components/ReaderTour.tsx` CREATE
+- `theseus-codex/src/components/ReaderTourOverlay.tsx` CREATE
+- `theseus-codex/src/lib/readerTour.ts` CREATE
+- `docs/Reader_Guide.tex` CREATE
+- `docs/Reader_Guide.pdf` CREATE
+- `theseus-codex/src/__tests__/reader-guide.test.tsx` CREATE

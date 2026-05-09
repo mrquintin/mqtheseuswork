@@ -1,0 +1,79 @@
+You are operating in /Users/michaelquintin/Desktop/Theseus.
+
+Goal: refactor the noosphere package's top-level layout. Round 17
+added many new modules (evaluation/, distillation/, observability/,
+literature/, benchmarks/, peer_review/providers/, methods/composition,
+temporal/, decay/retention*, social/, etc.). The current top-level is
+roughly 30 directories with overlapping purposes. Pull related modules
+into a coherent hierarchy without breaking imports.
+
+Before you start — read:
+1. `noosphere/noosphere/__init__.py` and the full directory listing.
+2. `noosphere/noosphere/__main__.py` and `cli.py`, `typer_cli.py` —
+   CLI entry points.
+3. Inspect imports across the package to map the dependency DAG;
+   modules importing each other become candidates for consolidation.
+
+Implement:
+
+A. Target hierarchy. Define and document target structure under
+   `docs/architecture/Noosphere_Module_Map.md`. Suggested
+   high-level groupings (final shape is your call after inspection):
+   - `noosphere/core/` — models, store, ledger, orchestrator,
+     observability primitives.
+   - `noosphere/methods/` — registry, composition, decorator, every
+     method.py + RATIONALE + FAILURES.yaml.
+   - `noosphere/inquiry/` — coherence, evaluation, peer_review,
+     redteam, mitigations.
+   - `noosphere/temporal/` — temporal, lineage, replay, revision.
+   - `noosphere/literature/` — sources, citations, standing,
+     credibility, retraction polls.
+   - `noosphere/forecasts/` — forecast workflows.
+   - `noosphere/currents/` — Currents pipeline.
+   - `noosphere/dialectic_bridge/` — exports, ingestion contracts.
+   - `noosphere/io/` — codex_bridge, storage_client, ingester,
+     ingest_artifacts.
+   - `noosphere/cli/` — typer + click commands consolidated.
+   - `noosphere/benchmarks/` — benchmarks live here.
+   - `noosphere/docgen/`.
+
+B. Move with stable re-exports. Every relocation keeps a thin
+   shim at the old import path that re-exports from the new
+   location, with a `DeprecationWarning`. Removal of shims is a
+   future prompt; this prompt is non-breaking.
+
+C. CLI surface unchanged. `noosphere <subcommand>` invocations from
+   the operator runbook continue to work. Verify by running the
+   existing CLI test suite and adding a regression test that
+   imports every CLI entry and asserts it loads.
+
+D. Lint pass. Add an `import-linter` config asserting the new
+   layering: `core` cannot import from anything else; `inquiry`
+   imports `core` and `methods` only; etc. The linter runs in CI.
+
+E. Documentation update. `noosphere/README.md` reflects the new
+   shape, with a top-level diagram.
+
+F. Tests. Add `noosphere/tests/test_module_hierarchy.py` that
+   walks the package and asserts the import-linter contract holds.
+
+Constraints
+- This prompt MUST NOT change behavior. It is a relocation pass
+  with backward-compatible shims.
+- Imports inside the package are updated to the new paths even
+  while shims persist (so the shims have only one user: external
+  scripts).
+- Do not delete the old shim files. Their removal is a separate
+  follow-up after the warnings have been observed for 30 days.
+
+SCOPE
+- `docs/architecture/Noosphere_Module_Map.md` CREATE
+- `noosphere/noosphere/core/__init__.py` CREATE
+- `noosphere/noosphere/inquiry/__init__.py` CREATE
+- `noosphere/noosphere/temporal/__init__.py` CREATE
+- `noosphere/noosphere/literature/__init__.py` CREATE
+- `noosphere/noosphere/cli/__init__.py` CREATE
+- `noosphere/noosphere/io/__init__.py` CREATE
+- `noosphere/.import-linter` CREATE
+- `noosphere/tests/test_module_hierarchy.py` CREATE
+- `noosphere/README.md` MODIFY

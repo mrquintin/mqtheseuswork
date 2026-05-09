@@ -1,0 +1,62 @@
+You are operating in /Users/michaelquintin/Desktop/Theseus.
+
+Goal: execute the cross-model embedding-geometry study (Round 17
+prompt 09) and publish the PDF + the public page. This is the firm's
+first serious test of whether the Quintin Hypothesis holds beyond
+one embedding model — it is a real test of the firm's central
+intellectual claim.
+
+Before you start — read:
+1. `noosphere/noosphere/embeddings/multi.py` and the cross-model
+   runner from Round 17 prompt 09.
+2. `benchmarks/quintin_hypothesis/v1/results/<run-stamp>/` — first
+   run (prompt 13) baseline.
+3. `docs/research/Cross_Model_Geometry_Study.tex` template.
+
+Implement:
+
+A. Pre-flight. Confirm API keys present for: OpenAI text-embedding-3
+   -large, Voyage voyage-3, Cohere embed-english-v3, BGE-large
+   (local), and one sentence-transformer baseline. Skip with clear
+   logging where keys are absent.
+
+B. Run. Execute the cross-model runner across all available models
+   on the QH v1 dataset. Persist parquet results under
+   `benchmarks/quintin_hypothesis/v1/results/cross_model/`.
+
+C. Analysis. Compute per-model accuracy/AUROC/ECE; compute
+   inter-model agreement matrix; run mixed-effects (or permutation)
+   test on whether the firm's probe is significantly better than
+   cosine across models, controlling for domain.
+
+D. PDF. Build `docs/research/Cross_Model_Geometry_Study.pdf` from
+   the analysis output. Abstract states the headline finding
+   honestly. If the firm's probe is only better in one model,
+   the abstract says so.
+
+E. Public page. Update
+   `theseus-codex/src/app/methodology/benchmark/qh/cross-model/page.tsx`
+   with the heatmap, the per-model bar chart, and the PDF link.
+
+F. Findings memo. A short founder-side memo
+   `docs/research/internal/Cross_Model_Findings_Memo.md`
+   summarizing what the firm believes after this run, what it
+   would update on, and which follow-up experiments are
+   warranted. This is the methodological loop closing.
+
+Constraints
+- Do not bend the analysis to make a positive result. If the
+  cross-model variance is large, that is the finding.
+- Embedding cost cap is a hard ceiling; if hit mid-run, partial
+  results publish with the "n=K models" disclosure prominently.
+- Do not commit raw embedding vectors to git. Manifest only.
+
+SCOPE
+- `benchmarks/quintin_hypothesis/v1/results/cross_model/<run-stamp>/results.parquet` CREATE
+- `benchmarks/quintin_hypothesis/v1/results/cross_model/<run-stamp>/envelope.json` CREATE
+- `benchmarks/quintin_hypothesis/v1/results/cross_model/<run-stamp>/analysis.md` CREATE
+- `docs/research/Cross_Model_Geometry_Study.tex` MODIFY
+- `docs/research/Cross_Model_Geometry_Study.pdf` MODIFY
+- `docs/research/internal/Cross_Model_Findings_Memo.md` CREATE
+- `theseus-codex/src/app/methodology/benchmark/qh/cross-model/page.tsx` MODIFY
+- `noosphere/scripts/run_cross_model_full.sh` MODIFY

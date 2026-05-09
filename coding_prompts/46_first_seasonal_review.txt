@@ -1,0 +1,62 @@
+You are operating in /Users/michaelquintin/Desktop/Theseus.
+
+Goal: produce the firm's first seasonal review document using the
+generator from Round 17 prompt 47. With Round 17 + 18's accumulated
+data — calibration scorecard, drift events, principles, peer-review
+tournaments, self-critique findings — there is now a quarter's worth
+of substance to review.
+
+Before you start — read:
+1. `noosphere/noosphere/docgen/seasonal_review.py`.
+2. The seasonal template + page from Round 17 prompt 47.
+3. The publication signing path (Round 17 prompt 30).
+
+Implement:
+
+A. Run the assembler. Generate the structured object for the
+   most recent quarter (or full Round 17→18 window if shorter).
+
+B. Run the narrative pass. Generate prose. Verify number drift
+   between prose and structured object — automatic check.
+
+C. Found er review. The PROMPTED AGENT does NOT publish. It
+   produces the PDF, lands it in the founder review queue,
+   and writes a reviewer's memo at
+   `docs/research/internal/Seasonal_Review_Q<n>_Reviewer_Memo.md`
+   highlighting:
+   - the strongest finding the review surfaces
+   - the most embarrassing finding the review surfaces
+   - one to three claims the agent is uncertain about
+   - any number that the agent cannot verify against a
+     row in the database
+
+D. Sign. On founder approval, the published seasonal review
+   passes through the signing path (Round 17 prompt 30).
+
+E. Public landing. The published review lives at
+   `/research/seasonal/<slug>/` (Round 17 prompt 47 set the
+   route). Subscribers (Round 17 prompt 39) receive the
+   digest entry.
+
+F. Tests. Verify the assembler output is deterministic for a
+   fixed window; verify the prose pass cannot introduce
+   numbers; verify signature round-trip.
+
+Constraints
+- The review includes a "what we got wrong" section
+  populated from the self-critique pass output (prompt 19
+  above). It cannot be silenced.
+- If the quarter's data is too thin (e.g. very few resolved
+  forecasts), the review still produces — it simply has
+  smaller sections, and explicit "data not available" notes
+  rather than padded estimates.
+- The first seasonal review is the template for future ones.
+  Polish accordingly.
+
+SCOPE
+- `noosphere/scripts/run_seasonal_review.sh` CREATE
+- `docs/seasonal/2026_Q2_Review.tex` CREATE
+- `docs/seasonal/2026_Q2_Review.pdf` CREATE
+- `docs/research/internal/Seasonal_Review_Q2_Reviewer_Memo.md` CREATE
+- `theseus-codex/src/app/research/seasonal/[slug]/page.tsx` MODIFY
+- `noosphere/tests/test_seasonal_review_integration.py` CREATE

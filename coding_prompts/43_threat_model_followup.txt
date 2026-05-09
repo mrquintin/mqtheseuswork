@@ -1,0 +1,68 @@
+You are operating in /Users/michaelquintin/Desktop/Theseus.
+
+Goal: a security follow-up. Round 17 prompt 49 produced a Threat
+Model and a hardening pass. With the new public surfaces from Round
+18 (architecture doc, reader guide, mobile polish, public ask v2),
+re-examine the threat model and close any gaps that emerged.
+
+Before you start — read:
+1. `docs/security/Threat_Model.md`.
+2. The new public routes added in Round 18 prompts 21–30,
+   38, 41.
+3. The api envelope unification (prompt 03) — confirm error
+   shapes do not leak stack traces.
+
+Implement:
+
+A. Surface diff. Walk every new public route added in Round
+   18 and re-evaluate against the threat model. For each
+   surface, note: rate-limited?, auth required?, CSRF?,
+   input validation?, output sanitization?
+
+B. Specific re-checks:
+   - The methodology manifest API (Round 17 prompt 07): does
+     it leak any private failure-mode data? Re-validate.
+   - The public ask (Round 17 prompt 28 + Round 18 prompt 29):
+     does the LLM-routed query path enable prompt injection
+     that influences output ranking?
+   - The signed-publication endpoint (Round 17 prompt 30):
+     does the verification endpoint expose any timing
+     side-channel that lets an attacker mint signatures?
+   - The replication harness (Round 17 prompt 11): does it
+     rely on any environment variable that should be a
+     secret in production?
+
+C. Penetration test light. A scripted set of automated
+   probes against the staging environment. Captured findings
+   land in `docs/security/probes/<stamp>.md`.
+
+D. Threat model update. The Threat_Model.md is updated with
+   any newly identified surfaces, their mitigations, and any
+   accepted risks (with rationale).
+
+E. Bounty program decision. Decide whether to publish the
+   firm's bounty program (writing a small `/security/bounty`
+   page) and document the decision either way in the threat
+   model.
+
+F. Tests. Each new mitigation added in this pass has a
+   regression test exercising the bypass attempt.
+
+Constraints
+- The probe scripts run only against staging. Running them
+  against production requires explicit founder confirmation.
+- Findings that cannot be remediated within this prompt are
+  recorded in the threat model with a TODO and a target
+  date.
+- Sensitive findings (e.g. an actual exposure) are reported
+  privately to the founder, not committed to git.
+
+SCOPE
+- `docs/security/Threat_Model.md` MODIFY
+- `docs/security/probes/<stamp>.md` CREATE
+- `scripts/security_probe_staging.sh` CREATE
+- `theseus-codex/middleware.ts` MODIFY (only on finding)
+- `theseus-codex/src/app/api/public/ask/route.ts` MODIFY (only on finding)
+- `theseus-codex/src/app/api/public/signature/[slug]/route.ts` MODIFY (only on finding)
+- `theseus-codex/src/__tests__/security-followup.test.ts` CREATE
+- `theseus-codex/src/app/security/bounty/page.tsx` CREATE (only if decision = publish)

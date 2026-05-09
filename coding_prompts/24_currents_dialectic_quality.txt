@@ -1,0 +1,70 @@
+You are operating in /Users/michaelquintin/Desktop/Theseus.
+
+Goal: improve counter-claim retrieval quality in the Currents
+dialectic engine (Round 17 prompt 27). The first version retrieves
+opposing claims by embedding similarity + the contradiction-direction
+probe. In practice this surfaces false positives — opposing-sounding
+claims that on inspection do not actually contradict the firm's
+opinion. Tighten the matching.
+
+Before you start — read:
+1. `noosphere/noosphere/currents/dialectic.py`.
+2. The geometric blindspot detector (Round 17 prompt 24) — it
+   shares the retrieval primitives.
+3. The first Currents reconciliation outputs since Round 17 went
+   live; sample a handful from
+   `noosphere/noosphere/currents/_prompts/reconciliation.txt`
+   results.
+
+Implement:
+
+A. Hybrid retrieval. Combine three signals:
+   (1) embedding similarity above threshold
+   (2) NLI judgment of "actually contradicts" rather than just
+       "opposes in tone"
+   (3) cascade-graph evidence: the candidate must be backed by
+       at least one source the firm has previously taken
+       seriously.
+   All three must hold for a candidate to surface.
+
+B. Strawman detector. After the reconciliation is generated, an
+   automated check confirms the counter-claim text in the
+   reconciliation matches the retrieved counter-claim's actual
+   text. Paraphrase that softens the counter is flagged as a
+   strawman and forces regeneration.
+
+C. Sample-based audit. Instrument 20 random recent
+   reconciliations and rate them on a rubric (faithful
+   counter / strawman / fabrication / no-meaningful-counter).
+   Audit results land in
+   `docs/research/internal/Currents_Dialectic_Audit_<stamp>.md`.
+
+D. Threshold calibration. Use the audit results to calibrate
+   the retrieval thresholds. Document the chosen thresholds and
+   their justification.
+
+E. Reconciliation tone discipline. The reconciliation prompt is
+   updated to require the strongest available form of the
+   counter-claim. Diplomatic softening is the failure mode.
+
+F. Tests. Synthetic Currents opinions with planted counters;
+   assert hybrid retrieval surfaces them; assert strawman
+   detector catches paraphrased softening; assert the no-counter
+   honest-note path fires when no counter clears all three
+   thresholds.
+
+Constraints
+- Do not lower the bar to surface more counter-claims. False
+  positives erode trust faster than false negatives.
+- Threshold values live in the unified config from prompt 11,
+  not as inline magic numbers.
+- The audit is repeatable; the rubric used in this audit
+  becomes the rubric for future audits.
+
+SCOPE
+- `noosphere/noosphere/currents/dialectic.py` MODIFY
+- `noosphere/noosphere/currents/strawman_detector.py` CREATE
+- `noosphere/noosphere/currents/_prompts/reconciliation.txt` MODIFY
+- `noosphere/scripts/audit_currents_dialectic.py` CREATE
+- `docs/research/internal/Currents_Dialectic_Audit_<stamp>.md` CREATE
+- `noosphere/tests/test_currents_dialectic_quality.py` CREATE

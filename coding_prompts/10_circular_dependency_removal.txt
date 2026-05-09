@@ -1,0 +1,61 @@
+You are operating in /Users/michaelquintin/Desktop/Theseus.
+
+Goal: cut the circular import chains that accumulated in Round 17.
+Several modules import each other at runtime — MQS reads track records
+which read MQS through a back reference; revision events touch
+lineage which touches revisions. Refactor the chains into a clean
+acyclic dependency DAG.
+
+Before you start — read:
+1. `noosphere/noosphere/` — the import graph as it exists post
+   prompt 05's reorganization.
+2. `theseus-codex/src/lib/` — same for TS.
+3. The import-linter contract added in prompt 05.
+
+Implement:
+
+A. Detection. Run `pydeps` (or equivalent) to produce the import
+   graph. Identify all strongly-connected components (SCCs) of size
+   > 1. Each SCC is a cycle; a single component with N modules is
+   an N-way cycle.
+
+B. Resolve cycles by introducing interfaces. A cycle A ↔ B is
+   typically broken by extracting the smallest shared interface
+   into a third module C, with A and B both importing C. The
+   interface module owns no logic.
+
+C. Lazy imports as last resort. If breaking a cycle would require
+   a major refactor, document the cycle in
+   `docs/architecture/Known_Cycles.md` with justification and
+   move the import to function-local. Each function-local import
+   carries a comment explaining why.
+
+D. Type-only edges. In TypeScript, prefer `import type` for
+   pure-type cycles; in Python, `from __future__ import annotations`
+   + TYPE_CHECKING gates accomplish the same.
+
+E. CI guard. Extend the import-linter contract to forbid new
+   cycles. Existing exceptions are listed explicitly with an
+   expiry date.
+
+F. Tests. After the refactor, the cyclic-import detector should
+   report zero size-2-or-larger SCCs (or only those listed in
+   Known_Cycles.md with expiry dates in the future).
+
+Constraints
+- A "cycle" through a test file is not a cycle in production
+  code; the detector excludes test directories.
+- Do not collapse a cycle by deleting one side. The fix is
+  structural, not destructive.
+- Document each cycle's resolution in the commit message so the
+  pattern is reusable.
+
+SCOPE
+- `docs/architecture/Known_Cycles.md` CREATE
+- `scripts/detect_import_cycles.py` CREATE
+- `noosphere/noosphere/inquiry/_interfaces.py` CREATE
+- `noosphere/noosphere/temporal/_interfaces.py` CREATE
+- `noosphere/noosphere/literature/_interfaces.py` CREATE
+- `theseus-codex/src/lib/_interfaces/index.ts` CREATE
+- `noosphere/.import-linter` MODIFY
+- `noosphere/tests/test_no_import_cycles.py` CREATE

@@ -1,0 +1,69 @@
+You are operating in /Users/michaelquintin/Desktop/Theseus.
+
+Goal: a formal method-retirement workflow. Round 17 added drift
+detection and failure-mode catalogs, but no clean way to retire a
+method that has earned retirement. Without a workflow, retired
+methods linger as zombies in the registry.
+
+Before you start — read:
+1. `noosphere/noosphere/methods/_registry.py` and the composition
+   work from Round 17 prompt 05.
+2. The drift detector (Round 17 prompt 04).
+3. The Householder ablation result from prompt 15 above —
+   this prompt is the workflow that lets the firm act on it.
+
+Implement:
+
+A. Retirement criteria. A method qualifies for retirement
+   review if any of: (1) sustained drift alert > 60 days,
+   (2) ablation reveals zero contribution beyond a baseline,
+   (3) zero invocations in 90 days, (4) every conclusion
+   produced by it has been revised away. Document the
+   criteria in `docs/methods/Method_Retirement_Criteria.md`.
+
+B. Retirement state machine. A method has states
+   {ACTIVE, UNDER_REVIEW, DEPRECATED, RETIRED}. Transitions
+   are explicit; the registry refuses calls to RETIRED methods
+   (raising a typed error pointing to the replacement) and
+   warns on DEPRECATED.
+
+C. Founder review path. A method entering UNDER_REVIEW
+   produces a memo template at
+   `docs/methods/retirement/<method>.md`: rationale,
+   conclusions affected, replacement method, migration plan,
+   sunset timeline. Founder accepts or rejects.
+
+D. Migration. When a method moves to DEPRECATED, every
+   conclusion it produced is flagged with a sunset banner;
+   reanalysis with the replacement method is scheduled.
+
+E. UI. The methods page shows retirement state. Public
+   methodology shows DEPRECATED and RETIRED methods with
+   tombstone styling — readers should be able to see what
+   the firm has stopped trusting.
+
+F. Tests. Retirement state-machine transitions; refuse-call
+   on RETIRED; banner on DEPRECATED conclusions; migration
+   triggers reanalysis.
+
+Constraints
+- A method cannot move directly from ACTIVE to RETIRED. The
+  UNDER_REVIEW step is mandatory and produces a permanent
+  record.
+- Retired methods remain importable for historical
+  re-analysis; calls just refuse with a clear error. Source
+  is not deleted.
+- Public-side, retired methods do not vanish. They are part
+  of the firm's record.
+
+SCOPE
+- `noosphere/noosphere/methods/retirement.py` CREATE
+- `noosphere/noosphere/methods/_registry.py` MODIFY
+- `noosphere/noosphere/cli_commands/methods.py` MODIFY
+- `docs/methods/Method_Retirement_Criteria.md` CREATE
+- `docs/methods/retirement/_template.md` CREATE
+- `theseus-codex/prisma/schema.prisma` MODIFY
+- `theseus-codex/src/app/(authed)/methods/[name]/page.tsx` MODIFY
+- `theseus-codex/src/app/methodology/[method]/page.tsx` MODIFY
+- `theseus-codex/src/components/RetirementBanner.tsx` CREATE
+- `noosphere/tests/test_method_retirement.py` CREATE

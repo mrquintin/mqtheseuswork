@@ -1,0 +1,60 @@
+You are operating in /Users/michaelquintin/Desktop/Theseus.
+
+Goal: empirically study cross-domain method transfer. Round 17 added
+a `transfer/` package; populate it with a real experiment. Question:
+when method M works in domain D, does it transfer to D'? The answer
+is rarely "fully" or "not at all"; the firm should measure.
+
+Before you start — read:
+1. `noosphere/noosphere/transfer/` package.
+2. The domain-applicability bounds work (Round 17 prompt 06).
+3. The methods registry — which methods declare which domains.
+
+Implement:
+
+A. Transfer experiment design. Pick 3 method/domain pairs where
+   the method has a strong track record (n >= 20 resolutions in
+   D). For each, construct a held-out evaluation set in a
+   neighboring domain D' the method does NOT explicitly claim.
+
+B. Transfer evaluation. Run the method on the D' set. Measure
+   accuracy / Brier / calibration. Compare to (i) the method's
+   D performance and (ii) a domain-naive baseline trained on
+   D'.
+
+C. Statistical test. For each pair, test whether transfer
+   performance is significantly worse than in-domain
+   performance. Effect size + CI alongside p-values.
+
+D. Outcome. The experiment has three possible outcomes per
+   pair: clean transfer, partial transfer, no transfer. The
+   firm publishes whichever it finds; partial-transfer cases
+   are most interesting because they illuminate boundary
+   conditions.
+
+E. Public surface. A `methodology/transfer-study/page.tsx`
+   reports the findings. Each pair's result is presented with
+   the same honesty discipline as the QH benchmark — losses
+   are not hidden.
+
+F. PDF. `docs/research/Cross_Domain_Transfer_Study.pdf` and
+   .tex. Numbers from code; abstract states the headline.
+
+Constraints
+- The experiment must NOT modify a method's declared domain
+  bounds based on transfer results in this prompt. That's a
+  founder decision following the published evidence.
+- Held-out sets are frozen at experiment start; do not
+  re-curate to chase a result.
+- Sample sizes must be honest; n=5 transfer doesn't get a
+  conclusion, it gets a "preliminary, n=5" note.
+
+SCOPE
+- `benchmarks/transfer/v1/pairs.yaml` CREATE
+- `benchmarks/transfer/v1/eval_sets/` CREATE
+- `noosphere/noosphere/transfer/study.py` CREATE
+- `noosphere/scripts/run_transfer_study.sh` CREATE
+- `noosphere/tests/test_transfer_study.py` CREATE
+- `docs/research/Cross_Domain_Transfer_Study.tex` CREATE
+- `docs/research/Cross_Domain_Transfer_Study.pdf` CREATE
+- `theseus-codex/src/app/methodology/transfer-study/page.tsx` CREATE

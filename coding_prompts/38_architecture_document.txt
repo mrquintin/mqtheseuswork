@@ -1,0 +1,75 @@
+You are operating in /Users/michaelquintin/Desktop/Theseus.
+
+Goal: a single Architecture document that describes how every part
+of the firm's system fits together as it stands AFTER Round 17 + 18.
+Currently the firm has eight scattered docs (Schema_Audit, API_Envelope_Contract,
+Type_Boundaries, Noosphere_Module_Map, Naming_Conventions, Configuration,
+Trace_Coverage, Mobile_Polish_Survey). This prompt writes the connecting
+document that names how they relate.
+
+Before you start — read every document just listed plus:
+1. The repo-root README.md and the pivots in
+   METHODOLOGICAL_REORIENTATION.md and THE_META_METHOD.md.
+2. The full Round 17 archive
+   (`coding_prompts/archive_round17_methodology_implementation/`).
+3. The Round 18 prompts that have run before this one.
+
+Implement:
+
+A. Document structure. `docs/architecture/Theseus_Architecture.md`
+   organized as:
+   1. System mission (1 page)
+   2. Top-level components (Noosphere, Codex, Dialectic) and
+      their boundaries
+   3. The data substrate (Postgres + filesystem + embeddings
+      manifest) and the persistence rules
+   4. The methodological substrate (methods, MQS, criteria,
+      cascade, BN, lineage, revision)
+   5. The reasoning workflow end-to-end (ingestion → claim →
+      methodology → review → revision → publication →
+      outcome)
+   6. The publication and signing pipeline
+   7. The observability and operations surfaces
+   8. The public-facing surfaces and the visibility model
+   9. Open questions about the architecture itself
+
+B. Diagrams. Mermaid diagrams (which the firm's docs already
+   use) for the data substrate, the reasoning workflow, and
+   the publication pipeline. Keep them small and accurate.
+
+C. Cross-references. Every section ends with a "see also"
+   listing the existing scattered docs whose content it
+   summarises. Do not duplicate prose; link.
+
+D. Versioning. Document version is bound to git SHA. Each
+   substantive change writes a new entry in the document's
+   changelog at the bottom.
+
+E. PDF build. A pdflatex variant
+   `docs/architecture/Theseus_Architecture.pdf`. The PDF is
+   not the canonical version; the Markdown is. The PDF is
+   for distribution / printing.
+
+F. CI consistency check. A
+   `scripts/check_architecture_consistency.py` that confirms
+   every package directory in `noosphere/noosphere/` and every
+   route in `theseus-codex/src/app/` is mentioned somewhere in
+   the architecture doc. Drift fails CI.
+
+Constraints
+- The architecture doc is descriptive, not aspirational.
+  Sections referring to research-direction features (e.g.
+  the Bayesian layer, the cross-domain transfer) clearly
+  mark their status (production / experimental / proposed).
+- No section should exceed two pages of Markdown. Long
+  sections splinter into companion docs.
+
+SCOPE
+- `docs/architecture/Theseus_Architecture.md` CREATE
+- `docs/architecture/Theseus_Architecture.tex` CREATE
+- `docs/architecture/Theseus_Architecture.pdf` CREATE
+- `docs/architecture/diagrams/data_substrate.mmd` CREATE
+- `docs/architecture/diagrams/reasoning_workflow.mmd` CREATE
+- `docs/architecture/diagrams/publication_pipeline.mmd` CREATE
+- `scripts/check_architecture_consistency.py` CREATE
+- `scripts/build_architecture_pdf.sh` CREATE

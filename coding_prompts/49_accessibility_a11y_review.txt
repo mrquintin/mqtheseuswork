@@ -1,0 +1,71 @@
+You are operating in /Users/michaelquintin/Desktop/Theseus.
+
+Goal: a comprehensive accessibility pass on every public surface.
+Round 17 added many new pages; Round 18 polished some of them. None
+have had a serious WCAG 2.1 AA review. The firm publishes for
+serious readers; serious readers include people who use screen
+readers, keyboard-only navigation, large text, reduced motion,
+high contrast.
+
+Before you start — read:
+1. The existing accessibility patterns referenced under
+   `design:accessibility-review` (the firm's own review skill).
+2. Every public page added in Round 17–18.
+3. The mobile polish work (prompt 30).
+
+Implement:
+
+A. Survey. Run automated axe-core scans against every public
+   page; capture findings in
+   `docs/architecture/Accessibility_Survey.md`. Findings are
+   classified by WCAG criterion and severity.
+
+B. Manual pass. Beyond automated findings, the agent uses a
+   checklist:
+   - Every interactive element keyboard-reachable.
+   - Focus order matches reading order.
+   - All images have meaningful alt text (or `alt=""` for
+     decorative).
+   - Color is not the only signal (status pills, calibration
+     bars, provenance shading).
+   - Live regions announce updates.
+   - Skip-to-main link present.
+   - Heading hierarchy is sensible per page.
+   - Form inputs have associated labels.
+
+C. Repair pass. Each finding is repaired in the smallest
+   possible diff. Per-page commits.
+
+D. Reduced motion. Honor `prefers-reduced-motion`. Every
+   animation introduced in Round 17–18 (Currents pulse,
+   nav transitions, AsciiHero shimmer, Explorer pan) has a
+   reduced-motion variant.
+
+E. High contrast. Verify the firm's color tokens (prompt 06)
+   meet 4.5:1 for body text, 3:1 for large text. Tokens
+   that fail get repaired or marked for review.
+
+F. Tests. Per-page axe assertions in playwright; specific
+   regression tests on the highest-risk surfaces (forms,
+   editable workspaces, command palette).
+
+Constraints
+- Do not regress aesthetics in pursuit of contrast. Where
+  the firm's existing palette must change, document the
+  before/after and justify.
+- A11y reviews are recurring. After this pass, the survey
+  doc is regenerated nightly via CI; failures block
+  deploys.
+- ARIA is a last resort; native HTML semantics first.
+
+SCOPE
+- `docs/architecture/Accessibility_Survey.md` CREATE
+- `theseus-codex/src/app/globals.css` MODIFY
+- `theseus-codex/src/lib/design/tokens.ts` MODIFY
+- `theseus-codex/src/components/PublicHeader.tsx` MODIFY
+- `theseus-codex/src/components/MobileNavDrawer.tsx` MODIFY
+- `theseus-codex/src/components/CommandPalette.tsx` MODIFY
+- `theseus-codex/src/components/CitationPopover.tsx` MODIFY
+- `theseus-codex/src/components/ConclusionView.tsx` MODIFY
+- `theseus-codex/playwright/a11y.spec.ts` CREATE
+- `.github/workflows/a11y_nightly.yml` CREATE

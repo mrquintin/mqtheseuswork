@@ -1,0 +1,61 @@
+You are operating in /Users/michaelquintin/Desktop/Theseus.
+
+Goal: an operations runbook covering the recurring jobs, alerts, and
+incident response paths the firm actually runs. Round 17 added the
+observability spans, the load test, the retention runner, the
+self-critique scheduler, the principle distillation cadence, the
+benchmarks. Without a runbook the firm's operator (Michael) has
+implicit knowledge that does not survive a vacation.
+
+Before you start — read:
+1. `docs/Operations_Manual.md` — current state.
+2. The Round 17 + 18 prompts that introduce scheduled jobs:
+   drift, retention, self-critique, tournament, benchmark,
+   resolution backfill, principle distillation, agreement
+   model retraining.
+3. The CI dashboard from prompt 08.
+
+Implement:
+
+A. Job catalog. `docs/operations/Runbook.md` lists every
+   scheduled job with: name, schedule, owner, expected wall
+   time, expected cost, alert conditions, recovery procedure.
+
+B. Alert response. For every alert configured in the
+   observability work (Round 17 prompt 44 + Round 18
+   prompt 12), the runbook documents: trigger, severity,
+   probable cause, first-five-minute response, escalation.
+
+C. Incident postmortem template. `docs/operations/postmortems/_template.md`
+   following the firm's own methodological commitments —
+   the postmortem doc itself models the meta-method
+   (severity, source trail, revision condition).
+
+D. Quarterly drill. A "test the runbook" drill: pick three
+   alerts at random, walk the runbook procedures, log gaps.
+   Add a script that lists drill candidates.
+
+E. Operator dashboard. The CI dashboard from prompt 08 +
+   the ops dashboard from Round 17 prompt 44 cross-link to
+   the runbook entries.
+
+F. Tests. A consistency check: every scheduled job in code
+   appears in the runbook, every runbook entry corresponds
+   to a real job. CI failure on drift.
+
+Constraints
+- The runbook is descriptive and actionable; no aspirational
+  procedures. If the procedure has not been exercised, the
+  entry says "untested — verify on first use".
+- Every alert condition links back to its observability span
+  attribute. Symptoms are precise.
+- Postmortems are not stylized. They are written, dated, and
+  shared with the team for review.
+
+SCOPE
+- `docs/operations/Runbook.md` CREATE
+- `docs/operations/postmortems/_template.md` CREATE
+- `docs/operations/postmortems/README.md` CREATE
+- `scripts/check_runbook_completeness.py` CREATE
+- `scripts/operations_drill_candidates.py` CREATE
+- `theseus-codex/src/app/(authed)/ops/page.tsx` MODIFY

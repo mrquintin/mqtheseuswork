@@ -1,0 +1,67 @@
+You are operating in /Users/michaelquintin/Desktop/Theseus.
+
+Goal: a Bayesian-network layer over the cascade graph. The cascade
+weights conclusions by source credibility × edge weight, but the
+algebra is ad-hoc. A proper Bayesian network gives the firm
+principled marginal-probability calculations on conclusion truth
+given evidence updates, with explicit conditional dependencies.
+
+Before you start — read:
+1. `noosphere/noosphere/cascade/graph.py` and `traverse.py`.
+2. The revision engine from Round 17 prompt 16.
+3. The source-credibility ledger from Round 17 prompt 19.
+
+Implement:
+
+A. Bayesian DAG construction. From the cascade graph, derive a
+   directed acyclic graph (BN-DAG) of binary truth-valued
+   nodes for each Claim. Edges encode "if parent claims hold,
+   what is P(child claim holds)?". Conditional probability
+   tables (CPTs) are seeded from cascade weights and source
+   credibilities, then refined.
+
+B. Inference engine. Use a small in-process BN library
+   (pgmpy or hand-rolled junction-tree inference for graphs
+   under N=200 nodes; for larger graphs, importance sampling).
+   Output: marginal probability per claim, with credible
+   interval reflecting CPT uncertainty.
+
+C. Update on evidence. When evidence arrives (a source
+   retracts, a forecast resolves, a peer-review verdict
+   lands), the BN's prior is updated and marginals
+   recomputed. Compare the recomputed marginal to the
+   firm's stored confidence; deltas feed the revision engine.
+
+D. CPT learning. Where the firm has enough resolved cases
+   for an edge type, the CPT is fit to data rather than
+   stipulated. Sparse CPTs use Laplace smoothing.
+
+E. Founder UI. A "Bayesian view" tab on each conclusion
+   shows the marginal, the most-influential parent claims,
+   and the sensitivity of the marginal to each parent
+   (i.e. if parent X were retracted, marginal would drop
+   from p to p').
+
+F. Tests. Synthetic 5-node BN with known CPTs; assert
+   inference exactness; assert update propagates correctly;
+   assert sensitivity analysis matches analytic ground truth.
+
+Constraints
+- The BN does not replace the cascade. The cascade remains
+  the primary representation; the BN is a derived view used
+  for principled inference.
+- Marginal probabilities are not displayed publicly without
+  founder review; this is a founder-side tool first.
+- For graphs above the practical inference limit, the UI
+  shows "approximate inference (n=K samples, CI=[a,b])"
+  rather than implying exactness.
+
+SCOPE
+- `noosphere/noosphere/inquiry/bayesian_network.py` CREATE
+- `noosphere/noosphere/inquiry/bn_inference.py` CREATE
+- `noosphere/noosphere/inquiry/bn_learning.py` CREATE
+- `noosphere/noosphere/cascade/graph.py` MODIFY
+- `noosphere/tests/test_bayesian_network.py` CREATE
+- `theseus-codex/src/app/(authed)/conclusions/[id]/BayesianView.tsx` CREATE
+- `theseus-codex/src/lib/bayesianApi.ts` CREATE
+- `docs/methods/Bayesian_Belief_Layer.md` CREATE

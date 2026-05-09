@@ -1,0 +1,75 @@
+You are operating in /Users/michaelquintin/Desktop/Theseus.
+
+Goal: every method has a `<method>.RATIONALE.md` file. Round 17
+extensions changed many of these methods — added domain bounds,
+failure modes, severity inputs — without always updating the
+rationale. Drift between code and rationale is documentation rot;
+fix it.
+
+Before you start — read:
+1. `scripts/check_doc_drift.py` from Round 17.
+2. Every `noosphere/noosphere/methods/*.RATIONALE.md`.
+3. The corresponding `<method>.py`, `<method>.FAILURES.yaml`, and
+   any `<method>.RATIONALE.md` updated in Round 17.
+
+Implement:
+
+A. Drift survey. Run `check_doc_drift.py`; capture every
+   discrepancy. Then go further: for each method, compare the
+   rationale's described behavior to the actual code path. The
+   rationale should: (1) state what the method does, (2) why
+   it does it that way, (3) under what conditions it should not
+   be trusted (cross-link the FAILURES catalog), (4) cite any
+   research the method depends on.
+
+B. Repair pass. For each drifted RATIONALE, edit the document.
+   The edit must preserve the original intent; the goal is
+   alignment, not rewriting from scratch. Where the original
+   rationale gave a justification that no longer applies, the
+   doc records the change and dates it.
+
+C. New sections. Every RATIONALE adopts a stable section
+   structure: Purpose, Inputs, Outputs, Algorithm, Domain,
+   Failure Modes, References. Existing prose is mapped into
+   the new structure; nothing is deleted without note.
+
+D. Test for stability. Add
+   `scripts/check_rationale_structure.py` that asserts every
+   RATIONALE has the seven required sections. CI failure on
+   missing sections.
+
+E. Cross-link audit. Every RATIONALE that cites a paper or
+   external claim has a working URL or an arxiv id, with the
+   citation added to a centralized `docs/methods/References.bib`.
+
+F. Tests on a synthetic RATIONALE; assert structure check
+   passes; assert cross-link audit catches a broken DOI.
+
+Constraints
+- Do not change the underlying method behavior in this prompt.
+  The repair is documentation-only.
+- A RATIONALE that points to a method-side bug is repaired by
+  filing a follow-up prompt under
+  `coding_prompts/_proposed/`, not by silently fixing the bug.
+- References stay in BibTeX so the seasonal review and
+  auto-paper generators can reuse them.
+
+SCOPE
+- `scripts/check_doc_drift.py` MODIFY
+- `scripts/check_rationale_structure.py` CREATE
+- `docs/methods/References.bib` CREATE
+- `noosphere/noosphere/methods/extract_methodology.RATIONALE.md` MODIFY
+- `noosphere/noosphere/methods/contradiction_geometry.RATIONALE.md` MODIFY
+- `noosphere/noosphere/methods/contradiction_probe.RATIONALE.md` MODIFY
+- `noosphere/noosphere/methods/synthesize_conclusion.RATIONALE.md` MODIFY
+- `noosphere/noosphere/methods/six_layer_coherence.RATIONALE.md` MODIFY
+- `noosphere/noosphere/methods/extract_claims.RATIONALE.md` MODIFY
+- `noosphere/noosphere/methods/nli_scorer.RATIONALE.md` MODIFY
+- `noosphere/noosphere/methods/extract_prediction.RATIONALE.md` MODIFY
+- `noosphere/noosphere/methods/decompose_voice.RATIONALE.md` MODIFY
+- `noosphere/noosphere/methods/external_claim_match.RATIONALE.md` MODIFY
+- `noosphere/noosphere/methods/extract_from_corpus.RATIONALE.md` MODIFY
+- `noosphere/noosphere/methods/suggest_research.RATIONALE.md` MODIFY
+- `noosphere/noosphere/methods/classify_claim_type.RATIONALE.md` MODIFY
+- `noosphere/noosphere/methods/citation_entailment.RATIONALE.md` MODIFY
+- `noosphere/noosphere/methods/geometric_blindspot.RATIONALE.md` MODIFY

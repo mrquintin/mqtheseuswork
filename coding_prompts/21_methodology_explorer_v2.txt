@@ -1,0 +1,65 @@
+You are operating in /Users/michaelquintin/Desktop/Theseus.
+
+Goal: refine the public Methodology Explorer (Round 17 prompt 07).
+First-version explorers ship the data; v2 makes the data legible.
+Right now a serious outside reader lands on /methodology and gets a
+table; what they need is a guided path that respects how methods
+actually relate to each other and to the firm's evidence.
+
+Before you start — read:
+1. `theseus-codex/src/app/methodology/page.tsx` and the per-method
+   tab routes.
+2. The composition graph + manifest API from Round 17 prompts 05, 07.
+3. The first-run benchmark + cross-model results published in
+   prompts 13–14 above (this is the substance the explorer
+   surfaces).
+
+Implement:
+
+A. Information hierarchy. Land at `/methodology` shows three
+   layers in order: (1) what the firm believes about inquiry
+   (the meta-method), (2) the methods catalog with current
+   status, (3) the empirical record (benchmarks, calibration,
+   tournament). Do not bury layer (1) below the catalog.
+
+B. Method-page reorganization. The per-method tabs from Round 17
+   prompt 07 are currently linear; reorganize so that on first
+   load the reader sees: a one-line description, a "what we
+   tested" pill linking the benchmark, a "track record" pill
+   linking calibration, and a "how to challenge" pill linking
+   the critique form. Tabs become secondary.
+
+C. Cross-link density. From any method page the reader can in
+   one click reach: the methods that compose this one, the
+   methods that depend on this one, the open questions tied to
+   this method, the principles the method has produced.
+
+D. Reader-state indicators. A subtle "you've looked at" trail
+   (cookie / localStorage) so the reader can return without
+   getting lost. No tracking pixels.
+
+E. Information density discipline. Numbers shown to five
+   decimal places where one is meaningful is hostile design.
+   Audit every numeric display in the explorer: round to the
+   precision the data supports.
+
+F. Tests. Snapshot tests on the new layout; navigation tests
+   asserting one-click reachability of the cross-links;
+   accessibility test on focus order through the new
+   hierarchy.
+
+Constraints
+- Do not redesign for novelty. The firm's typography and
+  palette stay; this is reorganization, not restyling.
+- The page must remain server-rendered for first paint.
+- A reader without JavaScript can still navigate the explorer
+  — interactive features degrade rather than fail.
+
+SCOPE
+- `theseus-codex/src/app/methodology/page.tsx` MODIFY
+- `theseus-codex/src/app/methodology/[method]/page.tsx` MODIFY
+- `theseus-codex/src/app/methodology/criteria/page.tsx` MODIFY
+- `theseus-codex/src/components/MethodologyIndexTable.tsx` MODIFY
+- `theseus-codex/src/components/MethodTabs.tsx` MODIFY
+- `theseus-codex/src/components/MethodCrossLinks.tsx` CREATE
+- `theseus-codex/src/__tests__/methodology-explorer-v2.test.tsx` CREATE

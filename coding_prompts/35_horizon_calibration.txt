@@ -1,0 +1,62 @@
+You are operating in /Users/michaelquintin/Desktop/Theseus.
+
+Goal: analyze how the firm's calibration varies by forecast
+horizon. A 7-day forecast and a 1-year forecast are different
+animals; if the firm reports a single calibration number it
+hides this. With the resolution backfill from prompt 18, the
+firm has the data — extract and publish.
+
+Before you start — read:
+1. The calibration scorecard (prompt 22).
+2. `noosphere/noosphere/forecasts/resolution_tracker.py`.
+3. `noosphere/noosphere/coherence/calibration.py`.
+
+Implement:
+
+A. Horizon bucketing. Bucket resolved forecasts by
+   time-to-resolution at the time of forecasting:
+   {< 7d, 7–30d, 30–90d, 90–365d, > 365d}. Compute Brier and
+   calibration slope per bucket with bootstrap CIs.
+
+B. Decay analysis. Compute the firm's "useful prediction
+   horizon": the largest horizon at which calibration is
+   significantly better than chance. Below that horizon, the
+   firm is contributing real signal; beyond it, the firm
+   should issue forecasts with the explicit "low confidence,
+   long horizon" framing.
+
+C. Surface. Add a "Horizon" tab to the public calibration
+   scorecard showing the per-bucket reliability, the useful
+   horizon, and the implication for new forecasts.
+
+D. New-forecast warning. When a founder issues a forecast
+   beyond the firm's empirically useful horizon, the form
+   surfaces a soft warning ("our calibration drops below
+   significance at horizons > 90 days for this domain — are
+   you sure?") with a one-click acknowledge.
+
+E. Method × horizon interaction. Cross-tabulate horizon
+   buckets with originating method (Round 17 prompt 02 link).
+   Some methods may calibrate well on short horizons but not
+   long; the firm should know.
+
+F. Tests. Synthetic forecasts at known horizons; assert
+   bucketing; assert the useful-horizon estimate; assert
+   the new-forecast warning fires above threshold.
+
+Constraints
+- Below n=10 in a horizon bucket, do not report a slope —
+  report sample size only.
+- The useful-horizon analysis is a public artifact; do not
+  silently smooth bad numbers.
+- The new-forecast warning is advisory; founders may issue
+  long-horizon forecasts knowing the firm's track record.
+
+SCOPE
+- `noosphere/noosphere/coherence/horizon_calibration.py` CREATE
+- `noosphere/tests/test_horizon_calibration.py` CREATE
+- `theseus-codex/src/app/calibration/horizon/page.tsx` CREATE
+- `theseus-codex/src/components/HorizonTab.tsx` CREATE
+- `theseus-codex/src/app/(authed)/forecasts/new/page.tsx` MODIFY
+- `theseus-codex/src/components/HorizonWarning.tsx` CREATE
+- `theseus-codex/src/lib/calibrationData.ts` MODIFY

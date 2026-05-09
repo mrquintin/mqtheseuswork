@@ -1,0 +1,65 @@
+You are operating in /Users/michaelquintin/Desktop/Theseus.
+
+Goal: calibrate the severity rubric (Round 17 prompt 22) against
+realized outcomes. The rubric currently maps inputs to a severity
+score via a stipulated formula. Once enough objection-then-
+resolution data exists, replace the stipulation with a fitted
+mapping that actually predicts which objections, if true, change
+the conclusion.
+
+Before you start — read:
+1. `noosphere/noosphere/peer_review/severity.py`.
+2. The revision events from Round 17 prompt 16 — these record
+   when an objection actually changed a conclusion.
+3. The MQS scorer — it consumes severity.
+
+Implement:
+
+A. Outcome label. For every recorded objection, label it with
+   the realized outcome: did this objection (i) trigger a
+   revision that materially changed the conclusion, (ii)
+   trigger an addendum without changing the conclusion, or
+   (iii) get dismissed.
+
+B. Calibration model. Fit a logistic regression (or, with
+   enough data, a small gradient-boosted model) predicting
+   "material change" from the severity inputs. The fitted
+   model becomes the new severity scorer; the old stipulated
+   formula is preserved as a fallback for the cold-start
+   period.
+
+C. Re-score. Recompute severity for all live objections.
+   Conclusions whose composite MQS Severity sub-score
+   changes by more than δ go to the founder queue.
+
+D. Reliability diagram. Plot predicted-severity vs realized-
+   change-rate, like a calibration plot. Surface on the
+   methods page.
+
+E. Cold-start handling. If the dataset is too small (n < 50
+   labeled objections), the prompt does NOT replace the
+   formula. It instead writes a deliberate-deferral note in
+   `docs/methods/Severity_Calibration_Status.md` and exits.
+   This is more honest than fitting on tiny data and shipping
+   a noisy model.
+
+F. Tests. Synthetic objection/outcome data with known
+   severity-to-outcome mapping; assert the fitted model
+   recovers; assert cold-start gating works.
+
+Constraints
+- The replacement is gated by sample size. The firm should
+  not silently swap to a noisy model.
+- The fitted model is recomputed on the same schedule as
+  drift detection (nightly).
+- The old stipulated formula remains in code as an
+  alternative scorer for ablation purposes.
+
+SCOPE
+- `noosphere/noosphere/peer_review/severity.py` MODIFY
+- `noosphere/noosphere/peer_review/severity_calibration.py` CREATE
+- `noosphere/scripts/fit_severity_model.sh` CREATE
+- `noosphere/tests/test_severity_calibration.py` CREATE
+- `docs/methods/Severity_Calibration_Status.md` CREATE
+- `theseus-codex/src/app/(authed)/methods/page.tsx` MODIFY
+- `theseus-codex/src/components/SeverityReliabilityPlot.tsx` CREATE

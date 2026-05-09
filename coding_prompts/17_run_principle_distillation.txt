@@ -1,0 +1,60 @@
+You are operating in /Users/michaelquintin/Desktop/Theseus.
+
+Goal: actually run principle distillation (Round 17 prompt 40) over
+the full firm corpus. The infrastructure is built; the principles
+themselves do not exist yet. Distill them, populate the queue, walk
+the founder through triage, and publish accepted principles.
+
+Before you start — read:
+1. `noosphere/noosphere/distillation/principle_distillation.py`.
+2. `theseus-codex/src/app/(authed)/principles/queue/page.tsx`.
+3. `theseus-codex/src/app/methodology/principles/page.tsx`.
+
+Implement:
+
+A. Cluster + draft. Run hierarchical clustering across all
+   firm conclusions; generate a candidate Principle per cluster;
+   write to the principles queue.
+
+B. Founder triage UI completeness. Whatever was scaffolded in
+   Round 17 prompt 40, ensure it is functionally complete:
+   - keyboard navigation through the queue (use the command
+     palette from Round 17 prompt 36);
+   - accept-with-edit, reject-with-reason, merge-with-existing
+     all working;
+   - the conclusions underlying each candidate are reachable in
+     one click.
+
+C. Founder triage execution. The PROMPTED AGENT does NOT accept
+   principles on the founder's behalf. Instead, after running
+   distillation, it produces a triage memo:
+   `docs/research/internal/Principle_Distillation_<stamp>.md`
+   listing each candidate, the underlying conclusions, and the
+   agent's recommendation (proposed accept text, proposed
+   merge target, or proposed reject reason). The founder
+   reviews and accepts via the UI.
+
+D. After founder triage, the public principles page populates
+   automatically from the accepted Principle rows.
+
+E. Conviction recomputation. Once principles are populated,
+   re-run cascade weighting so principle conviction scores are
+   propagated.
+
+F. Tests on synthetic principles + queue interactions.
+
+Constraints
+- The distillation pass uses the existing LLM client; honor
+  the cost cap.
+- A candidate principle that paraphrases an already-accepted
+  principle is auto-merged at the queue level rather than
+  surfacing as a duplicate.
+- The agent's recommendations are advisory. Founder confirmation
+  is required for any database write that publishes.
+
+SCOPE
+- `noosphere/scripts/run_principle_distillation.sh` CREATE
+- `docs/research/internal/Principle_Distillation_<stamp>.md` CREATE
+- `theseus-codex/src/app/(authed)/principles/queue/page.tsx` MODIFY
+- `noosphere/noosphere/distillation/principle_distillation.py` MODIFY
+- `noosphere/tests/test_principle_distillation_integration.py` CREATE

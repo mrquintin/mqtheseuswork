@@ -1,0 +1,73 @@
+You are operating in /Users/michaelquintin/Desktop/Theseus.
+
+Goal: Round 17 added 30+ new React components — MqsCard, MqsPill,
+DriftPanel, AttentionQueue, CitationPopover (modified), CommandPalette,
+MobileNavDrawer, ProvenanceGutter, ProvenancePanel, EdgeBadge,
+CalibrationPlot, etc. They were authored independently and share no
+design tokens. Extract a small, defensible design system from what
+exists; do not invent new aesthetics.
+
+Before you start — read:
+1. Every component under `theseus-codex/src/components/`.
+2. `theseus-codex/src/app/globals.css` and any token files.
+3. The existing typography + color choices in
+   `theseus-codex/src/lib/colors.ts`.
+
+Implement:
+
+A. Token file. `theseus-codex/src/lib/design/tokens.ts` exports the
+   firm's actual palette, spacing scale, type scale, and elevation
+   levels. Tokens are derived from current usage — survey
+   `globals.css` and the component tree to extract a minimal
+   covering set; do not introduce new colors.
+
+B. Primitives. Extract `Pill`, `Card`, `Panel`, `BadgeRow`,
+   `Toolbar`, `EmptyState`, `KbdHint` primitives from the
+   repeated patterns observed in the survey. Each primitive lives
+   in `theseus-codex/src/components/design/`. Variants are
+   parameterized; no per-feature CSS overrides.
+
+C. Migrate consumers. For every Round-17 component that contains
+   a hand-rolled pill or panel pattern, migrate it to the new
+   primitive. Snapshot tests guard against visual regression.
+
+D. Documentation. `docs/design/Design_System.md` lists the
+   primitives, their props, and the rule of thumb for when to use
+   each. Includes an embedded screenshot path; the screenshots
+   themselves are produced by the next prompt (Storybook /
+   visual regression).
+
+E. Token-drift lint. A `scripts/check_no_hardcoded_colors.py`
+   that scans component files for hex colors and named CSS
+   colors not present in the token map. Failures fail CI.
+
+F. Tests. Snapshot test on the core primitives at all variants;
+   accessibility test (focus rings, contrast) on the
+   primitives' default states.
+
+Constraints
+- This prompt does NOT redesign the firm's aesthetic. It
+  extracts what already exists and makes it consistent.
+- Do not introduce a third-party UI library. The primitives are
+  thin wrappers over the existing Tailwind/CSS setup.
+- Migration is incremental: a partially migrated component is
+  acceptable IF the unmigrated parts are flagged with a
+  `// TODO(design-system):` comment.
+
+SCOPE
+- `theseus-codex/src/lib/design/tokens.ts` CREATE
+- `theseus-codex/src/components/design/Pill.tsx` CREATE
+- `theseus-codex/src/components/design/Card.tsx` CREATE
+- `theseus-codex/src/components/design/Panel.tsx` CREATE
+- `theseus-codex/src/components/design/BadgeRow.tsx` CREATE
+- `theseus-codex/src/components/design/Toolbar.tsx` CREATE
+- `theseus-codex/src/components/design/EmptyState.tsx` CREATE
+- `theseus-codex/src/components/design/KbdHint.tsx` CREATE
+- `theseus-codex/src/components/design/index.ts` CREATE
+- `theseus-codex/src/__tests__/design-primitives.test.tsx` CREATE
+- `scripts/check_no_hardcoded_colors.py` CREATE
+- `docs/design/Design_System.md` CREATE
+- `theseus-codex/src/components/MqsPill.tsx` MODIFY
+- `theseus-codex/src/components/EdgeBadge.tsx` MODIFY
+- `theseus-codex/src/components/CitationPopover.tsx` MODIFY
+- `theseus-codex/src/components/AttentionQueue.tsx` MODIFY

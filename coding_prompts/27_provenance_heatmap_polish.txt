@@ -1,0 +1,60 @@
+You are operating in /Users/michaelquintin/Desktop/Theseus.
+
+Goal: refine the provenance heatmap (Round 17 prompt 26). The first
+version shaded sentence backgrounds when "show provenance" was
+toggled. In practice the shading is hard to read, the toggle is
+hidden, and clicking a low-provenance sentence opens a panel that
+itself looks like an error. Make the heatmap a feature readers
+actually use.
+
+Before you start — read:
+1. `theseus-codex/src/components/ProvenanceGutter.tsx` and
+   `ProvenancePanel.tsx`.
+2. `theseus-codex/src/components/ConclusionView.tsx`.
+3. `noosphere/noosphere/cascade/sentence_provenance.py`.
+
+Implement:
+
+A. Visual treatment. Replace the background shade with a thin
+   left-margin bar (1–2 px wide) whose color ramps from neutral
+   to amber as provenance drops. The bar is unobtrusive but
+   scannable.
+
+B. Default behavior. The bar shows by default on
+   article-detail pages; the toolbar still has a hide toggle.
+   First-time visitor gets a small dismissible explainer.
+
+C. Threshold honesty. A sentence with provenance below the
+   firm's "publish-worthy" threshold gets a small "weak
+   evidence" pill in the bar, not just a darker shade. Readers
+   should be able to find the firm's weakest sentences without
+   scrolling.
+
+D. Panel redesign. Clicking the bar opens a panel showing:
+   the sentence, the supporting sources, the cascade weight
+   per source, the source credibility (Round 17 prompt 19),
+   and the citation verdict (Round 17 prompt 20). The panel
+   reads as a transparent receipt, not as an error.
+
+E. Performance. Provenance data ships inline at render; the
+   panel is hydrated client-side only on click. Verify under
+   25KB gzipped overhead for a 3,000-word article.
+
+F. Tests. Snapshot of the bar at three provenance levels;
+   panel content; a11y check (screen reader can request
+   provenance summary by sentence).
+
+Constraints
+- Do not leak private source identity through provenance.
+  Private sources contribute to the score; the panel hides
+  their names.
+- The toggle is keyboard-reachable (per the keyboard
+  workspace, Round 17 prompt 36).
+
+SCOPE
+- `theseus-codex/src/components/ProvenanceGutter.tsx` MODIFY
+- `theseus-codex/src/components/ProvenancePanel.tsx` MODIFY
+- `theseus-codex/src/components/ProvenanceWeakPill.tsx` CREATE
+- `theseus-codex/src/components/ConclusionView.tsx` MODIFY
+- `theseus-codex/src/lib/sentenceProvenance.ts` MODIFY
+- `theseus-codex/src/__tests__/provenance-heatmap-polish.test.tsx` CREATE

@@ -1,0 +1,63 @@
+You are operating in /Users/michaelquintin/Desktop/Theseus.
+
+Goal: run the self-critique pass (Round 17 prompt 43) over every
+published article older than 90 days. Surface findings to the
+founder; produce addenda where appropriate. This is the firm's
+first real exercise of intellectual honesty at production scale.
+
+Before you start — read:
+1. `noosphere/noosphere/peer_review/self_critique.py`.
+2. The Addendum components from Round 17 prompt 43.
+3. The publication signing scheme (Round 17 prompt 30) — addenda
+   are themselves signed.
+
+Implement:
+
+A. Inventory. List every published article older than 90 days.
+   Cross-reference with self-critique runs already attempted; do
+   not double-run.
+
+B. Run. Execute self-critique on each article, with a fresh
+   reviewer config (rotate provider mix relative to the
+   article's original review).
+
+C. Triage. Findings land in the unified attention queue (Round
+   17 prompt 34) at high severity. The PROMPTED AGENT does not
+   commit addenda or revisions on the founder's behalf — it
+   produces a triage memo
+   `docs/runs/self_critique_<stamp>.md` listing every article,
+   the verdict, and the agent's recommended action (revise /
+   addend / dismiss).
+
+D. Author addenda candidates. For findings the agent recommends
+   "addend", draft the addendum text in
+   `docs/runs/self_critique_<stamp>/addenda/<slug>.md`. The
+   founder can paste-publish via the existing Addendum
+   workflow.
+
+E. Sign. Any addendum that gets published must run through the
+   signed-publication path (Round 17 prompt 30). The agent
+   verifies the path is wired and tests an addendum signature
+   round-trip on a synthetic article.
+
+F. Cost report. Total LLM spend for the pass is reported in
+   the triage memo, with a per-article breakdown. The firm
+   should know what intellectual honesty actually costs.
+
+Constraints
+- Self-critique uses a different reviewer config from the
+  original review. Same-config self-review reproduces the
+  original blind spots.
+- An article whose original review used multi-provider rotation
+  is self-critiqued with a different prompt variant rather
+  than a different provider mix.
+- Original article text remains immutable through this prompt.
+  Only addenda and (founder-triggered) revisions modify the
+  record.
+
+SCOPE
+- `noosphere/scripts/run_self_critique_pass.sh` CREATE
+- `docs/runs/self_critique_<stamp>.md` CREATE
+- `docs/runs/self_critique_<stamp>/addenda/` CREATE (directory + per-slug files)
+- `noosphere/tests/test_self_critique_integration.py` CREATE
+- `noosphere/noosphere/peer_review/self_critique.py` MODIFY (only on bug)

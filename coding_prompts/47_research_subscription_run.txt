@@ -1,0 +1,64 @@
+You are operating in /Users/michaelquintin/Desktop/Theseus.
+
+Goal: stand up the research subscription pipeline (Round 17 prompt
+39) for real. Wire it through the production scheduler, send the
+first digest, instrument open/click rates honestly, and respond to
+the early signal. This is the firm's first ongoing relationship
+with a public reader base.
+
+Before you start — read:
+1. `noosphere/noosphere/social/digest_builder.py`.
+2. The subscriber form on the homepage and method pages.
+3. The retention runner (Round 17 prompt 46) — subscriber
+   data falls under it.
+
+Implement:
+
+A. End-to-end smoke test. Trigger a digest build for a
+   synthetic subscriber whose scope captures all of
+   prompts 13, 14, 15, 18 (the Round 18 publications). Verify
+   the digest is well-formed, includes the right items,
+   honors visibility filters, and unsubscribe works.
+
+B. Production cutover. Schedule the digest job. The first
+   real digest goes out. Capture metrics: subscribers,
+   delivered, bounced.
+
+C. No-tracking-pixel discipline. Re-verify the digest
+   contains no tracking pixels. Reusable templates that
+   accidentally include them are a regression vector — add
+   a CI check.
+
+D. Open-rate via voluntary feedback. Since the firm rejects
+   tracking pixels, open-rate is unmeasurable in the
+   traditional sense. Instead, the digest invites a one-
+   click "I read this" link that records a hashed
+   acknowledgment. This is opt-in, transparent, and honest.
+
+E. Subscriber dashboard for the founder. A small founder-side
+   page showing subscriber count by scope, recent digest
+   sends, unsubscribes with reasons. No personal details.
+
+F. Tests. Synthetic subscribers + canned events; assert
+   delivery; assert visibility filters; assert
+   unsubscribe; assert no tracking pixels; assert "I read
+   this" link records correctly.
+
+Constraints
+- No third-party email vendor with telemetry the firm
+  cannot audit. Use the existing transport (Resend / SMTP).
+- Subscriber email addresses live behind retention policy
+  (Round 17 prompt 46). Hash-only summaries in any
+  publicly-visible counter.
+- Delivery failures (bounces, blocks) are investigated —
+  not silently dropped. Repeated bounces auto-pause the
+  subscriber rather than spamming.
+
+SCOPE
+- `noosphere/noosphere/social/digest_builder.py` MODIFY
+- `noosphere/scripts/run_first_digest.sh` CREATE
+- `theseus-codex/src/app/api/public/digest-ack/[token]/route.ts` CREATE
+- `theseus-codex/src/app/(authed)/subscribers/page.tsx` CREATE
+- `theseus-codex/prisma/schema.prisma` MODIFY
+- `scripts/check_no_tracking_pixels.py` CREATE
+- `noosphere/tests/test_digest_smoke.py` CREATE

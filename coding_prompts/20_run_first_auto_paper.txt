@@ -1,0 +1,63 @@
+You are operating in /Users/michaelquintin/Desktop/Theseus.
+
+Goal: produce the firm's first auto-generated research paper using
+the generator from Round 17 prompt 29. The artifact has to be real:
+real conclusions, real numbers, real failure mode acknowledgement,
+real PDF, founder-reviewed, and either published with the machine-
+drafted disclosure or explicitly rejected with reason.
+
+Before you start — read:
+1. `noosphere/noosphere/docgen/paper_clustering.py` and
+   `paper_generator.py`.
+2. The MQS, track-record, lineage outputs the generator
+   consumes (prompts 13, 17, 18 above set the predecessor data).
+3. `theseus-codex/src/app/research/[slug]/page.tsx`.
+
+Implement:
+
+A. Cluster selection. Run paper_clustering on the firm's full
+   conclusion set; rank clusters by maturity (size, resolved
+   forecast count, principle backing). Pick the top three;
+   the founder will choose one to publish.
+
+B. Generate three drafts. For each top-3 cluster, run the
+   generator. Produce `.tex` + `.pdf` under
+   `docs/research/auto/<slug>/`.
+
+C. Quality check. The agent runs an internal review on each
+   draft using the firm's existing peer-review swarm
+   (severity-weighted). A draft that scores below MQS-publish
+   threshold is flagged "not ready" with a list of weaknesses.
+
+D. Founder memo. `docs/research/internal/Auto_Paper_Candidates_<stamp>.md`
+   summarizing the three drafts: cluster, length, top three
+   strengths, top three weaknesses, recommended action
+   (publish / revise / abandon).
+
+E. UI. The candidates land in the founder's papers triage tab
+   (Round 17 prompt 29) ready for publish.
+
+F. Signing. If a paper is approved for publication, it must
+   pass through the signed-publication path (Round 17 prompt
+   30). Verify the path on a synthetic paper.
+
+Constraints
+- The auto-paper is honestly labeled. The byline says
+  "machine-drafted, founder-reviewed" and the disclosure label
+  is non-removable.
+- Numbers in the paper resolve to database rows. A failed
+  resolution (the generator could not back a number to a
+  source) prints a TODO marker, not an estimate.
+- The first auto-paper does not auto-publish to social. The
+  founder explicitly authorizes any external announcement.
+
+SCOPE
+- `noosphere/scripts/run_first_auto_paper.sh` CREATE
+- `docs/research/auto/<slug-1>/paper.tex` CREATE
+- `docs/research/auto/<slug-1>/paper.pdf` CREATE
+- `docs/research/auto/<slug-2>/paper.tex` CREATE
+- `docs/research/auto/<slug-2>/paper.pdf` CREATE
+- `docs/research/auto/<slug-3>/paper.tex` CREATE
+- `docs/research/auto/<slug-3>/paper.pdf` CREATE
+- `docs/research/internal/Auto_Paper_Candidates_<stamp>.md` CREATE
+- `noosphere/tests/test_auto_paper_integration.py` CREATE

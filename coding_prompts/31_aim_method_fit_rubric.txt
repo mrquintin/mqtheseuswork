@@ -1,0 +1,66 @@
+You are operating in /Users/michaelquintin/Desktop/Theseus.
+
+Goal: formalize Aim-Method Fit — the third of the five working
+criteria (THE_META_METHOD §2.3). Of the five criteria,
+Aim-Method Fit is the weakest in the firm's current implementation:
+the MQS rubric (Round 17 prompt 01) treats it as a soft LLM
+judgment without a precise rubric. Sharpen it.
+
+Before you start — read:
+1. `THE_META_METHOD.md` §2.3 — the criterion's definition.
+2. `noosphere/noosphere/inquiry/mqs.py` (post prompt 05's
+   reorganization).
+3. `docs/methods/MQS_Specification.md` from Round 17 prompt 01.
+
+Implement:
+
+A. Sharper definition. Aim-Method Fit asks: does this method
+   actually answer THIS question? A valuation method gives
+   valuations; if the question is about product strategy, a
+   valuation method has poor fit. The rubric must operationalize
+   "actually answer" without collapsing into Domain Sensitivity.
+
+B. Rubric. Define a 5-level rubric:
+   - 0: method's outputs cannot answer the question type
+   - 1: outputs answer a related but different question
+   - 2: outputs answer part of the question
+   - 3: outputs answer the question with caveats the method
+        cannot articulate
+   - 4: outputs answer the question with explicit caveats
+        within the method's competence
+   Each level has at least two worked examples in the spec.
+
+C. Question typology. Build a typology of question types the
+   firm encounters: descriptive, predictive, normative,
+   strategic, methodological, classificatory. Each method
+   declares which question types it serves.
+
+D. Mismatch detection. The MQS scorer computes Aim-Method Fit
+   from: (a) the question type inferred from the conclusion's
+   target, (b) the question types the producing method
+   serves, (c) the worked-example match. Mismatches surface as
+   low Aim-Method Fit and feed into the gating composite.
+
+E. Backfill. Re-score every existing conclusion's
+   Aim-Method Fit. Conclusions that drop a tier on the
+   composite go to the founder's queue.
+
+F. Tests. Worked examples from the rubric exercise the scorer
+   deterministically; question-type inference is tested
+   against a small labeled set.
+
+Constraints
+- Do not retire methods based on this rubric alone. A method
+  with low Aim-Method Fit on some questions may still be the
+  best available method for the questions it does fit.
+- The question-type taxonomy lives in code, not just prose,
+  and is shared with the question classifier from prompt 29.
+
+SCOPE
+- `noosphere/noosphere/inquiry/aim_method_fit.py` CREATE
+- `noosphere/noosphere/inquiry/question_typology.py` CREATE
+- `noosphere/noosphere/inquiry/mqs.py` MODIFY
+- `docs/methods/Aim_Method_Fit_Rubric.md` CREATE
+- `docs/methods/MQS_Specification.md` MODIFY
+- `noosphere/scripts/backfill_aim_method_fit.sh` CREATE
+- `noosphere/tests/test_aim_method_fit.py` CREATE

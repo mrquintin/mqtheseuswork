@@ -1,0 +1,59 @@
+You are operating in /Users/michaelquintin/Desktop/Theseus.
+
+Goal: a polish pass on the mobile public site (Round 17 prompt 37).
+The first version got typography and nav right; in practice the
+methodology explorer, the calibration page, the lineage view, and
+the auto-generated paper page all need mobile-specific attention.
+
+Before you start — read:
+1. `theseus-codex/playwright/mobile.spec.ts`.
+2. The Round 18 v2 prompts above (21–29) — these introduced new
+   surfaces that have not yet been mobile-tested.
+3. `theseus-codex/src/components/MobileNavDrawer.tsx`.
+
+Implement:
+
+A. Survey. Run the existing mobile playwright tests. Capture
+   screenshots at 375 and 414 widths for every public page,
+   including the new ones. Catalog visual issues in
+   `docs/architecture/Mobile_Polish_Survey.md`.
+
+B. Methodology explorer mobile. The composition graph and the
+   methods table need a mobile-specific layout. Composition
+   graph collapses to a list of cards on small viewports; the
+   methods table reflows to a stacked card layout.
+
+C. Calibration scorecard mobile. The reliability diagram is
+   redrawn at small viewports as a vertical bar chart (binned
+   probability ranges) — a horizontal scatter plot at 375px is
+   unusable.
+
+D. Lineage view mobile. The layered timeline (prompt 23 above)
+   reflows to a single column on mobile, with lane filters
+   moved into a sticky bottom sheet.
+
+E. Paper page mobile. Auto-papers (prompt 20) on mobile show
+   the abstract + a "open in PDF" button rather than rendering
+   the body inline. Long-form research is bad on a phone; do
+   not pretend otherwise.
+
+F. Tests. Extend the mobile playwright spec to cover every new
+   surface; assert visual regressions are tagged.
+
+Constraints
+- Do not regress desktop layouts.
+- Mobile First Contentful Paint stays under 1.5s on a
+  throttled 4G profile.
+- Sticky elements respect iOS Safari's bottom-bar overlay
+  behavior (use `safe-area-inset` rather than fixed offsets).
+
+SCOPE
+- `docs/architecture/Mobile_Polish_Survey.md` CREATE
+- `theseus-codex/src/app/methodology/page.tsx` MODIFY
+- `theseus-codex/src/app/methodology/composition/page.tsx` MODIFY
+- `theseus-codex/src/app/calibration/page.tsx` MODIFY
+- `theseus-codex/src/app/post/[slug]/lineage/page.tsx` MODIFY
+- `theseus-codex/src/app/research/[slug]/page.tsx` MODIFY
+- `theseus-codex/src/components/CalibrationPlotMobile.tsx` CREATE
+- `theseus-codex/src/components/LineageMobileSheet.tsx` CREATE
+- `theseus-codex/playwright/mobile.spec.ts` MODIFY

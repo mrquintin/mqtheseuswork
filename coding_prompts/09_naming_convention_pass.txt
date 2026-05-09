@@ -1,0 +1,72 @@
+You are operating in /Users/michaelquintin/Desktop/Theseus.
+
+Goal: Round 17's parallel authorship produced naming drift across the
+codebase. `methodology_quality_score` vs `mqs` vs `MQS`;
+`source_credibility` vs `sourceCredibility` vs `Source_Credibility`;
+public-API URL paths inconsistent (`/methodology/[method]` here,
+`/methodology/[name]` there). Standardize without functional change.
+
+Before you start — read:
+1. `theseus-codex/src/app/` route tree — note casing and slug names.
+2. `noosphere/noosphere/` module names.
+3. The existing convention notes (CLAUDE.md, AGENTS.md if present,
+   any `STYLE.md` under docs/).
+
+Implement:
+
+A. Convention document. `docs/architecture/Naming_Conventions.md`
+   states the firm's conventions:
+   - Python: snake_case modules, files, functions; PascalCase
+     classes; UPPER_CASE module-level constants.
+   - TypeScript: camelCase functions/vars; PascalCase types and
+     React components; SCREAMING_SNAKE for constants.
+   - URLs: kebab-case for path segments; path params use the
+     conceptual noun (`[method]`, not `[name]`, and not
+     `[methodId]` unless the param is the id rather than the
+     slug).
+   - Database: snake_case columns; PascalCase models in Prisma.
+   - Files on disk: snake_case.py / kebab-case.tsx (Next.js
+     convention) — except React components which are
+     PascalCase.tsx (per Next.js convention).
+
+B. Survey + rename. Run a script that lists every name violating
+   the convention. Rename via codemod where safe; flag manually-
+   reviewable cases (URLs with external link risk, public API
+   field names) for explicit founder approval before rename.
+
+C. URL aliasing. When a public route is renamed
+   (`/methodology/[name]` → `/methodology/[method]`), the old
+   path becomes a 308-permanent redirect to the new one. The
+   alias map lives in `theseus-codex/src/lib/urlAliases.ts` and
+   is exercised by the route middleware.
+
+D. Database column rename strategy. A column rename is a
+   data-migration step (rename + drop alias-view after a window).
+   In this prompt only schema-only renames are allowed; data
+   renames are flagged in the survey for follow-up.
+
+E. Lint enforcement. Add a flake8/ruff rule and an ESLint rule
+   that fail CI on convention violations going forward.
+
+F. Tests on the alias map: every renamed route's old path
+   redirects to the new path; every renamed function symbol is
+   re-exported under its old name with a deprecation warning.
+
+Constraints
+- Public-API field names in the envelope schemas (prompt 03) are
+  versioned. Renaming a public field requires a schema-version
+  bump.
+- Do not rename anything that touches signed publication input
+  (the canonicalization rules from Round 17 prompt 30); a rename
+  there invalidates historical signatures.
+- This is style only. Behavior must be unchanged.
+
+SCOPE
+- `docs/architecture/Naming_Conventions.md` CREATE
+- `scripts/survey_naming_violations.py` CREATE
+- `scripts/check_naming_conventions.py` CREATE
+- `theseus-codex/src/lib/urlAliases.ts` CREATE
+- `theseus-codex/middleware.ts` MODIFY
+- `theseus-codex/src/__tests__/url-aliases.test.ts` CREATE
+- `noosphere/.flake8` MODIFY (or pyproject.toml for ruff)
+- `theseus-codex/.eslintrc.json` MODIFY (or .eslintrc.cjs)

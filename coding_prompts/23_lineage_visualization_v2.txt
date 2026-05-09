@@ -1,0 +1,61 @@
+You are operating in /Users/michaelquintin/Desktop/Theseus.
+
+Goal: refine the conclusion-lineage visualization (Round 17 prompt 17).
+First version focused on data assembly; v2 makes it usable. Right now
+the lineage page renders fine for short chains and is unreadable for
+real conclusions with 30+ events.
+
+Before you start — read:
+1. `theseus-codex/src/app/(authed)/conclusions/[id]/LineagePanel.tsx`.
+2. `theseus-codex/src/app/post/[slug]/lineage/page.tsx`.
+3. `noosphere/noosphere/temporal/lineage.py`.
+
+Implement:
+
+A. Layered timeline. Reorganize the lineage as horizontal swim
+   lanes: source ingestion / extraction / methodology / review /
+   revision / publication / outcomes. Events live in their lane.
+   Vertical position encodes time. This makes a 30-event lineage
+   readable at a glance.
+
+B. Filtering. A toolbar with checkboxes for each lane, plus a
+   time-range slider. Default-on lanes: methodology, review,
+   revision, outcomes. Source-ingestion is collapsed by default
+   on long lineages.
+
+C. Event grouping. Adjacent events in the same lane (e.g. five
+   peer-review verdicts within one hour) collapse into a group
+   pill that expands on click.
+
+D. Performance. The component virtualizes the timeline so a
+   1,000-event lineage stays responsive. Initial paint shows
+   the most recent 100 events; scrolling backward triggers
+   pagination.
+
+E. Public lineage. The public lineage view (post/[slug]/lineage)
+   inherits the layered design but with the visibility filter
+   strict — private events are omitted entirely, not shown as
+   "[redacted]" placeholders.
+
+F. Tests. Synthetic 1,000-event lineage; assert virtualization
+   keeps frame budget under 16ms p95; assert lane filtering;
+   assert the public visibility filter omits private events
+   without leaking their existence.
+
+Constraints
+- Do not introduce a charting framework. Reuse the existing
+  primitives (the cascade tree / explorer canvas if usable).
+- Lineage data shape from prompt 17 stays; this is purely a
+  rendering refactor.
+- Keyboard navigation through the timeline (j/k or arrows)
+  must work — the keyboard workspace from Round 17 prompt 36
+  defines the convention.
+
+SCOPE
+- `theseus-codex/src/app/(authed)/conclusions/[id]/LineagePanel.tsx` MODIFY
+- `theseus-codex/src/app/post/[slug]/lineage/page.tsx` MODIFY
+- `theseus-codex/src/components/LineageTimeline.tsx` CREATE
+- `theseus-codex/src/components/LineageLane.tsx` CREATE
+- `theseus-codex/src/components/LineageEventCard.tsx` CREATE
+- `theseus-codex/src/lib/lineage.ts` MODIFY
+- `theseus-codex/src/__tests__/lineage-v2.test.tsx` CREATE

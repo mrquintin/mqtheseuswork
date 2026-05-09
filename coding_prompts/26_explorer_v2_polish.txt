@@ -1,0 +1,58 @@
+You are operating in /Users/michaelquintin/Desktop/Theseus.
+
+Goal: polish the embedding Explorer (Round 17 prompt 35). v2 added
+lasso, overlays, saved views; in practice the interaction model has
+rough edges — pivots feel laggy on real-size data, the contradiction
+overlay clutters the canvas at high zoom, and saved-view URLs lose
+state. Tighten.
+
+Before you start — read:
+1. `theseus-codex/src/app/(authed)/explorer/page.tsx`.
+2. `theseus-codex/src/components/ExplorerCanvas.tsx`.
+3. `theseus-codex/src/lib/explorerState.ts`.
+
+Implement:
+
+A. Performance pass. Profile the canvas with 5,000 nodes and
+   10,000 edges. Identify the slow path (likely text label
+   layout). Apply level-of-detail: hide labels below a zoom
+   threshold; cluster overlapping nodes at low zoom.
+
+B. Overlay legibility. The contradiction-edge overlay defaults
+   to off above N visible nodes. When on, edges fade with
+   distance from the focus. The legend explains what edge
+   colors mean.
+
+C. URL state stability. Every interaction that should be
+   linkable updates the URL: zoom level, pan center, selected
+   region, focus node, active overlays, reducer choice. URL
+   round-trip restores exactly.
+
+D. Saved views with diff. Saved views become first-class
+   objects with a name and an optional description. Two saved
+   views can be diffed — same selection, different overlays;
+   or same overlays, different selections.
+
+E. Empty-state and error-state. When the embedding index is
+   stale or missing, the canvas shows a clear diagnostic with
+   a one-click "rebuild index" action (gated to founders).
+
+F. Tests. URL round-trip; LOD threshold; saved-view CRUD;
+   diagnostic rendering on empty index.
+
+Constraints
+- Do not change the underlying embedding model or reducer
+  defaults in this prompt. The polish is interaction, not
+  algorithmic.
+- Keep the canvas accessible. Every interaction available on
+  the canvas is also available from a keyboard shortcut from
+  the command palette (Round 17 prompt 36).
+
+SCOPE
+- `theseus-codex/src/components/ExplorerCanvas.tsx` MODIFY
+- `theseus-codex/src/components/ExplorerToolbar.tsx` MODIFY
+- `theseus-codex/src/components/ExplorerSelectionPane.tsx` MODIFY
+- `theseus-codex/src/components/ExplorerSavedViews.tsx` CREATE
+- `theseus-codex/src/components/ExplorerEmptyState.tsx` CREATE
+- `theseus-codex/src/lib/explorerState.ts` MODIFY
+- `theseus-codex/src/__tests__/explorer-polish.test.tsx` CREATE
