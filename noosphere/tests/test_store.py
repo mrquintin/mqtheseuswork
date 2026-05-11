@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from datetime import date, timezone
 
+from sqlalchemy import text
+
 from noosphere.models import (
     Artifact,
     Chunk,
@@ -48,6 +50,16 @@ def test_postgres_pooler_url_is_psycopg2_safe_and_connection_capped(
 
     transaction_url = safe_url.replace(":5432/", ":6543/")
     assert _engine_kwargs_for_url(transaction_url)["poolclass"].__name__ == "NullPool"
+
+
+def test_store_session_rolls_back_read_only_transaction() -> None:
+    st = _store()
+
+    with st.session() as s:
+        s.exec(text("SELECT 1")).all()
+        assert s.in_transaction()
+
+    assert not s.in_transaction()
 
 
 def test_artifact_chunk_claim_crud() -> None:

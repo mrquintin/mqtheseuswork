@@ -811,7 +811,19 @@ class Store:
     @contextmanager
     def session(self) -> Generator[Session, None, None]:
         with Session(self.engine) as s:
-            yield s
+            try:
+                yield s
+            except Exception:
+                s.rollback()
+                raise
+            finally:
+                # SQLAlchemy sessions autobegin on reads. If a caller only
+                # executes SELECTs, no explicit commit happens, and returning
+                # the connection to a managed pool with an open transaction can
+                # strand an "idle in transaction" backend that later blocks
+                # DDL. Rollback is harmless after a committed write and closes
+                # read-only transactions deterministically.
+                s.rollback()
 
     # --- Artifact ---
     def put_artifact(self, a: Artifact) -> None:
