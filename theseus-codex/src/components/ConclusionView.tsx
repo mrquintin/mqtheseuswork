@@ -281,13 +281,12 @@ function buildPrintEndnotes(
   const article = p.article;
   if (article && article.citations.length) {
     for (const c of article.citations) {
+      const publicTitle = c.sourceConclusionText?.trim();
       out.push({
         label: c.label,
         title:
-          c.sourceConclusionText?.trim() ||
-          c.quotedSpan?.trim() ||
-          c.sourceId ||
-          c.label,
+          publicTitle ||
+          (c.publicUrl ? c.sourceId : "Internal source recorded by the firm"),
         kind: citationKindLabel(c.sourceKind),
         url: c.publicUrl ?? null,
       });

@@ -27,6 +27,14 @@ vi.mock("next/link", () => ({
   ),
 }));
 
+vi.mock("next/navigation", () => ({
+  useRouter: () => ({
+    push: vi.fn(),
+    replace: vi.fn(),
+    prefetch: vi.fn(),
+  }),
+}));
+
 vi.mock("@/components/PublicHeader", () => ({
   default: ({ authed }: { authed: boolean }) => (
     <header data-authed={String(authed)}>Public header</header>
@@ -223,8 +231,11 @@ describe("PublicHomePage", () => {
     const html = await renderHomepage();
 
     expect(html).toMatchSnapshot();
-    expect(html).toContain("LATEST FROM THE FIRM · CURRENTS");
-    expect(html).toContain("PUBLICATIONS · ESSAYS &amp; MEMOS");
+    expect(html).toContain("Currents from the firm");
+    expect(html).toContain("Publications");
+    expect(html).not.toContain("LATEST FROM THE FIRM · CURRENTS");
+    expect(html).not.toContain("PUBLICATIONS · ESSAYS &amp; MEMOS");
+    expect(html).not.toContain("font-family:&#x27;Cinzel&#x27;, serif;font-size:1.05rem");
     expect(html).toContain('data-testid="homepage-current-card"');
     expect(html).not.toContain("/responses");
   });

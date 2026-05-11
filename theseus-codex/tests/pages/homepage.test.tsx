@@ -28,6 +28,11 @@ vi.mock("@/lib/forecastsApi", () => ({
 
 vi.mock("next/navigation", () => ({
   usePathname: vi.fn(() => "/"),
+  useRouter: () => ({
+    push: vi.fn(),
+    replace: vi.fn(),
+    prefetch: vi.fn(),
+  }),
 }));
 
 vi.mock("next/link", () => ({

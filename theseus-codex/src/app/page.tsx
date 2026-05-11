@@ -17,6 +17,8 @@ import type { PublicOpinion } from "@/lib/currentsTypes";
 
 export const dynamic = "force-dynamic";
 
+const editorialTitleFont = "'EB Garamond', 'Iowan Old Style', Georgia, serif";
+
 async function latestCurrents(): Promise<PublicOpinion[]> {
   try {
     const response = await listCurrents(
@@ -230,7 +232,7 @@ function CurrentsPreviewRail({ currents }: { currents: PublicOpinion[] }) {
       <RailHeader
         href="/currents"
         linkLabel="View all currents →"
-        title="LATEST FROM THE FIRM · CURRENTS"
+        title="Currents from the firm"
         titleId="home-currents-title"
       />
 
@@ -276,10 +278,11 @@ function CurrentsPreviewRail({ currents }: { currents: PublicOpinion[] }) {
               <h3
                 style={{
                   color: "var(--amber)",
-                  fontFamily: "'Cinzel', serif",
-                  fontSize: "1.05rem",
-                  letterSpacing: "0.03em",
-                  lineHeight: 1.25,
+                  fontFamily: editorialTitleFont,
+                  fontSize: "1.18rem",
+                  fontWeight: 500,
+                  letterSpacing: 0,
+                  lineHeight: 1.22,
                   margin: 0,
                 }}
               >
@@ -320,7 +323,7 @@ function PublicationsRail({ articles }: { articles: PublishedConclusion[] }) {
       }}
     >
       <RailHeader
-        title="PUBLICATIONS · ESSAYS & MEMOS"
+        title="Publications"
         titleId="home-publications-title"
       />
 
@@ -361,8 +364,11 @@ function PublicationsRail({ articles }: { articles: PublishedConclusion[] }) {
                 style={{
                   color: "var(--amber)",
                   display: "block",
-                  fontFamily: "'Cinzel', serif",
-                  lineHeight: 1.25,
+                  fontFamily: editorialTitleFont,
+                  fontSize: "1.08rem",
+                  fontWeight: 500,
+                  letterSpacing: 0,
+                  lineHeight: 1.3,
                 }}
               >
                 {article.payload.conclusionText}
@@ -614,14 +620,15 @@ function RailHeader({
       }}
     >
       <h2
-        className="mono"
         id={titleId}
         style={{
-          color: "var(--amber-dim)",
-          fontSize: "0.72rem",
-          letterSpacing: "0.3em",
+          color: "var(--parchment)",
+          fontFamily: editorialTitleFont,
+          fontSize: "clamp(1.22rem, 2vw, 1.48rem)",
+          fontWeight: 500,
+          letterSpacing: 0,
+          lineHeight: 1.18,
           margin: 0,
-          textTransform: "uppercase",
         }}
       >
         {title}
