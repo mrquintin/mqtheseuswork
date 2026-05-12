@@ -1,5 +1,3 @@
-import Link from "next/link";
-
 /**
  * Sub-navigation bar for tabbed container pages (`/review`, `/library`,
  * `/ops`, `/conclusions/[id]`). The ACTIVE tab is styled gold; others dim.
@@ -47,7 +45,7 @@ export default function TabNav({
         const active = tab.id === current;
         const href = tab.id ? `${basePath}?tab=${tab.id}` : basePath;
         return (
-          <Link
+          <a
             key={tab.id}
             href={href}
             style={{
@@ -66,7 +64,7 @@ export default function TabNav({
             }}
           >
             {tab.label}
-          </Link>
+          </a>
         );
       })}
     </nav>

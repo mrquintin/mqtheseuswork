@@ -1,6 +1,5 @@
 "use client";
 
-import Link from "next/link";
 import { usePathname, useSearchParams } from "next/navigation";
 
 /**
@@ -81,7 +80,7 @@ export default function SubNav() {
         {group.tabs.map((tab) => {
           const active = activePanel === tab.panel;
           return (
-            <Link
+            <a
               key={tab.href}
               href={tab.href}
               style={{
@@ -100,7 +99,7 @@ export default function SubNav() {
               }}
             >
               {tab.label}
-            </Link>
+            </a>
           );
         })}
       </div>

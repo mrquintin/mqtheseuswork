@@ -143,6 +143,10 @@ async def ingest_once(store: Any, cfg: IngestorConfig) -> IngestReport:
                 for post in posts:
                     if len(new_ids) >= cfg.max_events_per_cycle:
                         break
+                    metrics = _significance_metrics(post.metrics)
+                    if not _passes_significance_filters(metrics, cfg):
+                        rejected_below_significance += 1
+                        continue
                     if _persist_or_skip(
                         store,
                         cfg,

@@ -47,6 +47,39 @@ def test_queue_excludes_soft_deleted_uploads(
     assert deleted_id not in ids
 
 
+def test_queue_includes_ingested_audio_missing_transcript_chunks(
+    fake_codex_db, codex_sqlite_url, upload_factory, scratch_binary_fixture
+):
+    """Bad historical audio rows must be repairable without reuploading."""
+    repair_id = upload_factory(
+        mime="audio/mp4",
+        text=None,
+        source_type="audio",
+        file_path=str(scratch_binary_fixture),
+        file_size=scratch_binary_fixture.stat().st_size,
+        title="audio needing repair",
+    )
+    healthy_id = upload_factory(
+        mime="audio/mp4",
+        text="already transcribed audio should not be queued for repair",
+        source_type="audio",
+        file_path=str(scratch_binary_fixture),
+        file_size=scratch_binary_fixture.stat().st_size,
+        title="healthy audio",
+    )
+    fake_codex_db.execute(
+        'UPDATE "Upload" SET status = ? WHERE id IN (?, ?)',
+        ("ingested", repair_id, healthy_id),
+    )
+    fake_codex_db.commit()
+
+    rows = list_queued_uploads(codex_db_url=codex_sqlite_url, limit=25)
+    ids = {row["id"] for row in rows}
+
+    assert repair_id in ids
+    assert healthy_id not in ids
+
+
 def test_ingest_refuses_soft_deleted_uploads(
     fake_codex_db, codex_sqlite_url, upload_factory
 ):

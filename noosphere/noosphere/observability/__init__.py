@@ -111,6 +111,12 @@ def configure_logging(
         logger_factory=structlog.PrintLoggerFactory(file=sys.stdout),
         cache_logger_on_first_use=False,
     )
+    try:
+        from noosphere.observability.db import install_database_span_recorder_from_env
+
+        install_database_span_recorder_from_env()
+    except Exception:
+        pass
 
 
 def get_logger(name: str | None = None) -> Any:

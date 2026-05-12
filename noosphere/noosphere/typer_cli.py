@@ -287,16 +287,25 @@ def ingest_from_codex_cmd(
     require_auth(action="ingest-from-codex")
 
     from noosphere.codex_bridge import ingest_from_codex
+    from noosphere.observability import start_trace
 
     try:
-        result = ingest_from_codex(
-            upload_id,
-            codex_db_url=codex_db_url,
-            use_llm=with_llm,
-            max_claims=max_claims,
-            dry_run=dry_run,
-            organization_slug_filter=organization_slug,
-        )
+        with start_trace(
+            "codex.ingest_from_upload",
+            attrs={
+                "upload_id": upload_id,
+                "with_llm": with_llm,
+                "dry_run": dry_run,
+            },
+        ):
+            result = ingest_from_codex(
+                upload_id,
+                codex_db_url=codex_db_url,
+                use_llm=with_llm,
+                max_claims=max_claims,
+                dry_run=dry_run,
+                organization_slug_filter=organization_slug,
+            )
     except Exception as exc:
         typer.echo(
             json.dumps(
@@ -536,47 +545,56 @@ def codex_reanalyze_cmd(
         from noosphere.codex_methodology_reanalysis import (
             reanalyze_methodology_profiles,
         )
+        from noosphere.observability import start_trace
 
         require_auth(action="codex-reanalyze")
 
         resolved_url = _resolve_codex_db_url(codex_db_url)
-        transcript_result = enrich_all_upload_transcripts(
-            codex_db_url=resolved_url,
-            organization_slug=organization_slug,
-            limit=limit,
-            force=force_transcripts,
-            dry_run=not apply,
-        )
-        methodology_result = reanalyze_methodology_profiles(
-            codex_db_url=resolved_url,
-            organization_slug=organization_slug,
-            limit=limit,
-            dry_run=not apply,
-        )
-
-        if apply:
-            from noosphere.store import Store
-
-            store = Store.from_database_url(resolved_url)
-            embedding_report = run_backfill(
-                store=store,
-                max_per_run=max_embeddings,
+        with start_trace(
+            "codex.reanalyze",
+            attrs={
+                "apply": apply,
+                "limit": limit,
+                "force_transcripts": force_transcripts,
+            },
+        ):
+            transcript_result = enrich_all_upload_transcripts(
+                codex_db_url=resolved_url,
+                organization_slug=organization_slug,
+                limit=limit,
+                force=force_transcripts,
+                dry_run=not apply,
             )
-            embeddings_payload = {
-                "dry_run": False,
-                "count": embedding_report.count,
-                "remaining": embedding_report.remaining,
-                "model_name": embedding_report.model_name,
-                "errors": embedding_report.errors[:5],
-            }
-        else:
-            embeddings_payload = {
-                "dry_run": True,
-                "count": 0,
-                "remaining": None,
-                "model_name": None,
-                "errors": [],
-            }
+            methodology_result = reanalyze_methodology_profiles(
+                codex_db_url=resolved_url,
+                organization_slug=organization_slug,
+                limit=limit,
+                dry_run=not apply,
+            )
+
+            if apply:
+                from noosphere.store import Store
+
+                store = Store.from_database_url(resolved_url)
+                embedding_report = run_backfill(
+                    store=store,
+                    max_per_run=max_embeddings,
+                )
+                embeddings_payload = {
+                    "dry_run": False,
+                    "count": embedding_report.count,
+                    "remaining": embedding_report.remaining,
+                    "model_name": embedding_report.model_name,
+                    "errors": embedding_report.errors[:5],
+                }
+            else:
+                embeddings_payload = {
+                    "dry_run": True,
+                    "count": 0,
+                    "remaining": None,
+                    "model_name": None,
+                    "errors": [],
+                }
     except Exception as exc:
         typer.echo(
             json.dumps(
@@ -798,8 +816,36 @@ def embed_backfill_cmd(
     """Fill missing current-model conclusion embeddings."""
     configure_logging(json_format=True)
     from noosphere.cli_commands.embed_backfill import run_backfill
+    from noosphere.observability import start_trace
 
-    report = run_backfill(max_per_run=max_per_run, batch_size=batch_size)
+    with start_trace(
+        "codex.embed_backfill",
+        attrs={"max_per_run": max_per_run, "batch_size": batch_size},
+    ):
+        report = run_backfill(max_per_run=max_per_run, batch_size=batch_size)
+    typer.echo(json.dumps({"ok": not report.errors, **report.__dict__}, default=str))
+    if report.errors:
+        raise typer.Exit(code=1)
+
+
+@app.command("ops-rollup")
+def ops_rollup_cmd(
+    codex_db_url: Optional[str] = typer.Option(
+        None,
+        "--codex-db-url",
+        help="Codex Postgres URL. Falls back to THESEUS_CODEX_DATABASE_URL / CODEX_DATABASE_URL / DIRECT_URL / DATABASE_URL.",
+    ),
+    window_hours: int = typer.Option(
+        24,
+        "--window-hours",
+        help="Trailing span window to materialize into Ops rollups.",
+    ),
+) -> None:
+    """Materialize span rollups and alerts for the Ops dashboard."""
+    configure_logging(json_format=True)
+    from noosphere.observability.db import run_ops_rollup
+
+    report = run_ops_rollup(database_url=codex_db_url, window_hours=window_hours)
     typer.echo(json.dumps({"ok": not report.errors, **report.__dict__}, default=str))
     if report.errors:
         raise typer.Exit(code=1)

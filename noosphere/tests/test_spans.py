@@ -15,6 +15,7 @@ import time
 from datetime import datetime, timezone
 
 import pytest
+from sqlalchemy import create_engine, text
 
 from noosphere.observability import (
     AlertRule,
@@ -29,6 +30,7 @@ from noosphere.observability import (
     start_span,
     start_trace,
 )
+from noosphere.observability.db import persist_span, run_ops_rollup
 from noosphere.observability.spans import sanitize_attrs
 
 
@@ -268,6 +270,99 @@ def test_recorded_span_attrs_are_sanitized(recorder: SpanRecorder) -> None:
     span = recorder.spans()[0]
     assert span.attrs["api_key"] == "[redacted]"
     assert span.attrs["endpoint"] == "/v1/x"
+
+
+def test_ops_rollup_persists_method_metrics_and_alerts(tmp_path) -> None:
+    db_path = tmp_path / "ops.db"
+    database_url = f"sqlite:///{db_path}"
+    engine = create_engine(database_url)
+    with engine.begin() as conn:
+        conn.execute(
+            text(
+                '''CREATE TABLE "Span" (
+                   "id" TEXT PRIMARY KEY,
+                   "traceId" TEXT NOT NULL,
+                   "parentSpanId" TEXT,
+                   "name" TEXT NOT NULL,
+                   "status" TEXT NOT NULL DEFAULT 'ok',
+                   "startedAt" TEXT NOT NULL,
+                   "endedAt" TEXT,
+                   "durationMs" REAL,
+                   "errorKind" TEXT,
+                   "errorMessage" TEXT,
+                   "attrs" TEXT NOT NULL DEFAULT '{}',
+                   "costUsd" REAL NOT NULL DEFAULT 0.0,
+                   "organizationId" TEXT,
+                   "createdAt" TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+                )'''
+            )
+        )
+        conn.execute(
+            text(
+                '''CREATE TABLE "MethodMetricRollup" (
+                   "id" TEXT PRIMARY KEY,
+                   "method" TEXT NOT NULL,
+                   "windowStart" TEXT NOT NULL,
+                   "windowEnd" TEXT NOT NULL,
+                   "count" INTEGER NOT NULL,
+                   "errorCount" INTEGER NOT NULL,
+                   "p50Ms" REAL NOT NULL,
+                   "p95Ms" REAL NOT NULL,
+                   "errorRate" REAL NOT NULL,
+                   "costUsd" REAL NOT NULL,
+                   "createdAt" TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                   UNIQUE ("method", "windowStart", "windowEnd")
+                )'''
+            )
+        )
+        conn.execute(
+            text(
+                '''CREATE TABLE "AlertEvent" (
+                   "id" TEXT PRIMARY KEY,
+                   "ruleName" TEXT NOT NULL,
+                   "method" TEXT NOT NULL,
+                   "metric" TEXT NOT NULL,
+                   "value" REAL NOT NULL,
+                   "threshold" REAL NOT NULL,
+                   "firedAt" TEXT NOT NULL,
+                   "acknowledgedAt" TEXT,
+                   "acknowledgedBy" TEXT,
+                   "deliveredTo" TEXT NOT NULL DEFAULT '[]'
+                )'''
+            )
+        )
+
+    now = datetime(2026, 5, 11, 12, 0, tzinfo=timezone.utc)
+    start = now.timestamp() - 60
+    for index in range(5):
+        persist_span(
+            engine,
+            Span(
+                trace_id="trace_ops",
+                span_id=f"span_ops_{index}",
+                parent_span_id=None,
+                name="codex.ingest_from_upload",
+                start=start + index,
+                end=start + index + 0.25,
+                status=SpanStatus.ERROR if index == 4 else SpanStatus.OK,
+            ),
+        )
+
+    report = run_ops_rollup(database_url=database_url, window_hours=1, now=now)
+
+    assert report.errors == []
+    assert report.span_count == 5
+    assert report.rollup_count == 1
+    assert report.alert_count == 1
+    with engine.connect() as conn:
+        rollup = conn.execute(
+            text('SELECT "count", "errorCount", "errorRate" FROM "MethodMetricRollup"')
+        ).mappings().one()
+        alerts = conn.execute(text('SELECT COUNT(*) FROM "AlertEvent"')).scalar_one()
+    assert rollup["count"] == 5
+    assert rollup["errorCount"] == 1
+    assert rollup["errorRate"] == pytest.approx(0.2)
+    assert alerts == 1
 
 
 # ── 5. JSONL persistence (sanity) ───────────────────────────────────────────

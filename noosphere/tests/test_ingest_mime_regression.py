@@ -114,7 +114,7 @@ def test_audio_upload_does_not_error_on_missing_textcontent(
     )
 
     row = fake_codex_db.execute(
-        'SELECT status, "errorMessage", "extractionMethod" FROM "Upload" WHERE id = ?',
+        'SELECT status, "errorMessage", "extractionMethod", "textContent" FROM "Upload" WHERE id = ?',
         (uid,),
     ).fetchone()
     assert row["status"] == "ingested", (
@@ -123,6 +123,12 @@ def test_audio_upload_does_not_error_on_missing_textcontent(
     )
     assert row["errorMessage"] is None
     assert row["extractionMethod"] == "faster-whisper"
+    assert "inquiry not credentialing" in row["textContent"]
+    chunk_count = fake_codex_db.execute(
+        'SELECT COUNT(*) AS count FROM "UploadChunk" WHERE "uploadId" = ?',
+        (uid,),
+    ).fetchone()["count"]
+    assert chunk_count >= 1
     assert result.num_claims_extracted >= 1
 
 

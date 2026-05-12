@@ -1,6 +1,5 @@
 "use client";
 
-import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 
 import LabyrinthIcon from "./LabyrinthIcon";
@@ -141,7 +140,7 @@ export default function Nav({
           gap: "0.5rem",
         }}
       >
-        <Link
+        <a
           href="/"
           aria-label="Theseus Codex — home"
           style={{
@@ -159,7 +158,7 @@ export default function Nav({
         >
           <LabyrinthIcon size={22} glow />
           THESEUS
-        </Link>
+        </a>
 
         <div
           style={{
@@ -170,7 +169,7 @@ export default function Nav({
           }}
         >
           {visibleLinks.map((link) => (
-            <Link
+            <a
               key={link.label}
               href={link.href}
               aria-label={
@@ -201,7 +200,7 @@ export default function Nav({
               {link.href === "/dashboard" && dashboardHasUnseenResponses ? (
                 <span aria-hidden className="currents-pulse" />
               ) : null}
-            </Link>
+            </a>
           ))}
         </div>
 
@@ -232,7 +231,7 @@ export default function Nav({
                   the single surface for passphrase rotation and (later)
                   profile / email / avatar edits. A subtle hover-
                   underline signals the affordance without adding chrome. */}
-              <Link
+              <a
                 href="/account"
                 title="Account settings"
                 style={{
@@ -264,7 +263,7 @@ export default function Nav({
                     · {founder.organizationSlug}
                   </span>
                 ) : null}
-              </Link>
+              </a>
               <ThemeToggle size={28} />
               <button
                 onClick={handleLogout}
@@ -277,7 +276,7 @@ export default function Nav({
           ) : (
             <>
               <ThemeToggle size={28} />
-              <Link
+              <a
                 href="/"
                 className="btn"
                 style={{
@@ -287,7 +286,7 @@ export default function Nav({
                 }}
               >
                 Sign In
-              </Link>
+              </a>
             </>
           )}
         </div>

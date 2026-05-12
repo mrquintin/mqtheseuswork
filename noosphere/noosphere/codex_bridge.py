@@ -53,7 +53,7 @@ import uuid
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from types import SimpleNamespace
-from typing import Optional
+from typing import Any, Optional
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 try:
@@ -223,6 +223,106 @@ def _db_safe(s: Optional[str], *, cap: Optional[int] = None) -> str:
     if cap is not None and len(text) > cap:
         text = text[:cap]
     return text
+
+
+def _chunk_text_for_upload(text: str, *, chunk_char_size: int = 5_000) -> list[str]:
+    """Return durable UI chunks without depending on enrichment extras.
+
+    The richer transcript enrichment pass adds headings, timestamps, speakers,
+    and embeddings. This fallback only guarantees that an upload with extracted
+    text has stable `UploadChunk` rows, so the Codex transcript pages can render
+    immediately even if optional enrichment dependencies are unavailable.
+    """
+
+    clean = re.sub(r"[ \t]+", " ", text).strip()
+    if not clean:
+        return []
+    paragraphs = [part.strip() for part in re.split(r"\n\s*\n+", clean) if part.strip()]
+    if not paragraphs:
+        paragraphs = [clean]
+
+    chunks: list[str] = []
+    buf: list[str] = []
+    size = 0
+
+    def flush() -> None:
+        nonlocal buf, size
+        body = "\n\n".join(buf).strip()
+        if body:
+            chunks.append(body)
+        buf = []
+        size = 0
+
+    for paragraph in paragraphs:
+        if len(paragraph) > chunk_char_size:
+            flush()
+            sentence_parts = re.findall(r"[^.!?\n]+[.!?]+|[^.!?\n]+$", paragraph)
+            sentence_buf: list[str] = []
+            sentence_size = 0
+            for sentence in sentence_parts or [paragraph]:
+                sentence = sentence.strip()
+                if not sentence:
+                    continue
+                if len(sentence) > chunk_char_size:
+                    if sentence_buf:
+                        chunks.append(" ".join(sentence_buf).strip())
+                        sentence_buf = []
+                        sentence_size = 0
+                    for i in range(0, len(sentence), chunk_char_size):
+                        part = sentence[i : i + chunk_char_size].strip()
+                        if part:
+                            chunks.append(part)
+                    continue
+                if sentence_size + len(sentence) + 1 > chunk_char_size and sentence_buf:
+                    chunks.append(" ".join(sentence_buf).strip())
+                    sentence_buf = []
+                    sentence_size = 0
+                sentence_buf.append(sentence)
+                sentence_size += len(sentence) + 1
+            if sentence_buf:
+                chunks.append(" ".join(sentence_buf).strip())
+            continue
+
+        next_size = size + len(paragraph) + (2 if buf else 0)
+        if next_size > chunk_char_size and buf:
+            flush()
+        buf.append(paragraph)
+        size += len(paragraph) + 2
+
+    flush()
+    return chunks[:500]
+
+
+def _ensure_basic_upload_chunks(cur: Any, upload_id: str, text: str, now: datetime) -> int:
+    """Seed UploadChunk rows if none exist yet."""
+
+    cur.execute(
+        'SELECT COUNT(*) AS count FROM "UploadChunk" WHERE "uploadId" = %s',
+        (upload_id,),
+    )
+    row = cur.fetchone() or {}
+    if int(row.get("count") or 0) > 0:
+        return 0
+    chunks = _chunk_text_for_upload(text)
+    for idx, chunk in enumerate(chunks):
+        cur.execute(
+            '''INSERT INTO "UploadChunk"
+               (id, "uploadId", "index", text, "startMs", "endMs", "speakerLabel",
+                "createdAt", "updatedAt")
+               VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)''',
+            (
+                "uc_" + uuid.uuid4().hex[:24],
+                upload_id,
+                idx,
+                _db_safe(chunk, cap=20_000),
+                None,
+                None,
+                None,
+                now,
+                now,
+            ),
+        )
+    return len(chunks)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -683,7 +783,6 @@ def ingest_from_codex(
             raise RuntimeError(
                 f"Upload {upload_id} not found as an active Codex upload."
             )
-
         # ── Fetch-and-extract via the MIME dispatcher ───────────────────
         # ``fetch_upload_content`` returns TextContent when the DB has
         # textContent populated, or BinaryContent (bytes + mime) when the
@@ -729,7 +828,8 @@ def ingest_from_codex(
                 conn.commit()
             raise
 
-        text = extracted.text
+        extracted_text = extracted.text
+        text = extracted_text
         print(
             f"extraction method={extracted.extraction_method} "
             f"source_format={extracted.source_format} "
@@ -1190,6 +1290,10 @@ def ingest_from_codex(
         cur.execute(
             '''UPDATE "Upload"
                SET status = %s,
+                   "textContent" = CASE
+                       WHEN "textContent" IS NULL OR length(trim("textContent")) = 0 THEN %s
+                       ELSE "textContent"
+                   END,
                    "claimsCount" = %s,
                    "methodCount" = %s,
                    "errorMessage" = NULL,
@@ -1197,12 +1301,19 @@ def ingest_from_codex(
                WHERE id = %s''',
             (
                 "ingested",
+                _db_safe(extracted_text, cap=2_000_000),
                 written + deduped,
                 methodology_profiles_written,
                 _db_safe(extracted.extraction_method, cap=64),
                 upload_id,
             ),
         )
+        try:
+            seeded_chunks = _ensure_basic_upload_chunks(cur, upload_id, text, now)
+            if seeded_chunks:
+                print(f"upload_chunks_seeded count={seeded_chunks}")
+        except Exception as chunk_exc:
+            print(f"upload_chunk_seed_failed: {type(chunk_exc).__name__}: {chunk_exc}")
 
         # ── Audit event ──────────────────────────────────────────────────
         audit_detail = (
@@ -1326,8 +1437,13 @@ def ingest_from_codex(
 def list_queued_uploads(
     *, codex_db_url: Optional[str] = None, limit: int = 25
 ) -> list[dict]:
-    """List uploads currently stuck in ``queued_offline`` / ``pending`` so
-    the user can pick which one to process."""
+    """List uploads currently waiting for processing or needing repair.
+
+    The repair branch intentionally includes audio rows that were previously
+    marked ``ingested`` but have neither persisted transcript text nor chunks.
+    Those rows were produced by the broken bridge path that extracted audio for
+    claim analysis without writing the transcript back to the Codex DB.
+    """
     url = _resolve_codex_db_url(codex_db_url)
     conn = _open_codex_connection(url)
     try:
@@ -1340,6 +1456,22 @@ def list_queued_uploads(
                  AND (
                       status IN ('pending', 'queued_offline', 'processing')
                       OR status IS NULL
+                      OR (
+                           status = 'ingested'
+                           AND (
+                                "textContent" IS NULL
+                                OR length(trim("textContent")) = 0
+                           )
+                           AND (
+                                lower(coalesce("sourceType", '')) IN ('audio', 'podcast', 'transcript', 'session', 'dialectic')
+                                OR lower(coalesce("mimeType", '')) LIKE 'audio/%%'
+                           )
+                           AND NOT EXISTS (
+                                SELECT 1
+                                FROM "UploadChunk" uc
+                                WHERE uc."uploadId" = "Upload".id
+                           )
+                      )
                  )
                ORDER BY "createdAt" DESC
                LIMIT %s''',

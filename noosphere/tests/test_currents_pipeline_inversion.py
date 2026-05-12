@@ -359,6 +359,6 @@ def test_disabled_discovery_reverts_to_curated_then_search_behavior(
     assert fake_client.discovery_calls == []
     assert fake_client.user_calls == ["111"]
     assert fake_client.search_calls == ["domain query"]
-    assert report.rejected_below_significance == 0
-    assert len(report.new_event_ids) == 2
+    assert report.rejected_below_significance == 1
+    assert len(report.new_event_ids) == 1
     assert len(report.significance_bypass_event_ids) == 1

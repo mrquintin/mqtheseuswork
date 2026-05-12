@@ -810,20 +810,17 @@ class Store:
 
     @contextmanager
     def session(self) -> Generator[Session, None, None]:
-        with Session(self.engine) as s:
+        with Session(self.engine, expire_on_commit=False) as s:
             try:
                 yield s
             except Exception:
                 s.rollback()
                 raise
-            finally:
-                # SQLAlchemy sessions autobegin on reads. If a caller only
-                # executes SELECTs, no explicit commit happens, and returning
-                # the connection to a managed pool with an open transaction can
-                # strand an "idle in transaction" backend that later blocks
-                # DDL. Rollback is harmless after a committed write and closes
-                # read-only transactions deterministically.
-                s.rollback()
+            # The Session context manager closes the session and returns any
+            # checked-out connection to the pool. Do not rollback successful
+            # read-only sessions here: SQLAlchemy expires ORM attributes on
+            # rollback, and many Store methods intentionally return detached
+            # model objects to callers.
 
     # --- Artifact ---
     def put_artifact(self, a: Artifact) -> None:
@@ -1026,8 +1023,8 @@ class Store:
                 .where(StoredEmbeddingModelVersion.effective_from <= cutoff)
                 .order_by(desc(StoredEmbeddingModelVersion.effective_from))
             ).all()
-        if rows:
-            return rows[0].model_name
+            if rows:
+                return str(rows[0].model_name)
         return get_settings().embedding_model_name
 
     def has_current_embedding(
@@ -1417,13 +1414,19 @@ class Store:
 
     def find_current_event_by_dedupe(self, hash: str) -> Optional[CurrentEvent]:
         with self.session() as s:
-            return s.exec(
+            event = s.exec(
                 select(CurrentEvent).where(CurrentEvent.dedupe_hash == hash)
             ).first()
+            if event is not None:
+                s.expunge(event)
+            return event
 
     def get_current_event(self, event_id: str) -> Optional[CurrentEvent]:
         with self.session() as s:
-            return s.get(CurrentEvent, event_id)
+            event = s.get(CurrentEvent, event_id)
+            if event is not None:
+                s.expunge(event)
+            return event
 
     def list_current_event_ids_by_status(
         self,

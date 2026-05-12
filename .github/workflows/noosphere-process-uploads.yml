@@ -33,6 +33,20 @@ name: Noosphere — process Codex uploads
 #                         (within + across uploads), suggests open
 #                         questions, and proposes research follow-ups.
 #
+#   ANTHROPIC_API_KEY   — required for post-upload Currents opinions and
+#                         public article generation. Ingest still works
+#                         without it, but the public-facing commentary
+#                         layer will abstain or fail closed.
+#
+#   X_BEARER_TOKEN      — required for GitHub-hosted Currents discovery.
+#                         The always-on Currents backend may have its own
+#                         token, but this workflow needs a repo secret if
+#                         post-upload cloud refresh is expected to discover
+#                         X posts itself.
+#
+#   CURRENTS_INGEST_ORG_ID — optional. If omitted, the workflow derives
+#                         the public organization from the Codex DB.
+#
 # Exit behavior: the workflow never hard-fails on a single bad upload
 # — individual failures are logged and the rest still process. Only
 # a Python import / dependency crash trips the red X.
@@ -69,7 +83,10 @@ jobs:
   process:
     name: Run ingest-from-codex
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    # Long-form founder recordings can be hundreds of MB and must be
+    # chunked/transcribed in CI. Keep the workflow bounded, but do not
+    # kill legitimate audio backfills halfway through.
+    timeout-minutes: 120
     # Don't fail the whole scheduled sweep if Noosphere's
     # pyproject constraints shift slightly — we retry on the next
     # pass. Manual runs and dispatch-driven runs still surface
@@ -224,6 +241,7 @@ jobs:
           SUPABASE_AUDIO_BUCKET: ${{ secrets.SUPABASE_AUDIO_BUCKET }}
           USE_LLM: ${{ steps.llm.outputs.use_llm }}
           UPLOAD_ID: ${{ steps.plan.outputs.upload_id }}
+          NOOSPHERE_DB_SPANS: "1"
           # CI bypass for the Codex-side auth layer the CLI added in
           # f410df7. The workflow already has a higher-trust credential
           # (CODEX_DATABASE_URL → full Postgres access), so requiring it
@@ -254,20 +272,18 @@ jobs:
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
           SUPABASE_AUDIO_BUCKET: ${{ secrets.SUPABASE_AUDIO_BUCKET }}
           USE_LLM: ${{ steps.llm.outputs.use_llm }}
+          NOOSPHERE_DB_SPANS: "1"
           # See the single-upload step above for why this is safe here.
           NOOSPHERE_SKIP_AUTH: "1"
         run: |
           set -eo pipefail
           echo "+ python -m noosphere codex-queued --limit 25"
           python -m noosphere codex-queued --limit 25 > /tmp/queued.json
-          # `codex-queued` returns rows in status pending/queued_offline/
-          # processing. For the automated sweep we want to skip anything
-          # already in `processing` because either a dispatched workflow
-          # is actively handling it (double-dispatch would duplicate the
-          # claims) or a previous run crashed mid-flight (in which case
-          # the user can manually retry from /dashboard). We only
-          # auto-process the clean "waiting" states.
-          python -c "import json,sys; d=json.load(open('/tmp/queued.json')); rows=d.get('rows',[]); [print(r['id']) for r in rows if (r.get('status') or '').lower() in ('pending','queued_offline','')]" > /tmp/ids.txt
+          # `codex-queued` returns clean waiting rows plus a narrow repair
+          # class: audio uploads previously marked ingested despite having
+          # no transcript text/chunks. Skip `processing` to avoid duplicate
+          # claims, but repair those malformed ingested rows automatically.
+          python -c "import json,sys; d=json.load(open('/tmp/queued.json')); rows=d.get('rows',[]); [print(r['id']) for r in rows if (r.get('status') or '').lower() in ('pending','queued_offline','','ingested')]" > /tmp/ids.txt
           id_count=$(wc -l < /tmp/ids.txt | tr -d ' ')
           total_count=$(python -c "import json; print(json.load(open('/tmp/queued.json')).get('count',0))")
           echo "::notice::Codex has $total_count row(s) in queue states; sweep will process $id_count of them"
@@ -306,8 +322,75 @@ jobs:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
           SUPABASE_AUDIO_BUCKET: ${{ secrets.SUPABASE_AUDIO_BUCKET }}
+          NOOSPHERE_DB_SPANS: "1"
           NOOSPHERE_SKIP_AUTH: "1"
         run: |
           set -eo pipefail
           echo "+ python -m noosphere codex-reanalyze --apply --limit 500 --max-embeddings 1000"
           python -m noosphere codex-reanalyze --apply --limit 500 --max-embeddings 1000
+
+      - name: Refresh public Currents and articles
+        if: steps.secretcheck.outputs.skip != 'true'
+        working-directory: noosphere
+        env:
+          PYTHONPATH: ${{ github.workspace }}/noosphere
+          DIRECT_URL: ${{ secrets.CODEX_DATABASE_URL }}
+          DATABASE_URL: ${{ secrets.CODEX_DATABASE_URL }}
+          THESEUS_CODEX_DATABASE_URL: ${{ secrets.CODEX_DATABASE_URL }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          X_BEARER_TOKEN: ${{ secrets.X_BEARER_TOKEN }}
+          CURRENTS_INGEST_ORG_ID: ${{ secrets.CURRENTS_INGEST_ORG_ID }}
+          CURRENTS_X_SEARCH_QUERIES: ${{ secrets.CURRENTS_X_SEARCH_QUERIES }}
+          CURRENTS_X_DISCOVERY_ENABLED: ${{ vars.CURRENTS_X_DISCOVERY_ENABLED || 'true' }}
+          CURRENTS_X_DISCOVERY_MAX_CANDIDATES: ${{ vars.CURRENTS_X_DISCOVERY_MAX_CANDIDATES || '100' }}
+          CURRENTS_MIN_SIGNIFICANCE_SCORE: ${{ vars.CURRENTS_MIN_SIGNIFICANCE_SCORE || '1.35' }}
+          NOOSPHERE_ARTICLES_WEEKLY_CAP: ${{ vars.NOOSPHERE_ARTICLES_WEEKLY_CAP || '1' }}
+          NOOSPHERE_DB_SPANS: "1"
+          NOOSPHERE_SKIP_AUTH: "1"
+        run: |
+          set -eo pipefail
+          if [ -z "${CURRENTS_INGEST_ORG_ID:-}" ]; then
+            CURRENTS_INGEST_ORG_ID="$(python - <<'PY'
+          import os
+          import psycopg2
+          from noosphere.codex_bridge import _psycopg2_compatible_url
+
+          url = _psycopg2_compatible_url(os.environ["DATABASE_URL"])
+          with psycopg2.connect(url) as conn, conn.cursor() as cur:
+              cur.execute(
+                  'SELECT id FROM "Organization" ORDER BY CASE WHEN slug = %s THEN 0 ELSE 1 END, id ASC LIMIT 1',
+                  ("theseus",),
+              )
+              row = cur.fetchone()
+          print(row[0] if row else "")
+          PY
+            )"
+            export CURRENTS_INGEST_ORG_ID
+          fi
+          if [ -z "${CURRENTS_INGEST_ORG_ID:-}" ]; then
+            echo "::warning::Could not determine CURRENTS_INGEST_ORG_ID; skipping Currents/article refresh."
+            exit 0
+          fi
+          if [ -z "${X_BEARER_TOKEN:-}" ]; then
+            echo "::warning::X_BEARER_TOKEN secret is missing; GitHub cloud refresh cannot discover fresh X posts."
+          fi
+          if [ -z "${ANTHROPIC_API_KEY:-}" ]; then
+            echo "::warning::ANTHROPIC_API_KEY secret is missing; Currents opinions and articles cannot be generated in GitHub."
+          fi
+          echo "+ python -m noosphere.currents once"
+          python -m noosphere.currents once
+
+      - name: Materialize Ops rollups
+        if: steps.secretcheck.outputs.skip != 'true'
+        working-directory: noosphere
+        env:
+          PYTHONPATH: ${{ github.workspace }}/noosphere
+          DIRECT_URL: ${{ secrets.CODEX_DATABASE_URL }}
+          DATABASE_URL: ${{ secrets.CODEX_DATABASE_URL }}
+          THESEUS_CODEX_DATABASE_URL: ${{ secrets.CODEX_DATABASE_URL }}
+          NOOSPHERE_SKIP_AUTH: "1"
+        run: |
+          set -eo pipefail
+          echo "+ python -m noosphere ops-rollup --window-hours 24"
+          python -m noosphere ops-rollup --window-hours 24

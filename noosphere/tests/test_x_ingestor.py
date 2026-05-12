@@ -5,7 +5,7 @@ import asyncio
 import pytest
 
 from noosphere.currents import x_ingestor
-from noosphere.currents._x_client import MissingCredentials, XAPIError, XPost
+from noosphere.currents._x_client import MissingCredentials, XAPIError, XPost, XPostMetrics
 from noosphere.currents.config import IngestorConfig
 from noosphere.currents.dedupe import dedupe_hash
 from noosphere.store import Store
@@ -66,6 +66,7 @@ def _post(post_id: str, text: str) -> XPost:
         author_handle="@theseus",
         created_at="2026-04-29T12:00:00+00:00",
         url=f"https://x.com/theseus/status/{post_id}",
+        metrics=XPostMetrics(like_count=2_000),
     )
 
 

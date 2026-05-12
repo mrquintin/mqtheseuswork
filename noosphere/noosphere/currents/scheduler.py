@@ -155,6 +155,26 @@ def _event_ids_for_cycle(store: Store, new_event_ids: list[str]) -> list[str]:
 async def run_cycle(
     store, ingestor_cfg, budget, *, publish_articles: bool = False
 ) -> CycleReport:
+    from noosphere.observability import start_trace
+
+    with start_trace(
+        "currents.run_cycle",
+        attrs={
+            "organization_id": getattr(ingestor_cfg, "organization_id", None),
+            "publish_articles": publish_articles,
+        },
+    ):
+        return await _run_cycle_impl(
+            store,
+            ingestor_cfg,
+            budget,
+            publish_articles=publish_articles,
+        )
+
+
+async def _run_cycle_impl(
+    store, ingestor_cfg, budget, *, publish_articles: bool = False
+) -> CycleReport:
     """Run one ingest -> enrich -> significance -> KB relevance -> opinion pass."""
     monotonic_start = time.monotonic()
     started_at = _utc_now_iso()
@@ -559,6 +579,12 @@ def _configure_logging() -> None:
         level=getattr(logging, level_name.upper(), logging.INFO),
         format="%(asctime)s %(levelname)s %(name)s %(message)s",
     )
+    try:
+        from noosphere.observability.db import install_database_span_recorder_from_env
+
+        install_database_span_recorder_from_env()
+    except Exception:
+        pass
 
 
 def main(argv: Sequence[str] | None = None) -> int:
