@@ -198,6 +198,82 @@ def test_audio_transcript_persists_when_llm_claim_extraction_fails(
     assert chunk_count >= 1
 
 
+def test_llm_open_question_and_research_rows_are_idempotent(
+    fake_codex_db,
+    codex_sqlite_url,
+    upload_factory,
+    monkeypatch,
+):
+    """Reprocessing the same upload must not fail on generated row IDs."""
+    uid = upload_factory(
+        mime="text/plain",
+        text=(
+            "The firm believes education should be organized around inquiry "
+            "because institutions fail when they optimize for credentialing."
+        ),
+        title="idempotent text",
+    )
+
+    claims = [
+        codex_bridge.NaiveClaim(
+            text="Education should be organized around inquiry rather than credentialing.",
+            claim_type="normative",
+        )
+    ]
+    monkeypatch.setattr(codex_bridge, "llm_extract_claims", lambda *a, **k: claims)
+    monkeypatch.setattr(
+        codex_bridge,
+        "llm_detect_contradictions_and_questions",
+        lambda *args, **kwargs: {
+            "contradictions": [],
+            "cross_contradictions": [],
+            "open_questions": [
+                {
+                    "summary": "How should inquiry-centered schools assess progress?",
+                    "unresolved_reason": "The source leaves assessment underspecified.",
+                    "a": 0,
+                    "b": 0,
+                }
+            ],
+            "research_suggestions": [
+                {
+                    "title": "Assessment in inquiry-centered schools",
+                    "summary": "Review models for non-credentialist assessment.",
+                    "rationale": "The claim needs operational backing.",
+                }
+            ],
+        },
+    )
+
+    first = ingest_from_codex(
+        upload_id=uid,
+        use_llm=True,
+        dry_run=False,
+        codex_db_url=codex_sqlite_url,
+    )
+    second = ingest_from_codex(
+        upload_id=uid,
+        use_llm=True,
+        dry_run=False,
+        codex_db_url=codex_sqlite_url,
+    )
+
+    assert first.num_open_questions_written == 1
+    assert first.num_research_suggestions_written == 1
+    assert second.num_open_questions_written == 0
+    assert second.num_research_suggestions_written == 0
+    oq_count = fake_codex_db.execute(
+        'SELECT COUNT(*) AS count FROM "OpenQuestion" WHERE "sourceUploadId" = ?',
+        (uid,),
+    ).fetchone()["count"]
+    rs_count = fake_codex_db.execute(
+        'SELECT COUNT(*) AS count FROM "ResearchSuggestion" WHERE "sourceUploadId" = ?',
+        (uid,),
+    ).fetchone()["count"]
+    assert oq_count == 1
+    assert rs_count == 1
+
+
 def test_failure_message_no_longer_mentions_textcontent(
     fake_codex_db, codex_sqlite_url, upload_factory,
     monkeypatch, tmp_path,

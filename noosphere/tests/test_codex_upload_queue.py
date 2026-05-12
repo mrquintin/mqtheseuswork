@@ -101,11 +101,18 @@ def test_queue_includes_failed_audio_missing_transcript_chunks(
         title="healthy failed audio",
     )
     fake_codex_db.execute(
-        'UPDATE "Upload" SET status = ?, "errorMessage" = ? WHERE id IN (?, ?)',
+        'UPDATE "Upload" SET status = ?, "errorMessage" = ? WHERE id = ?',
         (
             "failed",
             "Local ingest-from-codex failed: stale LLM model",
             repair_id,
+        ),
+    )
+    fake_codex_db.execute(
+        'UPDATE "Upload" SET status = ?, "errorMessage" = ? WHERE id = ?',
+        (
+            "failed",
+            "extraction_failed: source audio could not be decoded",
             healthy_failed_id,
         ),
     )
@@ -116,6 +123,39 @@ def test_queue_includes_failed_audio_missing_transcript_chunks(
 
     assert repair_id in ids
     assert healthy_failed_id not in ids
+
+
+def test_queue_includes_generic_failed_upload_even_after_transcript_materialized(
+    fake_codex_db, codex_sqlite_url, upload_factory, scratch_binary_fixture
+):
+    repair_id = upload_factory(
+        mime="audio/mp4",
+        text="transcript already recovered but terminal processing failed",
+        source_type="audio",
+        file_path=str(scratch_binary_fixture),
+        file_size=scratch_binary_fixture.stat().st_size,
+        title="failed after transcript",
+    )
+    fake_codex_db.execute(
+        'UPDATE "Upload" SET status = ?, "errorMessage" = ? WHERE id = ?',
+        (
+            "failed",
+            "Local ingest-from-codex failed: duplicate key value violates unique constraint",
+            repair_id,
+        ),
+    )
+    fake_codex_db.execute(
+        '''INSERT INTO "UploadChunk"
+           (id, "uploadId", "index", text)
+           VALUES (?, ?, ?, ?)''',
+        ("uc_retry_after_text", repair_id, 0, "transcript chunk exists"),
+    )
+    fake_codex_db.commit()
+
+    rows = list_queued_uploads(codex_db_url=codex_sqlite_url, limit=25)
+    ids = {row["id"] for row in rows}
+
+    assert repair_id in ids
 
 
 def test_ingest_refuses_soft_deleted_uploads(

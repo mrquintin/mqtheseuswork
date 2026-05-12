@@ -1241,7 +1241,7 @@ def ingest_from_codex(
 
         # ── Write open questions (LLM only) ─────────────────────────────
         if llm_payload:
-            for item in llm_payload.get("open_questions", []):
+            for oq_idx, item in enumerate(llm_payload.get("open_questions", [])):
                 try:
                     summary = str(item.get("summary", "")).strip()[:500]
                     reason = str(item.get("unresolved_reason", "")).strip()[:500]
@@ -1279,11 +1279,12 @@ def ingest_from_codex(
                         "claimAId", "claimBId", "unresolvedReason",
                         "layerDisagreementSummary", "sourceUploadId",
                         "createdAt")
-                       VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)''',
+                       VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                       ON CONFLICT ("noosphereId") DO NOTHING''',
                     (
                         "q_" + uuid.uuid4().hex[:24],
                         row["organizationId"],
-                        f"oq_{upload_id}_{open_questions_written}",
+                        f"oq_{upload_id}_{oq_idx}",
                         _db_safe(summary, cap=2_000),
                         a_cid,
                         b_cid,
@@ -1297,7 +1298,7 @@ def ingest_from_codex(
 
         # ── Write research suggestions (LLM only) ───────────────────────
         if llm_payload:
-            for item in llm_payload.get("research_suggestions", []):
+            for rs_idx, item in enumerate(llm_payload.get("research_suggestions", [])):
                 try:
                     title = str(item.get("title", "")).strip()[:300]
                     summary = str(item.get("summary", "")).strip()[:1000]
@@ -1311,11 +1312,12 @@ def ingest_from_codex(
                        (id, "organizationId", "noosphereId", title, summary,
                         rationale, "readingUris", "sessionLabel",
                         "suggestedForFounderId", "sourceUploadId", "createdAt")
-                       VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)''',
+                       VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                       ON CONFLICT ("noosphereId") DO NOTHING''',
                     (
                         "rs_" + uuid.uuid4().hex[:24],
                         row["organizationId"],
-                        f"rs_{upload_id}_{research_suggestions_written}",
+                        f"rs_{upload_id}_{rs_idx}",
                         _db_safe(title, cap=300),
                         _db_safe(summary, cap=2_000),
                         _db_safe(rationale or "LLM-generated during ingest", cap=2_000),
@@ -1533,6 +1535,10 @@ def list_queued_uploads(
                                 FROM "UploadChunk" uc
                                 WHERE uc."uploadId" = "Upload".id
                            )
+                      )
+                      OR (
+                           status = 'failed'
+                           AND coalesce("errorMessage", '') LIKE 'Local ingest-from-codex failed:%%'
                       )
                  )
                ORDER BY "createdAt" DESC
