@@ -1,0 +1,44 @@
+You are working in `/Users/michaelquintin/Desktop/Theseus`.
+
+Goal: make Ops and founder Currents usable administrative surfaces, not ornamental pages.
+
+Start by reading:
+- `theseus-codex/src/app/(authed)/ops/page.tsx`
+- Ops panel/page components
+- `theseus-codex/src/app/(authed)/founder-currents/page.tsx`
+- `theseus-codex/src/app/currents/page.tsx`
+- `theseus-codex/src/app/currents/FeedClient.tsx`
+- `theseus-codex/src/lib/currentsApi.ts`
+- `current_events_api/current_events_api/routes/currents.py`
+- `docs/architecture/UI_UX_Round19_Contract.md`
+
+Implement Ops improvements:
+1. Fix horizontal overflow in the Ops sub-navigation.
+2. Make panel cards more utilitarian and less decorative.
+3. Surface auto-processing health, last run, queue count, and known blockers if data exists.
+4. Keep dangerous operations gated and clearly labeled.
+
+Implement founder Currents improvements:
+1. Founder view should show backend connection state, empty-state reason, and missing configuration hints if available.
+2. Public view should stay neutral and avoid internal diagnostics.
+3. If no opinions exist, make it clear whether the cause is no events, no X token, backend unavailable, abstentions, or no generated opinions.
+4. Keep X post embeds and firm-opinion framing intact.
+
+Constraints:
+- Do not expose secrets or internal stack traces to public users.
+- Do not make network calls at build time that can stall Vercel.
+- Keep public Currents accessible even when backend is unavailable.
+
+Verification:
+- Run `npm run build` in `theseus-codex`.
+- Browser-check `/ops`, at least two `?panel=` states, `/founder-currents`, and `/currents`.
+- Confirm no accidental horizontal page scroll.
+
+SCOPE:
+MODIFY theseus-codex/src/app/(authed)/ops/page.tsx
+MODIFY theseus-codex/src/app/(authed)/founder-currents/page.tsx
+MODIFY theseus-codex/src/app/currents/page.tsx
+MODIFY theseus-codex/src/app/currents/FeedClient.tsx
+MODIFY theseus-codex/src/lib/currentsApi.ts
+MAYBE MODIFY current_events_api routes only if a small health field is required
+

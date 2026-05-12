@@ -1,0 +1,36 @@
+You are working in `/Users/michaelquintin/Desktop/Theseus`.
+
+Goal: make Knowledge and conclusion list browsing feel like a usable work queue, not a decorative archive.
+
+Start by reading:
+- `theseus-codex/src/app/(authed)/knowledge/page.tsx`
+- `theseus-codex/src/app/(authed)/conclusions/page.tsx`
+- any conclusion list/card components used by the dashboard and knowledge pages
+- `docs/architecture/UI_UX_Round19_Contract.md`
+
+Implement:
+1. Reduce ornamental page copy and heading weight.
+2. Improve list scanning:
+   - clear title/claim text;
+   - compact tier/topic/confidence/source metadata;
+   - visible source or upload linkage;
+   - less repeated icon art;
+   - consistent row/card height where possible.
+3. Make search and filters visually clear and fast to use.
+4. Avoid routing confusion: Knowledge should keep its tabs, but conclusion links should clearly land on detail pages, and source links should land on relevant upload/transcript/library targets.
+5. Add empty states that distinguish "no data", "filtered to zero", and "loading/unavailable".
+
+Constraints:
+- Preserve existing query parameters and route aliases.
+- Do not weaken tenant visibility checks.
+
+Verification:
+- Run `npm run build` in `theseus-codex`.
+- Browser-check `/knowledge`, `/knowledge?tab=conclusions`, `/conclusions?tier=open`, and a searched state.
+- Confirm click navigation works in the same tab.
+
+SCOPE:
+MODIFY theseus-codex/src/app/(authed)/knowledge/page.tsx
+MODIFY theseus-codex/src/app/(authed)/conclusions/page.tsx
+MAYBE MODIFY shared conclusion list/card components
+

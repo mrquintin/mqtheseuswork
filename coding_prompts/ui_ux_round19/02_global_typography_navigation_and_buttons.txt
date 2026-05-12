@@ -1,0 +1,47 @@
+You are working in `/Users/michaelquintin/Desktop/Theseus`.
+
+Goal: tone down the global founder/public visual system so the product feels calmer, faster, and more usable without losing Theseus identity.
+
+Start by reading:
+- `docs/architecture/UI_UX_Round19_Contract.md`
+- `theseus-codex/src/app/globals.css`
+- `theseus-codex/src/components/Nav.tsx`
+- `theseus-codex/src/components/PublicNav.tsx` if present
+- `theseus-codex/src/components/TabNav.tsx`
+- `theseus-codex/src/components/PageHelp.tsx`
+- representative pages: dashboard, upload, knowledge, conclusion detail, currents, public home
+
+Implement:
+1. Reduce excessive letter spacing and all-caps use in operational UI labels, buttons, headers, and compact panels.
+2. Reserve decorative display typography for true page titles only. Inside dashboards, cards, forms, and list items, use calmer serif or sans-serif sizing with normal letter spacing.
+3. Normalize button styles:
+   - primary action: one strong action per surface;
+   - secondary action: low-contrast outline or text link;
+   - admin utility: compact neutral button;
+   - destructive/request deletion: visibly separate and low-prominence until needed;
+   - disabled: clearly disabled and optionally explained nearby.
+4. Fix top navigation density:
+   - make account/help/sign-out cluster less noisy;
+   - ensure nav does not overflow or crowd at common desktop widths;
+   - preserve all links.
+5. Fix tab/subnav components so long tab sets wrap or scroll intentionally, not as accidental hidden horizontal overflow.
+
+Constraints:
+- Do not introduce global font-size scaling based on viewport width.
+- Do not add gradient or decorative orb backgrounds.
+- Keep accessibility focus styles visible.
+- Avoid touching backend logic.
+
+Verification:
+- Run `npm run build` in `theseus-codex`.
+- Use browser verification for `/`, `/dashboard`, `/knowledge`, `/ops`, `/currents`, and one conclusion detail route.
+- Confirm no horizontal scrollbar appears from top nav or Ops subnav at desktop width.
+
+SCOPE:
+MODIFY theseus-codex/src/app/globals.css
+MODIFY theseus-codex/src/components/Nav.tsx
+MODIFY theseus-codex/src/components/TabNav.tsx
+MODIFY theseus-codex/src/components/PageHelp.tsx
+MAYBE MODIFY theseus-codex/src/components/PublicNav.tsx
+MAYBE MODIFY route-level inline styles only where global primitives cannot reach
+

@@ -1,0 +1,39 @@
+You are working in `/Users/michaelquintin/Desktop/Theseus`.
+
+Goal: establish a concrete UI improvement contract for the Theseus Codex founder and public surfaces before making visual changes.
+
+Context from live path walk:
+- Conclusion detail is cluttered and visually over-weighted.
+- Operational pages use too much decorative, all-caps, wide-spaced typography.
+- Ops sub-navigation overflows horizontally.
+- Transcript pages now show audio text, but status and hierarchy are confusing.
+- Currents has no live opinions and shows `reconnecting...`.
+- Upload and Ask have disabled controls without enough state clarity.
+
+Tasks:
+1. Read `AGENTS.md`, `coding_prompts/ui_ux_round19/PATH_WALK_NOTES.md`, and the relevant route files under `theseus-codex/src/app`.
+2. Inventory the shared visual primitives, global CSS, nav components, tab components, cards, buttons, and major route-level inline style patterns.
+3. Create a concise design contract in `docs/architecture/UI_UX_Round19_Contract.md`.
+4. The contract must define:
+   - typography hierarchy for public pages, founder work surfaces, compact panels, and data-dense controls;
+   - button hierarchy for primary actions, secondary links, administrative actions, destructive requests, disabled controls, and loading states;
+   - card/panel rules that prevent nested bordered boxes and overuse of gold borders;
+   - empty-state rules for public, founder, and ops contexts;
+   - responsive navigation rules for desktop and mobile;
+   - verification checklist for browser path walks.
+5. Do not make broad visual changes in this prompt unless a tiny fix is required to unblock the contract.
+
+Constraints:
+- Be neutral and functional. Reduce theatrical language and ornamental styling where it impairs use.
+- Keep the existing brand, but make it quieter and more operational.
+- Prefer existing project patterns over adding a new UI framework.
+- Do not remove functionality.
+
+Verification:
+- Run a quick grep survey of typography, cards, and nav classes/styles.
+- The contract must cite actual files it inspected.
+
+SCOPE:
+CREATE docs/architecture/UI_UX_Round19_Contract.md
+MODIFY none unless strictly necessary
+

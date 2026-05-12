@@ -1,0 +1,37 @@
+You are working in `/Users/michaelquintin/Desktop/Theseus`.
+
+Goal: make Upload and Ask feel responsive, practical, and self-explanatory.
+
+Start by reading:
+- `theseus-codex/src/app/(authed)/upload/page.tsx`
+- upload client components used by that page
+- `theseus-codex/src/app/(authed)/codex-ask/page.tsx`
+- ask client components and API route
+- `docs/architecture/UI_UX_Round19_Contract.md`
+
+Implement Upload improvements:
+1. Reduce the large decorative split composition and make the file picker, visibility controls, description, and processing expectations the central workflow.
+2. Clarify visibility options in compact language. Keep legal/security meaning intact but reduce the amount of prose visible by default.
+3. Add explicit processing copy for audio/PDF/backend extraction without implying the user must reupload if backend processing fails.
+4. Ensure submit button has clear disabled, uploading, queued, processing, success, and failure states.
+
+Implement Ask improvements:
+1. Explain why the submit button is disabled when the question is empty.
+2. Make loading and answer states visually distinct.
+3. Keep citations and "no recorded position" behavior honest and clear.
+4. Make text input focus, keyboard submit, and error states reliable.
+
+Constraints:
+- Do not change backend processing semantics unless a UI state bug requires a small API contract adjustment.
+- Do not expose private source text publicly.
+
+Verification:
+- Run `npm run build` in `theseus-codex`.
+- Browser-check `/upload` empty state, changed visibility controls, and `/codex-ask` empty/input/loading/error states.
+
+SCOPE:
+MODIFY theseus-codex/src/app/(authed)/upload/page.tsx
+MODIFY upload client components under theseus-codex/src/app/(authed)/upload/ or theseus-codex/src/components
+MODIFY theseus-codex/src/app/(authed)/codex-ask/page.tsx
+MAYBE MODIFY ask client components/tests
+

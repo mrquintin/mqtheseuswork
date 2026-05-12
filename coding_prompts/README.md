@@ -135,3 +135,14 @@ target lists for the founder to send.
 - `archive_round16_public_ux_implemented/` — Round 16 public-surface
   UX cleanup.
 - Earlier archives back through round3.
+
+## Additional Isolated Batches
+
+- `ui_ux_round19/` — a dedicated UI remediation batch from the 2026-05-11
+  live path walk. It is intentionally not part of the top-level Round 18
+  runner because the active 01-50 Round 18 prompts are still partial or
+  not implemented by the audit script. Run with:
+
+  ```bash
+  ./coding_prompts/ui_ux_round19/run_prompts.sh
+  ```

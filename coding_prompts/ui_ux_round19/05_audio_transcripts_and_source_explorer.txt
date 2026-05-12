@@ -1,0 +1,47 @@
+You are working in `/Users/michaelquintin/Desktop/Theseus`.
+
+Goal: make audio transcripts first-class, explorable source objects.
+
+Current live issue:
+Audio uploads now show transcript text and chunks, but some rows still display `failed` because downstream analysis failed after transcript materialization. Users need to see that transcript extraction succeeded even if later Noosphere stages need retry.
+
+Start by reading:
+- `theseus-codex/src/app/(authed)/knowledge/page.tsx`
+- `theseus-codex/src/app/(authed)/transcripts/[uploadId]/page.tsx`
+- `theseus-codex/src/app/(authed)/transcripts/[uploadId]/SourceStructurePanel.tsx`
+- `theseus-codex/src/app/(authed)/upload/[id]/page.tsx`
+- relevant transcript tests
+- `docs/architecture/UI_UX_Round19_Contract.md`
+
+Implement:
+1. Transcript index:
+   - show "Transcript available" separately from upload processing status;
+   - avoid treating an audio row with chunks/text as opaque failure;
+   - make audio/podcast entries easy to spot;
+   - include chunk count and source status in a compact, non-alarming way.
+2. Transcript detail:
+   - make raw transcript the primary first-class object for audio/podcast uploads;
+   - move conversation geometry/methodology into secondary panels or right rail;
+   - add chunk anchors, search/filter, copyable chunk links, and readable line length;
+   - when speaker labels are absent, explain it quietly and avoid making "conversation geometry" feel like the main identity of a podcast.
+3. Upload detail:
+   - if transcript text/chunks exist, link clearly to transcript detail;
+   - if downstream analysis failed, show retry/diagnostic status separately.
+
+Constraints:
+- Do not erase failed status. Clarify it.
+- Do not fabricate speaker labels.
+- Do not require re-upload.
+
+Verification:
+- Run `npm run build` in `theseus-codex`.
+- Browser-check `/knowledge?tab=transcripts`, one failed-audio transcript, one ingested written transcript, and the corresponding upload detail.
+- Confirm raw transcript text is visible without hunting.
+
+SCOPE:
+MODIFY theseus-codex/src/app/(authed)/knowledge/page.tsx
+MODIFY theseus-codex/src/app/(authed)/transcripts/[uploadId]/page.tsx
+MODIFY theseus-codex/src/app/(authed)/transcripts/[uploadId]/SourceStructurePanel.tsx
+MODIFY theseus-codex/src/app/(authed)/upload/[id]/page.tsx
+MAYBE MODIFY related transcript tests
+

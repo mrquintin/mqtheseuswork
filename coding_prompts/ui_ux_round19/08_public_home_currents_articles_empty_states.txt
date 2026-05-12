@@ -1,0 +1,40 @@
+You are working in `/Users/michaelquintin/Desktop/Theseus`.
+
+Goal: make the public side calmer, clearer, and less dramatic while public articles and Currents are empty or regenerating.
+
+Start by reading:
+- `theseus-codex/src/app/page.tsx`
+- `theseus-codex/src/app/about/page.tsx`
+- `theseus-codex/src/app/currents/page.tsx`
+- `theseus-codex/src/app/currents/[id]/page.tsx`
+- `theseus-codex/src/app/post/[slug]/page.tsx`
+- `theseus-codex/src/app/c/[slug]/page.tsx`
+- public article/currents card components
+- `docs/architecture/UI_UX_Round19_Contract.md`
+
+Implement:
+1. Tone down public page headings for Currents and Publications. Make them less aggressive than the current display treatment.
+2. Empty public article/current states should be neutral, plain, and accurate.
+3. Public article pages should read like the firm's perspective, not recaps of source material. Preserve private-source citation rules.
+4. Public Currents should frame analysis as the firm's belief/opinion, not as a summary of "sources" or "data".
+5. Keep X embeds visually clean. Remove or mask white corner artifacts around embedded X posts.
+6. Ensure the public homepage still gives a first-viewport signal of what Theseus is without using oversized ornamental copy.
+
+Constraints:
+- Do not leak private sources.
+- Do not fabricate public articles or currents if the generation pipeline has not produced them.
+- Do not reintroduce Vercel build-time blocking fetches.
+
+Verification:
+- Run `npm run build` in `theseus-codex`.
+- Browser-check `/`, `/currents`, and one public article/current route if data exists.
+- Confirm empty pages feel intentional, not broken.
+
+SCOPE:
+MODIFY theseus-codex/src/app/page.tsx
+MODIFY theseus-codex/src/app/currents/page.tsx
+MODIFY theseus-codex/src/app/currents/[id]/page.tsx
+MODIFY theseus-codex/src/app/post/[slug]/page.tsx
+MODIFY theseus-codex/src/app/c/[slug]/page.tsx
+MAYBE MODIFY public card/components used by these pages
+

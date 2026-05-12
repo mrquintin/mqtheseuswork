@@ -1,0 +1,39 @@
+You are working in `/Users/michaelquintin/Desktop/Theseus`.
+
+Goal: make navigation, buttons, and client interactivity reliable and visibly responsive.
+
+Start by reading:
+- `theseus-codex/src/components/Nav.tsx`
+- `theseus-codex/src/components/TabNav.tsx`
+- client components for dashboard actions, conclusion actions, upload, ask, currents filters, and ops panels
+- `theseus-codex/src/app/globals.css`
+- `docs/architecture/UI_UX_Round19_Contract.md`
+
+Implement:
+1. Ensure navigational items are real anchors/Links wherever they navigate.
+2. Ensure client action buttons have:
+   - immediate pressed/loading state;
+   - disabled state with reason where relevant;
+   - success/failure feedback;
+   - no accidental double-submit.
+3. Audit route-level client boundaries for unnecessary heavy hydration.
+4. Avoid build-time or render-time requests that can stall static generation.
+5. Add light instrumentation or console-safe diagnostics only where useful for future troubleshooting.
+6. Make keyboard focus order logical on dashboard, knowledge, conclusion detail, upload, ask, ops, and currents.
+
+Constraints:
+- Do not change external visible behavior except making existing actions clearer and faster.
+- Do not use API keys in client code.
+- Do not add heavy dependencies.
+
+Verification:
+- Run `npm run build` in `theseus-codex`.
+- Browser path-walk and click same-tab navigation for Dashboard, Upload, Knowledge, Ask, Currents, Ops, a conclusion link, transcript link, and at least two tab/subnav links.
+- Confirm no page requires opening links in a new tab to navigate.
+
+SCOPE:
+MODIFY theseus-codex/src/components/Nav.tsx
+MODIFY theseus-codex/src/components/TabNav.tsx
+MODIFY relevant client components discovered during audit
+MAYBE ADD focused tests for navigation/action components
+

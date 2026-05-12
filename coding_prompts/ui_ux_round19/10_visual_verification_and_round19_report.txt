@@ -1,0 +1,49 @@
+You are working in `/Users/michaelquintin/Desktop/Theseus`.
+
+Goal: verify the Round 19 UI work end to end and leave a concise report.
+
+Start by reading:
+- all prior `coding_prompts/ui_ux_round19/*.txt`
+- `docs/architecture/UI_UX_Round19_Contract.md`
+- modified files from prompts 02-09
+
+Tasks:
+1. Run repository checks:
+   - `cd theseus-codex && npm run build`
+   - focused tests touched by UI changes
+   - any lint/type commands the repo already uses for these pages
+2. Browser path-walk desktop:
+   - `/`
+   - `/login`
+   - `/dashboard`
+   - `/knowledge`
+   - `/knowledge?tab=transcripts`
+   - one `/transcripts/[uploadId]` audio page
+   - one `/conclusions/[id]` page
+   - `/upload`
+   - `/codex-ask`
+   - `/founder-currents`
+   - `/currents`
+   - `/ops`
+3. Browser path-walk at a narrow mobile viewport for public home, dashboard, conclusion detail, transcript detail, upload, currents, and ops.
+4. Confirm:
+   - no accidental horizontal overflow;
+   - visible focus states;
+   - buttons show loading/disabled/success/failure states where applicable;
+   - conclusion detail is meaningfully less cluttered in the first viewport;
+   - transcript raw text is easy to reach;
+   - public empty states are accurate and calm.
+5. Create `docs/runs/ui_ux_round19_verification.md` with:
+   - changed files;
+   - screenshots or screenshot paths if generated;
+   - checks run and results;
+   - unresolved risks and exact follow-up tasks.
+
+Constraints:
+- If a check fails, fix the failure before writing the final report unless the failure is external service availability and the code handles it correctly.
+- Do not claim deployed success unless deployment is actually checked.
+
+SCOPE:
+CREATE docs/runs/ui_ux_round19_verification.md
+MODIFY any touched UI files only to fix verification failures
+
