@@ -146,3 +146,17 @@ target lists for the founder to send.
   ```bash
   ./coding_prompts/ui_ux_round19/run_prompts.sh
   ```
+
+- `ui_ux_round20/` — a successor UI remediation batch from the later
+  2026-05-11 live path walk. It focuses on operational clarity across
+  dashboard, conclusion detail, Knowledge, audio transcripts, upload,
+  Ask, Currents, Ops, and interaction performance, then extends into
+  algorithmized market decision-making and founder-alpha Polymarket /
+  Kalshi portfolio infrastructure. The later prompts add empirical
+  case-study extraction, abstract principle transfer, and multi-frame
+  game-theory-like decision traces. It also uses the Claude Code CLI
+  subscription path, not an API key. Run with:
+
+  ```bash
+  ./coding_prompts/ui_ux_round20/run_prompts.sh
+  ```

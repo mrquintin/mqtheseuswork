@@ -7,6 +7,7 @@ import type {
   OperatorBet,
   OperatorKillSwitchState,
   OperatorLiveBetsResponse,
+  OperatorSetupStatus,
   PublicForecast,
 } from "@/lib/forecastsTypes";
 
@@ -265,6 +266,10 @@ export async function listOperatorLiveBets(params: { limit?: number; offset?: nu
   if (params.limit !== undefined) search.set("limit", String(params.limit));
   if (params.offset !== undefined) search.set("offset", String(params.offset));
   return fetchOperatorJson<OperatorLiveBetsResponse>("/v1/operator/live-bets", search);
+}
+
+export async function getOperatorSetupStatus(): Promise<OperatorSetupStatus> {
+  return fetchOperatorJson<OperatorSetupStatus>("/v1/operator/setup-status");
 }
 
 export async function authorizeLiveForecast(

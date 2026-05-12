@@ -18,23 +18,23 @@ import {
   type TenantContext,
 } from "@/lib/tenant";
 import { founderDisplayName } from "@/lib/founderDisplay";
+import PageHeader from "@/components/design/PageHeader";
 import DashboardConclusionsClient, {
   type DashboardConclusionCard,
 } from "./DashboardConclusionsClient";
 import AccountDisplayNameNudge from "./AccountDisplayNameNudge";
 import DashboardKeymap from "./dashboard-keymap";
+import DashboardSignals, { type DashboardSignal } from "./DashboardSignals";
 
 /**
- * Dashboard — landing page after login.
+ * Dashboard — operator home.
  *
- * Patron sculpture: **Sisyphus**, rendered huge and dim on the right
- * side of the page. The daily act of returning to the Codex — scanning
- * newly-synthesized conclusions, picking up where yesterday's
- * deliberation left off, discovering the contradictions that drifted
- * overnight — is the boulder at firm-memory scale. The reward for a
- * round of work well done is another round of work: the dashboard is
- * the summit the figure never quite reaches, and the page is the
- * fresh slope they return to.
+ * The page hierarchy answers, top to bottom, the three things an
+ * operator needs on landing: (1) processing health, (2) attention
+ * needed, (3) recent activity. Decorative framing, the display-name
+ * reminder, the shortcut hint, and the per-queue noise that earlier
+ * versions stacked above the fold have all been demoted below the
+ * primary work surface.
  */
 
 async function getDashboardConclusions(tenant: TenantContext) {
@@ -87,6 +87,9 @@ export default async function DashboardPage() {
     getHiddenDashboardConclusionCount(tenant),
   ]);
 
+  const showDisplayNameNudge =
+    !tenant.founderDisplayName && !tenant.accountNudgeDismissedAt;
+
   return (
     <div style={{ position: "relative", overflow: "hidden", minHeight: "80vh" }}>
       <DashboardKeymap />
@@ -98,79 +101,36 @@ export default async function DashboardPage() {
           zIndex: 1,
           maxWidth: "1100px",
           margin: "0 auto",
-          padding: "2rem 2rem 3rem",
+          padding: "1.5rem 2rem 3rem",
         }}
       >
-        <div style={{ marginBottom: "1.5rem" }}>
-          <h1
-            style={{
-              fontFamily: "'Cinzel Decorative', 'Cinzel', serif",
-              fontSize: "2rem",
-              letterSpacing: "0.18em",
-              color: "var(--amber)",
-              textShadow: "var(--glow-md)",
-              margin: 0,
-            }}
-          >
-            Forum
-          </h1>
-          <p
-            className="mono"
-            style={{
-              fontSize: "0.62rem",
-              letterSpacing: "0.28em",
-              textTransform: "uppercase",
-              color: "var(--amber-dim)",
-              marginTop: "0.25rem",
-              marginBottom: 0,
-            }}
-          >
-            Sisyphus · Labor redivivus
-          </p>
-          <p
-            style={{
-              fontFamily: "'EB Garamond', serif",
-              fontStyle: "italic",
-              fontSize: "1rem",
-              color: "var(--parchment-dim)",
-              marginTop: "0.45rem",
-              marginBottom: 0,
-              maxWidth: "44em",
-              lineHeight: 1.55,
-            }}
-          >
-            Welcome back, {tenant.founderName}. The hearth is lit; the firm listens.
-          </p>
-        </div>
-
-        {!tenant.founderDisplayName && !tenant.accountNudgeDismissedAt ? (
-          <AccountDisplayNameNudge />
-        ) : null}
-
-        <AutoProcessStatusBanner />
+        <PageHeader
+          kicker="Operator console"
+          title="Dashboard"
+          description={`Welcome back, ${tenant.founderName}. Processing health, attention items, and recent activity are below.`}
+          actions={
+            <>
+              <Link href="/knowledge?tab=library" className="btn btn--quiet">
+                Library
+              </Link>
+              <Link href="/upload" className="btn-solid btn">
+                Upload
+              </Link>
+            </>
+          }
+        />
 
         {/*
-         * Primary surface: the unified attention queue.
-         *
-         * Older versions of this dashboard surfaced a different queue
-         * per panel — drift, contradictions, source-triage, etc. —
-         * which made it easy to miss high-severity items because each
-         * was a tab away. The Attention queue collapses every
-         * founder-side queue into one ranked list (severity → age →
-         * queue id), so "what needs your attention right now" is the
-         * first thing the founder sees on login. Pulse / Hearth-style
-         * ambient indicators move to a secondary row below.
+         * Row 1 — health pulse: currents + forecasts + embeddings, all
+         * compact. Auto-process renders an inline pill when configured;
+         * if it's not configured the next row shows the full setup card.
          */}
-        <Suspense fallback={null}>
-          <AttentionPanel tenant={tenant} />
-        </Suspense>
-
         <div
           style={{
             display: "grid",
-            gap: "1rem",
+            gap: "0.85rem",
             gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))",
-            marginBottom: "1.25rem",
+            marginBottom: "1rem",
           }}
         >
           <Suspense fallback={null}>
@@ -180,33 +140,32 @@ export default async function DashboardPage() {
             <ForecastsPulse tenant={tenant} />
           </Suspense>
         </div>
+
+        <AutoProcessStatusBanner />
+
+        {/*
+         * Primary work surface: the unified attention queue. Older
+         * dashboards split this across per-source panels; the queue
+         * collapses every founder-side queue into one ranked list so
+         * "what needs your attention right now" is the first thing
+         * visible above the fold.
+         */}
         <Suspense fallback={null}>
-          <AttentionSignals tenant={tenant} />
-        </Suspense>
-        <Suspense fallback={null}>
-          <UploadWorkStatus tenant={tenant} />
-        </Suspense>
-        <Suspense fallback={null}>
-          <PendingUploadDeletionSignal tenant={tenant} />
+          <AttentionPanel tenant={tenant} />
         </Suspense>
 
-        <div
-          style={{
-            display: "flex",
-            justifyContent: "flex-end",
-            alignItems: "center",
-            marginBottom: "1.25rem",
-            gap: "0.75rem",
-          }}
-        >
-          <Link href="/knowledge?tab=library" className="btn">
-            Library
-          </Link>
-          <Link href="/upload" className="btn-solid btn">
-            Upload
-          </Link>
-        </div>
+        {/* Compact operational signal strip — failed uploads,
+         * contradictions, pending deletions, decay, unseen responses.
+         * Single row of pills instead of stacked banners. */}
+        <Suspense fallback={null}>
+          <OperationalSignalsPanel tenant={tenant} />
+        </Suspense>
 
+        {/*
+         * Recent activity grid. The two columns are the "what just
+         * happened" pair: ingested uploads (left) and fresh conclusions
+         * (right). Drift events sit below as the slower-moving signal.
+         */}
         <div
           style={{
             display: "grid",
@@ -218,8 +177,8 @@ export default async function DashboardPage() {
             fallback={
               <DashboardSectionFallback
                 label="UPLOADS · ..."
-                latin="Scriba praeparat."
-                english="Recent uploads are loading."
+                heading="Loading recent uploads…"
+                hint="Recent uploads will appear once they finish processing."
               />
             }
           >
@@ -238,14 +197,22 @@ export default async function DashboardPage() {
           fallback={
             <DashboardSectionFallback
               label="DRIFT EVENTS · ..."
-              latin="Fundamenta leguntur."
-              english="Drift events are loading."
+              heading="Loading drift events…"
+              hint="Drift events will appear when a conclusion's confidence shifts."
               style={{ marginTop: "0.5rem" }}
             />
           }
         >
           <DriftEventsPanel tenant={tenant} />
         </Suspense>
+
+        {/* Low-priority reminder. Lives at the bottom so it never
+         * competes with operational signals. */}
+        {showDisplayNameNudge ? (
+          <div style={{ marginTop: "1.5rem" }}>
+            <AccountDisplayNameNudge />
+          </div>
+        ) : null}
       </main>
     </div>
   );
@@ -262,7 +229,7 @@ function healthProblems(health: CurrentsHealth | null): string[] {
 
 async function OperatorPulse() {
   const [health, embeddingsHealthy] = await Promise.all([
-    getCurrentsHealth().catch((err) => {
+    getCurrentsHealth({ timeoutMs: 4_000 }).catch((err) => {
       console.error("[dashboard] currents health query failed:", err);
       return null;
     }),
@@ -286,7 +253,7 @@ async function OperatorPulse() {
       style={{
         border: `1px solid ${accent}`,
         borderRadius: 4,
-        padding: "0.85rem 1rem",
+        padding: "0.7rem 0.9rem",
         background: healthy ? "rgba(95, 126, 93, 0.12)" : "rgba(172, 54, 37, 0.12)",
       }}
     >
@@ -303,7 +270,7 @@ async function OperatorPulse() {
           className="mono"
           style={{
             color: accent,
-            fontSize: "0.66rem",
+            fontSize: "0.62rem",
             letterSpacing: "0.18em",
             textTransform: "uppercase",
           }}
@@ -314,13 +281,13 @@ async function OperatorPulse() {
           Open feed
         </Link>
       </div>
-      <p style={{ color: "var(--parchment)", fontSize: "0.86rem", margin: "0.55rem 0 0" }}>
+      <p style={{ color: "var(--parchment)", fontSize: "0.82rem", margin: "0.4rem 0 0" }}>
         {healthy
           ? `X events: ${health?.events_last_24h}; opinions: ${health?.opinions_last_24h}; last cycle: ${health?.last_cycle_at}.`
           : problems.join("; ")}
       </p>
       {health ? (
-        <p className="mono" style={{ color: "var(--parchment-dim)", fontSize: "0.68rem", margin: "0.45rem 0 0" }}>
+        <p className="mono" style={{ color: "var(--parchment-dim)", fontSize: "0.66rem", margin: "0.35rem 0 0" }}>
           token={health.x_bearer_present ? "present" : "missing"} · curated=
           {health.curated_count} · search={health.search_count}
         </p>
@@ -332,8 +299,8 @@ async function OperatorPulse() {
           alignItems: "center",
           gap: "0.45rem",
           color: "var(--parchment-dim)",
-          fontSize: "0.68rem",
-          margin: "0.45rem 0 0",
+          fontSize: "0.66rem",
+          margin: "0.35rem 0 0",
         }}
       >
         <span
@@ -347,7 +314,7 @@ async function OperatorPulse() {
             display: "inline-block",
           }}
         />
-        embeddingsHealthy=
+        embeddings=
         {embeddingsHealthy
           ? `${embeddingsHealthy.embeddedCount}/${embeddingsHealthy.totalCount}`
           : "unknown"}
@@ -395,7 +362,7 @@ async function ForecastsPulse({ tenant }: { tenant: TenantContext }) {
         background: mode === "GATE-BLOCKED" ? "rgba(172, 54, 37, 0.12)" : "rgba(205, 151, 67, 0.08)",
         border: `1px solid ${accent}`,
         borderRadius: 4,
-        padding: "0.85rem 1rem",
+        padding: "0.7rem 0.9rem",
       }}
     >
       <div
@@ -411,22 +378,22 @@ async function ForecastsPulse({ tenant }: { tenant: TenantContext }) {
           className="mono"
           style={{
             color: accent,
-            fontSize: "0.66rem",
+            fontSize: "0.62rem",
             letterSpacing: "0.18em",
             textTransform: "uppercase",
           }}
         >
-          Forecasts / {mode}
+          Forecasts · {mode}
         </div>
         <Link href="/forecasts/portfolio" style={{ color: "var(--gold)", fontSize: "0.78rem" }}>
           Open portfolio
         </Link>
       </div>
-      <p style={{ color: "var(--parchment)", fontSize: "0.86rem", margin: "0.55rem 0 0" }}>
+      <p style={{ color: "var(--parchment)", fontSize: "0.82rem", margin: "0.4rem 0 0" }}>
         Paper P&L 7d: {formatDashboardUsd(pnl7d)}; open positions: {surface?.kpis.openPositions ?? 0}.
       </p>
       {surface?.mode.failedGates.length ? (
-        <p className="mono" style={{ color: "var(--ember)", fontSize: "0.68rem", margin: "0.45rem 0 0" }}>
+        <p className="mono" style={{ color: "var(--ember)", fontSize: "0.66rem", margin: "0.35rem 0 0" }}>
           blocked={surface.mode.failedGates.map((gate) => gate.gateName).join(", ")}
         </p>
       ) : null}
@@ -490,186 +457,170 @@ async function AttentionPanel({ tenant }: { tenant: TenantContext }) {
   );
 }
 
-async function AttentionSignals({ tenant }: { tenant: TenantContext }) {
-  const [decayRecords, activeContradictions, pendingConclusionDeletions, unseenResponses] =
-    await Promise.all([
-      fetchDecayRecords(tenant.organizationId).catch((err) => {
-        console.error("[dashboard] decay query failed:", err);
-        return [];
-      }),
-      getActiveContradictionCount(tenant),
-      getPendingConclusionDeletionCount(tenant),
-      getUnseenPublicResponseCount(tenant),
-    ]);
-  const decaying = decayRecords.filter((r) => r.status === "decaying");
-  const expired = decayRecords.filter((r) => r.status === "expired");
+type ContradictionSummary = {
+  count: number;
+  maxSeverity: number;
+  newestAt: Date | null;
+};
 
-  return (
-    <>
-      {(expired.length > 0 || decaying.length > 0) && (
-        <div
-          style={{
-            padding: "1rem 1.25rem",
-            border: "1px solid var(--ember)",
-            borderRadius: 2,
-            marginBottom: "1.5rem",
-          }}
-        >
-          <div
-            style={{
-              fontFamily: "'Cinzel', serif",
-              fontSize: "0.65rem",
-              letterSpacing: "0.15em",
-              textTransform: "uppercase",
-              color: "var(--ember)",
-              marginBottom: "0.5rem",
-            }}
-          >
-            Conclusions requiring attention
-          </div>
-          {expired.length > 0 && (
-            <p style={{ fontSize: "0.85rem", color: "var(--ember)", margin: "0.25rem 0" }}>
-              {expired.length} expired conclusion
-              {expired.length > 1 ? "s" : ""} — confidence has decayed below
-              threshold.
-            </p>
-          )}
-          {decaying.length > 0 && (
-            <p style={{ fontSize: "0.85rem", color: "var(--parchment)", margin: "0.25rem 0" }}>
-              {decaying.length} decaying conclusion
-              {decaying.length > 1 ? "s" : ""} — confidence is declining.
-            </p>
-          )}
-          <Link
-            href="/ops?panel=decay"
-            style={{
-              display: "inline-block",
-              marginTop: "0.5rem",
-              fontSize: "0.7rem",
-              color: "var(--gold)",
-              textDecoration: "none",
-            }}
-          >
-            View decay dashboard →
-          </Link>
-        </div>
-      )}
-
-      {unseenResponses > 0 && (
-        <Link href="/responses" style={{ textDecoration: "none", display: "block" }}>
-          <div
-            className="portal-card"
-            style={{
-              padding: "0.7rem 1rem",
-              marginBottom: "1rem",
-              display: "flex",
-              justifyContent: "space-between",
-              alignItems: "center",
-              fontSize: "0.8rem",
-              borderLeft: "3px solid var(--amber)",
-            }}
-          >
-            <span style={{ color: "var(--amber)" }}>
-              {unseenResponses} unseen structured response
-              {unseenResponses > 1 ? "s" : ""}
-            </span>
-            <span
-              className="mono"
-              style={{
-                fontSize: "0.6rem",
-                color: "var(--amber-dim)",
-                textTransform: "uppercase",
-              }}
-            >
-              Open inbox -&gt;
-            </span>
-          </div>
-        </Link>
-      )}
-
-      {activeContradictions > 0 && (
-        <Link href="/ops?panel=contradictions" style={{ textDecoration: "none", display: "block" }}>
-          <div
-            className="portal-card"
-            style={{
-              padding: "0.7rem 1rem",
-              marginBottom: "1rem",
-              display: "flex",
-              justifyContent: "space-between",
-              alignItems: "center",
-              fontSize: "0.8rem",
-              borderLeft: "3px solid var(--ember)",
-            }}
-          >
-            <span style={{ color: "var(--ember)" }}>
-              {activeContradictions} active contradiction
-              {activeContradictions > 1 ? "s" : ""} detected
-            </span>
-            <span
-              className="mono"
-              style={{
-                fontSize: "0.6rem",
-                color: "var(--amber-dim)",
-                textTransform: "uppercase",
-              }}
-            >
-              Review →
-            </span>
-          </div>
-        </Link>
-      )}
-
-      {pendingConclusionDeletions > 0 && (
-        <Link href="/knowledge?tab=conclusions" style={{ textDecoration: "none", display: "block" }}>
-          <div
-            className="portal-card"
-            style={{
-              padding: "0.7rem 1rem",
-              marginBottom: "1rem",
-              display: "flex",
-              justifyContent: "space-between",
-              alignItems: "center",
-              fontSize: "0.8rem",
-            }}
-          >
-            <span style={{ color: "var(--amber)" }}>
-              {pendingConclusionDeletions} pending conclusion deletion
-              {pendingConclusionDeletions > 1 ? " requests" : " request"}
-            </span>
-            <span
-              className="mono"
-              style={{
-                fontSize: "0.6rem",
-                color: "var(--amber-dim)",
-                textTransform: "uppercase",
-              }}
-            >
-              Review →
-            </span>
-          </div>
-        </Link>
-      )}
-    </>
-  );
-}
-
-async function getActiveContradictionCount(tenant: TenantContext) {
+async function getContradictionSummary(
+  tenant: TenantContext,
+): Promise<ContradictionSummary> {
   try {
-    return await db.contradiction.count({
-      where: {
-        organizationId: tenant.organizationId,
-        status: "active",
-      },
-    });
+    const [count, newest] = await Promise.all([
+      db.contradiction.count({
+        where: { organizationId: tenant.organizationId, status: "active" },
+      }),
+      db.contradiction.findFirst({
+        where: { organizationId: tenant.organizationId, status: "active" },
+        orderBy: [{ severity: "desc" }, { createdAt: "desc" }],
+        select: { severity: true, createdAt: true },
+      }),
+    ]);
+    return {
+      count,
+      maxSeverity: newest?.severity ?? 0,
+      newestAt: newest?.createdAt ?? null,
+    };
   } catch {
+    // Schema-lag fallback: non-status filter, severity unavailable.
     try {
-      return await db.contradiction.count({
+      const count = await db.contradiction.count({
         where: { organizationId: tenant.organizationId },
       });
+      return { count, maxSeverity: 0, newestAt: null };
     } catch {
-      return 0;
+      return { count: 0, maxSeverity: 0, newestAt: null };
     }
   }
+}
+
+async function OperationalSignalsPanel({ tenant }: { tenant: TenantContext }) {
+  const visibilityScope = getUploadVisibilityScope(tenant);
+
+  const [
+    decayRecords,
+    contradictions,
+    pendingConclusionDeletions,
+    unseenResponses,
+    pendingUploadDeletions,
+    uploadStatusCounts,
+  ] = await Promise.all([
+    fetchDecayRecords(tenant.organizationId).catch((err) => {
+      console.error("[dashboard] decay query failed:", err);
+      return [];
+    }),
+    getContradictionSummary(tenant),
+    getPendingConclusionDeletionCount(tenant),
+    getUnseenPublicResponseCount(tenant),
+    getPendingUploadDeletionCount(tenant),
+    getUploadStatusCounts(tenant, visibilityScope),
+  ]);
+
+  const decaying = decayRecords.filter((r) => r.status === "decaying").length;
+  const expired = decayRecords.filter((r) => r.status === "expired").length;
+  const { failed: failedUploads, processing: processingUploads } =
+    uploadStatusCounts;
+
+  const signals: DashboardSignal[] = [];
+
+  if (failedUploads > 0) {
+    signals.push({
+      key: "uploads-failed",
+      tone: "danger",
+      label: `failed upload${failedUploads === 1 ? "" : "s"}`,
+      count: failedUploads,
+      href: "/knowledge?tab=library",
+    });
+  }
+  if (processingUploads > 0) {
+    signals.push({
+      key: "uploads-processing",
+      tone: "info",
+      label: "processing",
+      count: processingUploads,
+      href: "/knowledge?tab=library",
+    });
+  }
+  if (contradictions.count > 0) {
+    signals.push({
+      key: "contradictions",
+      tone: "danger",
+      label: `active contradiction${contradictions.count === 1 ? "" : "s"}`,
+      count: contradictions.count,
+      detail: formatContradictionDetail(contradictions),
+      href: "/ops?panel=contradictions",
+    });
+  }
+  if (expired > 0) {
+    signals.push({
+      key: "decay-expired",
+      tone: "danger",
+      label: `expired conclusion${expired === 1 ? "" : "s"}`,
+      count: expired,
+      href: "/ops?panel=decay",
+    });
+  }
+  if (decaying > 0) {
+    signals.push({
+      key: "decay-decaying",
+      tone: "warning",
+      label: `decaying conclusion${decaying === 1 ? "" : "s"}`,
+      count: decaying,
+      href: "/ops?panel=decay",
+    });
+  }
+  if (unseenResponses > 0) {
+    signals.push({
+      key: "responses-unseen",
+      tone: "warning",
+      label: `unseen response${unseenResponses === 1 ? "" : "s"}`,
+      count: unseenResponses,
+      href: "/responses",
+    });
+  }
+  if (pendingConclusionDeletions > 0) {
+    signals.push({
+      key: "conclusion-deletions",
+      tone: "warning",
+      label: `pending conclusion deletion${pendingConclusionDeletions === 1 ? "" : "s"}`,
+      count: pendingConclusionDeletions,
+      href: "/knowledge?tab=conclusions",
+    });
+  }
+  if (pendingUploadDeletions > 0) {
+    signals.push({
+      key: "upload-deletions",
+      tone: "warning",
+      label: `pending upload deletion${pendingUploadDeletions === 1 ? "" : "s"}`,
+      count: pendingUploadDeletions,
+      href: "/knowledge?tab=library#requests",
+    });
+  }
+
+  return <DashboardSignals signals={signals} />;
+}
+
+function formatContradictionDetail(summary: ContradictionSummary): string {
+  const parts: string[] = [];
+  if (summary.maxSeverity > 0) {
+    parts.push(`max severity ${(summary.maxSeverity * 100).toFixed(0)}%`);
+  }
+  if (summary.newestAt) {
+    parts.push(`newest ${formatRelativeShort(summary.newestAt)}`);
+  }
+  return parts.join(" · ");
+}
+
+function formatRelativeShort(date: Date): string {
+  const ms = Date.now() - date.getTime();
+  if (ms < 60_000) return "just now";
+  const minutes = Math.floor(ms / 60_000);
+  if (minutes < 60) return `${minutes}m ago`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 48) return `${hours}h ago`;
+  const days = Math.floor(hours / 24);
+  return `${days}d ago`;
 }
 
 async function getPendingConclusionDeletionCount(tenant: TenantContext) {
@@ -698,18 +649,42 @@ async function getUnseenPublicResponseCount(tenant: TenantContext) {
   }
 }
 
-async function UploadWorkStatus({ tenant }: { tenant: TenantContext }) {
-  const visibilityScope = getUploadVisibilityScope(tenant);
-  let pendingUploads = 0;
-  let failedUploads = 0;
+async function getPendingUploadDeletionCount(tenant: TenantContext) {
   try {
-    [pendingUploads, failedUploads] = await Promise.all([
+    return await db.deletionRequest.count({
+      where: {
+        status: "pending",
+        upload: {
+          organizationId: tenant.organizationId,
+          founderId: tenant.founderId,
+          deletedAt: null,
+        },
+      },
+    });
+  } catch (err) {
+    console.error("[dashboard] upload deletion request query failed:", err);
+    return 0;
+  }
+}
+
+async function getUploadStatusCounts(
+  tenant: TenantContext,
+  visibilityScope: Prisma.UploadWhereInput,
+): Promise<{ failed: number; processing: number }> {
+  try {
+    const [processing, failed] = await Promise.all([
       db.upload.count({
         where: {
           organizationId: tenant.organizationId,
           deletedAt: null,
           status: {
-            in: ["pending", "extracting", "awaiting_ingest", "processing", "queued_offline"],
+            in: [
+              "pending",
+              "extracting",
+              "awaiting_ingest",
+              "processing",
+              "queued_offline",
+            ],
           },
           ...visibilityScope,
         },
@@ -723,114 +698,11 @@ async function UploadWorkStatus({ tenant }: { tenant: TenantContext }) {
         },
       }),
     ]);
+    return { failed, processing };
   } catch (err) {
     console.error("[dashboard] upload status queries failed (schema lag?):", err);
+    return { failed: 0, processing: 0 };
   }
-
-  if (failedUploads === 0 && pendingUploads === 0) return null;
-
-  return (
-    <Link href="/knowledge?tab=library" style={{ textDecoration: "none", display: "block" }}>
-      <div
-        className="portal-card"
-        style={{
-          padding: "0.7rem 1rem",
-          marginBottom: "1rem",
-          display: "flex",
-          justifyContent: "space-between",
-          alignItems: "center",
-          fontSize: "0.8rem",
-        }}
-      >
-        <span style={{ color: "var(--parchment-dim)" }}>
-          {failedUploads > 0 && (
-            <span style={{ color: "var(--ember)" }}>
-              {failedUploads} failed upload{failedUploads > 1 ? "s" : ""}
-            </span>
-          )}
-          {failedUploads > 0 && pendingUploads > 0 && " · "}
-          {pendingUploads > 0 && <span>{pendingUploads} processing</span>}
-        </span>
-        <span
-          className="mono"
-          style={{
-            fontSize: "0.6rem",
-            color: "var(--amber-dim)",
-            textTransform: "uppercase",
-          }}
-        >
-          View in library →
-        </span>
-      </div>
-    </Link>
-  );
-}
-
-async function PendingUploadDeletionSignal({ tenant }: { tenant: TenantContext }) {
-  let pendingRequestCount = 0;
-  try {
-    pendingRequestCount = await db.deletionRequest.count({
-      where: {
-        status: "pending",
-        upload: {
-          organizationId: tenant.organizationId,
-          founderId: tenant.founderId,
-          deletedAt: null,
-        },
-      },
-    });
-  } catch (err) {
-    console.error("[dashboard] upload deletion request query failed:", err);
-  }
-
-  if (pendingRequestCount === 0) return null;
-
-  return (
-    <Link
-      href="/knowledge?tab=library#requests"
-      style={{ textDecoration: "none", display: "block" }}
-    >
-      <div
-        className="portal-card"
-        style={{
-          border: "1px solid var(--amber)",
-          background:
-            "linear-gradient(180deg, rgba(212,160,23,0.10), rgba(212,160,23,0.03))",
-          padding: "0.9rem 1.1rem",
-          marginBottom: "1.5rem",
-          display: "flex",
-          justifyContent: "space-between",
-          alignItems: "center",
-          gap: "1rem",
-          transition: "border-color 0.2s ease",
-        }}
-      >
-        <span
-          className="mono"
-          style={{
-            color: "var(--amber)",
-            fontSize: "0.62rem",
-            letterSpacing: "0.28em",
-            textTransform: "uppercase",
-          }}
-        >
-          ⚠ {pendingRequestCount} deletion request
-          {pendingRequestCount === 1 ? "" : "s"} awaiting your decision
-        </span>
-        <span
-          className="mono"
-          style={{
-            color: "var(--amber-dim)",
-            fontSize: "0.6rem",
-            letterSpacing: "0.22em",
-            textTransform: "uppercase",
-          }}
-        >
-          Review →
-        </span>
-      </div>
-    </Link>
-  );
 }
 
 async function RecentUploadsPanel({ tenant }: { tenant: TenantContext }) {
@@ -869,9 +741,10 @@ async function RecentUploadsPanel({ tenant }: { tenant: TenantContext }) {
     >
       <div style={{ display: "flex", flexDirection: "column", gap: "0.5rem" }}>
         {recentUploads.length === 0 ? (
-          <LatinEmpty
-            latin="Scriba exspectat."
-            english="The scribe awaits — nothing ingested yet."
+          <DashboardEmptyState
+            heading="No uploads yet."
+            hint="Drop a file or paste a transcript to start. Each upload is extracted, transcribed if needed, and analysed by Noosphere; the row will appear here as soon as ingestion begins."
+            action={{ href: "/upload", label: "Upload" }}
           />
         ) : (
           recentUploads.map((u) => (
@@ -998,9 +871,10 @@ async function DriftEventsPanel({ tenant }: { tenant: TenantContext }) {
       style={{ marginTop: "0.5rem" }}
     >
       {drifts.length === 0 ? (
-        <LatinEmpty
-          latin="Fundamenta firma."
-          english="No drift observed — the foundations are firm."
+        <DashboardEmptyState
+          heading="No drift observed."
+          hint="Drift events appear when a conclusion's confidence shifts after re-analysis or new evidence."
+          action={{ href: "/ops?panel=decay", label: "Open decay dashboard" }}
         />
       ) : (
         <div style={{ display: "flex", flexDirection: "column", gap: "0.5rem" }}>
@@ -1040,47 +914,74 @@ async function DriftEventsPanel({ tenant }: { tenant: TenantContext }) {
 
 function DashboardSectionFallback({
   label,
-  latin,
-  english,
+  heading,
+  hint,
   style,
 }: {
   label: string;
-  latin: string;
-  english: string;
+  heading: string;
+  hint: string;
   style?: CSSProperties;
 }) {
   return (
     <section className="ascii-frame" data-label={label} style={style}>
-      <LatinEmpty latin={latin} english={english} />
+      <DashboardEmptyState heading={heading} hint={hint} />
     </section>
   );
 }
 
-/** Inline Latin empty state for populated `ascii-frame` sections. */
-function LatinEmpty({ latin, english }: { latin: string; english: string }) {
+/**
+ * Useful empty/loading state for `ascii-frame` sections.
+ *
+ * Replaces the older `LatinEmpty` (italic Latin tagline + mono
+ * translation). Round 20 prefers plain English plus a clear next
+ * action when the section is empty so the operator never sees a dead
+ * panel.
+ */
+function DashboardEmptyState({
+  heading,
+  hint,
+  action,
+}: {
+  heading: string;
+  hint?: string;
+  action?: { href: string; label: string };
+}) {
   return (
     <div style={{ padding: "1rem 0.25rem", textAlign: "center" }}>
       <p
         style={{
           fontFamily: "'EB Garamond', serif",
-          fontStyle: "italic",
           fontSize: "1rem",
           color: "var(--parchment)",
           margin: 0,
         }}
       >
-        {latin}
+        {heading}
       </p>
-      <p
-        className="mono"
-        style={{
-          fontSize: "0.7rem",
-          color: "var(--parchment-dim)",
-          marginTop: "0.25rem",
-        }}
-      >
-        {english}
-      </p>
+      {hint ? (
+        <p
+          style={{
+            fontSize: "0.82rem",
+            color: "var(--parchment-dim)",
+            marginTop: "0.4rem",
+            maxWidth: "44ch",
+            marginInline: "auto",
+            lineHeight: 1.5,
+          }}
+        >
+          {hint}
+        </p>
+      ) : null}
+      {action ? (
+        <Link
+          href={action.href}
+          className="btn btn--quiet"
+          style={{ marginTop: "0.7rem", display: "inline-flex" }}
+        >
+          {action.label}
+        </Link>
+      ) : null}
     </div>
   );
 }

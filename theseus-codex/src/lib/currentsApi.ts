@@ -21,14 +21,32 @@ export interface ListCurrentsParams {
   seeded?: boolean | null;
 }
 
+export interface CurrentsLastCycle {
+  started_at: string | null;
+  duration_ms: number;
+  ingested: number;
+  opined: number;
+  rejected: number;
+  abstained_insufficient: number;
+  abstained_below_significance: number;
+  abstained_off_domain: number;
+  abstained_near_duplicate: number;
+  abstained_budget: number;
+  error_count: number;
+  last_error: string | null;
+}
+
 export interface CurrentsHealth {
   x_bearer_present: boolean;
   curated_count: number;
   search_count: number;
   last_cycle_at: string | null;
+  last_event_at?: string | null;
+  last_opinion_at?: string | null;
   events_last_24h: number;
   opinions_last_24h: number;
   disabled_reasons: string[];
+  last_cycle?: CurrentsLastCycle | null;
 }
 
 type StreamingRequestInit = RequestInit & { duplex?: "half" };
@@ -41,9 +59,42 @@ export interface CurrentsFetchOptions {
   cache?: RequestCache;
   next?: NextFetchOptions;
   signal?: AbortSignal;
+  timeoutMs?: number;
 }
 
 type NextRequestInit = RequestInit & { next?: NextFetchOptions };
+
+// Default upstream timeout for the Currents proxy. Must be short enough
+// that a 524 / hung backend can't block a Vercel build (which renders
+// pages even when marked dynamic), and long enough to absorb a normal
+// cold start. 6s is the same envelope `forecastsApi` uses.
+const CURRENTS_PROXY_TIMEOUT_MS = 6_000;
+
+function withTimeout(
+  signal: AbortSignal | undefined,
+  timeoutMs: number,
+): { signal: AbortSignal; cleanup: () => void } {
+  const controller = new AbortController();
+  let timeoutId: ReturnType<typeof setTimeout> | null = null;
+  const abortFromUpstream = () => controller.abort(signal?.reason);
+  if (signal?.aborted) {
+    abortFromUpstream();
+  } else if (signal) {
+    signal.addEventListener("abort", abortFromUpstream, { once: true });
+  }
+  if (Number.isFinite(timeoutMs) && timeoutMs > 0) {
+    timeoutId = setTimeout(() => {
+      controller.abort(new Error("currents upstream timeout"));
+    }, timeoutMs);
+  }
+  return {
+    signal: controller.signal,
+    cleanup: () => {
+      if (timeoutId !== null) clearTimeout(timeoutId);
+      signal?.removeEventListener("abort", abortFromUpstream);
+    },
+  };
+}
 
 type CitationWire = PublicCitation & {
   conclusion_text?: string | null;
@@ -105,12 +156,16 @@ async function fetchJson<T>(
   search?: URLSearchParams,
   options: CurrentsFetchOptions = {},
 ): Promise<T> {
+  const timeout = withTimeout(
+    options.signal,
+    options.timeoutMs ?? CURRENTS_PROXY_TIMEOUT_MS,
+  );
   const init: NextRequestInit = {
     method: "GET",
     headers: { accept: "application/json" },
+    signal: timeout.signal,
   };
 
-  if (options.signal) init.signal = options.signal;
   if (options.next) init.next = options.next;
   if (options.cache) {
     init.cache = options.cache;
@@ -118,12 +173,16 @@ async function fetchJson<T>(
     init.cache = "no-store";
   }
 
-  const res = await fetch(currentsBackendUrl(path, search), init);
-  if (!res.ok) {
-    const detail = await res.text().catch(() => "");
-    throw new Error(`Currents API ${res.status}${detail ? `: ${detail}` : ""}`);
+  try {
+    const res = await fetch(currentsBackendUrl(path, search), init);
+    if (!res.ok) {
+      const detail = await res.text().catch(() => "");
+      throw new Error(`Currents API ${res.status}${detail ? `: ${detail}` : ""}`);
+    }
+    return (await res.json()) as T;
+  } finally {
+    timeout.cleanup();
   }
-  return res.json() as Promise<T>;
 }
 
 function normalizedVisibility(value: string | null | undefined): string | null {

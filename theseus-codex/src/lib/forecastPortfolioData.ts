@@ -1,6 +1,17 @@
 import type { ForecastBetSide, ForecastSource } from "@prisma/client";
 
 import { db } from "@/lib/db";
+import type {
+  AnalogicalTransferReport,
+  DecisionAction,
+  DecisionFrame,
+  DecisionMetric,
+  DecisionRule,
+  DecisionSynthesis,
+  DecisionTrace,
+  FrameVerdict,
+  TransferRecommendation,
+} from "@/lib/forecastsTypes";
 
 export type TracePrinciple = {
   conclusionId: string;
@@ -42,6 +53,7 @@ export type PortfolioPositionRow = {
   currentImpliedProb: number | null;
   drivingPrinciples: TracePrinciple[];
   gateResults: TraceGateResult[];
+  decisionTrace: DecisionTrace | null;
   lastUpdated: Date;
 };
 
@@ -66,6 +78,10 @@ export type PipelineCandidateRow = {
   drivingPrinciples: TracePrinciple[];
   gateResults: TraceGateResult[];
   gateState: string;
+  decisionTrace: DecisionTrace | null;
+  marketYesPrice: number | null;
+  marketNoPrice: number | null;
+  predictionId: string | null;
   lastUpdated: Date;
 };
 
@@ -141,9 +157,194 @@ export function normalizeGateResults(value: unknown): TraceGateResult[] {
     .map((item) => ({
       gateName: String(item.gateName ?? item.gate_name ?? ""),
       passed: Boolean(item.passed),
-      reason: String(item.reason ?? ""),
+      reason: String(item.reason ?? item.detail ?? ""),
     }))
     .filter((item) => item.gateName.length > 0);
+}
+
+const ALLOWED_ACTIONS: Set<DecisionAction> = new Set([
+  "ABSTAIN",
+  "WATCH",
+  "PAPER_TRADE",
+  "LIVE_CANDIDATE",
+  "REDUCE",
+  "EXIT",
+  "HEDGE",
+]);
+
+function coerceAction(value: unknown): DecisionAction {
+  const raw = String(value ?? "").toUpperCase();
+  return (ALLOWED_ACTIONS.has(raw as DecisionAction) ? raw : "ABSTAIN") as DecisionAction;
+}
+
+function coerceSide(value: unknown): "YES" | "NO" | null {
+  const raw = String(value ?? "").toUpperCase();
+  if (raw === "YES" || raw === "NO") return raw;
+  return null;
+}
+
+function normalizeDecisionMetrics(value: unknown): DecisionMetric[] {
+  return jsonArray(value)
+    .map((item) => jsonRecord(item))
+    .map((item) => {
+      const range = Array.isArray(item.range) ? item.range : [0, 1];
+      const rangeLow = decimalNumber(range[0]) ?? 0;
+      const rangeHigh = decimalNumber(range[1]) ?? 1;
+      return {
+        detail: String(item.detail ?? ""),
+        lowConfidence: Boolean(item.low_confidence ?? item.lowConfidence),
+        method: String(item.method ?? ""),
+        name: String(item.name ?? ""),
+        rangeHigh,
+        rangeLow,
+        value: decimalNumber(item.value) ?? 0,
+      };
+    })
+    .filter((m) => m.name.length > 0);
+}
+
+const FRAME_VERDICTS: Set<FrameVerdict> = new Set([
+  "SUPPORT",
+  "WATCH",
+  "ABSTAIN",
+  "REDUCE",
+  "EXIT",
+  "HEDGE",
+  "HARD_STOP",
+]);
+
+function coerceFrameVerdict(value: unknown): FrameVerdict {
+  const raw = String(value ?? "").toUpperCase();
+  return (FRAME_VERDICTS.has(raw as FrameVerdict) ? raw : "ABSTAIN") as FrameVerdict;
+}
+
+function normalizeDecisionFrames(value: unknown): DecisionFrame[] {
+  return jsonArray(value)
+    .map((item) => jsonRecord(item))
+    .map((item) => ({
+      assumptionsStable: Boolean(item.assumptions_stable ?? item.assumptionsStable ?? true),
+      confidence: decimalNumber(item.confidence) ?? 0,
+      detail: String(item.detail ?? ""),
+      failureModes: jsonArray(item.failure_modes ?? item.failureModes).map((s) => String(s)),
+      metricsConsulted: jsonArray(item.metrics_consulted ?? item.metricsConsulted).map((s) =>
+        String(s),
+      ),
+      name: String(item.name ?? ""),
+      reasons: jsonArray(item.reasons).map((s) => String(s)),
+      sidePreference: coerceSide(item.side_preference ?? item.sidePreference),
+      verdict: coerceFrameVerdict(item.verdict),
+    }))
+    .filter((f) => f.name.length > 0);
+}
+
+function normalizeDecisionSynthesis(value: unknown): DecisionSynthesis | null {
+  const root = jsonRecord(value);
+  if (Object.keys(root).length === 0) return null;
+  return {
+    abstainingFrames: jsonArray(root.abstaining_frames ?? root.abstainingFrames).map((s) =>
+      String(s),
+    ),
+    action: String(root.action ?? "ABSTAIN"),
+    agreement: decimalNumber(root.agreement) ?? 0,
+    blockingFrames: jsonArray(root.blocking_frames ?? root.blockingFrames).map((s) => String(s)),
+    hardStopFrames: jsonArray(root.hard_stop_frames ?? root.hardStopFrames).map((s) => String(s)),
+    reasons: jsonArray(root.reasons).map((s) => String(s)),
+    side: coerceSide(root.side),
+    supportingFrames: jsonArray(root.supporting_frames ?? root.supportingFrames).map((s) =>
+      String(s),
+    ),
+    synthesisVersion: String(root.synthesis_version ?? root.synthesisVersion ?? ""),
+    unstableFrames: jsonArray(root.unstable_frames ?? root.unstableFrames).map((s) => String(s)),
+    watchFrames: jsonArray(root.watch_frames ?? root.watchFrames).map((s) => String(s)),
+  };
+}
+
+function normalizeTransferRecommendations(value: unknown): TransferRecommendation[] {
+  return jsonArray(value)
+    .map((item) => jsonRecord(item))
+    .map((item) => ({
+      canonicalStatement: String(item.canonical_statement ?? item.canonicalStatement ?? ""),
+      closestCaseIds: jsonArray(item.closest_case_ids ?? item.closestCaseIds).map((s) => String(s)),
+      confidence: decimalNumber(item.confidence) ?? 0,
+      principleId: String(item.principle_id ?? item.principleId ?? ""),
+      reasons: jsonArray(item.reasons).map((s) => String(s)),
+      stance: String(item.stance ?? ""),
+    }))
+    .filter((r) => r.principleId.length > 0 || r.canonicalStatement.length > 0);
+}
+
+function normalizeAnalogicalTransfer(value: unknown): AnalogicalTransferReport | null {
+  const root = jsonRecord(value);
+  if (Object.keys(root).length === 0) return null;
+  return {
+    bestPrincipleId:
+      typeof root.best_principle_id === "string"
+        ? root.best_principle_id
+        : typeof root.bestPrincipleId === "string"
+          ? root.bestPrincipleId
+          : null,
+    bestStance: String(root.best_stance ?? root.bestStance ?? ""),
+    queryCaseId: String(root.query_case_id ?? root.queryCaseId ?? ""),
+    recommendations: normalizeTransferRecommendations(root.recommendations),
+    traceVersion: String(root.trace_version ?? root.traceVersion ?? ""),
+  };
+}
+
+function normalizeDecisionRules(value: unknown): DecisionRule[] {
+  return jsonArray(value)
+    .map((item) => jsonRecord(item))
+    .map((item) => ({
+      detail: String(item.detail ?? ""),
+      fired: Boolean(item.fired),
+      kind: String(item.kind ?? "threshold"),
+      name: String(item.name ?? ""),
+      passed: Boolean(item.passed),
+    }))
+    .filter((r) => r.name.length > 0);
+}
+
+export function normalizeDecisionTrace(
+  modelOutput: unknown,
+  fallback?: { marketYesPrice: number | null; firmProbabilityYes: number | null },
+): DecisionTrace | null {
+  const root = jsonRecord(modelOutput);
+  const inner = jsonRecord(root.decision_trace);
+  if (Object.keys(inner).length === 0 && !root.decision_action && !root.side) return null;
+
+  const action = coerceAction(inner.action ?? root.decision_action ?? "ABSTAIN");
+  const side = coerceSide(inner.side ?? root.side);
+  const metrics = normalizeDecisionMetrics(inner.metrics);
+  const rules = normalizeDecisionRules(inner.rules);
+  const reasons = jsonArray(inner.reasons).map((r) => String(r));
+  const edgeMetric = metrics.find((m) => m.name === "market_mispricing_edge");
+  const firmProbabilityYes =
+    fallback?.firmProbabilityYes ??
+    (edgeMetric?.detail.match(/firm_p=([0-9.]+)/)?.[1]
+      ? Number(edgeMetric.detail.match(/firm_p=([0-9.]+)/)?.[1])
+      : null);
+  const marketYesPrice =
+    fallback?.marketYesPrice ??
+    (edgeMetric?.detail.match(/market_p=([0-9.]+)/)?.[1]
+      ? Number(edgeMetric.detail.match(/market_p=([0-9.]+)/)?.[1])
+      : null);
+  const edge = decimalNumber(root.edge) ?? (edgeMetric ? edgeMetric.value : null);
+  return {
+    action,
+    analogicalTransfer: normalizeAnalogicalTransfer(inner.analogical_transfer),
+    confidence: decimalNumber(inner.confidence) ?? 0,
+    edge,
+    firmProbabilityYes,
+    frames: normalizeDecisionFrames(inner.frames),
+    marketYesPrice,
+    metrics,
+    rationale: typeof root.rationale === "string" ? root.rationale : null,
+    reasons,
+    rules,
+    side,
+    stakeRecommendationUsd: decimalNumber(inner.stake_recommendation_usd),
+    synthesis: normalizeDecisionSynthesis(inner.synthesis),
+    traceVersion: String(inner.trace_version ?? ""),
+  };
 }
 
 function liveTradingEnabled(): boolean {
@@ -355,10 +556,17 @@ export async function getForecastPortfolioSurface(
       const prediction = bet.prediction;
       const market = prediction?.market ?? null;
       const trace = prediction?.trace ?? null;
+      const decisionTrace = trace
+        ? normalizeDecisionTrace(trace.modelOutput, {
+            firmProbabilityYes: decimalNumber(prediction?.probabilityYes),
+            marketYesPrice: decimalNumber(market?.currentYesPrice),
+          })
+        : null;
       return {
         avgPrice: money(bet.entryPrice),
         betId: bet.id,
         currentImpliedProb: currentSidePrice(market, bet.side),
+        decisionTrace,
         drivingPrinciples: normalizeTracePrinciples(trace?.principlesUsed),
         gateResults: normalizeGateResults(trace?.gateResults),
         lastUpdated: prediction?.updatedAt ?? bet.createdAt,
@@ -384,15 +592,25 @@ export async function getForecastPortfolioSurface(
                 reason: "awaiting the next forecast generator cycle",
               },
             ];
+      const decisionTrace = trace
+        ? normalizeDecisionTrace(trace.modelOutput, {
+            firmProbabilityYes: decimalNumber(prediction?.probabilityYes),
+            marketYesPrice: decimalNumber(market.currentYesPrice),
+          })
+        : null;
       return {
         category: market.category,
+        decisionTrace,
         drivingPrinciples: normalizeTracePrinciples(trace?.principlesUsed),
         gateResults,
         gateState: gateState(gateResults),
         lastUpdated: market.updatedAt,
         marketId: market.id,
+        marketNoPrice: decimalNumber(market.currentNoPrice),
         marketTitle: market.title,
         marketUrl: marketUrl(market),
+        marketYesPrice: decimalNumber(market.currentYesPrice),
+        predictionId: prediction?.id ?? null,
         source: market.source,
       };
     }),

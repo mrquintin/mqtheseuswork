@@ -15,6 +15,7 @@ import {
 import Link from "next/link";
 
 import type { PublicCitation, PublicOpinion } from "@/lib/currentsTypes";
+import { firmVoice } from "@/lib/firmVoice";
 import { relativeTime } from "@/lib/relativeTime";
 import { renderSafeMarkdown } from "@/lib/safeMarkdown";
 import CitationPopover from "@/components/CitationPopover";
@@ -355,7 +356,7 @@ export function OpinionMarkdownBody({ opinion, className, style }: OpinionMarkdo
     setActiveCitation(null);
   }, []);
   const renderedMarkdown = useMemo(
-    () => renderSafeMarkdown(opinion.body_markdown),
+    () => renderSafeMarkdown(firmVoice(opinion.body_markdown)),
     [opinion.body_markdown],
   );
   const body = useMemo(

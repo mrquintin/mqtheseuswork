@@ -1,0 +1,54 @@
+You are working in `/Users/michaelquintin/Desktop/Theseus`.
+
+Goal: make Ask/Search routes and interactions reliable, predictable, and fast.
+
+Current live problems:
+- Public navigation exposes `/ask`, while authenticated navigation routes Ask to `/codex-ask`.
+- Users reported buttons only opening reliably when opened in a new tab. That suggests client-side route transitions or client actions may be blocked, slow, or missing feedback.
+- Disabled/search states are not always self-explanatory.
+
+Start by reading:
+- `docs/architecture/UI_UX_Round20_Contract.md`
+- `theseus-codex/src/app/ask/page.tsx`
+- `theseus-codex/src/app/(authed)/codex-ask/page.tsx` or the current authenticated ask route file;
+- search/inquiry components used by public and authed ask;
+- `theseus-codex/src/components/Nav.tsx`
+- route middleware/proxy files;
+- related tests.
+
+Implement:
+1. Decide and document the intended route split:
+   - public `/ask`;
+   - founder/private ask route if separate;
+   - redirects or aliases if both should work.
+2. Ensure nav links use the correct route and do not create route-group collisions.
+3. Harden search/ask interactions:
+   - disabled state explains what is required;
+   - loading state appears immediately;
+   - results/error/empty states are explicit;
+   - Enter key and Search button behave the same;
+   - route transitions do not block on slow server work when a loading state can render first.
+4. Audit all action-like controls touched by this round:
+   - if it is navigation, use a link;
+   - if it mutates, use a button with pending/disabled/error feedback;
+   - avoid controls that only work well via "open in new tab".
+5. Keep snippets factual and do not rewrite source material in public search results.
+
+Constraints:
+- Do not remove public ask unless the product explicitly no longer supports it.
+- Do not create duplicate pages that resolve to the same Next route.
+- Preserve auth boundaries.
+
+Verification:
+- Run `npm run build` in `theseus-codex`.
+- Run `npx tsc --noEmit` in `theseus-codex`.
+- Browser-check public `/ask` and authenticated ask path.
+- Click nav links normally; do not rely on opening in new tabs.
+
+SCOPE:
+MODIFY theseus-codex/src/app/ask/page.tsx
+MODIFY authenticated ask route files under theseus-codex/src/app/(authed)/
+MODIFY theseus-codex/src/components/Nav.tsx
+MAYBE MODIFY middleware/proxy/route-alias files if route consistency requires it.
+MAYBE MODIFY ask/search components and tests.
+

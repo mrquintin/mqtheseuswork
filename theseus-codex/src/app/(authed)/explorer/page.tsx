@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 
 import ExplorerCanvas, {
@@ -13,7 +14,6 @@ import PageKeymap from "@/components/PageKeymap";
 import { type HotkeyBinding } from "@/lib/hotkeys";
 import { reduce, type ReducedPoint, type Reducer } from "@/lib/dimReduce";
 import {
-  DEFAULT_EXPLORER_STATE,
   decodeExplorerState,
   deleteSavedView,
   encodeExplorerState,
@@ -309,7 +309,11 @@ export default function ExplorerPage() {
     return (
       <main style={pageStyle}>
         <Header />
-        <p style={dimNote}>Loading embedding projection…</p>
+        <HealthPanel
+          status="loading"
+          embedded={warmupStats?.embedded ?? 0}
+          total={warmupStats?.total ?? 0}
+        />
       </main>
     );
   }
@@ -317,9 +321,12 @@ export default function ExplorerPage() {
     return (
       <main style={pageStyle}>
         <Header />
-        <p style={{ ...dimNote, color: "var(--ember)" }}>
-          Failed to load projection: {errorMessage}
-        </p>
+        <HealthPanel
+          status="error"
+          embedded={0}
+          total={0}
+          message={errorMessage}
+        />
       </main>
     );
   }
@@ -327,12 +334,11 @@ export default function ExplorerPage() {
     return (
       <main style={pageStyle}>
         <Header />
-        <p style={dimNote}>
-          The semantic explorer activates after the firm has 3 embedded
-          conclusions. Currently: {warmupStats?.embedded ?? 0}/
-          {warmupStats?.total ?? 0}. Embeddings auto-populate as
-          conclusions are created.
-        </p>
+        <HealthPanel
+          status="warming"
+          embedded={warmupStats?.embedded ?? 0}
+          total={warmupStats?.total ?? 0}
+        />
       </main>
     );
   }
@@ -340,9 +346,7 @@ export default function ExplorerPage() {
     return (
       <main style={pageStyle}>
         <Header />
-        <p style={dimNote}>
-          The semantic explorer is waiting for embedded conclusions.
-        </p>
+        <HealthPanel status="empty" embedded={points.length} total={points.length} />
       </main>
     );
   }
@@ -399,43 +403,214 @@ export default function ExplorerPage() {
 function Header() {
   return (
     <>
-      <h1
+      <h2
         style={{
           fontFamily: "'Cinzel', serif",
-          color: "var(--gold)",
-          letterSpacing: "0.08em",
-          margin: "0 0 0.5rem",
+          color: "var(--amber)",
+          letterSpacing: "0.06em",
+          fontSize: "1.2rem",
+          margin: "0 0 0.4rem",
+          fontWeight: 500,
         }}
       >
-        Semantic Explorer
-      </h1>
+        Explorer
+      </h2>
       <p
         style={{
-          fontFamily: "'EB Garamond', serif",
-          fontStyle: "italic",
-          fontSize: "1rem",
+          fontSize: "0.85rem",
           color: "var(--parchment-dim)",
           maxWidth: "44em",
-          lineHeight: 1.55,
-          marginBottom: "1.5rem",
+          lineHeight: 1.5,
+          margin: "0 0 1rem",
         }}
       >
-        A navigation surface over your firm&apos;s belief geometry. Drag a
-        lasso to select a region; toggle Contradicts to draw the geometric
-        contradiction edges across the canvas; click a conclusion to pivot
-        into its detail. Every view is a URL.
+        A 2-D projection of the firm&apos;s conclusion embeddings. Drag a
+        lasso to select a region, toggle overlays for contradictions or
+        supports, click a point to open the conclusion. Every view is a URL.
       </p>
     </>
+  );
+}
+
+function HealthPanel({
+  status,
+  embedded,
+  total,
+  message,
+}: {
+  status: "loading" | "warming" | "empty" | "error";
+  embedded: number;
+  total: number;
+  message?: string | null;
+}) {
+  const pct =
+    total > 0 ? Math.max(0, Math.min(100, Math.round((embedded / total) * 100))) : 0;
+  const tone =
+    status === "error"
+      ? "var(--ember)"
+      : status === "loading"
+        ? "var(--info)"
+        : "var(--amber)";
+  const heading =
+    status === "loading"
+      ? "Loading projection…"
+      : status === "error"
+        ? "Projection failed to load"
+        : status === "warming"
+          ? "Waiting for embeddings"
+          : "Not enough embedded conclusions";
+
+  return (
+    <section
+      className="portal-card"
+      style={{
+        padding: "1rem 1.1rem",
+        borderLeft: `3px solid ${tone}`,
+      }}
+    >
+      <div
+        className="mono"
+        style={{
+          fontSize: "0.6rem",
+          letterSpacing: "0.2em",
+          textTransform: "uppercase",
+          color: tone,
+          marginBottom: "0.4rem",
+        }}
+      >
+        Embedding health
+      </div>
+      <h3
+        style={{
+          margin: 0,
+          fontFamily: "'EB Garamond', serif",
+          fontSize: "1.05rem",
+          color: "var(--parchment)",
+          fontWeight: 500,
+        }}
+      >
+        {heading}
+      </h3>
+      {status !== "loading" ? (
+        <p
+          style={{
+            margin: "0.45rem 0 0",
+            fontSize: "0.85rem",
+            color: "var(--parchment-dim)",
+            lineHeight: 1.5,
+          }}
+        >
+          {status === "error" ? (
+            <>The embeddings API returned an error: {message || "unknown"}.</>
+          ) : status === "warming" ? (
+            <>
+              The Explorer activates once the firm has at least 3 embedded
+              conclusions. The data shown elsewhere may look empty because
+              embeddings have not yet been populated for these conclusions.
+            </>
+          ) : (
+            <>
+              The Explorer needs at least 3 conclusions to project. Add more
+              uploads, or wait for the next ingest pass to embed existing
+              conclusions.
+            </>
+          )}
+        </p>
+      ) : null}
+      <div
+        className="mono"
+        style={{
+          marginTop: "0.6rem",
+          fontSize: "0.7rem",
+          color: "var(--parchment)",
+          letterSpacing: "0.08em",
+          display: "flex",
+          gap: "0.5rem",
+          flexWrap: "wrap",
+          alignItems: "center",
+        }}
+      >
+        <span>
+          embedded {embedded}/{total}
+          {total > 0 ? ` (${pct}%)` : ""}
+        </span>
+        {total > 0 ? (
+          <span
+            aria-hidden="true"
+            style={{
+              flex: "1 1 8rem",
+              minWidth: "6rem",
+              maxWidth: "12rem",
+              height: 4,
+              background: "var(--stone-mid)",
+              borderRadius: 2,
+              overflow: "hidden",
+            }}
+          >
+            <span
+              style={{
+                display: "block",
+                width: `${pct}%`,
+                height: "100%",
+                background: tone,
+              }}
+            />
+          </span>
+        ) : null}
+      </div>
+      {status === "warming" || status === "empty" ? (
+        <div
+          style={{
+            marginTop: "0.75rem",
+            display: "flex",
+            gap: "0.5rem",
+            flexWrap: "wrap",
+          }}
+        >
+          <Link
+            href="/upload"
+            className="btn"
+            style={{
+              fontSize: "0.62rem",
+              padding: "0.3rem 0.65rem",
+              textDecoration: "none",
+            }}
+          >
+            Add an upload
+          </Link>
+          <Link
+            href="/ops"
+            className="btn"
+            style={{
+              fontSize: "0.62rem",
+              padding: "0.3rem 0.65rem",
+              textDecoration: "none",
+            }}
+          >
+            Open ops console
+          </Link>
+        </div>
+      ) : null}
+      {status === "error" ? (
+        <div style={{ marginTop: "0.75rem" }}>
+          <button
+            type="button"
+            className="btn"
+            onClick={() => {
+              if (typeof window !== "undefined") window.location.reload();
+            }}
+            style={{ fontSize: "0.62rem", padding: "0.3rem 0.65rem" }}
+          >
+            Retry
+          </button>
+        </div>
+      ) : null}
+    </section>
   );
 }
 
 const pageStyle: React.CSSProperties = {
   maxWidth: "1280px",
   margin: "0 auto",
-  padding: "2rem",
-};
-
-const dimNote: React.CSSProperties = {
-  color: "var(--parchment-dim)",
-  fontSize: "0.85rem",
+  padding: "1.5rem 2rem 2rem",
 };

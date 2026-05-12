@@ -18,11 +18,29 @@ import SculptureBackdrop from "@/components/SculptureBackdrop";
  * firm's corpus" preamble. See api/ask/route.ts for the full prompt
  * and retrieval rules.
  *
+ * Route split (UI/UX Round 20 §3.6): the public `/ask` page redirects
+ * signed-in callers here, preserving their `?q=` so a deep link
+ * pre-populates the form. See `app/ask/page.tsx`.
+ *
  * Patron sculpture: the Discobolus (British Museum) on the right —
  * the discus thrower captured in resolved motion, fitting for the
  * page where a question becomes an answer.
  */
-export default function AskPage() {
+
+type SearchParams = { q?: string | string[] };
+
+function firstParam(value: string | string[] | undefined): string {
+  if (Array.isArray(value)) return value[0] ?? "";
+  return value ?? "";
+}
+
+export default async function AskPage({
+  searchParams,
+}: {
+  searchParams?: Promise<SearchParams>;
+}) {
+  const resolved = (await (searchParams ?? Promise.resolve<SearchParams>({}))) ?? {};
+  const initialQuery = firstParam(resolved.q).slice(0, 500);
   return (
     <div style={{ position: "relative", overflow: "hidden", minHeight: "80vh" }}>
       <SculptureBackdrop
@@ -84,7 +102,7 @@ export default function AskPage() {
           </p>
         </header>
 
-        <AskForm />
+        <AskForm initialQuestion={initialQuery} />
       </main>
     </div>
   );

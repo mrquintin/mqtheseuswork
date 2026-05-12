@@ -47,6 +47,15 @@ vi.mock("@/lib/conclusionsRead", () => ({
 
 vi.mock("@/lib/currentsApi", () => ({
   listCurrents: vi.fn(),
+  getCurrentsHealth: vi.fn().mockResolvedValue({
+    x_bearer_present: true,
+    curated_count: 0,
+    search_count: 0,
+    last_cycle_at: null,
+    events_last_24h: 0,
+    opinions_last_24h: 0,
+    disabled_reasons: [],
+  }),
 }));
 
 vi.mock("@/lib/db", () => ({
@@ -97,6 +106,12 @@ vi.mock("next/navigation", () => ({
     throw new Error(`NEXT_REDIRECT:${url}`);
   }),
   usePathname: vi.fn(() => "/"),
+  useRouter: () => ({
+    push: vi.fn(),
+    replace: vi.fn(),
+    prefetch: vi.fn(),
+  }),
+  useSearchParams: () => new URLSearchParams(),
 }));
 
 vi.mock("next/link", () => ({

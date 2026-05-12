@@ -1,0 +1,61 @@
+You are working in `/Users/michaelquintin/Desktop/Theseus`.
+
+Goal: push Noosphere from philosophical interpretation toward algorithmized decision making, especially for investment and prediction-market use.
+
+Product direction:
+Noosphere should still reason philosophically, but when applied to markets it must produce auditable logical algorithms and metrics. These do not have to be conventional quantitative factors. They can be logic-based metrics, rule graphs, contradiction scores, domain-fit scores, thesis-resonance scores, causal-chain scores, and calibration-adjusted confidence measures. The key requirement is that a market input produces a structured decision trace and an investment output through an inspectable algorithm, not just a prose judgment.
+
+Start by reading:
+- `noosphere/noosphere/forecasts/forecast_generator.py`
+- `noosphere/noosphere/forecasts/retrieval_adapter.py`
+- `noosphere/noosphere/forecasts/edge_calc.py`
+- `noosphere/noosphere/forecasts/paper_bet_engine.py`
+- `noosphere/noosphere/forecasts/live_bet_engine.py`
+- `noosphere/noosphere/forecasts/safety.py`
+- `noosphere/noosphere/coherence/`
+- `noosphere/noosphere/methods/`
+- `theseus-codex/src/app/(authed)/forecasts/portfolio/ForecastPortfolioView.tsx`
+- `theseus-codex/src/app/(authed)/forecasts/operator/page.tsx`
+- relevant forecast and method tests.
+
+Implement:
+1. Create an architecture document:
+   `docs/architecture/Algorithmized_Decision_Making.md`.
+2. The document must define the distinction between:
+   - interpretive Noosphere reasoning;
+   - algorithmized decision traces;
+   - investable outputs.
+3. Define a concrete "logic algorithm" contract:
+   - inputs: market, event, corpus slice, active principles, calibration state, liquidity/cost data;
+   - intermediate metrics: named, typed, reproducible, and inspectable;
+   - rule graph: how metrics combine into a decision;
+   - output: abstain, watch, paper trade, live candidate, reduce, exit, or hedge;
+   - explanation: prose is generated from the trace, not the other way around.
+4. Define at least 10 candidate logic-based metrics suitable for market decisions, including:
+   - thesis resonance;
+   - contradiction pressure;
+   - premise support density;
+   - source-domain locality;
+   - causal-chain completeness;
+   - adversarial fragility;
+   - temporal decay pressure;
+   - calibration-adjusted confidence;
+   - market mispricing edge;
+   - liquidity/cost feasibility.
+5. Identify what already exists in code and what is missing.
+6. Specify the implementation plan for prompts 14-25, including the later
+   empirical case-study and abstract-principle prompts.
+7. Make clear that live capital deployment requires safety gates; algorithmization is not permission to bypass operator/risk controls.
+
+Constraints:
+- This prompt is design and inventory only.
+- Do not modify live trading behavior here.
+- Do not make false claims about current readiness.
+
+Verification:
+- Run `git diff --check`.
+- Confirm the document references real files and real APIs in the repo.
+
+SCOPE:
+ADD docs/architecture/Algorithmized_Decision_Making.md
+MAYBE MODIFY docs/architecture/UI_UX_Round20_Contract.md to reference this as the investment/forecasting extension.

@@ -1,0 +1,63 @@
+You are working in `/Users/michaelquintin/Desktop/Theseus`.
+
+Goal: verify the algorithmic investing and prediction-market portfolio system end to end and leave a founder-alpha runbook.
+
+Start by reading:
+- `docs/architecture/Algorithmized_Decision_Making.md`
+- `docs/operations/Forecasts_Portfolio_Setup.md` if created;
+- files changed by prompts 13-18;
+- existing forecast docs and tests.
+
+Implement:
+1. Create or update:
+   - `docs/operations/Forecasts_Founder_Alpha_Runbook.md`
+   - `docs/runs/market_system_round20_verification.md`
+2. The runbook must explain:
+   - Polymarket credentials required;
+   - Kalshi credentials required;
+   - local development setup;
+   - deployment setup;
+   - risk limit environment variables;
+   - scheduler process;
+   - how to verify read-only ingestion;
+   - how to verify decision metric scans;
+   - how to run paper mode;
+   - how to enable live mode;
+   - how live authorization and per-bet confirmation work;
+   - kill-switch use;
+   - how to stop all trading.
+3. The verification report must include:
+   - commands run;
+   - tests passing/failing;
+   - mocked exchange proof;
+   - scheduler dry-run proof;
+   - UI routes checked;
+   - remaining blockers;
+   - whether the system is ready for paper mode;
+   - whether it is ready for live mode once credentials and risk settings are configured.
+4. Run the strongest practical verification:
+   - `python -m pytest noosphere/tests/test_forecast_decision_metrics.py -q`
+   - `python -m pytest noosphere/tests/test_live_bet_safety.py noosphere/tests/test_live_bet_engine.py -q`
+   - focused scheduler tests;
+   - `npm run build` in `theseus-codex`;
+   - `npx tsc --noEmit` in `theseus-codex`.
+5. Browser-check:
+   - `/forecasts`;
+   - `/forecasts/portfolio`;
+   - `/forecasts/operator`;
+   - any new setup page;
+   - `/ops` if it now surfaces scheduler status.
+6. Fix regressions found during verification if safe and in scope.
+
+Constraints:
+- Do not place real orders.
+- Do not claim live readiness unless all gates and mocked exchange tests pass.
+- Do not print secrets in docs, logs, or chat.
+- If production requires an always-on worker/scheduler subscription not currently provisioned, state that plainly.
+
+SCOPE:
+ADD docs/operations/Forecasts_Founder_Alpha_Runbook.md
+ADD docs/runs/market_system_round20_verification.md
+MAYBE MODIFY Round 20-touched market/forecast files to fix verification failures.
+MAYBE MODIFY README docs to point to the runbook.
+

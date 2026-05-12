@@ -1,0 +1,55 @@
+You are working in `/Users/michaelquintin/Desktop/Theseus`.
+
+Goal: make a conclusion detail page readable first and administrable second.
+
+Current live problem:
+The first viewport of `/conclusions/c_2276f14a65124a1898843fb3` shows the claim, confidence, rationale, publication state, enqueue controls, export, peer review actions, queue actions, failure modes, and help text all competing for attention.
+
+Start by reading:
+- `docs/architecture/UI_UX_Round20_Contract.md`
+- `theseus-codex/src/app/(authed)/conclusions/[id]/page.tsx`
+- `theseus-codex/src/app/(authed)/conclusions/[id]/actions-bar.tsx`
+- `theseus-codex/src/app/(authed)/conclusions/[id]/MqsCard.tsx`
+- `theseus-codex/src/app/(authed)/conclusions/[id]/FailureModesCard.tsx`
+- `theseus-codex/src/app/(authed)/publication/PublicationClient.tsx`
+- conclusion detail tests/snapshots.
+
+Implement:
+1. Make the top section a compact claim summary:
+   - claim text;
+   - tier/status;
+   - confidence and evidence type;
+   - source upload link;
+   - short rationale;
+   - age/updated timestamp if available.
+2. Remove the large conclusion help hero. If explanatory copy remains, put it behind a compact "About this page" disclosure.
+3. Move publication/review controls into a "Review and publication" panel that is closed by default unless an active workflow needs attention.
+4. Move failure modes, MQS, decay, export/debug, lineage, and advanced methodology into a "Diagnostics" or "Advanced" area below the reading surface.
+5. Group actions by intent:
+   - primary next action;
+   - review/publication actions;
+   - evidence/navigation links;
+   - debug/export;
+   - destructive deletion request at the bottom, visually quiet.
+6. Compact empty states. Do not render multiple large bordered panels for zero-count evidence/support/dissent lists.
+7. Keep all existing backend behavior, tabs, links, and server actions intact.
+
+Constraints:
+- Do not remove peer review, publication, decay, lineage, provenance, export, or deletion request capability.
+- Do not perform destructive data actions.
+- Preserve tenant scoping and permission checks.
+
+Verification:
+- Run `npm run build` in `theseus-codex`.
+- Browser-check one open conclusion and one firm conclusion if available.
+- At 1280 px and 390 px, confirm the first viewport lets the user understand the conclusion before seeing admin machinery.
+
+SCOPE:
+MODIFY theseus-codex/src/app/(authed)/conclusions/[id]/page.tsx
+MODIFY theseus-codex/src/app/(authed)/conclusions/[id]/actions-bar.tsx
+MODIFY theseus-codex/src/app/(authed)/conclusions/[id]/MqsCard.tsx
+MODIFY theseus-codex/src/app/(authed)/conclusions/[id]/FailureModesCard.tsx
+MAYBE MODIFY theseus-codex/src/app/(authed)/publication/PublicationClient.tsx
+MAYBE ADD focused components under theseus-codex/src/app/(authed)/conclusions/[id]/
+MAYBE MODIFY conclusion detail tests/snapshots.
+

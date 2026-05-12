@@ -67,11 +67,9 @@ export default function MqsCard({ mqs }: { mqs: MqsRecord }) {
 
   return (
     <section
-      className="portal-card"
       aria-labelledby="mqs-card-title"
       style={{
-        padding: "1rem 1.25rem",
-        marginBottom: "1.5rem",
+        padding: "0.75rem 0",
         display: "grid",
         gap: "0.85rem",
       }}

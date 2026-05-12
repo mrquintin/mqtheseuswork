@@ -1,0 +1,57 @@
+You are working in `/Users/michaelquintin/Desktop/Theseus`.
+
+Goal: create the design contract for a broad Theseus Codex UI cleanup, grounded in the current codebase and the Round 20 live path walk.
+
+Start by reading:
+- `coding_prompts/ui_ux_round20/PATH_WALK_NOTES.md`
+- `coding_prompts/ui_ux_round19/PATH_WALK_NOTES.md`
+- `theseus-codex/src/app/globals.css`
+- `theseus-codex/src/components/Nav.tsx`
+- `theseus-codex/src/components/PageHelp.tsx`
+- `theseus-codex/src/components/KeyboardShortcuts.tsx`
+- any existing docs under `docs/architecture/` that describe UI/design contracts.
+
+Implement:
+1. Add `docs/architecture/UI_UX_Round20_Contract.md`.
+2. The contract must define a restrained product UI direction for founder/operator surfaces:
+   - operational clarity over ceremony;
+   - readable density over ornamental whitespace;
+   - neutral English labels over Latin/theatrical labels in workflow surfaces;
+   - progressive disclosure for diagnostics and admin actions;
+   - public pages may keep brand character, but must stay readable and calm.
+3. Inventory the concrete pages and components this round must touch:
+   - dashboard;
+   - conclusion detail;
+   - knowledge/conclusion/transcript lists;
+   - audio transcript detail;
+   - upload;
+   - ask;
+   - founder/public Currents;
+   - ops;
+   - global nav/buttons/typography/performance states.
+4. Define explicit acceptance criteria for:
+   - first viewport readability;
+   - no horizontal overflow at 1280, 1024, 768, and 390 px;
+   - buttons/links have loading/disabled/error/success feedback where applicable;
+   - raw transcript visibility for audio uploads;
+   - Currents/backend empty state clarity;
+   - no broken route collisions.
+5. Add a short "do not do" section:
+   - do not remove existing capabilities;
+   - do not destroy production data;
+   - do not hide failures from founder/operator views;
+   - do not replace backend fixes with cosmetic copy.
+
+Constraints:
+- This prompt is documentation plus lightweight inventory only.
+- Do not redesign individual pages yet.
+- Keep wording neutral and specific.
+
+Verification:
+- Run `git diff --check`.
+- Confirm the document references actual files/routes in this repo, not imagined routes.
+
+SCOPE:
+ADD docs/architecture/UI_UX_Round20_Contract.md
+MAYBE MODIFY docs/architecture/UI_UX_Round19_Contract.md only to point to Round 20 as a successor, not to rewrite history.
+

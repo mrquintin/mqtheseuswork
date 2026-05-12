@@ -4,7 +4,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import PublicBlogIndex from "@/app/page";
 import { getFounder } from "@/lib/auth";
-import { listCurrents } from "@/lib/currentsApi";
+import { getCurrentsHealth, listCurrents } from "@/lib/currentsApi";
 import type { PublicOpinion } from "@/lib/currentsTypes";
 import { getPortfolioSummary, listForecasts } from "@/lib/forecastsApi";
 import { listPublishedArticles } from "@/lib/conclusionsRead";
@@ -19,6 +19,7 @@ vi.mock("@/lib/conclusionsRead", () => ({
 
 vi.mock("@/lib/currentsApi", () => ({
   listCurrents: vi.fn(),
+  getCurrentsHealth: vi.fn(),
 }));
 
 vi.mock("@/lib/forecastsApi", () => ({
@@ -120,6 +121,15 @@ describe("homepage performance shell", () => {
     vi.mocked(listCurrents).mockResolvedValue({
       items: [opinion("1"), opinion("2"), opinion("3"), opinion("4")],
     });
+    vi.mocked(getCurrentsHealth).mockResolvedValue({
+      x_bearer_present: true,
+      curated_count: 0,
+      search_count: 0,
+      last_cycle_at: null,
+      events_last_24h: 0,
+      opinions_last_24h: 0,
+      disabled_reasons: [],
+    });
   });
 
   it("renders the public signal surface without blocking on forecast or portfolio APIs", async () => {
@@ -127,7 +137,10 @@ describe("homepage performance shell", () => {
 
     expect(listCurrents).toHaveBeenCalledWith(
       { limit: 3 },
-      { next: { revalidate: 60, tags: ["public-home-currents"] } },
+      {
+        next: { revalidate: 60, tags: ["public-home-currents"] },
+        timeoutMs: 4_000,
+      },
     );
     expect(getFounder).not.toHaveBeenCalled();
     expect(listForecasts).not.toHaveBeenCalled();

@@ -1,0 +1,68 @@
+You are working in `/Users/michaelquintin/Desktop/Theseus`.
+
+Goal: make the portfolio UI show algorithmic reasoning, not just forecasts and bets.
+
+Product direction:
+The product should be able to show a founder or client an inspectable logical algorithm: market input, corpus evidence, logic metrics, rule graph, market price, decision output, stake recommendation, safety gates, and live/paper ledger result. The UI should make clear that the firm is building an algorithmic decision system from intellectual capital.
+
+Start by reading:
+- `docs/architecture/Algorithmized_Decision_Making.md`
+- `noosphere/noosphere/forecasts/decision_metrics.py`
+- `theseus-codex/src/app/(authed)/forecasts/portfolio/ForecastPortfolioView.tsx`
+- `theseus-codex/src/app/(authed)/forecasts/operator/page.tsx`
+- `theseus-codex/src/app/(authed)/forecasts/operator/PendingAuthorizations.tsx`
+- `theseus-codex/src/app/(authed)/forecasts/operator/PendingConfirmations.tsx`
+- `theseus-codex/src/app/(authed)/forecasts/operator/LiveBetLedger.tsx`
+- `theseus-codex/src/lib/forecastPortfolioData.ts`
+- `theseus-codex/src/lib/forecastsTypes.ts`
+- forecast UI tests.
+
+Implement:
+1. Add decision traces to portfolio surfaces:
+   - action: ABSTAIN/WATCH/PAPER_TRADE/LIVE_CANDIDATE/REDUCE/EXIT;
+   - top metric values;
+   - failed/passed rules;
+   - market price;
+   - firm probability;
+   - suggested stake;
+   - safety gate summary;
+   - source/conclusion trace.
+2. Redesign portfolio/operator UI sections:
+   - setup/readiness;
+   - market monitor;
+   - decision candidates;
+   - paper portfolio;
+   - live authorizations;
+   - live confirmations;
+   - order ledger;
+   - calibration and postmortems.
+3. Make algorithmic output legible:
+   - show the rule graph compactly;
+   - make metric definitions available;
+   - show why a market was abstained/watched/traded;
+   - separate "decision algorithm output" from "prose explanation".
+4. Add a founder-facing "what to configure next" checklist when the system is not ready.
+5. Keep public forecast pages readable but do not expose private internal source text or private decision traces unless explicitly public-safe.
+
+Constraints:
+- Do not expose secrets.
+- Do not expose private corpus citations on public pages.
+- Do not pretend live trading is ready when gates fail.
+- Do not hide abstentions; abstentions are part of the algorithm.
+
+Verification:
+- Run `npm run build` in `theseus-codex`.
+- Browser-check `/forecasts/portfolio`, `/forecasts/operator`, and public `/forecasts`.
+- Confirm missing credentials produce setup guidance rather than broken UI.
+
+SCOPE:
+MODIFY theseus-codex/src/lib/forecastPortfolioData.ts
+MODIFY theseus-codex/src/lib/forecastsTypes.ts
+MODIFY theseus-codex/src/app/(authed)/forecasts/portfolio/ForecastPortfolioView.tsx
+MODIFY theseus-codex/src/app/(authed)/forecasts/operator/page.tsx
+MODIFY theseus-codex/src/app/(authed)/forecasts/operator/PendingAuthorizations.tsx
+MODIFY theseus-codex/src/app/(authed)/forecasts/operator/PendingConfirmations.tsx
+MODIFY theseus-codex/src/app/(authed)/forecasts/operator/LiveBetLedger.tsx
+MAYBE MODIFY public forecast components if they need safer summaries.
+MAYBE ADD focused forecast portfolio/operator tests.
+

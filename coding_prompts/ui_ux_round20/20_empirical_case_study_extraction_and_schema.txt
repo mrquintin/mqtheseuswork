@@ -1,0 +1,65 @@
+You are working in `/Users/michaelquintin/Desktop/Theseus`.
+
+Goal: teach Noosphere to treat empirical case studies as structured decision evidence, not as anecdotes or isolated source summaries.
+
+Product direction:
+Sources often mention real-world cases: companies, founders, institutions, political episodes, market events, technologies, schools, media dynamics, or historical examples. Noosphere must extract these cases, identify the abstract principles they instantiate, and preserve both layers:
+1. the empirical case as a concrete observed situation;
+2. the abstract logic/principles that can transfer to future situations.
+
+Start by reading:
+- `docs/architecture/Algorithmized_Decision_Making.md`
+- source ingestion and claim extraction modules under `noosphere/noosphere/`
+- `noosphere/noosphere/relevant_text.py`
+- `noosphere/noosphere/conclusions.py`
+- `noosphere/noosphere/articles/transcript_enrichment.py`
+- transcript/source-structure code in `theseus-codex/src/app/(authed)/transcripts/[uploadId]/`
+- existing tests for ingestion, relevant text, transcript enrichment, and conclusions.
+
+Implement:
+1. Add an empirical case-study extraction contract:
+   - concrete case id;
+   - source span/chunk references;
+   - actors;
+   - institutions;
+   - time period;
+   - domain;
+   - observed mechanism;
+   - outcome;
+   - stated causal claim;
+   - uncertainty/evidence quality;
+   - linked abstract principles.
+2. Implement a typed model and extraction path for empirical cases.
+   Prefer a package boundary such as:
+   - `noosphere/noosphere/cases/`
+   - or an existing ingestion/conclusions package if that is the codebase pattern.
+3. Extract only cases grounded in source text. Do not invent a case just because the source gestures at a theme.
+4. Distinguish:
+   - named case studies;
+   - brief examples;
+   - hypotheticals;
+   - analogies;
+   - purely abstract concepts.
+5. Store or expose enough structure that later prompts can test whether a principle learned from one case plausibly applies to another.
+6. Add tests with source snippets that include:
+   - one explicit historical/company case;
+   - one hypothetical;
+   - one analogy;
+   - one abstract concept with no concrete case.
+
+Constraints:
+- Do not weaken existing claim/conclusion extraction.
+- Do not allow prompt text or uploaded instructions to become case facts.
+- Do not fabricate empirical outcomes.
+
+Verification:
+- Run focused noosphere tests for the new case extraction module.
+- Run existing transcript/relevant-text tests.
+- Run `git diff --check`.
+
+SCOPE:
+ADD noosphere/noosphere/cases/
+ADD noosphere/tests/test_case_study_extraction.py
+MODIFY noosphere/noosphere/conclusions.py or ingestion pipeline only where necessary.
+MAYBE MODIFY transcript enrichment/source-structure UI to expose case-study metadata.
+

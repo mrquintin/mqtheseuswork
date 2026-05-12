@@ -36,7 +36,7 @@ def _org_filter() -> str | None:
     return os.environ.get("CURRENTS_ORG_ID") or None
 
 
-def _last_cycle_at() -> str | None:
+def _last_cycle_payload() -> dict[str, object] | None:
     try:
         payload = read_status()
     except (FileNotFoundError, OSError, ValueError):
@@ -44,8 +44,90 @@ def _last_cycle_at() -> str | None:
     last_cycle = payload.get("last_cycle")
     if not isinstance(last_cycle, dict):
         return None
+    return last_cycle
+
+
+def _last_cycle_at() -> str | None:
+    last_cycle = _last_cycle_payload()
+    if last_cycle is None:
+        return None
     started_at = last_cycle.get("started_at")
     return str(started_at) if started_at else None
+
+
+def _last_cycle_summary() -> dict[str, object] | None:
+    last_cycle = _last_cycle_payload()
+    if last_cycle is None:
+        return None
+
+    def _int(key: str) -> int:
+        raw = last_cycle.get(key)
+        try:
+            return int(raw) if raw is not None else 0
+        except (TypeError, ValueError):
+            return 0
+
+    rejected = (
+        _int("abstained_insufficient")
+        + _int("abstained_below_significance")
+        + _int("abstained_off_domain")
+        + _int("abstained_near_duplicate")
+    )
+    errors = last_cycle.get("errors")
+    if not isinstance(errors, list):
+        errors = []
+    last_error = next(
+        (str(err) for err in reversed(errors) if isinstance(err, str) and err),
+        None,
+    )
+    return {
+        "started_at": last_cycle.get("started_at"),
+        "duration_ms": _int("duration_ms"),
+        "ingested": _int("ingested"),
+        "opined": _int("opined"),
+        "rejected": rejected,
+        "abstained_insufficient": _int("abstained_insufficient"),
+        "abstained_below_significance": _int("abstained_below_significance"),
+        "abstained_off_domain": _int("abstained_off_domain"),
+        "abstained_near_duplicate": _int("abstained_near_duplicate"),
+        "abstained_budget": _int("abstained_budget"),
+        "error_count": len(errors),
+        "last_error": last_error,
+    }
+
+
+def _last_opinion_at(store: Store) -> str | None:
+    stmt = select(EventOpinion.generated_at).order_by(desc(EventOpinion.generated_at)).limit(1)
+    org_id = _org_filter()
+    if org_id:
+        stmt = stmt.where(EventOpinion.organization_id == org_id)
+    with store.session() as db:
+        row = db.exec(stmt).first()
+    if not row:
+        return None
+    value = row[0] if isinstance(row, tuple) else row
+    if value is None:
+        return None
+    if isinstance(value, datetime):
+        return value.isoformat()
+    return str(value)
+
+
+def _last_event_at(store: Store) -> str | None:
+    stmt = select(CurrentEvent.created_at).order_by(desc(CurrentEvent.created_at)).limit(1)
+    org_id = _org_filter()
+    if org_id and getattr(CurrentEvent, "organization_id", None) is not None:
+        stmt = stmt.where(CurrentEvent.organization_id == org_id)
+    with store.session() as db:
+        row = db.exec(stmt).first()
+    if not row:
+        return None
+    value = row[0] if isinstance(row, tuple) else row
+    if value is None:
+        return None
+    if isinstance(value, datetime):
+        return value.isoformat()
+    return str(value)
 
 
 def _count_recent(store: Store, model: object, timestamp_field: object) -> int:
@@ -67,6 +149,8 @@ def currents_health(store: Annotated[Store, Depends(get_store)]) -> dict[str, ob
         "curated_count": len(cfg.curated_accounts),
         "search_count": len(cfg.search_queries),
         "last_cycle_at": _last_cycle_at(),
+        "last_event_at": _last_event_at(store),
+        "last_opinion_at": _last_opinion_at(store),
         "events_last_24h": _count_recent(store, CurrentEvent, CurrentEvent.created_at),
         "opinions_last_24h": _count_recent(
             store,
@@ -74,6 +158,7 @@ def currents_health(store: Annotated[Store, Depends(get_store)]) -> dict[str, ob
             EventOpinion.generated_at,
         ),
         "disabled_reasons": cfg.disabled_reasons,
+        "last_cycle": _last_cycle_summary(),
     }
 
 

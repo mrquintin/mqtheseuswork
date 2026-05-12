@@ -1,4 +1,3 @@
-import Link from "next/link";
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { getFounder } from "@/lib/auth";
@@ -8,23 +7,25 @@ import { callNoosphereJson } from "@/lib/pythonRuntime";
 import { founderDisplayName } from "@/lib/founderDisplay";
 
 /**
- * Actions bar for /conclusions/[id]. Server component; each action
- * uses a `<form action={serverAction}>` so we never fall back to the
- * self-fetching HTTP pattern that broke auth cookie forwarding.
+ * Primary action row for /conclusions/[id].
  *
- * Three actions are wired up directly:
- *   - Run peer review       → rigor gate + Noosphere CLI, then hop
- *                              to the Peer review tab.
- *   - Queue for publication → insert a PublicationReview row in
- *                              `queued` status (or keep existing if
- *                              one already exists for this conclusion).
+ * Round 20 trims the bar to the two highest-frequency operator actions:
  *
- * Two actions are link-only because they already have dedicated
- * surfaces:
- *   - View decay status
- *   - View full peer review history
+ *   - Run peer review       (primary CTA, solid)
+ *   - Queue for publication (secondary, outline)
+ *
+ * Peer review history and the decay dashboard now live inside the
+ * Diagnostics disclosure on the page, alongside the export link. The
+ * server actions stay as before so existing keymap / form contracts
+ * keep working.
  */
-export default function ActionsBar({ conclusionId }: { conclusionId: string }) {
+export default function ActionsBar({
+  conclusionId,
+  canWrite,
+}: {
+  conclusionId: string;
+  canWrite: boolean;
+}) {
   async function runPeerReview() {
     "use server";
     const founder = await getFounder();
@@ -74,31 +75,37 @@ export default function ActionsBar({ conclusionId }: { conclusionId: string }) {
 
   return (
     <div
+      role="group"
+      aria-label="Primary actions"
       style={{
         display: "flex",
         gap: "0.5rem",
         flexWrap: "wrap",
+        alignItems: "center",
         padding: "0.5rem 0",
-        borderBottom: "1px solid var(--border)",
-        marginBottom: "0.75rem",
+        marginBottom: "0.5rem",
       }}
     >
       <form action={runPeerReview}>
-        <button type="submit" className="btn-solid btn" style={btnStyle}>
+        <button
+          type="submit"
+          className="btn-solid btn"
+          style={btnStyle}
+          disabled={!canWrite}
+        >
           Run peer review
         </button>
       </form>
       <form action={queueForPublication}>
-        <button type="submit" className="btn" style={btnStyle}>
+        <button
+          type="submit"
+          className="btn"
+          style={btnStyle}
+          disabled={!canWrite}
+        >
           Queue for publication
         </button>
       </form>
-      <Link href={`/ops?panel=peer-review&target=${encodeURIComponent(conclusionId)}`} className="btn" style={btnStyle}>
-        Peer review history
-      </Link>
-      <Link href="/ops?panel=decay" className="btn" style={btnStyle}>
-        Decay dashboard
-      </Link>
     </div>
   );
 }

@@ -36,10 +36,15 @@ from noosphere.evaluation.public_calibration import (
 )
 from noosphere.forecasts.budget import PersistentHourlyBudgetGuard
 from noosphere.forecasts.config import KalshiConfig, PolymarketConfig
+from noosphere.forecasts.decision_metrics import EDGE_LIVE_THRESHOLD
 from noosphere.forecasts.forecast_generator import ForecastOutcome, generate_forecast
 from noosphere.forecasts.kalshi_ingestor import ingest_once as ingest_kalshi_once
-from noosphere.forecasts.paper_bet_engine import DEFAULT_INITIAL_BALANCE
-from noosphere.forecasts.paper_bet_engine import settle_paper_bets_for_market
+from noosphere.forecasts.paper_bet_engine import (
+    DEFAULT_INITIAL_BALANCE,
+    PaperBetConfig,
+    evaluate_and_stake,
+    settle_paper_bets_for_market,
+)
 from noosphere.forecasts.polymarket_ingestor import ingest_once as ingest_polymarket_once
 from noosphere.forecasts.resolution_tracker import poll_all_open
 from noosphere.forecasts.status import status_path_from_env, utc_now_iso, write_status
@@ -47,6 +52,7 @@ from noosphere.models import (
     ForecastBet,
     ForecastBetMode,
     ForecastBetStatus,
+    ForecastExchange,
     ForecastMarket,
     ForecastMarketStatus,
     ForecastPortfolioState,
@@ -70,14 +76,17 @@ log = get_logger(__name__)
 class SchedulerConfig:
     ingest_interval_s: int = 900
     generate_interval_s: int = 600
+    metric_scan_interval_s: int = 420
     resolution_poll_interval_s: int = 300
     paper_bet_drain_interval_s: int = 60
+    live_order_poll_interval_s: int = 60
     article_interval_s: int = 3600
     public_calibration_interval_s: int = DEFAULT_PUBLIC_CALIBRATION_INTERVAL_S
     recalibration_interval_s: int = DEFAULT_RECALIBRATION_INTERVAL_S
     status_file: Path = Path("/var/lib/theseus/forecasts_status.json")
     budget_file: Path = DEFAULT_BUDGET_PATH
     max_predictions_per_cycle: int = 8
+    max_metric_scan_per_cycle: int = 32
     max_articles_per_week: int = DEFAULT_WEEKLY_ARTICLE_CAP
 
     @classmethod
@@ -94,6 +103,10 @@ class SchedulerConfig:
                 "FORECASTS_GENERATE_INTERVAL_S",
                 cls.generate_interval_s,
             ),
+            metric_scan_interval_s=_env_seconds(
+                "FORECASTS_METRIC_SCAN_INTERVAL_S",
+                cls.metric_scan_interval_s,
+            ),
             resolution_poll_interval_s=_env_seconds(
                 "FORECASTS_RESOLUTION_POLL_INTERVAL_S",
                 cls.resolution_poll_interval_s,
@@ -101,6 +114,10 @@ class SchedulerConfig:
             paper_bet_drain_interval_s=_env_seconds(
                 "FORECASTS_PAPER_BET_DRAIN_INTERVAL_S",
                 cls.paper_bet_drain_interval_s,
+            ),
+            live_order_poll_interval_s=_env_seconds(
+                "FORECASTS_LIVE_ORDER_POLL_INTERVAL_S",
+                cls.live_order_poll_interval_s,
             ),
             article_interval_s=_env_seconds(
                 "FORECASTS_ARTICLE_INTERVAL_S",
@@ -120,6 +137,10 @@ class SchedulerConfig:
                 "FORECASTS_MAX_PREDICTIONS_PER_CYCLE",
                 cls.max_predictions_per_cycle,
             ),
+            max_metric_scan_per_cycle=_env_int(
+                "FORECASTS_MAX_METRIC_SCAN_PER_CYCLE",
+                cls.max_metric_scan_per_cycle,
+            ),
             max_articles_per_week=_env_nonnegative_int(
                 "NOOSPHERE_ARTICLES_WEEKLY_CAP",
                 cls.max_articles_per_week,
@@ -131,12 +152,21 @@ class SchedulerConfig:
 class SchedulerState:
     last_ingest_ts: str | None = None
     last_generate_ts: str | None = None
+    last_metric_scan_ts: str | None = None
+    last_candidate_ts: str | None = None
+    last_paper_bet_ts: str | None = None
+    last_live_candidate_ts: str | None = None
+    last_live_submission_ts: str | None = None
+    last_live_order_poll_ts: str | None = None
     last_resolve_ts: str | None = None
     last_article_ts: str | None = None
     last_public_calibration_ts: str | None = None
     last_public_calibration_hash: str | None = None
     last_recalibration_ts: str | None = None
     last_recalibration_models_written: int = 0
+    last_error: str | None = None
+    last_error_loop: str | None = None
+    last_error_ts: str | None = None
 
 
 @dataclass(frozen=True)
@@ -257,6 +287,33 @@ def _open_markets(store: Store) -> int:
         return len(list(session.exec(stmt).all()))
 
 
+def _last_live_submission_ts(store: Store) -> str | None:
+    """Return the most recent live-bet submission timestamp, or ``None``.
+
+    Submission timestamps are written by ``live_bet_engine.submit_live_bet``
+    (operator-driven). Surfacing them here lets the status payload show
+    operators when a live order last hit the exchange without giving the
+    scheduler permission to submit one itself.
+    """
+
+    org_id = _organization_id()
+    with store.session() as session:
+        stmt = (
+            select(ForecastBet.submitted_at)
+            .where(ForecastBet.mode == ForecastBetMode.LIVE.value)
+            .where(ForecastBet.submitted_at.is_not(None))
+        )
+        if org_id:
+            stmt = stmt.where(ForecastBet.organization_id == org_id)
+        row = session.exec(stmt.order_by(desc(ForecastBet.submitted_at)).limit(1)).first()
+    if row is None:
+        return None
+    submitted = row[0] if isinstance(row, tuple) else row
+    if not isinstance(submitted, datetime):
+        return None
+    return _as_utc(submitted).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+
+
 def _predictions_this_hour(store: Store, now: datetime) -> int:
     org_id = _organization_id()
     hour_start = now.replace(minute=0, second=0, microsecond=0)
@@ -282,18 +339,31 @@ def _predictions_this_hour(store: Store, now: datetime) -> int:
 def _status_payload(store: Store, state: SchedulerState) -> dict[str, Any]:
     now = _utcnow()
     portfolio = _portfolio_snapshot(store)
+    # Prefer the operator-recorded submission timestamp from the DB so the
+    # field stays accurate across scheduler restarts (in-memory state is lost
+    # on restart; the DB row survives).
+    db_live_submission_ts = _last_live_submission_ts(store)
     return {
         "ts": now.replace(microsecond=0).isoformat().replace("+00:00", "Z"),
         "kill_switch_engaged": portfolio.kill_switch_engaged,
         "kill_switch_reason": portfolio.kill_switch_reason,
         "last_ingest_ts": state.last_ingest_ts,
         "last_generate_ts": state.last_generate_ts,
+        "last_metric_scan_ts": state.last_metric_scan_ts,
+        "last_candidate_ts": state.last_candidate_ts,
+        "last_paper_bet_ts": state.last_paper_bet_ts,
+        "last_live_candidate_ts": state.last_live_candidate_ts,
+        "last_live_submission_ts": db_live_submission_ts or state.last_live_submission_ts,
+        "last_live_order_poll_ts": state.last_live_order_poll_ts,
         "last_resolve_ts": state.last_resolve_ts,
         "last_article_ts": state.last_article_ts,
         "last_public_calibration_ts": state.last_public_calibration_ts,
         "last_public_calibration_hash": state.last_public_calibration_hash,
         "last_recalibration_ts": state.last_recalibration_ts,
         "last_recalibration_models_written": state.last_recalibration_models_written,
+        "last_error": state.last_error,
+        "last_error_loop": state.last_error_loop,
+        "last_error_ts": state.last_error_ts,
         "paper_balance_usd": portfolio.paper_balance_usd,
         "live_balance_usd": portfolio.live_balance_usd,
         "live_trading_enabled": portfolio.live_trading_enabled,
@@ -315,8 +385,12 @@ async def _write_status(
         return payload
 
 
-def _log_tick(report: TickReport) -> None:
+def _log_tick(report: TickReport, state: SchedulerState | None = None) -> None:
     log.info("forecasts_scheduler_tick", **asdict(report))
+    if state is not None and report.errors:
+        state.last_error = report.errors[0]
+        state.last_error_loop = report.loop
+        state.last_error_ts = utc_now_iso()
 
 
 async def _sleep_or_stop(seconds: float, stop_event: asyncio.Event) -> None:
@@ -585,6 +659,212 @@ async def _tick_paper_drain(
     )
 
 
+def _has_open_paper_bet(session: Any, prediction_id: str) -> bool:
+    row = session.exec(
+        select(ForecastBet.id)
+        .where(ForecastBet.prediction_id == prediction_id)
+        .where(ForecastBet.mode == ForecastBetMode.PAPER.value)
+        .where(ForecastBet.status == ForecastBetStatus.FILLED.value)
+        .limit(1)
+    ).first()
+    return row is not None
+
+
+def _recent_predictions_for_metric_scan(
+    store: Store,
+    *,
+    limit: int,
+) -> list[ForecastPrediction]:
+    """Return recent published predictions that don't yet have an open paper
+    bet, scoped to the configured organization."""
+    if limit <= 0:
+        return []
+    org_id = _organization_id()
+    with store.session() as session:
+        stmt = select(ForecastPrediction).where(
+            ForecastPrediction.status == ForecastPredictionStatus.PUBLISHED.value
+        )
+        if org_id:
+            stmt = stmt.where(ForecastPrediction.organization_id == org_id)
+        rows = list(
+            session.exec(
+                stmt.order_by(desc(ForecastPrediction.created_at)).limit(max(limit * 4, limit))
+            ).all()
+        )
+        out: list[ForecastPrediction] = []
+        for prediction in rows:
+            if _has_open_paper_bet(session, prediction.id):
+                continue
+            out.append(prediction)
+            if len(out) >= limit:
+                break
+    return out
+
+
+def _edge_magnitude(prediction: ForecastPrediction, market: ForecastMarket) -> float | None:
+    p_yes = prediction.probability_yes
+    market_yes = market.current_yes_price
+    if p_yes is None or market_yes is None:
+        return None
+    try:
+        return abs(float(p_yes) - float(market_yes))
+    except (TypeError, ValueError):
+        return None
+
+
+async def _tick_decision_metrics(
+    store: Store,
+    *,
+    config: SchedulerConfig,
+    state: SchedulerState,
+    status_lock: asyncio.Lock,
+) -> TickReport:
+    """Re-apply Noosphere's decision metrics to recent predictions against the
+    current mirrored market price and emit paper-bet candidates / log
+    live-candidate IDs. Live submission is intentionally NOT triggered: that
+    stays operator-driven through prompt-17 safety gates.
+    """
+
+    started = time.monotonic()
+    started_at = utc_now_iso()
+    portfolio = _portfolio_snapshot(store)
+    state.last_metric_scan_ts = utc_now_iso()
+    if portfolio.kill_switch_engaged:
+        await _write_status(store, state, config=config, status_lock=status_lock)
+        return TickReport(
+            loop="metric_scan",
+            started_at=started_at,
+            duration_ms=int((time.monotonic() - started) * 1000),
+            status="skipped_kill_switch",
+            skipped=1,
+        )
+
+    paper_cfg = PaperBetConfig.from_env()
+    predictions = _recent_predictions_for_metric_scan(
+        store,
+        limit=config.max_metric_scan_per_cycle,
+    )
+    attempted = 0
+    paper_bets = 0
+    live_candidates = 0
+    errors: list[str] = []
+
+    for prediction in predictions:
+        attempted += 1
+        market = store.get_forecast_market(prediction.market_id)
+        if market is None:
+            continue
+        edge_mag = _edge_magnitude(prediction, market)
+        if edge_mag is not None and edge_mag >= EDGE_LIVE_THRESHOLD:
+            live_candidates += 1
+            state.last_live_candidate_ts = utc_now_iso()
+            log.info(
+                "forecasts_live_candidate_detected",
+                prediction_id=prediction.id,
+                market_id=prediction.market_id,
+                edge_magnitude=round(edge_mag, 6),
+            )
+        try:
+            bet = await evaluate_and_stake(store, prediction.id, config=paper_cfg)
+        except Exception as exc:
+            errors.append(f"prediction:{prediction.id}:{type(exc).__name__}: {exc}")
+            continue
+        if bet is None:
+            continue
+        paper_bets += 1
+        state.last_candidate_ts = utc_now_iso()
+        state.last_paper_bet_ts = utc_now_iso()
+
+    await _write_status(store, state, config=config, status_lock=status_lock)
+    return TickReport(
+        loop="metric_scan",
+        started_at=started_at,
+        duration_ms=int((time.monotonic() - started) * 1000),
+        status="ok" if not errors else "error",
+        attempted=attempted,
+        succeeded=paper_bets,
+        skipped=max(0, attempted - paper_bets - live_candidates),
+        errors=tuple(errors),
+    )
+
+
+def _submitted_live_bet_ids(store: Store) -> list[str]:
+    org_id = _organization_id()
+    with store.session() as session:
+        stmt = select(ForecastBet.id).where(
+            ForecastBet.mode == ForecastBetMode.LIVE.value
+        ).where(
+            ForecastBet.status == ForecastBetStatus.SUBMITTED.value
+        )
+        if org_id:
+            stmt = stmt.where(ForecastBet.organization_id == org_id)
+        rows = list(session.exec(stmt.limit(200)).all())
+    return [str(row) for row in rows]
+
+
+async def _tick_live_orders(
+    store: Store,
+    *,
+    config: SchedulerConfig,
+    state: SchedulerState,
+    status_lock: asyncio.Lock,
+    poll_fn: Callable[[Store, str], Awaitable[ForecastBetStatus | None]] | None = None,
+) -> TickReport:
+    """Refresh the status of outstanding live bets.
+
+    The default implementation is intentionally a no-op when no poll
+    callback is wired in: scheduler instances without exchange credentials
+    still record the cadence so the operator surface can show *attempted*
+    polling, but they will never call out to a live exchange.
+    """
+
+    started = time.monotonic()
+    started_at = utc_now_iso()
+    state.last_live_order_poll_ts = utc_now_iso()
+    portfolio = _portfolio_snapshot(store)
+    if not portfolio.live_trading_enabled:
+        await _write_status(store, state, config=config, status_lock=status_lock)
+        return TickReport(
+            loop="live_orders",
+            started_at=started_at,
+            duration_ms=int((time.monotonic() - started) * 1000),
+            status="skipped_disabled",
+            skipped=1,
+        )
+
+    bet_ids = _submitted_live_bet_ids(store)
+    if not bet_ids or poll_fn is None:
+        await _write_status(store, state, config=config, status_lock=status_lock)
+        return TickReport(
+            loop="live_orders",
+            started_at=started_at,
+            duration_ms=int((time.monotonic() - started) * 1000),
+            status="ok",
+            attempted=len(bet_ids),
+            skipped=len(bet_ids) if poll_fn is None else 0,
+        )
+
+    succeeded = 0
+    errors: list[str] = []
+    for bet_id in bet_ids:
+        try:
+            await poll_fn(store, bet_id)
+            succeeded += 1
+        except Exception as exc:
+            errors.append(f"bet:{bet_id}:{type(exc).__name__}: {exc}")
+
+    await _write_status(store, state, config=config, status_lock=status_lock)
+    return TickReport(
+        loop="live_orders",
+        started_at=started_at,
+        duration_ms=int((time.monotonic() - started) * 1000),
+        status="ok" if not errors else "error",
+        attempted=len(bet_ids),
+        succeeded=succeeded,
+        errors=tuple(errors),
+    )
+
+
 def _publish_calibration_manifest_sync(
     store: Store,
     *,
@@ -815,6 +1095,7 @@ async def _guarded_tick(
     name: str,
     lock: asyncio.Lock,
     runner: Callable[[], Awaitable[TickReport]],
+    state: SchedulerState | None = None,
 ) -> TickReport:
     if lock.locked():
         report = TickReport(
@@ -824,11 +1105,11 @@ async def _guarded_tick(
             status="skipped_overlap",
             skipped=1,
         )
-        _log_tick(report)
+        _log_tick(report, state)
         return report
     async with lock:
         report = await runner()
-        _log_tick(report)
+        _log_tick(report, state)
         return report
 
 
@@ -838,11 +1119,12 @@ async def _periodic_loop(
     lock: asyncio.Lock,
     runner: Callable[[], Awaitable[TickReport]],
     stop_event: asyncio.Event,
+    state: SchedulerState | None = None,
 ) -> None:
     while not stop_event.is_set():
         tick_started = time.monotonic()
         try:
-            await _guarded_tick(name, lock, runner)
+            await _guarded_tick(name, lock, runner, state)
         except Exception as exc:
             report = TickReport(
                 loop=name,
@@ -851,7 +1133,7 @@ async def _periodic_loop(
                 status="crashed",
                 errors=(f"{type(exc).__name__}: {exc}",),
             )
-            _log_tick(report)
+            _log_tick(report, state)
         elapsed = time.monotonic() - tick_started
         await _sleep_or_stop(max(0.0, float(interval_s) - elapsed), stop_event)
 
@@ -885,89 +1167,78 @@ def _install_signal_handlers(stop_event: asyncio.Event) -> Callable[[], None]:
     return _restore
 
 
-async def run_once(store: Store, *, config: SchedulerConfig) -> dict[str, Any]:
-    """Run each Forecasts scheduler sub-loop once and return the status payload."""
+_LOOP_NAMES: tuple[str, ...] = (
+    "ingest",
+    "generate",
+    "metric_scan",
+    "resolve",
+    "paper_drain",
+    "live_orders",
+    "articles",
+    "public_calibration",
+    "recalibration",
+)
+
+
+async def run_once(
+    store: Store,
+    *,
+    config: SchedulerConfig,
+    loops: Sequence[str] | None = None,
+) -> dict[str, Any]:
+    """Run the requested Forecasts scheduler sub-loops once and return the status payload.
+
+    ``loops=None`` runs the full set in dependency order (ingest → generate →
+    metric_scan → resolve → ...). Passing a sub-list (e.g. ``["metric_scan"]``)
+    lets the CLI surface a "metric-scan only" mode without spinning the rest.
+    """
     state = SchedulerState()
     status_lock = asyncio.Lock()
     budget = PersistentHourlyBudgetGuard(config.budget_file)
-    locks = {
-        "ingest": asyncio.Lock(),
-        "generate": asyncio.Lock(),
-        "resolve": asyncio.Lock(),
-        "paper_drain": asyncio.Lock(),
-        "articles": asyncio.Lock(),
-        "public_calibration": asyncio.Lock(),
-        "recalibration": asyncio.Lock(),
+    locks = {name: asyncio.Lock() for name in _LOOP_NAMES}
+    all_runners: dict[str, Callable[[], Awaitable[TickReport]]] = {
+        "ingest": lambda: _tick_ingest(
+            store, config=config, state=state, status_lock=status_lock,
+        ),
+        "generate": lambda: _tick_generate(
+            store,
+            config=config,
+            state=state,
+            status_lock=status_lock,
+            budget=budget,
+        ),
+        "metric_scan": lambda: _tick_decision_metrics(
+            store, config=config, state=state, status_lock=status_lock,
+        ),
+        "resolve": lambda: _tick_resolve(
+            store, config=config, state=state, status_lock=status_lock,
+        ),
+        "paper_drain": lambda: _tick_paper_drain(
+            store, config=config, state=state, status_lock=status_lock,
+        ),
+        "live_orders": lambda: _tick_live_orders(
+            store, config=config, state=state, status_lock=status_lock,
+        ),
+        "articles": lambda: _tick_articles(
+            store,
+            config=config,
+            state=state,
+            status_lock=status_lock,
+            budget=budget,
+        ),
+        "public_calibration": lambda: _tick_public_calibration(
+            store, config=config, state=state, status_lock=status_lock,
+        ),
+        "recalibration": lambda: _tick_recalibration(
+            store, config=config, state=state, status_lock=status_lock,
+        ),
     }
-    runners: list[tuple[str, Callable[[], Awaitable[TickReport]]]] = [
-        (
-            "ingest",
-            lambda: _tick_ingest(
-                store,
-                config=config,
-                state=state,
-                status_lock=status_lock,
-            ),
-        ),
-        (
-            "generate",
-            lambda: _tick_generate(
-                store,
-                config=config,
-                state=state,
-                status_lock=status_lock,
-                budget=budget,
-            ),
-        ),
-        (
-            "resolve",
-            lambda: _tick_resolve(
-                store,
-                config=config,
-                state=state,
-                status_lock=status_lock,
-            ),
-        ),
-        (
-            "paper_drain",
-            lambda: _tick_paper_drain(
-                store,
-                config=config,
-                state=state,
-                status_lock=status_lock,
-            ),
-        ),
-        (
-            "articles",
-            lambda: _tick_articles(
-                store,
-                config=config,
-                state=state,
-                status_lock=status_lock,
-                budget=budget,
-            ),
-        ),
-        (
-            "public_calibration",
-            lambda: _tick_public_calibration(
-                store,
-                config=config,
-                state=state,
-                status_lock=status_lock,
-            ),
-        ),
-        (
-            "recalibration",
-            lambda: _tick_recalibration(
-                store,
-                config=config,
-                state=state,
-                status_lock=status_lock,
-            ),
-        ),
-    ]
-    for name, runner in runners:
-        await _guarded_tick(name, locks[name], runner)
+    selected = list(loops) if loops is not None else list(_LOOP_NAMES)
+    unknown = [name for name in selected if name not in all_runners]
+    if unknown:
+        raise ValueError(f"unknown scheduler loops: {unknown}")
+    for name in selected:
+        await _guarded_tick(name, locks[name], all_runners[name], state)
     budget.save()
     return _status_payload(store, state)
 
@@ -981,137 +1252,110 @@ async def run_forever(store: Store, *, config: SchedulerConfig) -> None:
     state = SchedulerState()
     status_lock = asyncio.Lock()
     budget = PersistentHourlyBudgetGuard(config.budget_file)
-    locks = {
-        "ingest": asyncio.Lock(),
-        "generate": asyncio.Lock(),
-        "resolve": asyncio.Lock(),
-        "paper_drain": asyncio.Lock(),
-        "articles": asyncio.Lock(),
-        "public_calibration": asyncio.Lock(),
-        "recalibration": asyncio.Lock(),
-    }
+    locks = {name: asyncio.Lock() for name in _LOOP_NAMES}
+    loop_specs: list[tuple[str, float, Callable[[], Awaitable[TickReport]]]] = [
+        (
+            "ingest",
+            float(config.ingest_interval_s),
+            lambda: _tick_ingest(
+                store, config=config, state=state, status_lock=status_lock,
+            ),
+        ),
+        (
+            "generate",
+            float(config.generate_interval_s),
+            lambda: _tick_generate(
+                store,
+                config=config,
+                state=state,
+                status_lock=status_lock,
+                budget=budget,
+            ),
+        ),
+        (
+            "metric_scan",
+            float(config.metric_scan_interval_s),
+            lambda: _tick_decision_metrics(
+                store, config=config, state=state, status_lock=status_lock,
+            ),
+        ),
+        (
+            "resolve",
+            float(config.resolution_poll_interval_s),
+            lambda: _tick_resolve(
+                store, config=config, state=state, status_lock=status_lock,
+            ),
+        ),
+        (
+            "paper_drain",
+            float(config.paper_bet_drain_interval_s),
+            lambda: _tick_paper_drain(
+                store, config=config, state=state, status_lock=status_lock,
+            ),
+        ),
+        (
+            "live_orders",
+            float(config.live_order_poll_interval_s),
+            lambda: _tick_live_orders(
+                store, config=config, state=state, status_lock=status_lock,
+            ),
+        ),
+        (
+            "articles",
+            float(config.article_interval_s),
+            lambda: _tick_articles(
+                store,
+                config=config,
+                state=state,
+                status_lock=status_lock,
+                budget=budget,
+            ),
+        ),
+        (
+            "public_calibration",
+            float(config.public_calibration_interval_s),
+            lambda: _tick_public_calibration(
+                store, config=config, state=state, status_lock=status_lock,
+            ),
+        ),
+        (
+            "recalibration",
+            float(config.recalibration_interval_s),
+            lambda: _tick_recalibration(
+                store, config=config, state=state, status_lock=status_lock,
+            ),
+        ),
+    ]
     tasks = [
         asyncio.create_task(
             _periodic_loop(
-                "ingest",
-                float(config.ingest_interval_s),
-                locks["ingest"],
-                lambda: _tick_ingest(
-                    store,
-                    config=config,
-                    state=state,
-                    status_lock=status_lock,
-                ),
+                name,
+                interval_s,
+                locks[name],
+                runner,
                 stop_event,
+                state,
             ),
-            name="forecasts-ingest-loop",
-        ),
-        asyncio.create_task(
-            _periodic_loop(
-                "generate",
-                float(config.generate_interval_s),
-                locks["generate"],
-                lambda: _tick_generate(
-                    store,
-                    config=config,
-                    state=state,
-                    status_lock=status_lock,
-                    budget=budget,
-                ),
-                stop_event,
-            ),
-            name="forecasts-generate-loop",
-        ),
-        asyncio.create_task(
-            _periodic_loop(
-                "resolve",
-                float(config.resolution_poll_interval_s),
-                locks["resolve"],
-                lambda: _tick_resolve(
-                    store,
-                    config=config,
-                    state=state,
-                    status_lock=status_lock,
-                ),
-                stop_event,
-            ),
-            name="forecasts-resolve-loop",
-        ),
-        asyncio.create_task(
-            _periodic_loop(
-                "paper_drain",
-                float(config.paper_bet_drain_interval_s),
-                locks["paper_drain"],
-                lambda: _tick_paper_drain(
-                    store,
-                    config=config,
-                    state=state,
-                    status_lock=status_lock,
-                ),
-                stop_event,
-            ),
-            name="forecasts-paper-drain-loop",
-        ),
-        asyncio.create_task(
-            _periodic_loop(
-                "articles",
-                float(config.article_interval_s),
-                locks["articles"],
-                lambda: _tick_articles(
-                    store,
-                    config=config,
-                    state=state,
-                    status_lock=status_lock,
-                    budget=budget,
-                ),
-                stop_event,
-            ),
-            name="forecasts-articles-loop",
-        ),
-        asyncio.create_task(
-            _periodic_loop(
-                "public_calibration",
-                float(config.public_calibration_interval_s),
-                locks["public_calibration"],
-                lambda: _tick_public_calibration(
-                    store,
-                    config=config,
-                    state=state,
-                    status_lock=status_lock,
-                ),
-                stop_event,
-            ),
-            name="forecasts-public-calibration-loop",
-        ),
-        asyncio.create_task(
-            _periodic_loop(
-                "recalibration",
-                float(config.recalibration_interval_s),
-                locks["recalibration"],
-                lambda: _tick_recalibration(
-                    store,
-                    config=config,
-                    state=state,
-                    status_lock=status_lock,
-                ),
-                stop_event,
-            ),
-            name="forecasts-recalibration-loop",
-        ),
+            name=f"forecasts-{name}-loop",
+        )
+        for name, interval_s, runner in loop_specs
     ]
 
     log.info(
         "forecasts_scheduler_started",
         ingest_interval_s=config.ingest_interval_s,
         generate_interval_s=config.generate_interval_s,
+        metric_scan_interval_s=config.metric_scan_interval_s,
         resolution_poll_interval_s=config.resolution_poll_interval_s,
         paper_bet_drain_interval_s=config.paper_bet_drain_interval_s,
+        live_order_poll_interval_s=config.live_order_poll_interval_s,
         article_interval_s=config.article_interval_s,
         public_calibration_interval_s=config.public_calibration_interval_s,
         recalibration_interval_s=config.recalibration_interval_s,
         status_file=str(config.status_file),
         budget_file=str(config.budget_file),
         max_predictions_per_cycle=config.max_predictions_per_cycle,
+        max_metric_scan_per_cycle=config.max_metric_scan_per_cycle,
         max_articles_per_week=config.max_articles_per_week,
     )
     try:
@@ -1170,19 +1414,45 @@ def _configure_logging() -> None:
     )
 
 
+def write_status_only(store: Store, *, config: SchedulerConfig) -> dict[str, Any]:
+    """Write the current status payload to disk without running any tick.
+
+    Used by health probes and operator scripts that just want to refresh the
+    on-disk readiness signal — useful when the scheduler container is being
+    bootstrapped or when verifying file-permissions on a new data dir.
+    """
+    state = SchedulerState()
+    payload = _status_payload(store, state)
+    write_status(payload, config.status_file)
+    return payload
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="python -m noosphere.forecasts.scheduler")
     parser.add_argument(
         "command",
         nargs="?",
-        choices=("run", "once"),
+        choices=("run", "once", "tick", "metric-scan", "status-only"),
         default="run",
-        help="run the scheduler loop or one tick per sub-loop",
+        help=(
+            "run: standing scheduler · once/tick: one pass through every "
+            "sub-loop · metric-scan: only run the decision-metric scan · "
+            "status-only: refresh forecasts_status.json without side effects"
+        ),
     )
     parser.add_argument(
         "--once",
         action="store_true",
-        help="run one tick per sub-loop and exit",
+        help="alias for the 'once' subcommand",
+    )
+    parser.add_argument(
+        "--loop",
+        action="append",
+        default=None,
+        help=(
+            "Limit a 'tick'/'once' invocation to one or more named loops "
+            f"(repeatable). Valid names: {', '.join(_LOOP_NAMES)}."
+        ),
     )
     args = parser.parse_args(argv)
 
@@ -1192,8 +1462,21 @@ def main(argv: Sequence[str] | None = None) -> int:
     log.info("forecasts_trading_mode", trading_mode=current_trading_mode())
     store = _bootstrap_store()
     config = SchedulerConfig.from_env()
-    if args.once or args.command == "once":
-        payload = asyncio.run(run_once(store, config=config))
+
+    command = "once" if args.once else args.command
+    if command in {"once", "tick"}:
+        loops = args.loop if args.loop else None
+        payload = asyncio.run(run_once(store, config=config, loops=loops))
+        print(json.dumps({"ok": True, "status": payload}, sort_keys=True))
+        return 0
+    if command == "metric-scan":
+        payload = asyncio.run(
+            run_once(store, config=config, loops=["metric_scan"])
+        )
+        print(json.dumps({"ok": True, "status": payload}, sort_keys=True))
+        return 0
+    if command == "status-only":
+        payload = write_status_only(store, config=config)
         print(json.dumps({"ok": True, "status": payload}, sort_keys=True))
         return 0
 

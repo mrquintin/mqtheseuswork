@@ -1046,6 +1046,43 @@ def forecasts_run_cmd(
     raise typer.Exit(code=scheduler_main(["--once"] if once else ["run"]))
 
 
+@forecasts_app.command("tick")
+def forecasts_tick_cmd(
+    loop: Optional[list[str]] = typer.Option(
+        None,
+        "--loop",
+        help=(
+            "Limit the tick to one or more named sub-loops. Repeatable. "
+            "Valid names: ingest, generate, metric_scan, resolve, paper_drain, "
+            "live_orders, articles, public_calibration, recalibration."
+        ),
+    ),
+) -> None:
+    """Run one scheduler tick (optionally limited to specific sub-loops)."""
+    from noosphere.forecasts.scheduler import main as scheduler_main
+
+    argv = ["tick"]
+    for name in loop or []:
+        argv.extend(["--loop", name])
+    raise typer.Exit(code=scheduler_main(argv))
+
+
+@forecasts_app.command("metric-scan")
+def forecasts_metric_scan_cmd() -> None:
+    """Run only the decision-metric scan loop one time and exit."""
+    from noosphere.forecasts.scheduler import main as scheduler_main
+
+    raise typer.Exit(code=scheduler_main(["metric-scan"]))
+
+
+@forecasts_app.command("status-write")
+def forecasts_status_write_cmd() -> None:
+    """Refresh forecasts_status.json without running any tick (no side effects)."""
+    from noosphere.forecasts.scheduler import main as scheduler_main
+
+    raise typer.Exit(code=scheduler_main(["status-only"]))
+
+
 @literature_app.command("index")
 def literature_index_cmd() -> None:
     """Rebuild hybrid FTS index over stored claims (dense path uses embeddings when present)."""

@@ -1,0 +1,62 @@
+You are working in `/Users/michaelquintin/Desktop/Theseus`.
+
+Goal: expose empirical cases, abstract principles, transfer logic, and multi-frame decision traces in Theseus Codex.
+
+Product direction:
+The UI should make it visible that Theseus is not only summarizing sources. It is extracting cases, abstracting principles, testing contradictions, transferring principles to future cases, and making decisions through multiple explicit frameworks.
+
+Start by reading:
+- `docs/architecture/Algorithmized_Decision_Making.md`
+- `noosphere/noosphere/cases/`
+- `noosphere/noosphere/principles/`
+- `noosphere/noosphere/decisions/`
+- `theseus-codex/src/app/(authed)/knowledge/page.tsx`
+- `theseus-codex/src/app/(authed)/conclusions/[id]/page.tsx`
+- `theseus-codex/src/app/(authed)/transcripts/[uploadId]/page.tsx`
+- `theseus-codex/src/app/(authed)/forecasts/portfolio/ForecastPortfolioView.tsx`
+- `theseus-codex/src/app/(authed)/forecasts/operator/page.tsx`
+- types/API helpers used by those pages.
+
+Implement:
+1. Add or extend founder-only UI surfaces for:
+   - empirical cases;
+   - abstract principles;
+   - case-to-principle links;
+   - principle transfer graph;
+   - decision frame results;
+   - market decision traces.
+2. On transcript/upload pages:
+   - show extracted case studies;
+   - show principles abstracted from the source;
+   - show which claims are empirical, hypothetical, analogical, or abstract.
+3. On conclusion detail:
+   - show whether a conclusion is an abstract principle, empirical observation, or decision rule;
+   - show supporting and contradicting cases if available.
+4. On forecast/portfolio/operator pages:
+   - show the case/principle/decision-frame trace behind a market action;
+   - make abstentions visible and legible;
+   - show why a case transfer was accepted or rejected.
+5. Add empty states for when the backend has not yet produced case/principle metadata.
+6. Do not expose private case/source details publicly unless the source is public.
+
+Constraints:
+- Founder/operator surfaces can show private traces.
+- Public surfaces must preserve source visibility rules.
+- Do not make the UI block on slow analysis calls; use precomputed data or bounded fetches.
+
+Verification:
+- Run `npm run build` in `theseus-codex`.
+- Run `npx tsc --noEmit` in `theseus-codex`.
+- Browser-check Knowledge, one transcript, one conclusion, forecast portfolio, and operator pages.
+- Confirm private source text is not exposed on public pages.
+
+SCOPE:
+MODIFY theseus-codex/src/app/(authed)/knowledge/page.tsx
+MODIFY theseus-codex/src/app/(authed)/conclusions/[id]/page.tsx
+MODIFY theseus-codex/src/app/(authed)/transcripts/[uploadId]/page.tsx
+MODIFY theseus-codex/src/app/(authed)/forecasts/portfolio/ForecastPortfolioView.tsx
+MODIFY theseus-codex/src/app/(authed)/forecasts/operator/page.tsx
+MAYBE ADD theseus-codex/src/app/(authed)/principles/page.tsx
+MAYBE ADD theseus-codex/src/app/(authed)/cases/page.tsx
+MAYBE MODIFY shared forecast/types/API helpers.
+

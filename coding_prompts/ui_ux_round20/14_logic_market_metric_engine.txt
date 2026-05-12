@@ -1,0 +1,64 @@
+You are working in `/Users/michaelquintin/Desktop/Theseus`.
+
+Goal: implement the first version of a logic-based market decision metric engine.
+
+Product direction:
+For each market, Noosphere should produce a structured decision trace: named metrics, metric values, rule outputs, final action, confidence, stake recommendation, and reasons. The trace must be deterministic once inputs are fixed. LLMs may help classify evidence or produce prose, but the investable output must come from explicit metric/rule code.
+
+Start by reading:
+- `docs/architecture/Algorithmized_Decision_Making.md`
+- `noosphere/noosphere/forecasts/edge_calc.py`
+- `noosphere/noosphere/forecasts/forecast_generator.py`
+- `noosphere/noosphere/forecasts/retrieval_adapter.py`
+- `noosphere/noosphere/forecasts/paper_bet_engine.py`
+- `noosphere/noosphere/forecasts/status.py`
+- `noosphere/noosphere/models.py`
+- forecast tests.
+
+Implement:
+1. Add a new module for decision traces. Prefer a focused forecasts package path unless a broader Noosphere package already exists:
+   - `noosphere/noosphere/forecasts/decision_metrics.py`
+   - or `noosphere/noosphere/decisions/` if the codebase clearly supports that package boundary.
+2. Define typed models/dataclasses for:
+   - `DecisionMetric`;
+   - `DecisionRuleResult`;
+   - `MarketDecisionTrace`;
+   - `MarketDecisionAction` with at least: ABSTAIN, WATCH, PAPER_TRADE, LIVE_CANDIDATE, REDUCE, EXIT.
+3. Implement initial metric calculators:
+   - market mispricing edge from model probability vs market price;
+   - calibration-adjusted confidence;
+   - source-domain locality from retrieved source/conclusion relevance;
+   - contradiction pressure from known contradictory/open conclusions if accessible;
+   - liquidity/cost feasibility;
+   - recency/temporal decay pressure.
+4. Implement a rule graph:
+   - hard abstain if market is closed, expired, too illiquid, or outside domain;
+   - WATCH if evidence is relevant but edge is below threshold;
+   - PAPER_TRADE if edge clears threshold but live gates are absent or calibration is weak;
+   - LIVE_CANDIDATE only when edge, confidence, calibration, liquidity, and safety preconditions all clear.
+5. Return a stable JSON shape for UI/API consumption.
+6. Wire the trace into forecast generation or portfolio candidate generation without breaking existing public forecast APIs.
+7. Add tests with hand-built fixtures that assert the trace and action for:
+   - no edge;
+   - strong edge but low liquidity;
+   - strong edge and good calibration;
+   - out-of-domain market;
+   - contradictory evidence pressure causing downgrade.
+
+Constraints:
+- Do not place live orders in this prompt.
+- Do not let prose override metric/rule output.
+- Do not make every metric mandatory if data is missing; missing data should lower confidence or force WATCH/ABSTAIN, not crash.
+
+Verification:
+- Run focused forecast tests.
+- Run `python -m pytest noosphere/tests/test_forecasts* noosphere/tests/test_live_bet_safety.py -q` if runtime is practical.
+- Run `git diff --check`.
+
+SCOPE:
+ADD noosphere/noosphere/forecasts/decision_metrics.py
+ADD noosphere/tests/test_forecast_decision_metrics.py
+MODIFY noosphere/noosphere/forecasts/forecast_generator.py or portfolio candidate code as needed.
+MODIFY noosphere/noosphere/forecasts/edge_calc.py only if needed to reuse existing edge logic.
+MAYBE MODIFY API/type files consumed by theseus-codex.
+

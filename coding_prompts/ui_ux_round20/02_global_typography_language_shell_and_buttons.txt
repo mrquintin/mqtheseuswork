@@ -1,0 +1,60 @@
+You are working in `/Users/michaelquintin/Desktop/Theseus`.
+
+Goal: make the global founder/operator UI calmer, less theatrical, and more responsive without erasing the Theseus identity.
+
+Current live problems:
+- Operational pages use ceremonial language and typography: "Conclusiones", "Dedicatio", "Sisyphus", "Scriba praeparat", wide all-caps labels, and italic body copy.
+- The top nav/account/help cluster is visually dense.
+- Buttons and anchor-like actions do not consistently communicate disabled, loading, success, or failure states.
+
+Start by reading:
+- `docs/architecture/UI_UX_Round20_Contract.md`
+- `theseus-codex/src/app/globals.css`
+- `theseus-codex/src/components/Nav.tsx`
+- `theseus-codex/src/components/PageHelp.tsx`
+- `theseus-codex/src/components/KeyboardShortcuts.tsx`
+- `theseus-codex/src/components/ThemeToggle.tsx`
+- existing shared button/action components.
+
+Implement:
+1. Add or refine shared UI primitives for:
+   - compact page headers;
+   - section headers;
+   - action rows;
+   - quiet status badges;
+   - loading/disabled/success/error button states.
+2. Reduce aggressive display styling on authenticated pages:
+   - less letter spacing;
+   - smaller operational headings;
+   - remove decorative Latin labels from workflow surfaces;
+   - avoid italic body copy except for quoted source text.
+3. Keep public marketing/manifesto pages visually distinctive, but tone down Currents/Publications headings if they still read as too dramatic.
+4. Make navigation responsive:
+   - no horizontal overflow;
+   - account/help/sign-out cluster should collapse or wrap cleanly;
+   - active route is visible but not excessively ornamental.
+5. Normalize labels:
+   - `Conclusiones` -> `Conclusions`;
+   - `Dedicatio` -> `Upload`;
+   - placeholder/loading labels should be plain English;
+   - do not change legal/methodological terms that are semantically important.
+6. Add reusable classes/components rather than one-off page-specific CSS when possible.
+
+Constraints:
+- Preserve all routes and permissions.
+- Do not make a new landing page.
+- Keep dark mode and light mode working.
+
+Verification:
+- Run `npm run build` in `theseus-codex`.
+- Use browser or Playwright screenshots for `/dashboard`, `/knowledge`, `/upload`, and `/ops` at desktop and mobile widths.
+- Confirm no route has visible horizontal overflow.
+
+SCOPE:
+MODIFY theseus-codex/src/app/globals.css
+MODIFY theseus-codex/src/components/Nav.tsx
+MODIFY theseus-codex/src/components/PageHelp.tsx
+MAYBE MODIFY theseus-codex/src/components/KeyboardShortcuts.tsx
+MAYBE ADD shared UI primitives under theseus-codex/src/components/design/
+MAYBE MODIFY authenticated page files only where labels are hard-coded.
+

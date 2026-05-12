@@ -53,30 +53,12 @@ export default function FailureModesCard({
 
   if (matched.length === 0) {
     return (
-      <section
-        className="portal-card"
-        style={{
-          padding: "0.85rem 1.1rem",
-          marginBottom: "1.5rem",
-        }}
-      >
-        <h2
-          className="mono"
-          style={{
-            color: "var(--amber-dim)",
-            fontSize: "0.62rem",
-            letterSpacing: "0.22em",
-            margin: 0,
-            textTransform: "uppercase",
-          }}
-        >
-          Failure modes
-        </h2>
+      <section style={{ padding: "0.25rem 0" }}>
         <p
           style={{
             color: "var(--parchment-dim)",
             fontSize: "0.78rem",
-            margin: "0.3rem 0 0",
+            margin: 0,
           }}
         >
           No matched failure modes for the methods this conclusion was
@@ -110,12 +92,10 @@ export default function FailureModesCard({
 
   return (
     <section
-      className="portal-card"
       aria-labelledby="failure-modes-title"
       data-failure-modes-gate={hydrated && gateOk ? "ok" : "blocked"}
       style={{
-        padding: "1rem 1.25rem",
-        marginBottom: "1.5rem",
+        padding: "0.5rem 0.75rem",
         borderLeft: gateOk
           ? "3px solid var(--gold-dim)"
           : "3px solid var(--ember)",

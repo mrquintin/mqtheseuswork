@@ -262,6 +262,71 @@ def test_operator_kill_switch_routes_require_csrf_and_long_disengage_note(client
     assert disengaged.json()["kill_switch_engaged"] is False
 
 
+def test_operator_setup_status_reports_blockers_without_leaking_keys(
+    client,
+    monkeypatch,
+    tmp_path,
+) -> None:
+    _configure_operator_env(monkeypatch, configured=False, live_enabled=False, max_stake="0", max_loss="0")
+    seed_operator_live_bet(client.app.state.store)
+    monkeypatch.delenv("KALSHI_API_KEY_ID", raising=False)
+    monkeypatch.delenv("KALSHI_API_PRIVATE_KEY", raising=False)
+    monkeypatch.delenv("KALSHI_PRIVATE_KEY_PEM", raising=False)
+    monkeypatch.setenv("FORECASTS_STATUS_PATH", str(tmp_path / "forecasts_status.json"))
+
+    response = _operator_get(client, "/v1/operator/setup-status")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["trading_mode"] == "PAPER_ONLY"
+    assert body["live_trading_enabled"] is False
+    assert body["exchanges"]["polymarket"]["configured"] is False
+    assert body["exchanges"]["kalshi"]["configured"] is False
+    assert body["scheduler"]["present"] is False
+    assert body["scheduler"]["fresh"] is False
+    assert body["readiness"]["ready_for_live_orders"] is False
+    blockers = body["readiness"]["blockers"]
+    assert "scheduler_status_stale_or_missing" in blockers
+    assert "no_exchange_configured" in blockers
+    assert "live_trading_flag_disabled" in blockers
+    assert "max_stake_usd_not_configured" in blockers
+    assert "max_daily_loss_usd_not_configured" in blockers
+    polymarket_required = body["exchanges"]["polymarket"]["required_env_vars"]
+    assert any(env["name"] == "POLYMARKET_PRIVATE_KEY" and env["present"] is False for env in polymarket_required)
+
+
+def test_operator_setup_status_marks_ready_when_fully_configured(
+    client,
+    monkeypatch,
+    tmp_path,
+) -> None:
+    _configure_operator_env(monkeypatch)
+    monkeypatch.setenv("KALSHI_API_KEY_ID", "kalshi-key-id")
+    monkeypatch.setenv("KALSHI_API_PRIVATE_KEY", "-----BEGIN PRIVATE KEY-----\\nMIIB\\n-----END PRIVATE KEY-----")
+    status_path = tmp_path / "forecasts_status.json"
+    fresh_ts = datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+    status_path.write_text(json.dumps({"last_ingest_ts": fresh_ts}))
+    monkeypatch.setenv("FORECASTS_STATUS_PATH", str(status_path))
+    seed_operator_live_bet(client.app.state.store)
+
+    response = _operator_get(client, "/v1/operator/setup-status")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["exchanges"]["polymarket"]["configured"] is True
+    assert body["exchanges"]["kalshi"]["configured"] is True
+    assert body["scheduler"]["present"] is True
+    assert body["scheduler"]["fresh"] is True
+    assert body["readiness"]["monitoring_active"] is True
+    assert body["readiness"]["ready_for_live_candidates"] is True
+    assert body["readiness"]["ready_for_live_orders"] is True
+    assert body["readiness"]["blockers"] == []
+    serialized = json.dumps(body)
+    assert "0x" + "1" * 64 not in serialized
+    assert "MIIB" not in serialized
+    assert "BEGIN PRIVATE KEY" not in serialized
+
+
 def test_operator_can_cancel_authorized_live_bet_before_submission(client, monkeypatch) -> None:
     _configure_operator_env(monkeypatch)
     seed_operator_live_bet(client.app.state.store, external_order_id=None)

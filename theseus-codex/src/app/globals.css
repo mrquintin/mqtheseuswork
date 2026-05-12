@@ -604,7 +604,437 @@ input::placeholder, textarea::placeholder {
   border-color: var(--amber-deep);
   box-shadow: none;
   color: var(--parchment-dim);
+  /* "Not ready" cursor. The in-flight (loading) treatment uses wait
+     via .btn--loading below; keeping them visually distinct is the
+     Round 20 contract requirement. */
+  cursor: not-allowed;
+}
+
+/* ── Button variants (Round 20) ──────────────────────────────────────────
+ * The default `.btn` (Cinzel uppercase) reads as ceremonial. For dense
+ * workflow surfaces we expose two quieter variants — `quiet` and
+ * `ghost` — that share size/hit-target with `.btn` but drop the
+ * theatrical tracking and font.
+ *
+ * Variants are additive: `<button class="btn btn--quiet">…</button>`
+ * keeps the focus ring and disabled treatment from `.btn`.
+ */
+.btn--default { /* explicit alias for the original .btn appearance */ }
+
+.btn--quiet {
+  font-family: 'Inter', 'EB Garamond', Georgia, serif;
+  font-size: 0.78rem;
+  font-weight: 500;
+  letter-spacing: 0.02em;
+  text-transform: none;
+  padding: 0.45rem 0.95rem;
+  border-color: var(--border);
+  color: var(--parchment);
+  text-shadow: none;
+}
+
+.btn--quiet:hover {
+  background: var(--stone-mid);
+  border-color: var(--amber-dim);
+  color: var(--amber);
+  box-shadow: none;
+}
+
+.btn--ghost {
+  font-family: 'Inter', 'EB Garamond', Georgia, serif;
+  font-size: 0.78rem;
+  font-weight: 500;
+  letter-spacing: 0.02em;
+  text-transform: none;
+  padding: 0.35rem 0.6rem;
+  border-color: transparent;
+  background: transparent;
+  color: var(--amber);
+  text-shadow: none;
+}
+
+.btn--ghost:hover {
+  background: rgba(233, 163, 56, 0.08);
+  border-color: transparent;
+  color: var(--amber);
+  box-shadow: none;
+}
+
+.btn--sm {
+  font-size: 0.7rem;
+  padding: 0.3rem 0.7rem;
+}
+
+.btn--solid,
+.btn-solid {
+  background: var(--amber-dim);
+  color: var(--stone);
+  border-color: var(--amber-dim);
+  text-shadow: none;
+}
+
+.btn--solid:hover,
+.btn-solid:hover {
+  background: var(--amber);
+  border-color: var(--amber);
+  box-shadow: var(--glow-lg);
+}
+
+/* ── Button states (loading / success / error) ───────────────────────────
+ * Three additive modifiers on top of any variant. They communicate the
+ * outcome of the action without removing the button from the DOM, which
+ * matters for re-tries and for screen-reader continuity (the live region
+ * for `aria-busy` is the button itself).
+ */
+.btn--loading {
+  position: relative;
   cursor: wait;
+  /* Slight desaturation so the user can see the action is "in flight"
+     rather than just "disabled". */
+  color: var(--amber-dim);
+  border-color: var(--amber-dim);
+}
+
+.btn--loading .btn-label {
+  opacity: 0.7;
+}
+
+.btn-spinner {
+  display: inline-block;
+  width: 0.78em;
+  height: 0.78em;
+  margin-right: 0.5em;
+  border: 1.5px solid currentColor;
+  border-right-color: transparent;
+  border-radius: 50%;
+  vertical-align: -0.12em;
+  animation: btn-spin 0.7s linear infinite;
+}
+
+@keyframes btn-spin {
+  to { transform: rotate(360deg); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .btn-spinner { animation: none; opacity: 0.65; }
+}
+
+.btn--success {
+  border-color: var(--success);
+  color: var(--success);
+  background: transparent;
+}
+
+.btn--success:hover {
+  background: rgba(126, 168, 58, 0.1);
+  border-color: var(--success);
+  color: var(--success);
+  box-shadow: none;
+}
+
+.btn--success .btn-glyph {
+  margin-right: 0.45em;
+  font-weight: 600;
+}
+
+.btn--error {
+  border-color: var(--ember);
+  color: var(--ember);
+  background: transparent;
+}
+
+.btn--error:hover {
+  background: rgba(201, 74, 31, 0.1);
+  border-color: var(--ember);
+  color: var(--ember);
+  box-shadow: none;
+}
+
+.btn[aria-busy="true"] {
+  cursor: wait;
+}
+
+/* Anchors styled like .btn inherit disabled visuals via [aria-disabled]. */
+.btn[aria-disabled="true"],
+.btn[aria-disabled="true"]:hover {
+  background: transparent;
+  border-color: var(--amber-deep);
+  box-shadow: none;
+  color: var(--parchment-dim);
+  cursor: not-allowed;
+  pointer-events: none;
+}
+
+/* ── Page header (compact, authenticated) ────────────────────────────────
+ * Use on workflow surfaces where the heading needs to be visible but
+ * should not dominate the first viewport. Operational sibling to
+ * `PageHelp` (and to public `.public-title`).
+ */
+.page-header {
+  align-items: flex-start;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.85rem 1.5rem;
+  justify-content: space-between;
+  margin: 0 0 1.25rem;
+}
+
+.page-header__lead {
+  min-width: 0;
+  flex: 1 1 22rem;
+}
+
+.page-header__kicker {
+  color: var(--amber-dim);
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 0.6rem;
+  letter-spacing: 0.16em;
+  margin: 0 0 0.3rem;
+  text-transform: uppercase;
+}
+
+.page-header__title {
+  color: var(--amber);
+  font-family: 'Cinzel', serif;
+  font-size: 1.45rem;
+  font-weight: 500;
+  letter-spacing: 0.06em;
+  line-height: 1.2;
+  margin: 0;
+  text-shadow: var(--glow-sm);
+}
+
+.page-header__desc {
+  color: var(--parchment-dim);
+  font-family: 'EB Garamond', Georgia, serif;
+  font-size: 1rem;
+  font-style: normal;
+  line-height: 1.55;
+  margin: 0.45rem 0 0;
+  max-width: 64ch;
+}
+
+.page-header__actions {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+@media (max-width: 720px) {
+  .page-header__title { font-size: 1.25rem; letter-spacing: 0.04em; }
+}
+
+/* ── Section header (in-page grouping) ───────────────────────────────────
+ * Used inside cards/sections. Tracking is reserved for the *kicker* —
+ * the heading itself stays close to body proportions.
+ */
+.section-header {
+  align-items: flex-end;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem 1rem;
+  justify-content: space-between;
+  margin: 0 0 0.75rem;
+}
+
+.section-header__lead { min-width: 0; flex: 1 1 18rem; }
+
+.section-header__kicker {
+  color: var(--amber-dim);
+  display: block;
+  font-size: 0.58rem;
+  letter-spacing: 0.18em;
+  margin: 0 0 0.2rem;
+  text-transform: uppercase;
+}
+
+.section-header__title {
+  color: var(--amber);
+  font-family: 'Cinzel', serif;
+  font-size: 1.02rem;
+  font-weight: 500;
+  letter-spacing: 0.04em;
+  line-height: 1.25;
+  margin: 0;
+}
+
+.section-header__hint {
+  color: var(--parchment-dim);
+  font-size: 0.85rem;
+  line-height: 1.45;
+  margin: 0.3rem 0 0;
+  max-width: 60ch;
+}
+
+.section-header__actions {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+
+/* ── Action row ──────────────────────────────────────────────────────────
+ * Group of inline actions (buttons/links). Wraps before causing
+ * horizontal overflow.
+ */
+.action-row {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+  justify-content: flex-end;
+  margin: 0;
+}
+
+.action-row--start { justify-content: flex-start; }
+.action-row--between { justify-content: space-between; }
+.action-row--gap-sm { gap: 0.35rem; }
+
+/* ── Status pill (quiet, inline) ─────────────────────────────────────────
+ * Sibling to `.badge-*` but smaller and lower contrast — for inline
+ * metadata next to a title.
+ */
+.status-pill {
+  align-items: center;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  color: var(--parchment-dim);
+  display: inline-flex;
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 0.6rem;
+  gap: 0.3rem;
+  letter-spacing: 0.1em;
+  line-height: 1;
+  padding: 0.18rem 0.5rem;
+  text-transform: uppercase;
+  vertical-align: middle;
+}
+
+.status-pill--neutral { color: var(--parchment-dim); border-color: var(--border); }
+.status-pill--info    { color: var(--info);          border-color: var(--info); }
+.status-pill--success { color: var(--success);       border-color: var(--success); }
+.status-pill--warning { color: var(--amber);         border-color: var(--amber-dim); }
+.status-pill--danger  { color: var(--ember);         border-color: var(--ember); }
+
+/* ── Top nav (founder shell) — responsive vocabulary ─────────────────────
+ * Round 20 moves the founder nav off inline styles. The CSS lives here
+ * so it can collapse cleanly at narrow widths without `Nav.tsx`
+ * carrying breakpoint logic.
+ *
+ *   .nav-shell        sticky bar
+ *   .nav-shell__inner content row, wraps before overflow
+ *   .nav-shell__brand wordmark + labyrinth
+ *   .nav-shell__links primary route links
+ *   .nav-shell__meta  account/help/theme/sign-out cluster
+ */
+.nav-shell {
+  background: var(--stone);
+  border-bottom: 1px solid var(--border);
+  position: sticky;
+  top: 0;
+  z-index: 50;
+}
+
+.nav-shell__inner {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem 1.25rem;
+  justify-content: space-between;
+  margin: 0 auto;
+  max-width: 1200px;
+  min-height: 64px;
+  padding: 0.85rem 1rem;
+}
+
+.nav-shell__brand {
+  align-items: center;
+  color: var(--amber);
+  display: inline-flex;
+  font-family: 'Cinzel', serif;
+  font-size: 0.95rem;
+  font-weight: 600;
+  gap: 0.5rem;
+  letter-spacing: 0.18em;
+  text-decoration: none;
+  text-shadow: var(--glow-sm);
+}
+
+.nav-shell__links {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem 1.1rem;
+  justify-content: center;
+  min-width: 0;
+}
+
+.nav-shell__link {
+  align-items: center;
+  color: var(--parchment-dim);
+  display: inline-flex;
+  font-family: 'Cinzel', serif;
+  font-size: 0.7rem;
+  gap: 0.35rem;
+  letter-spacing: 0.1em;
+  padding: 0.3rem 0.1rem;
+  text-decoration: none;
+  text-transform: uppercase;
+  transition: color 0.15s ease, border-color 0.15s ease;
+  border-bottom: 1px solid transparent;
+}
+
+.nav-shell__link:hover { color: var(--amber); }
+
+.nav-shell__link[aria-current="page"] {
+  color: var(--amber);
+  border-bottom-color: var(--amber-dim);
+}
+
+.nav-shell__meta {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem 0.8rem;
+  justify-content: flex-end;
+}
+
+.nav-shell__help,
+.nav-shell__account {
+  color: var(--parchment-dim);
+  font-family: 'Cinzel', serif;
+  font-size: 0.62rem;
+  letter-spacing: 0.1em;
+  text-decoration: none;
+  text-transform: uppercase;
+  transition: color 0.15s ease;
+}
+
+.nav-shell__help:hover,
+.nav-shell__account:hover {
+  color: var(--amber);
+}
+
+.nav-shell__account-org {
+  color: var(--parchment-dim);
+  margin-left: 0.35rem;
+}
+
+.nav-shell__signout {
+  font-size: 0.6rem;
+  padding: 0.3rem 0.75rem;
+}
+
+@media (max-width: 900px) {
+  .nav-shell__inner { gap: 0.5rem 0.75rem; }
+  .nav-shell__links { gap: 0.3rem 0.7rem; }
+  .nav-shell__link  { font-size: 0.66rem; letter-spacing: 0.08em; }
+}
+
+@media (max-width: 640px) {
+  .nav-shell__inner { padding: 0.7rem 0.85rem; }
+  .nav-shell__account-org { display: none; }
 }
 
 .public-checkbox {
@@ -1094,6 +1524,13 @@ input::placeholder, textarea::placeholder {
 
 [data-theseus-x-embed="page"]:has(> iframe) {
   background: var(--currents-bg);
+}
+
+[data-theseus-x-embed] > iframe {
+  background: inherit !important;
+  border-radius: 16px !important;
+  color-scheme: dark;
+  display: block;
 }
 
 @keyframes currents-pulse {
@@ -1678,13 +2115,262 @@ input::placeholder, textarea::placeholder {
   align-items: start;
   display: grid;
   gap: 1rem;
-  grid-template-columns: minmax(0, 1fr) 290px;
+  grid-template-columns: minmax(0, 1fr) 300px;
 }
 
-.transcript-main {
+.transcript-main,
+.transcript-primary {
   display: grid;
   gap: 0.55rem;
   min-width: 0;
+}
+
+.transcript-side-rail {
+  display: grid;
+  gap: 0.85rem;
+  position: sticky;
+  top: 5.25rem;
+}
+
+.transcript-reader-toolbar {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  justify-content: space-between;
+  margin-bottom: 0.35rem;
+}
+
+.transcript-reader-search {
+  display: grid;
+  flex: 1 1 240px;
+  gap: 0.25rem;
+}
+
+.transcript-reader-search > .mono {
+  color: var(--amber-dim);
+  font-size: 0.6rem;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+}
+
+.transcript-reader-search input {
+  background: rgba(14, 10, 6, 0.4);
+  border: 1px solid rgba(232, 225, 211, 0.18);
+  color: var(--parchment);
+  font: inherit;
+  padding: 0.45rem 0.6rem;
+}
+
+.transcript-reader-search input:focus {
+  border-color: rgba(205, 151, 67, 0.6);
+  outline: none;
+}
+
+.transcript-reader-count {
+  color: var(--parchment-dim);
+  font-size: 0.62rem;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.transcript-reader-empty {
+  color: var(--parchment-dim);
+  font-size: 0.95rem;
+  padding: 0.85rem 0;
+}
+
+.transcript-search-hit {
+  background: rgba(205, 151, 67, 0.28);
+  color: inherit;
+  padding: 0 0.1em;
+}
+
+.transcript-chunk-copy {
+  background: transparent;
+  border: 1px solid rgba(232, 225, 211, 0.16);
+  color: var(--parchment-dim);
+  cursor: pointer;
+  display: inline-block;
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 0.56rem;
+  letter-spacing: 0.14em;
+  margin-top: 0.25rem;
+  padding: 0.18rem 0.4rem;
+  text-transform: uppercase;
+}
+
+.transcript-chunk-copy:hover {
+  border-color: rgba(205, 151, 67, 0.45);
+  color: var(--amber);
+}
+
+.transcript-chunk-index {
+  color: var(--parchment-dim);
+  font-size: 0.62rem;
+}
+
+.transcript-body {
+  max-width: 70ch;
+}
+
+.transcript-status-row {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin: 0.45rem 0 0;
+}
+
+.transcript-status-note {
+  color: var(--parchment-dim);
+  font-size: 0.62rem;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.transcript-section-nav {
+  display: grid;
+  gap: 0.55rem;
+  padding: 0.85rem;
+}
+
+.transcript-section-nav h2 {
+  color: var(--amber-dim);
+  font-size: 0.62rem;
+  letter-spacing: 0.18em;
+  margin: 0;
+  text-transform: uppercase;
+}
+
+.transcript-section-nav ul {
+  display: grid;
+  gap: 0.3rem;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.transcript-section-nav a {
+  color: var(--parchment);
+  display: block;
+  font-size: 0.86rem;
+  line-height: 1.35;
+  text-decoration: none;
+}
+
+.transcript-section-nav a:hover {
+  color: var(--amber);
+}
+
+.transcript-analysis {
+  display: grid;
+  gap: 0.85rem;
+  margin-top: 0.5rem;
+  padding-top: 1rem;
+  border-top: 1px solid rgba(232, 225, 211, 0.12);
+}
+
+.transcript-analysis-kicker {
+  color: var(--amber-dim);
+  font-size: 0.62rem;
+  letter-spacing: 0.2em;
+  margin: 0;
+  text-transform: uppercase;
+}
+
+.transcript-analysis-note {
+  color: var(--parchment-dim);
+  font-size: 0.86rem;
+  line-height: 1.5;
+  margin: 0;
+}
+
+.transcript-index-list {
+  display: grid;
+  gap: 0.7rem;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.transcript-index-row {
+  display: grid;
+  gap: 0.55rem;
+  padding: 0.85rem 1rem;
+}
+
+.transcript-index-row-head {
+  align-items: baseline;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+}
+
+.transcript-index-kind {
+  border: 1px solid rgba(232, 225, 211, 0.16);
+  color: var(--parchment-dim);
+  font-size: 0.58rem;
+  letter-spacing: 0.18em;
+  padding: 0.18rem 0.42rem;
+}
+
+.transcript-index-kind-audio {
+  border-color: rgba(205, 151, 67, 0.55);
+  color: var(--amber);
+}
+
+.transcript-index-kind-transcript {
+  border-color: rgba(58, 122, 168, 0.55);
+  color: var(--info);
+}
+
+.transcript-index-title {
+  font-family: "EB Garamond", serif;
+  font-size: 1.08rem;
+  margin: 0;
+}
+
+.transcript-index-title a {
+  color: var(--parchment);
+  text-decoration: none;
+}
+
+.transcript-index-title a:hover {
+  color: var(--amber);
+}
+
+.transcript-index-fields {
+  display: grid;
+  gap: 0.45rem 1rem;
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  margin: 0;
+}
+
+.transcript-index-fields > div {
+  display: grid;
+  gap: 0.1rem;
+}
+
+.transcript-index-fields dt {
+  color: var(--amber-dim);
+  font-size: 0.54rem;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+}
+
+.transcript-index-fields dd {
+  color: var(--parchment);
+  font-size: 0.82rem;
+  margin: 0;
+}
+
+.transcript-index-blurb {
+  color: var(--parchment-dim);
+  font-size: 0.84rem;
+  line-height: 1.45;
+  margin: 0;
+  max-width: 70ch;
 }
 
 .transcript-chunk {
@@ -1811,12 +2497,8 @@ input::placeholder, textarea::placeholder {
     grid-template-columns: 1fr;
   }
 
-  .transcript-related-rail {
-    display: none;
-  }
-
-  .transcript-related-drawer {
-    display: block;
+  .transcript-side-rail {
+    position: static;
   }
 
   .transcript-chunk-grid {

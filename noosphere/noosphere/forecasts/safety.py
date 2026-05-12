@@ -106,13 +106,18 @@ def current_trading_mode() -> str:
     )
     if not live_enabled:
         return "PAPER_ONLY"
-    kalshi_configured = (
+    kalshi_configured = bool(
         os.getenv("KALSHI_API_KEY_ID", "").strip()
         and _kalshi_private_key_from_env()
     )
-    if not (os.getenv("POLYMARKET_PRIVATE_KEY", "").strip() or kalshi_configured):
+    polymarket_configured = bool(os.getenv("POLYMARKET_PRIVATE_KEY", "").strip())
+    if not (polymarket_configured or kalshi_configured):
         return "LIVE_DISABLED_NO_CREDENTIALS"
-    return "LIVE_ENABLED_AWAITING_AUTHORIZATION"
+    max_stake = _env_decimal("FORECASTS_MAX_STAKE_USD", Decimal("0"))
+    max_daily_loss = _env_decimal("FORECASTS_MAX_DAILY_LOSS_USD", Decimal("0"))
+    if max_stake <= Decimal("0") or max_daily_loss <= Decimal("0"):
+        return "LIVE_ENABLED_AWAITING_AUTHORIZATION"
+    return "LIVE_READY_WITH_LIMITS"
 
 
 def check_all_gates(*, prediction: Any, bet: Any, ctx: GateContext) -> None:

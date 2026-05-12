@@ -188,7 +188,7 @@ export default function DashboardConclusionsClient({
       <div style={{ display: "flex", flexDirection: "column", gap: "0.5rem" }}>
         {conclusions.length === 0 ? (
           <LatinEmpty
-            latin="Adhuc nihil firmandum."
+            latin="No conclusions yet."
             english={
               hiddenCount > 0
                 ? "Some conclusions are hidden from your dashboard."
@@ -548,7 +548,6 @@ function LatinEmpty({ latin, english }: { latin: string; english: string }) {
       <p
         style={{
           fontFamily: "'EB Garamond', serif",
-          fontStyle: "italic",
           fontSize: "1rem",
           color: "var(--parchment)",
           margin: 0,

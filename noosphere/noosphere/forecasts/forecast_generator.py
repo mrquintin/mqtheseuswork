@@ -19,6 +19,11 @@ from noosphere.currents.opinion_generator import (
     _extract_json_object,
     validate_citations,
 )
+from noosphere.forecasts.decision_metrics import (
+    build_decision_trace,
+    decision_trace_gate_entries,
+    decision_trace_to_dict,
+)
 from noosphere.forecasts.paper_bet_engine import PaperBetConfig, evaluate_and_stake
 from noosphere.mitigations.prompt_separator import PromptSeparator
 from noosphere.models import (
@@ -582,11 +587,32 @@ def _write_forecast_trace(
     prediction_id: str,
     payload: dict[str, Any],
     citations: list[dict[str, Any]],
+    sources: list[Any],
     paper_bet: Any | None,
+    now: datetime | None = None,
 ) -> None:
     writer = getattr(store, "put_forecast_trace", None)
     if not callable(writer):
         return
+    decision = build_decision_trace(
+        market=market,
+        sources=sources,
+        citations=citations,
+        payload=payload,
+        paper_bet=paper_bet,
+        now=now,
+        min_distinct_sources=MIN_DISTINCT_SOURCES,
+    )
+    model_output = _trace_model_output(market, payload)
+    model_output["decision_trace"] = decision_trace_to_dict(decision)
+    model_output["decision_action"] = decision.action.value
+    gate_results = _trace_gate_results(paper_bet)
+    seen_names = {gate["gateName"] for gate in gate_results}
+    for entry in decision_trace_gate_entries(decision):
+        if entry["gateName"] in seen_names:
+            continue
+        gate_results.append(entry)
+        seen_names.add(entry["gateName"])
     writer(
         ForecastTrace(
             prediction_id=prediction_id,
@@ -594,8 +620,8 @@ def _write_forecast_trace(
             organization_id=str(getattr(market, "organization_id", "")),
             market_title=str(getattr(market, "title", ""))[:280],
             principles_used=_trace_principles(citations),
-            model_output=_trace_model_output(market, payload),
-            gate_results=_trace_gate_results(paper_bet),
+            model_output=model_output,
+            gate_results=gate_results,
         )
     )
 
@@ -736,6 +762,8 @@ async def generate_forecast(
             prediction_id=prediction_id,
             payload=payload,
             citations=citations,
+            sources=sources,
             paper_bet=paper_bet,
+            now=now,
         )
         return ForecastOutcome.PUBLISHED

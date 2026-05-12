@@ -1,0 +1,61 @@
+You are working in `/Users/michaelquintin/Desktop/Theseus`.
+
+Goal: make public Currents and Publications feel credible when empty, useful when live, and operationally diagnosable for founders.
+
+Current live problems:
+- Public `/currents` showed "reconnecting..." and no opinions.
+- Founder `/founder-currents` also showed reconnecting/empty state.
+- Public home currently has no public publications or currents.
+- Earlier product direction requires Currents to respond to significant real-world X posts and explain the firm's opinion without recapitulating private sources.
+
+Start by reading:
+- `docs/architecture/UI_UX_Round20_Contract.md`
+- `theseus-codex/src/app/currents/page.tsx`
+- `theseus-codex/src/app/(authed)/founder-currents/page.tsx`
+- `theseus-codex/src/app/currents/FeedClient.tsx`
+- `theseus-codex/src/app/currents/OpinionCard.tsx`
+- `theseus-codex/src/app/page.tsx`
+- `theseus-codex/src/lib/currentsApi.ts`
+- noosphere/current-events API integration files.
+
+Implement:
+1. Public Currents:
+   - calm empty state if no public opinions exist;
+   - show whether the live feed is reconnecting without making the page look broken;
+   - render X posts cleanly, without white corner artifacts;
+   - opinion prose should use firm voice, not "the sources say".
+2. Founder Currents:
+   - show backend health;
+   - last ingest time;
+   - last opinion generation time;
+   - number of candidate X posts rejected for significance/relevance;
+   - last error with a useful diagnostic link or command if available.
+3. Public home:
+   - make Publications and Currents empty states less ornamental and more factual;
+   - do not imply live publishing is active if workers are down.
+4. Preserve the intended pipeline direction:
+   - select significant public X/current-event signals first;
+   - filter for relevance to the corpus;
+   - generate the firm's opinion using the internal corpus;
+   - cite internal sources only if public access rules allow citation links.
+5. Do not expose private source text publicly.
+
+Constraints:
+- Do not hard-code fake Currents.
+- Do not fabricate X posts.
+- Do not make private citations clickable from public pages unless the source is public.
+
+Verification:
+- Run `npm run build` in `theseus-codex`.
+- Browser-check `/`, `/currents`, and `/founder-currents`.
+- If the backend is unavailable, the founder page must explain why; the public page must stay clean.
+
+SCOPE:
+MODIFY theseus-codex/src/app/page.tsx
+MODIFY theseus-codex/src/app/currents/page.tsx
+MODIFY theseus-codex/src/app/(authed)/founder-currents/page.tsx
+MODIFY theseus-codex/src/app/currents/FeedClient.tsx
+MODIFY theseus-codex/src/app/currents/OpinionCard.tsx
+MAYBE MODIFY theseus-codex/src/lib/currentsApi.ts
+MAYBE MODIFY noosphere/current-events health/status helpers only if needed for founder diagnostics.
+

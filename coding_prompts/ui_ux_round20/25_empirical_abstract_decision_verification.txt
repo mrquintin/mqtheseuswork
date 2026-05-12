@@ -1,0 +1,44 @@
+You are working in `/Users/michaelquintin/Desktop/Theseus`.
+
+Goal: verify that empirical cases, abstract principles, analogical transfer, and multi-frame decision algorithms work together.
+
+Start by reading:
+- `docs/architecture/Algorithmized_Decision_Making.md`
+- files changed by prompts 20-24;
+- `docs/operations/Forecasts_Founder_Alpha_Runbook.md` if created;
+- `docs/runs/market_system_round20_verification.md` if created.
+
+Implement:
+1. Create `docs/runs/empirical_abstract_decision_round20_verification.md`.
+2. The report must include:
+   - case-study extraction examples;
+   - abstract principle examples;
+   - case-to-principle transfer examples;
+   - contradiction-testable principle examples;
+   - multi-frame decision traces;
+   - at least one market/forecast example where empirical transfer affects the action;
+   - at least one example where a superficial analogy is rejected.
+3. Add or update a runbook section describing:
+   - how new uploads produce cases and principles;
+   - how Currents/markets create new case candidates;
+   - how principles are monitored against future cases;
+   - how decision traces use empirical and abstract frames.
+4. Run the strongest practical verification:
+   - case extraction tests;
+   - principle abstraction tests;
+   - analogical transfer tests;
+   - decision-frame tests;
+   - forecast decision metric tests;
+   - `npm run build` and `npx tsc --noEmit` in `theseus-codex` if UI was touched.
+5. Fix regressions found during verification if safe and in scope.
+
+Constraints:
+- Do not fabricate verification examples. Use fixtures or real seeded/local data and label which is which.
+- Do not claim live trading readiness unless prompt 19 verification already established it.
+- Do not expose private source text publicly.
+
+SCOPE:
+ADD docs/runs/empirical_abstract_decision_round20_verification.md
+MAYBE MODIFY docs/operations/Forecasts_Founder_Alpha_Runbook.md
+MAYBE MODIFY tests or implementation files touched by prompts 20-24 to close verification failures.
+

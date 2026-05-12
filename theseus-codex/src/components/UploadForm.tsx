@@ -445,8 +445,8 @@ export default function UploadForm() {
 
     setSuccess(
       items.length > 1
-        ? `All ${items.length} uploads received — awaiting Noosphere…`
-        : "Upload received. Noosphere is processing in the cloud…",
+        ? `All ${items.length} uploads received — awaiting processing…`
+        : "Upload received. Processing in the cloud…",
     );
   }
 
@@ -550,65 +550,43 @@ export default function UploadForm() {
   const isBulk = items.length > 1;
   const committing = uploading;
   const commitLabel = committing
-    ? "Committing…"
+    ? "Uploading…"
     : isBulk
-      ? `Commit ${items.length} contributions`
-      : "Commit to the Codex";
+      ? `Upload ${items.length} files`
+      : "Upload";
 
   return (
     <main
       style={{
-        maxWidth: "680px",
-        // Offset the form to the right so it doesn't overlap the Augustus
-        // backdrop sitting on the left. `marginLeft: auto` keeps it
-        // right-aligned within the page's centred column; on smaller
-        // viewports the `max-width: 900px` media query in
-        // SculptureBackdrop hides the sculpture, so auto-centring resumes.
-        margin: "2rem 2rem 3rem auto",
-        padding: "0 2rem",
+        maxWidth: "720px",
+        margin: "1.25rem auto 3rem",
+        padding: "0 1.25rem",
       }}
     >
-      <header style={{ marginBottom: "2rem" }}>
+      <header style={{ marginBottom: "1.25rem" }}>
         <h1
           style={{
-            fontFamily: "'Cinzel Decorative', 'Cinzel', serif",
-            fontSize: "1.8rem",
-            letterSpacing: "0.18em",
+            fontFamily: "'Cinzel', serif",
+            fontSize: "1.25rem",
+            letterSpacing: "0.05em",
             color: "var(--amber)",
-            textShadow: "var(--glow-md)",
             margin: 0,
           }}
         >
-          Dedicatio
+          Upload
         </h1>
-        <p
-          className="mono"
-          style={{
-            fontSize: "0.62rem",
-            letterSpacing: "0.28em",
-            textTransform: "uppercase",
-            color: "var(--amber-dim)",
-            marginTop: "0.25rem",
-            marginBottom: 0,
-          }}
-        >
-          Upload Contribution · Augustus Prima Porta
-        </p>
         <p
           style={{
             fontFamily: "'EB Garamond', serif",
-            fontStyle: "italic",
-            fontSize: "1rem",
+            fontSize: "0.95rem",
             color: "var(--parchment-dim)",
-            marginTop: "0.5rem",
-            marginBottom: 0,
-            lineHeight: 1.55,
-            maxWidth: "44em",
+            margin: "0.3rem 0 0",
+            lineHeight: 1.5,
           }}
         >
-          Commit a transcript, essay, or session — or several at once.
-          Markdown, plain text, WebVTT, Dialectic JSONL, PDF, DOCX, and
-          common audio formats are accepted.
+          Add transcripts, essays, sessions, or audio. Accepted:
+          .md, .txt, .vtt, .jsonl, .pdf, .docx, .mp3, .m4a, .wav, .webm,
+          .ogg, .aac.
         </p>
       </header>
 
@@ -656,21 +634,20 @@ export default function UploadForm() {
               className="mono"
               style={{
                 fontSize: "0.62rem",
-                letterSpacing: "0.3em",
+                letterSpacing: "0.18em",
                 textTransform: "uppercase",
-                color: hasItems ? "var(--ember)" : "var(--amber-dim)",
+                color: hasItems ? "var(--amber)" : "var(--amber-dim)",
                 margin: 0,
               }}
             >
-              {hasItems ? "Liber Apertus · In Queue" : "Liber Apertus"}
+              {hasItems ? "Files in queue" : "Drop files or click to browse"}
             </p>
             <p
               style={{
                 fontFamily: "'EB Garamond', serif",
-                fontSize: "1.05rem",
-                fontStyle: "italic",
+                fontSize: "0.95rem",
                 color: "var(--parchment)",
-                marginTop: "0.4rem",
+                marginTop: "0.35rem",
                 marginBottom: 0,
               }}
             >
@@ -678,7 +655,7 @@ export default function UploadForm() {
                 ? isBulk
                   ? `${items.length} files queued — drop more or click to add.`
                   : "One file queued — drop more or click to add."
-                : "Drop files here, or click to browse. Multiple files are welcome."}
+                : "Multiple files are welcome."}
             </p>
           </div>
         </div>
@@ -708,12 +685,12 @@ export default function UploadForm() {
                 className="mono"
                 style={{
                   fontSize: "0.62rem",
-                  letterSpacing: "0.24em",
+                  letterSpacing: "0.2em",
                   textTransform: "uppercase",
                   color: "var(--amber-dim)",
                 }}
               >
-                {isBulk ? `${items.length} files · Queue` : "File · Sigillatum"}
+                {isBulk ? `${items.length} files queued` : "1 file queued"}
               </span>
               {!committing && (
                 <button
@@ -1412,6 +1389,55 @@ export default function UploadForm() {
             </Link>
             ; you&apos;ll see the row flip from <em>processing</em> to{" "}
             <em>ingested</em> (or <em>failed</em>) when it&apos;s done.
+          </div>
+        )}
+
+        {hasItems && !committing && !items.some((it) => it.phase === "processing") && (
+          <div
+            style={{
+              padding: "0.7rem 0.9rem",
+              border: "1px solid var(--border)",
+              borderLeft: "2px solid var(--amber-dim)",
+              borderRadius: 2,
+              background: "rgba(212,160,23,0.025)",
+            }}
+          >
+            <p
+              className="mono"
+              style={{
+                fontSize: "0.6rem",
+                letterSpacing: "0.2em",
+                textTransform: "uppercase",
+                color: "var(--amber-dim)",
+                margin: 0,
+              }}
+            >
+              What happens after upload
+            </p>
+            <ol
+              style={{
+                margin: "0.45rem 0 0 1.1rem",
+                padding: 0,
+                fontSize: "0.82rem",
+                lineHeight: 1.55,
+                color: "var(--parchment-dim)",
+              }}
+            >
+              <li>File lands in cloud storage.</li>
+              <li>
+                Extraction or transcription runs (PDF text, DOCX, or audio
+                via Whisper).
+              </li>
+              <li>
+                Noosphere analyses the text for claims, contradictions, and
+                open questions.
+              </li>
+              <li>Embeddings are produced for the semantic explorer.</li>
+              <li>
+                Row flips to <em>ingested</em> on success, or <em>failed</em>{" "}
+                with a retry link if a stage breaks.
+              </li>
+            </ol>
           </div>
         )}
 

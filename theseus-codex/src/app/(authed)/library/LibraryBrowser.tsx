@@ -39,6 +39,8 @@ interface LibraryRow {
   mimeType: string;
   fileSize: number;
   status: string;
+  errorMessage: string | null;
+  extractionMethod: string | null;
   publishedAt: string | null;
   slug: string | null;
   visibility: string;
@@ -353,11 +355,17 @@ export default function LibraryBrowser() {
       {/* Filters */}
       <div
         style={{
+          position: "sticky",
+          top: 0,
+          zIndex: 4,
+          background: "var(--stone-black, #0a0a0a)",
+          padding: "0.5rem 0 0.7rem",
+          marginBottom: "0.9rem",
+          borderBottom: "1px solid var(--border)",
           display: "flex",
-          gap: "0.75rem",
+          gap: "0.4rem",
           flexWrap: "wrap",
           alignItems: "center",
-          marginBottom: "1.25rem",
         }}
       >
         <input
@@ -365,18 +373,27 @@ export default function LibraryBrowser() {
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           placeholder="Search title / filename / description…"
-          style={{ flex: "1 1 240px", minWidth: "200px" }}
+          style={{
+            flex: "1 1 14rem",
+            minWidth: 0,
+            padding: "0.35rem 0.6rem",
+            fontSize: "0.85rem",
+            background: "transparent",
+            border: "1px solid var(--border)",
+            color: "var(--parchment)",
+            borderRadius: 2,
+          }}
         />
         <select
           value={statusFilter}
           onChange={(e) => setStatusFilter(e.target.value)}
-          style={{ flex: "0 0 auto" }}
+          style={{ flex: "0 0 auto", fontSize: "0.78rem" }}
         >
           <option value="">All statuses</option>
           <option value="pending">Pending</option>
-          <option value="processing">Processing</option>
+          <option value="processing">Analyzing</option>
           <option value="queued_offline">Queued offline</option>
-          <option value="ingested">Ingested</option>
+          <option value="ingested">Analyzed</option>
           <option value="failed">Failed</option>
         </select>
         <select
@@ -384,7 +401,7 @@ export default function LibraryBrowser() {
           onChange={(e) =>
             setPublishedFilter(e.target.value as "all" | "published")
           }
-          style={{ flex: "0 0 auto" }}
+          style={{ flex: "0 0 auto", fontSize: "0.78rem" }}
         >
           <option value="all">All visibility</option>
           <option value="published">Published only</option>
@@ -394,20 +411,15 @@ export default function LibraryBrowser() {
       {/* Library table */}
       {state.rows.length === 0 ? (
         <div
-          className="ascii-frame"
-          data-label="TABULA RASA"
-          style={{ padding: "1.5rem", textAlign: "center" }}
+          className="portal-card"
+          style={{
+            padding: "1.25rem",
+            textAlign: "center",
+            color: "var(--parchment-dim)",
+            fontSize: "0.9rem",
+          }}
         >
-          <p
-            style={{
-              fontFamily: "'EB Garamond', serif",
-              fontStyle: "italic",
-              margin: 0,
-              color: "var(--parchment)",
-            }}
-          >
-            No uploads match the current filters.
-          </p>
+          No uploads match the current filters.
         </div>
       ) : (
         <ul style={{ listStyle: "none", padding: 0, margin: 0 }}>
@@ -500,12 +512,65 @@ export default function LibraryBrowser() {
                     ) : null}
                   </div>
                   <div
+                    style={{
+                      display: "flex",
+                      flexWrap: "wrap",
+                      gap: "0.35rem",
+                      alignItems: "center",
+                      marginTop: "0.35rem",
+                    }}
+                  >
+                    <span
+                      className="mono"
+                      title={`Source type: ${describeSourceType(row.sourceType, row.mimeType)}`}
+                      style={{
+                        fontSize: "0.54rem",
+                        letterSpacing: "0.2em",
+                        textTransform: "uppercase",
+                        color: "var(--parchment)",
+                        border: "1px solid var(--border)",
+                        background: "var(--stone-mid)",
+                        padding: "0.12rem 0.45rem",
+                        borderRadius: 2,
+                      }}
+                    >
+                      {sourceTypePill(row.sourceType, row.mimeType)}
+                    </span>
+                    <span
+                      className={`badge badge-${badgeForStatus(row.status)}`}
+                      title={
+                        row.status === "failed" && row.errorMessage
+                          ? row.errorMessage
+                          : `Analysis status: ${row.status}`
+                      }
+                      style={{ fontSize: "0.54rem", padding: "0.12rem 0.45rem" }}
+                    >
+                      {analysisLabel(row.status)}
+                    </span>
+                    {row.publishedAt ? (
+                      <span
+                        className="mono"
+                        style={{
+                          fontSize: "0.54rem",
+                          letterSpacing: "0.2em",
+                          textTransform: "uppercase",
+                          color: "var(--success)",
+                          border: "1px solid var(--success)",
+                          padding: "0.12rem 0.45rem",
+                          borderRadius: 2,
+                        }}
+                      >
+                        Published
+                      </span>
+                    ) : null}
+                  </div>
+                  <div
                     className="mono"
                     style={{
                       fontSize: "0.6rem",
-                      letterSpacing: "0.15em",
+                      letterSpacing: "0.1em",
                       color: "var(--parchment-dim)",
-                      marginTop: "0.25rem",
+                      marginTop: "0.35rem",
                     }}
                   >
                     {founderDisplayName(row.founder)}
@@ -516,10 +581,19 @@ export default function LibraryBrowser() {
                     {new Date(row.createdAt).toLocaleDateString()}
                     {" · "}
                     {(row.fileSize / 1024).toFixed(0)} KB
-                    {" · "}
-                    {row.status}
-                    {row.publishedAt ? " · published" : ""}
                   </div>
+                  {row.status === "failed" && row.errorMessage ? (
+                    <p
+                      style={{
+                        margin: "0.4rem 0 0",
+                        fontSize: "0.75rem",
+                        color: "var(--ember)",
+                        lineHeight: 1.45,
+                      }}
+                    >
+                      Analysis failed: {row.errorMessage.slice(0, 200)}
+                    </p>
+                  ) : null}
                 </div>
                 <div
                   style={{
@@ -666,6 +740,59 @@ export default function LibraryBrowser() {
       ) : null}
     </div>
   );
+}
+
+function sourceTypePill(sourceType: string, mimeType: string): string {
+  const st = (sourceType || "").toLowerCase();
+  const mt = (mimeType || "").toLowerCase();
+  if (st === "audio" || mt.startsWith("audio/")) return "Audio";
+  if (st === "podcast") return "Podcast";
+  if (st === "dialectic" || st === "session" || st === "transcript")
+    return "Transcript";
+  if (mt === "application/pdf" || st === "pdf") return "PDF";
+  if (st === "annotation") return "Annotation";
+  if (st === "external") return "External";
+  if (st === "written" || mt.startsWith("text/")) return "Written";
+  return st || "File";
+}
+
+function describeSourceType(sourceType: string, mimeType: string): string {
+  const pill = sourceTypePill(sourceType, mimeType);
+  return mimeType ? `${pill} (${mimeType})` : pill;
+}
+
+function badgeForStatus(
+  status: string,
+): "pending" | "processing" | "ingested" | "failed" {
+  if (status === "failed") return "failed";
+  if (status === "ingested") return "ingested";
+  if (
+    status === "processing" ||
+    status === "extracting" ||
+    status === "awaiting_ingest"
+  )
+    return "processing";
+  return "pending";
+}
+
+function analysisLabel(status: string): string {
+  switch (status) {
+    case "ingested":
+      return "Analyzed";
+    case "processing":
+      return "Analyzing";
+    case "extracting":
+      return "Extracting";
+    case "awaiting_ingest":
+      return "Awaiting analysis";
+    case "queued_offline":
+      return "Queued";
+    case "failed":
+      return "Failed";
+    case "pending":
+    default:
+      return "Pending";
+  }
 }
 
 function ghostBtn(tone: "amber" | "ember" | "muted"): React.CSSProperties {

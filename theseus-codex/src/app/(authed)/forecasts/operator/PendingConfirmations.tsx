@@ -3,7 +3,15 @@
 import { CheckCircle2, XCircle } from "lucide-react";
 import { useState } from "react";
 
-import type { OperatorBet, PublicForecast } from "@/lib/forecastsTypes";
+import type {
+  AnalogicalTransferReport,
+  DecisionFrame,
+  DecisionTrace,
+  OperatorBet,
+  PublicForecast,
+} from "@/lib/forecastsTypes";
+
+import { ActionBadge } from "../portfolio/DecisionTracePanel";
 
 export type ConfirmGateCode =
   | "DISABLED"
@@ -110,10 +118,12 @@ async function cancelBet(predictionId: string, betId: string): Promise<void> {
 
 export default function PendingConfirmations({
   context,
+  decisionTracesByPredictionId = {},
   predictionsById,
   rows,
 }: {
   context: ConfirmGateContext;
+  decisionTracesByPredictionId?: Record<string, DecisionTrace>;
   predictionsById: Record<string, PublicForecast>;
   rows: OperatorBet[];
 }) {
@@ -136,6 +146,7 @@ export default function PendingConfirmations({
         ) : (
           visibleRows.map((bet) => {
             const prediction = predictionsById[bet.prediction_id] ?? null;
+            const trace = decisionTracesByPredictionId[bet.prediction_id] ?? null;
             const failures = failingConfirmGates({ bet, context, prediction });
             const disabled = failures.length > 0 || busyId === bet.id;
             return (
@@ -147,9 +158,20 @@ export default function PendingConfirmations({
                   padding: "0.85rem",
                 }}
               >
-                <h3 style={{ color: "var(--parchment)", fontSize: "1rem", margin: "0 0 0.55rem" }}>
-                  {prediction?.headline ?? bet.prediction_id}
-                </h3>
+                <div
+                  style={{
+                    alignItems: "flex-start",
+                    display: "flex",
+                    flexWrap: "wrap",
+                    gap: "0.6rem",
+                    justifyContent: "space-between",
+                  }}
+                >
+                  <h3 style={{ color: "var(--parchment)", fontSize: "1rem", margin: "0 0 0.55rem" }}>
+                    {prediction?.headline ?? bet.prediction_id}
+                  </h3>
+                  {trace ? <ActionBadge action={trace.action} size="sm" /> : null}
+                </div>
                 <div
                   className="mono"
                   style={{
@@ -164,7 +186,31 @@ export default function PendingConfirmations({
                   <span>{bet.side} @ {price(bet.entry_price)}</span>
                   <span>Stake {money(bet.stake_usd)}</span>
                   <span>Status {bet.status}</span>
+                  {trace ? <span>Edge {trace.edge !== null ? `${(trace.edge * 100).toFixed(1)}pp` : "n/a"}</span> : null}
+                  {trace ? <span>Algo conf {trace.confidence.toFixed(3)}</span> : null}
                 </div>
+                {trace && trace.reasons[0] ? (
+                  <p style={{ color: "var(--parchment)", fontSize: "0.74rem", margin: "0.5rem 0 0" }}>
+                    <span
+                      className="mono"
+                      style={{
+                        color: "var(--amber-dim)",
+                        fontSize: "0.58rem",
+                        letterSpacing: "0.18em",
+                        textTransform: "uppercase",
+                      }}
+                    >
+                      Why:
+                    </span>{" "}
+                    {trace.reasons[0]}
+                  </p>
+                ) : null}
+                {trace && trace.frames.length > 0 ? (
+                  <FrameStrip frames={trace.frames} synthesisAction={trace.synthesis?.action} />
+                ) : null}
+                {trace?.analogicalTransfer ? (
+                  <TransferStrip transfer={trace.analogicalTransfer} />
+                ) : null}
                 <div style={{ display: "flex", flexWrap: "wrap", gap: "0.4rem", marginTop: "0.7rem" }}>
                   {(["DISABLED", "NOT_CONFIGURED", "STAKE_OVER_CEILING", "DAILY_LOSS_OVER_CEILING", "KILL_SWITCH_ENGAGED", "INSUFFICIENT_BALANCE"] as ConfirmGateCode[]).map((code) => (
                     <span
@@ -239,5 +285,121 @@ export default function PendingConfirmations({
         )}
       </div>
     </section>
+  );
+}
+
+function FrameStrip({
+  frames,
+  synthesisAction,
+}: {
+  frames: DecisionFrame[];
+  synthesisAction?: string;
+}) {
+  return (
+    <details style={{ marginTop: "0.55rem" }}>
+      <summary
+        className="mono"
+        style={{
+          color: "var(--amber-dim)",
+          cursor: "pointer",
+          fontSize: "0.58rem",
+          letterSpacing: "0.18em",
+          textTransform: "uppercase",
+        }}
+      >
+        Decision frames ({frames.length})
+        {synthesisAction ? ` · synthesis → ${synthesisAction}` : ""}
+      </summary>
+      <ul
+        style={{
+          display: "grid",
+          gap: "0.3rem",
+          gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))",
+          listStyle: "none",
+          margin: "0.4rem 0 0",
+          padding: 0,
+        }}
+      >
+        {frames.map((frame) => (
+          <li
+            key={frame.name}
+            data-frame-name={frame.name}
+            data-frame-verdict={frame.verdict}
+            style={{
+              border: "1px solid rgba(232, 225, 211, 0.1)",
+              borderRadius: 4,
+              padding: "0.32rem 0.45rem",
+            }}
+          >
+            <span
+              className="mono"
+              style={{
+                color: "var(--parchment)",
+                fontSize: "0.62rem",
+                letterSpacing: "0.1em",
+                textTransform: "uppercase",
+              }}
+            >
+              {frame.name} → {frame.verdict}
+            </span>
+            {frame.detail ? (
+              <div style={{ color: "var(--parchment-dim)", fontSize: "0.68rem", marginTop: "0.18rem" }}>
+                {frame.detail}
+              </div>
+            ) : null}
+          </li>
+        ))}
+      </ul>
+    </details>
+  );
+}
+
+function TransferStrip({ transfer }: { transfer: AnalogicalTransferReport }) {
+  return (
+    <details style={{ marginTop: "0.45rem" }}>
+      <summary
+        className="mono"
+        style={{
+          color: "var(--amber-dim)",
+          cursor: "pointer",
+          fontSize: "0.58rem",
+          letterSpacing: "0.18em",
+          textTransform: "uppercase",
+        }}
+      >
+        Empirical transfer · best stance {transfer.bestStance || "—"} ·{" "}
+        {transfer.recommendations.length} rec
+        {transfer.recommendations.length === 1 ? "" : "s"}
+      </summary>
+      {transfer.recommendations.length === 0 ? (
+        <p style={{ color: "var(--parchment-dim)", fontSize: "0.7rem", margin: "0.35rem 0 0" }}>
+          No prior cases were close enough to the query for a transfer recommendation.
+        </p>
+      ) : (
+        <ul style={{ listStyle: "none", margin: "0.4rem 0 0", padding: 0, display: "grid", gap: "0.3rem" }}>
+          {transfer.recommendations.slice(0, 4).map((rec) => (
+            <li
+              key={rec.principleId}
+              style={{ border: "1px solid rgba(232, 225, 211, 0.1)", borderRadius: 4, padding: "0.32rem 0.45rem" }}
+            >
+              <span
+                className="mono"
+                style={{
+                  color: "var(--parchment-dim)",
+                  fontSize: "0.6rem",
+                  letterSpacing: "0.16em",
+                  textTransform: "uppercase",
+                }}
+              >
+                {rec.stance} · {rec.confidence.toFixed(2)}
+              </span>
+              <div style={{ color: "var(--parchment)", fontSize: "0.74rem", marginTop: "0.2rem" }}>
+                {rec.canonicalStatement || rec.principleId}
+              </div>
+            </li>
+          ))}
+        </ul>
+      )}
+    </details>
   );
 }

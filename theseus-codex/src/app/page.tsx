@@ -12,8 +12,9 @@ import {
   listPublishedArticles,
   type PublishedConclusion,
 } from "@/lib/conclusionsRead";
-import { listCurrents } from "@/lib/currentsApi";
+import { getCurrentsHealth, listCurrents } from "@/lib/currentsApi";
 import type { PublicOpinion } from "@/lib/currentsTypes";
+import { firmVoice } from "@/lib/firmVoice";
 
 export const dynamic = "force-dynamic";
 
@@ -23,7 +24,10 @@ async function latestCurrents(): Promise<PublicOpinion[]> {
   try {
     const response = await listCurrents(
       { limit: 3 },
-      { next: { revalidate: 60, tags: ["public-home-currents"] } },
+      {
+        next: { revalidate: 60, tags: ["public-home-currents"] },
+        timeoutMs: 4_000,
+      },
     );
     return Array.isArray(response.items) ? response.items.slice(0, 3) : [];
   } catch (error) {
@@ -41,10 +45,32 @@ async function latestArticles(): Promise<PublishedConclusion[]> {
   }
 }
 
+interface PublicSurfaceStatus {
+  reachable: boolean;
+  workersIdle: boolean;
+}
+
+async function publicSurfaceStatus(): Promise<PublicSurfaceStatus> {
+  try {
+    const health = await getCurrentsHealth({
+      next: { revalidate: 60, tags: ["public-home-currents"] },
+      timeoutMs: 4_000,
+    });
+    return {
+      reachable: true,
+      workersIdle: health.disabled_reasons.length > 0,
+    };
+  } catch (error) {
+    console.error("homepage_currents_health_failed", error);
+    return { reachable: false, workersIdle: true };
+  }
+}
+
 export default async function PublicHomePage() {
-  const [currents, articles] = await Promise.all([
+  const [currents, articles, surfaceStatus] = await Promise.all([
     latestCurrents(),
     latestArticles(),
+    publicSurfaceStatus(),
   ]);
   const email = getTheseusContactEmail();
   const hasPublicOutput = currents.length > 0 || articles.length > 0;
@@ -80,12 +106,14 @@ export default async function PublicHomePage() {
           <PublicAskBox mode="compact" />
         </section>
 
-        {!hasPublicOutput ? <EmptyPublicOutput email={email} /> : null}
+        {!hasPublicOutput ? (
+          <EmptyPublicOutput email={email} status={surfaceStatus} />
+        ) : null}
 
-        <CurrentsPreviewRail currents={currents} />
+        <CurrentsPreviewRail currents={currents} status={surfaceStatus} />
         <PublicationsRail articles={articles} />
 
-        <PublicSignalSurface />
+        <PublicSignalSurface status={surfaceStatus} />
 
         <ManifestoPreview />
         <section
@@ -219,7 +247,13 @@ function IdentityStrip() {
   );
 }
 
-function CurrentsPreviewRail({ currents }: { currents: PublicOpinion[] }) {
+function CurrentsPreviewRail({
+  currents,
+  status,
+}: {
+  currents: PublicOpinion[];
+  status: PublicSurfaceStatus;
+}) {
   return (
     <section
       aria-labelledby="home-currents-title"
@@ -306,10 +340,20 @@ function CurrentsPreviewRail({ currents }: { currents: PublicOpinion[] }) {
           ))}
         </div>
       ) : (
-        <RailEmpty>No Currents opinions are public yet.</RailEmpty>
+        <RailEmpty>{currentsEmptyCopy(status)}</RailEmpty>
       )}
     </section>
   );
+}
+
+function currentsEmptyCopy(status: PublicSurfaceStatus): string {
+  if (!status.reachable) {
+    return "Live publishing is paused — the Currents service is unreachable from the public site.";
+  }
+  if (status.workersIdle) {
+    return "Live publishing is paused — the firm's ingestion workers are not running. Nothing new will appear here until they resume.";
+  }
+  return "The firm is reading public signals. No opinion has cleared the significance and relevance floors yet.";
 }
 
 function PublicationsRail({ articles }: { articles: PublishedConclusion[] }) {
@@ -393,13 +437,24 @@ function PublicationsRail({ articles }: { articles: PublishedConclusion[] }) {
           ))}
         </div>
       ) : (
-        <RailEmpty>No essays or memos are public yet.</RailEmpty>
+        <RailEmpty>
+          No essays are published yet. New publications appear here when the
+          firm releases them.
+        </RailEmpty>
       )}
     </section>
   );
 }
 
-function PublicSignalSurface() {
+function PublicSignalSurface({ status }: { status: PublicSurfaceStatus }) {
+  const heading = status.reachable && !status.workersIdle
+    ? "LIVE PUBLIC SURFACES"
+    : "PUBLIC SURFACES";
+  const currentsBody = !status.reachable
+    ? "Real-world X posts and other live signals, with the firm's public opinion in response. Live publishing is currently paused."
+    : status.workersIdle
+      ? "Real-world X posts and other live signals, with the firm's public opinion in response. Ingestion workers are not running, so new opinions are not being published right now."
+      : "Real-world X posts and other live signals, with the firm's public opinion in response.";
   return (
     <section
       aria-labelledby="home-signal-title"
@@ -420,7 +475,7 @@ function PublicSignalSurface() {
           textTransform: "uppercase",
         }}
       >
-        LIVE PUBLIC SURFACES
+        {heading}
       </h2>
       <div
         style={{
@@ -430,7 +485,7 @@ function PublicSignalSurface() {
         }}
       >
         <SignalCard
-          body="Real-world X posts and other live signals, with the firm's public opinion in response."
+          body={currentsBody}
           href="/currents"
           title="Currents"
         />
@@ -565,26 +620,66 @@ function ContactLine({ email }: { email: string }) {
   );
 }
 
-function EmptyPublicOutput({ email }: { email: string }) {
+function EmptyPublicOutput({
+  email,
+  status,
+}: {
+  email: string;
+  status: PublicSurfaceStatus;
+}) {
+  const headline = !status.reachable
+    ? "Public publishing is paused."
+    : status.workersIdle
+      ? "Public publishing is paused."
+      : "No publications or Currents opinions are public yet.";
+  const detail = !status.reachable
+    ? "The Currents service is unreachable from the public site, so neither new opinions nor live signals can be published right now."
+    : status.workersIdle
+      ? "The firm's ingestion workers are not running. Nothing new will appear here until they resume."
+      : "Currents will appear here when a real-world post crosses the firm's significance and relevance floors. Essays appear here when the firm releases them.";
+
   return (
     <section
       aria-label="No public publications yet"
-      className="ascii-frame"
-      data-label="PUBLIC COMMONS"
       style={{
+        background: "rgba(232, 225, 211, 0.035)",
+        border: "1px solid var(--stroke)",
+        borderRadius: "3px",
         margin: "0 0 2rem",
-        padding: "1.3rem 1.4rem",
+        padding: "1.1rem 1.2rem",
       }}
     >
+      <p
+        className="mono"
+        style={{
+          color: "var(--amber-dim)",
+          fontSize: "0.62rem",
+          letterSpacing: "0.2em",
+          margin: 0,
+          textTransform: "uppercase",
+        }}
+      >
+        Public commons
+      </p>
       <p
         style={{
           color: "var(--parchment)",
           fontSize: "1rem",
           lineHeight: 1.55,
-          margin: 0,
+          margin: "0.4rem 0 0",
         }}
       >
-        The firm has not yet published anything publicly. Reach out:{" "}
+        {headline}
+      </p>
+      <p
+        style={{
+          color: "var(--parchment-dim)",
+          fontSize: "0.94rem",
+          lineHeight: 1.55,
+          margin: "0.45rem 0 0",
+        }}
+      >
+        {detail} Reach the firm at{" "}
         <a
           href={`mailto:${email}`}
           style={{ color: "var(--amber)", textDecoration: "none" }}
@@ -678,15 +773,17 @@ function summarizeOpinion(opinion: PublicOpinion): string {
 }
 
 function stripMarkdown(text: string): string {
-  return text
-    .replace(/\[(?:\d+|C:[^\]\s]+)\]/g, "the firm")
-    .replace(/`([^`]+)`/g, "$1")
-    .replace(/\*\*([^*]+)\*\*/g, "$1")
-    .replace(/\*([^*]+)\*/g, "$1")
-    .replace(/\[([^\]]+)\]\([^)]+\)/g, "$1")
-    .replace(/[#>_-]+/g, " ")
-    .replace(/\s+/g, " ")
-    .trim();
+  return firmVoice(
+    text
+      .replace(/\[(?:\d+|C:[^\]\s]+)\]/g, "the firm")
+      .replace(/`([^`]+)`/g, "$1")
+      .replace(/\*\*([^*]+)\*\*/g, "$1")
+      .replace(/\*([^*]+)\*/g, "$1")
+      .replace(/\[([^\]]+)\]\([^)]+\)/g, "$1")
+      .replace(/[#>_-]+/g, " ")
+      .replace(/\s+/g, " ")
+      .trim(),
+  );
 }
 
 function formatTimestamp(value: string): string {

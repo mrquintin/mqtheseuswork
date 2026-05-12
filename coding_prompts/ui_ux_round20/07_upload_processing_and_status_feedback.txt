@@ -1,0 +1,56 @@
+You are working in `/Users/michaelquintin/Desktop/Theseus`.
+
+Goal: make upload feel like a reliable processing workflow from file selection through transcription, extraction, Noosphere analysis, embeddings, and publication eligibility.
+
+Current live problems:
+- `/upload` has a large decorative composition but the practical workflow is not compact.
+- Users need to know what happens after uploading, whether cloud processing is queued/running, and how transcript success differs from downstream analysis failure.
+
+Start by reading:
+- `docs/architecture/UI_UX_Round20_Contract.md`
+- `theseus-codex/src/app/(authed)/upload/page.tsx`
+- `theseus-codex/src/app/(authed)/upload/[id]/page.tsx`
+- upload API routes and server actions;
+- scripts/workflows that process uploads;
+- noosphere Codex ingestion commands and queued-upload helpers.
+
+Implement:
+1. Redesign `/upload` as a compact workflow:
+   - file picker/drop zone;
+   - source metadata;
+   - visibility controls;
+   - optional publication controls;
+   - submit;
+   - clear "what happens next" status, without ornamental prose.
+2. For upload detail:
+   - show extraction/transcription status;
+   - show Noosphere analysis status;
+   - show embedding status;
+   - show publication/review state;
+   - link to transcript detail when transcript exists.
+3. Make failed/partial states precise:
+   - transcription succeeded but analysis failed;
+   - extraction failed;
+   - queued but worker not running;
+   - embedding missing;
+   - publication not eligible.
+4. Add retry links/buttons only where a backend route or script already exists.
+5. Founder/operator views should expose diagnostics; public views should not.
+
+Constraints:
+- Do not invent processing success.
+- Do not hide real failures.
+- Do not require the user to reupload material when backend data already exists.
+- Do not add new cloud subscriptions or external services unless absolutely necessary; if necessary, document exactly why.
+
+Verification:
+- Run `npm run build` in `theseus-codex`.
+- Browser-check `/upload` and at least one upload detail page with transcript material.
+- Confirm users can tell what is processing, what failed, and what they can do next.
+
+SCOPE:
+MODIFY theseus-codex/src/app/(authed)/upload/page.tsx
+MODIFY theseus-codex/src/app/(authed)/upload/[id]/page.tsx
+MAYBE MODIFY upload-related components/tests.
+MAYBE MODIFY noosphere/Codex status helpers only if UI needs a missing status field.
+

@@ -133,48 +133,31 @@ async function LibraryContent({
         padding: "2rem 2rem 4rem",
       }}
     >
-      <header style={{ marginBottom: "1.75rem" }}>
-        <h1
+      <header style={{ marginBottom: "1rem" }}>
+        <h2
           style={{
-            fontFamily: "'Cinzel Decorative', 'Cinzel', serif",
-            fontSize: "2rem",
-            letterSpacing: "0.18em",
+            fontFamily: "'Cinzel', serif",
+            fontSize: "1.2rem",
+            letterSpacing: "0.06em",
             color: "var(--amber)",
-            textShadow: "var(--glow-md)",
             margin: 0,
+            fontWeight: 500,
           }}
         >
-          Bibliotheca
-        </h1>
-        <p
-          className="mono"
-          style={{
-            fontSize: "0.62rem",
-            letterSpacing: "0.28em",
-            textTransform: "uppercase",
-            color: "var(--amber-dim)",
-            marginTop: "0.25rem",
-            marginBottom: 0,
-          }}
-        >
-          Library · Every upload in the firm
-        </p>
+          Library
+        </h2>
         <p
           style={{
-            fontFamily: "'EB Garamond', serif",
-            fontStyle: "italic",
-            fontSize: "1.05rem",
             color: "var(--parchment-dim)",
-            marginTop: "0.6rem",
-            marginBottom: 0,
-            lineHeight: 1.55,
+            fontSize: "0.85rem",
+            margin: "0.35rem 0 0",
+            lineHeight: 1.5,
             maxWidth: "44em",
           }}
         >
-          Who contributed what. Owners can delete their own entries
+          Every upload in the firm. Owners can delete their own entries
           directly. For material you didn&rsquo;t upload, send a deletion
-          request — the owner decides. Every action leaves an audit
-          trail.
+          request — the owner decides. Every action leaves an audit trail.
         </p>
       </header>
 

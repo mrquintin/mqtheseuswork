@@ -1,0 +1,61 @@
+You are working in `/Users/michaelquintin/Desktop/Theseus`.
+
+Goal: make Theseus Codex feel responsive under normal use.
+
+Current live/user-reported problems:
+- The website feels slow.
+- Buttons sometimes appear to work only when links are opened in a new tab.
+- Prior Vercel builds failed when pages fetched slow backend data during static generation.
+- Currents and forecast public pages have previously blocked deploy/build behavior with upstream timeouts.
+
+Start by reading:
+- `docs/architecture/UI_UX_Round20_Contract.md`
+- `theseus-codex/next.config.*`
+- `theseus-codex/src/components/Nav.tsx`
+- public and authed route files touched in this round;
+- data-fetching helpers for Currents, forecasts, public home, dashboard, knowledge, transcripts, and ops;
+- any existing performance notes/tests.
+
+Implement:
+1. Audit slow data fetches:
+   - public home;
+   - Currents;
+   - forecasts;
+   - dashboard;
+   - knowledge;
+   - transcripts;
+   - ops.
+2. Prevent build-time hangs:
+   - pages that depend on slow live services should render dynamically or use bounded timeouts/fallbacks;
+   - never let `/currents` block a Vercel build on an upstream 524/timeout.
+3. Improve client interaction:
+   - immediate pending states for server actions;
+   - disable duplicate submits;
+   - visible success/failure feedback;
+   - consistent anchor/button semantics.
+4. Route transitions:
+   - normal clicks must work;
+   - no reliance on opening in a new tab;
+   - avoid route-group duplicate paths.
+5. Add performance-focused tests or smoke scripts where practical:
+   - route render smoke;
+   - no build-time live API dependency smoke;
+   - navigation/button smoke for key flows.
+
+Constraints:
+- Do not remove real-time/live features; make them resilient.
+- Do not mask real backend failures in founder/operator contexts.
+- Do not add heavy client libraries unless clearly justified.
+
+Verification:
+- Run `npm run build` in `theseus-codex`.
+- Run `npx tsc --noEmit` in `theseus-codex`.
+- Browser-click through nav paths normally.
+- Confirm public routes render with backend unavailable or slow.
+
+SCOPE:
+MODIFY theseus-codex data-fetching helpers and route files touched by this round.
+MODIFY theseus-codex/src/components/Nav.tsx if needed.
+MAYBE ADD smoke tests/scripts under theseus-codex/playwright/ or theseus-codex/src/__tests__/
+MAYBE MODIFY Vercel/Next config only if required and documented.
+

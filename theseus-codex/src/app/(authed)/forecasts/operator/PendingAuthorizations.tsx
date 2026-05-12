@@ -3,7 +3,9 @@
 import { ShieldCheck } from "lucide-react";
 import { useState } from "react";
 
-import type { PublicForecast } from "@/lib/forecastsTypes";
+import type { DecisionTrace, PublicForecast } from "@/lib/forecastsTypes";
+
+import { ActionBadge } from "../portfolio/DecisionTracePanel";
 
 export type AuthorizationRow = {
   edge: number | null;
@@ -74,9 +76,11 @@ async function authorizePrediction(predictionId: string): Promise<void> {
 }
 
 export default function PendingAuthorizations({
+  decisionTracesByPredictionId = {},
   liveTradingEnabled,
   rows,
 }: {
+  decisionTracesByPredictionId?: Record<string, DecisionTrace>;
   liveTradingEnabled: boolean;
   rows: AuthorizationRow[];
 }) {
@@ -100,18 +104,36 @@ export default function PendingAuthorizations({
         {rows.length === 0 ? (
           <p style={{ color: "var(--parchment-dim)", margin: 0 }}>No predictions are waiting for live authorization.</p>
         ) : (
-          rows.map((row) => (
+          rows.map((row) => {
+            const trace = decisionTracesByPredictionId[row.prediction.id] ?? null;
+            const algorithmReason =
+              trace?.reasons[0] ??
+              trace?.rules.find((r) => r.fired && !r.passed)?.detail ??
+              null;
+            return (
             <article
               key={row.prediction.id}
+              data-prediction-id={row.prediction.id}
               style={{
                 border: "1px solid rgba(232, 225, 211, 0.12)",
                 borderRadius: 6,
                 padding: "0.85rem",
               }}
             >
-              <h3 style={{ color: "var(--parchment)", fontSize: "1rem", margin: "0 0 0.55rem" }}>
-                {row.prediction.headline}
-              </h3>
+              <div
+                style={{
+                  alignItems: "flex-start",
+                  display: "flex",
+                  flexWrap: "wrap",
+                  gap: "0.6rem",
+                  justifyContent: "space-between",
+                }}
+              >
+                <h3 style={{ color: "var(--parchment)", fontSize: "1rem", margin: "0 0 0.55rem" }}>
+                  {row.prediction.headline}
+                </h3>
+                {trace ? <ActionBadge action={trace.action} size="sm" /> : null}
+              </div>
               <div
                 className="mono"
                 style={{
@@ -122,11 +144,32 @@ export default function PendingAuthorizations({
                   gridTemplateColumns: "repeat(auto-fit, minmax(120px, 1fr))",
                 }}
               >
-                <span>Model {probability(row.prediction.probability_yes)}</span>
+                <span>Firm {probability(row.prediction.probability_yes)}</span>
                 <span>Market {probability(row.marketPrice)}</span>
                 <span>Edge {signed(row.edge)}</span>
+                <span>Side {trace?.side ?? (row.edge !== null && row.edge >= 0 ? "YES" : "NO")}</span>
                 <span>Kelly {money(row.kellyStakeUsd)}</span>
+                <span>
+                  Algo stake{" "}
+                  {trace?.stakeRecommendationUsd !== null && trace?.stakeRecommendationUsd !== undefined
+                    ? money(trace.stakeRecommendationUsd)
+                    : "n/a"}
+                </span>
               </div>
+              {algorithmReason ? (
+                <p
+                  style={{
+                    color: "var(--parchment)",
+                    fontSize: "0.74rem",
+                    margin: "0.5rem 0 0",
+                  }}
+                >
+                  <span className="mono" style={{ color: "var(--amber-dim)", fontSize: "0.6rem", letterSpacing: "0.18em", textTransform: "uppercase" }}>
+                    Why:
+                  </span>{" "}
+                  {algorithmReason}
+                </p>
+              ) : null}
               <div style={{ marginTop: "0.8rem" }}>
                 {liveTradingEnabled ? (
                   <button
@@ -155,7 +198,8 @@ export default function PendingAuthorizations({
                 )}
               </div>
             </article>
-          ))
+            );
+          })
         )}
       </div>
     </section>

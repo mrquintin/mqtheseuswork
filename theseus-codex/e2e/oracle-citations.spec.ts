@@ -91,7 +91,10 @@ test("Oracle conclusion citation opens the conclusion detail page in a new tab",
     await page.getByRole("button", { name: /enter the codex/i }).click();
     await page.waitForURL(/\/dashboard(?:\?|$)/, { timeout: 15_000 });
 
-    await page.goto("/ask");
+    // `/ask` is now the public retrieval surface; signed-in founders are
+    // redirected to `/codex-ask`. Navigate to the founder route directly
+    // so the test exercises the LLM-grounded form.
+    await page.goto("/codex-ask");
     await page.getByPlaceholder(/base-rate neglect/i).fill("What does the firm believe about base-rate neglect?");
     await page.getByRole("button", { name: /ask the codex/i }).click();
 

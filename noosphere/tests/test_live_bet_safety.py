@@ -16,6 +16,7 @@ from noosphere.forecasts.safety import (
     GateContext,
     GateFailure,
     check_all_gates,
+    current_trading_mode,
     gate_context_from_env,
     reset_exchange_error_streak,
 )
@@ -138,6 +139,32 @@ def test_all_gates_pass_submits_via_polymarket(monkeypatch: pytest.MonkeyPatch) 
     settled = asyncio.run(settle_live_bet_on_resolution(store, bet_id, "YES"))
     assert settled.status == ForecastBetStatus.SETTLED
     assert settled.settlement_pnl_usd == Decimal("10.00")
+
+
+def test_trading_mode_readiness_states(monkeypatch: pytest.MonkeyPatch) -> None:
+    for key in (
+        "FORECASTS_LIVE_TRADING_ENABLED",
+        "POLYMARKET_PRIVATE_KEY",
+        "KALSHI_API_KEY_ID",
+        "KALSHI_API_PRIVATE_KEY",
+        "KALSHI_PRIVATE_KEY_PEM",
+        "FORECASTS_MAX_STAKE_USD",
+        "FORECASTS_MAX_DAILY_LOSS_USD",
+    ):
+        monkeypatch.delenv(key, raising=False)
+    assert current_trading_mode() == "PAPER_ONLY"
+
+    monkeypatch.setenv("FORECASTS_LIVE_TRADING_ENABLED", "true")
+    assert current_trading_mode() == "LIVE_DISABLED_NO_CREDENTIALS"
+
+    monkeypatch.setenv("POLYMARKET_PRIVATE_KEY", "0x" + "1" * 64)
+    assert current_trading_mode() == "LIVE_ENABLED_AWAITING_AUTHORIZATION"
+
+    monkeypatch.setenv("FORECASTS_MAX_STAKE_USD", "100")
+    assert current_trading_mode() == "LIVE_ENABLED_AWAITING_AUTHORIZATION"
+
+    monkeypatch.setenv("FORECASTS_MAX_DAILY_LOSS_USD", "100")
+    assert current_trading_mode() == "LIVE_READY_WITH_LIMITS"
 
 
 def test_no_real_exchange_calls(monkeypatch: pytest.MonkeyPatch) -> None:

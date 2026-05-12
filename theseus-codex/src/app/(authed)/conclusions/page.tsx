@@ -2,7 +2,7 @@ import Link from "next/link";
 import { Suspense } from "react";
 import TemporalReplayBar from "@/components/TemporalReplayBar";
 import ConfidenceTierSigil from "@/components/ConfidenceTierSigil";
-import SculptureBackdrop from "@/components/SculptureBackdrop";
+import Excerpt from "@/components/Excerpt";
 import { db } from "@/lib/db";
 import { founderDisplayName } from "@/lib/founderDisplay";
 import { fetchReplayConclusions } from "@/lib/noosphereReplayBridge";
@@ -38,7 +38,7 @@ function urlFor(basePath: string, tab: string, params: URLSearchParams) {
 
 async function ConclusionsContent({
   searchParams,
-  basePath = "/conclusions",
+  basePath,
 }: {
   searchParams: Promise<ConclusionsSearchParams>;
   basePath?: string;
@@ -46,33 +46,40 @@ async function ConclusionsContent({
   const sp = await searchParams;
   const asOf = sp.asOf;
   const replay = Boolean(asOf && AS_OF_ISO.test(asOf));
+  // When this component is rendered inside the /knowledge tab shell, sp
+  // carries `tab=conclusions`. Detect that so form submits and pagination
+  // round-trip back to /knowledge?tab=conclusions instead of dropping the
+  // user into the bare /conclusions route.
+  const resolvedBasePath =
+    basePath ?? (sp.tab === "conclusions" ? "/knowledge" : "/conclusions");
 
   if (replay) {
     const { rows, error } = await fetchReplayConclusions(asOf!);
     return (
-      <main style={{ maxWidth: "960px", margin: "0 auto", padding: "3rem 2rem" }}>
+      <main style={{ maxWidth: "1000px", margin: "0 auto", padding: "1.5rem 2rem 3rem" }}>
         <Suspense fallback={null}>
           <TemporalReplayBar />
         </Suspense>
-        <h1
+        <h2
           style={{
             fontFamily: "'Cinzel', serif",
             color: "var(--amber)",
-            letterSpacing: "0.12em",
-            textShadow: "var(--glow-sm)",
+            letterSpacing: "0.06em",
+            fontSize: "1.2rem",
+            fontWeight: 500,
+            margin: "0 0 0.4rem",
           }}
         >
-          Conclusiones
-        </h1>
+          Conclusions
+        </h2>
         <p
           style={{
             color: "var(--ember)",
-            fontSize: "0.85rem",
-            marginBottom: "1rem",
+            fontSize: "0.8rem",
+            margin: "0 0 1rem",
           }}
         >
-          Replay mode: conclusions consistent with Noosphere evidence as of{" "}
-          <strong>{asOf}</strong> (see Operations manual for imperfections).
+          Replay mode — as of <strong>{asOf}</strong>.
         </p>
         {error ? (
           <p style={{ color: "var(--parchment-dim)", fontSize: "0.85rem" }}>
@@ -84,66 +91,71 @@ async function ConclusionsContent({
             listStyle: "none",
             padding: 0,
             margin: 0,
-            display: "flex",
-            flexDirection: "column",
-            gap: "0.75rem",
+            display: "grid",
+            gap: "0.6rem",
           }}
         >
           {rows.map((c) => (
             <li
               key={c.id}
               className="portal-card"
-              style={{ padding: "1rem 1.25rem" }}
+              style={{
+                padding: "0.85rem 1rem",
+                display: "grid",
+                gridTemplateColumns: "auto 1fr",
+                gap: "0.75rem",
+                alignItems: "flex-start",
+              }}
             >
-              <Link
-                href={`/conclusions/${c.id}`}
-                style={{
-                  textDecoration: "none",
-                  color: "inherit",
-                  display: "flex",
-                  gap: "0.9rem",
-                  alignItems: "flex-start",
-                }}
-              >
-                <ConfidenceTierSigil tier={c.confidence_tier || "open"} />
-                <div style={{ minWidth: 0, flex: 1 }}>
+              <ConfidenceTierSigil tier={c.confidence_tier || "open"} />
+              <div style={{ minWidth: 0 }}>
+                <Link
+                  href={`/conclusions/${c.id}`}
+                  style={{
+                    textDecoration: "none",
+                    color: "inherit",
+                    display: "block",
+                  }}
+                >
                   <div
                     className="mono"
                     style={{
-                      fontSize: "0.62rem",
+                      fontSize: "0.6rem",
                       color: "var(--amber-dim)",
                       textTransform: "uppercase",
                       letterSpacing: "0.12em",
                       display: "flex",
                       gap: "0.5rem",
+                      flexWrap: "wrap",
                     }}
                   >
-                    <span>
-                      {c.confidence_tier || ""}
-                      {c.created_at
-                        ? ` · recorded ${String(c.created_at).slice(0, 10)}`
-                        : ""}
-                    </span>
+                    <span>{c.confidence_tier || ""}</span>
+                    {c.created_at ? (
+                      <span>
+                        · {String(c.created_at).slice(0, 10)}
+                      </span>
+                    ) : null}
                     <span style={{ color: "var(--ember)", marginLeft: "auto" }}>
-                      exits replay →
+                      replay
                     </span>
                   </div>
-                  <p style={{ marginTop: "0.45rem", color: "var(--parchment)" }}>
+                  <p style={{ margin: "0.3rem 0 0", color: "var(--parchment)", lineHeight: 1.45 }}>
                     {c.text}
                   </p>
-                  {c.rationale ? (
-                    <p
-                      style={{
-                        marginTop: "0.35rem",
-                        fontSize: "0.8rem",
-                        color: "var(--parchment-dim)",
-                      }}
-                    >
-                      {c.rationale}
-                    </p>
-                  ) : null}
-                </div>
-              </Link>
+                </Link>
+                {c.rationale ? (
+                  <Excerpt
+                    text={c.rationale}
+                    lines={2}
+                    style={{
+                      marginTop: "0.3rem",
+                      fontSize: "0.8rem",
+                      color: "var(--parchment-dim)",
+                      lineHeight: 1.5,
+                    }}
+                  />
+                ) : null}
+              </div>
             </li>
           ))}
         </ul>
@@ -185,6 +197,12 @@ async function ConclusionsContent({
         attributedFounder: {
           select: { displayName: true, name: true, username: true },
         },
+        sources: {
+          take: 1,
+          select: {
+            upload: { select: { id: true, title: true, sourceType: true } },
+          },
+        },
       },
     }),
     db.conclusion.count({ where }),
@@ -200,100 +218,82 @@ async function ConclusionsContent({
     if (sp.topic) params.set("topic", sp.topic);
     if (q) params.set("q", q);
     if (p > 1) params.set("page", String(p));
-    return urlFor(basePath, "conclusions", params);
+    return urlFor(resolvedBasePath, "conclusions", params);
   }
 
   function buildTierUrl(tier: string | null): string {
     const params = new URLSearchParams();
     if (tier) params.set("tier", tier);
     if (q) params.set("q", q);
-    return urlFor(basePath, "conclusions", params);
+    return urlFor(resolvedBasePath, "conclusions", params);
   }
 
   function buildClearUrl(): string {
     const params = new URLSearchParams();
     if (sp.tier) params.set("tier", sp.tier);
     if (sp.topic) params.set("topic", sp.topic);
-    return urlFor(basePath, "conclusions", params);
+    return urlFor(resolvedBasePath, "conclusions", params);
   }
 
   function buildTopicUrl(topic: string): string {
     const params = new URLSearchParams();
-    params.set("topic", topic);
+    if (topic) params.set("topic", topic);
+    if (sp.tier) params.set("tier", sp.tier);
     if (q) params.set("q", q);
-    return urlFor(basePath, "conclusions", params);
+    return urlFor(resolvedBasePath, "conclusions", params);
   }
 
-  return (
-    <div style={{ position: "relative", overflow: "hidden", minHeight: "80vh" }}>
-      <SculptureBackdrop
-        src="/sculptures/discobolus-alt.mesh.bin"
-        side="right"
-        yawSpeed={0.01}
-      />
+  const inKnowledgeShell = resolvedBasePath === "/knowledge";
 
-      <main
+  return (
+    <main
+      style={{
+        maxWidth: "1000px",
+        margin: "0 auto",
+        padding: inKnowledgeShell ? "1rem 1.5rem 3rem" : "1.5rem 1.5rem 3rem",
+      }}
+    >
+      <Suspense fallback={null}>
+        <TemporalReplayBar />
+      </Suspense>
+
+      {!inKnowledgeShell ? (
+        <h1
+          style={{
+            fontFamily: "'Cinzel', serif",
+            color: "var(--amber)",
+            letterSpacing: "0.06em",
+            fontSize: "1.3rem",
+            fontWeight: 500,
+            margin: "0 0 1rem",
+          }}
+        >
+          Conclusions
+        </h1>
+      ) : null}
+
+      <div
         style={{
-          position: "relative",
-          zIndex: 1,
-          maxWidth: "960px",
-          margin: "0 auto",
-          padding: "2rem 2rem 3rem",
+          position: "sticky",
+          top: 0,
+          zIndex: 5,
+          background: "var(--stone-black, #0a0a0a)",
+          padding: "0.5rem 0 0.75rem",
+          marginBottom: "0.75rem",
+          borderBottom: "1px solid var(--border)",
         }}
       >
-        <Suspense fallback={null}>
-          <TemporalReplayBar />
-        </Suspense>
-
-        <header style={{ marginBottom: "2rem" }}>
-          <h1
-            style={{
-              fontFamily: "'Cinzel Decorative', 'Cinzel', serif",
-              fontSize: "2rem",
-              letterSpacing: "0.18em",
-              color: "var(--amber)",
-              textShadow: "var(--glow-sm)",
-              margin: 0,
-            }}
-          >
-            Conclusiones
-          </h1>
-          <p
-            className="mono"
-            style={{
-              fontSize: "0.62rem",
-              letterSpacing: "0.28em",
-              textTransform: "uppercase",
-              color: "var(--amber-dim)",
-              margin: "0.25rem 0 0",
-            }}
-          >
-            The firm&apos;s canon · Discobolus, MSR
-          </p>
-          <p
-            style={{
-              fontFamily: "'EB Garamond', serif",
-              fontStyle: "italic",
-              fontSize: "1rem",
-              color: "var(--parchment-dim)",
-              marginTop: "0.55rem",
-              marginBottom: 0,
-              lineHeight: 1.55,
-              maxWidth: "44em",
-            }}
-          >
-            The discus thrower is captured in resolved motion. Conclusions
-            here are the firm&apos;s equivalent: commitments that move
-            deliberation from potential to action.
-          </p>
-        </header>
-
         <form
-          action={basePath}
+          action={resolvedBasePath}
           method="get"
-          style={{ display: "flex", gap: "0.5rem", marginBottom: "1rem", flexWrap: "wrap" }}
+          style={{
+            display: "flex",
+            gap: "0.4rem",
+            flexWrap: "wrap",
+            alignItems: "center",
+          }}
         >
-          {basePath === "/knowledge" ? (
+          {inKnowledgeShell ? (
             <input type="hidden" name="tab" value="conclusions" />
           ) : null}
           <input
@@ -302,11 +302,10 @@ async function ConclusionsContent({
             defaultValue={q}
             placeholder="Search conclusions…"
             style={{
-              flex: 1,
-              minWidth: "12rem",
-              maxWidth: "24rem",
-              padding: "0.4rem 0.75rem",
-              fontSize: "0.8rem",
+              flex: "1 1 14rem",
+              minWidth: 0,
+              padding: "0.35rem 0.6rem",
+              fontSize: "0.85rem",
               fontFamily: "inherit",
               background: "transparent",
               border: "1px solid var(--border)",
@@ -316,57 +315,58 @@ async function ConclusionsContent({
           />
           {sp.tier && <input type="hidden" name="tier" value={sp.tier} />}
           {sp.topic && <input type="hidden" name="topic" value={sp.topic} />}
-          <button type="submit" className="btn" style={{ fontSize: "0.65rem" }}>
+          <button
+            type="submit"
+            className="btn"
+            style={{ fontSize: "0.62rem", padding: "0.3rem 0.65rem" }}
+          >
             Search
           </button>
-          {q && (
+          {q ? (
             <Link
               href={buildClearUrl()}
               className="btn"
-              style={{ fontSize: "0.65rem", textDecoration: "none" }}
+              style={{
+                fontSize: "0.62rem",
+                padding: "0.3rem 0.65rem",
+                textDecoration: "none",
+              }}
             >
               Clear
             </Link>
-          )}
+          ) : null}
         </form>
 
-        {q && (
-          <p
-            style={{
-              fontSize: "0.7rem",
-              color: "var(--parchment-dim)",
-              marginBottom: "0.75rem",
-            }}
-          >
-            {total} result{total !== 1 ? "s" : ""} for &ldquo;{q}&rdquo;
-          </p>
-        )}
-
-        <p
-          className="mono"
-          style={{
-            color: "var(--amber-dim)",
-            marginBottom: "0.75rem",
-            fontSize: "0.62rem",
-            letterSpacing: "0.2em",
-            textTransform: "uppercase",
-          }}
-        >
-          Filtra · Quick filters
-        </p>
         <div
           style={{
             display: "flex",
             flexWrap: "wrap",
-            gap: "0.5rem",
-            marginBottom: "1.75rem",
+            gap: "0.35rem",
+            marginTop: "0.5rem",
             alignItems: "center",
           }}
         >
+          <span
+            className="mono"
+            style={{
+              color: "var(--amber-dim)",
+              fontSize: "0.58rem",
+              letterSpacing: "0.18em",
+              textTransform: "uppercase",
+              marginRight: "0.25rem",
+            }}
+          >
+            Tier
+          </span>
           <Link
             href={buildTierUrl(null)}
             className="btn"
-            style={{ fontSize: "0.7rem", textDecoration: "none" }}
+            style={{
+              fontSize: "0.62rem",
+              padding: "0.25rem 0.55rem",
+              textDecoration: "none",
+              ...(sp.tier ? {} : { borderColor: "var(--amber)", color: "var(--amber)" }),
+            }}
           >
             All
           </Link>
@@ -376,168 +376,241 @@ async function ConclusionsContent({
               href={buildTierUrl(t)}
               className="btn"
               style={{
-                fontSize: "0.7rem",
+                fontSize: "0.62rem",
+                padding: "0.25rem 0.55rem",
                 textDecoration: "none",
                 display: "inline-flex",
                 alignItems: "center",
-                gap: "0.5rem",
+                gap: "0.35rem",
                 ...(sp.tier === t
-                  ? {
-                      borderColor: "var(--amber)",
-                      color: "var(--amber)",
-                    }
+                  ? { borderColor: "var(--amber)", color: "var(--amber)" }
                   : {}),
               }}
             >
-              <ConfidenceTierSigil tier={t} size="0.55rem" />
+              <ConfidenceTierSigil tier={t} size="0.5rem" />
               <span>{t}</span>
             </Link>
           ))}
-          <Link
-            href={buildTopicUrl("method")}
-            className="btn"
-            style={{ fontSize: "0.7rem", textDecoration: "none" }}
-          >
-            topic: method
-          </Link>
+          <span
+            style={{
+              width: 1,
+              height: "1rem",
+              background: "var(--border)",
+              margin: "0 0.25rem",
+            }}
+          />
+          {sp.topic ? (
+            <Link
+              href={buildTopicUrl("")}
+              className="btn"
+              style={{
+                fontSize: "0.62rem",
+                padding: "0.25rem 0.55rem",
+                textDecoration: "none",
+                borderColor: "var(--amber)",
+                color: "var(--amber)",
+              }}
+            >
+              topic: {sp.topic} ✕
+            </Link>
+          ) : (
+            <Link
+              href={buildTopicUrl("method")}
+              className="btn"
+              style={{
+                fontSize: "0.62rem",
+                padding: "0.25rem 0.55rem",
+                textDecoration: "none",
+              }}
+            >
+              topic: method
+            </Link>
+          )}
         </div>
 
-        {display.length === 0 ? (
-          <div
-            className="ascii-frame"
-            data-label="VACUUM · EMPTY"
-            style={{ padding: "2rem 1rem", textAlign: "center" }}
-          >
-            <p
-              style={{
-                fontFamily: "'EB Garamond', serif",
-                fontStyle: "italic",
-                fontSize: "1.1rem",
-                color: "var(--parchment)",
-                margin: 0,
-              }}
-            >
-              Nihil adhuc conclusum.
-            </p>
-            <p
-              className="mono"
-              style={{
-                fontSize: "0.7rem",
-                color: "var(--parchment-dim)",
-                marginTop: "0.4rem",
-              }}
-            >
-              No conclusions yet — nothing for the firm to stand behind.
-            </p>
-          </div>
-        ) : (
-          <ul
+        {q ? (
+          <p
             style={{
-              listStyle: "none",
-              padding: 0,
-              margin: 0,
-              display: "flex",
-              flexDirection: "column",
-              gap: "0.75rem",
+              fontSize: "0.7rem",
+              color: "var(--parchment-dim)",
+              margin: "0.45rem 0 0",
             }}
           >
-            {display.map((c) => (
+            {total} result{total !== 1 ? "s" : ""} for &ldquo;{q}&rdquo;
+          </p>
+        ) : null}
+      </div>
+
+      {display.length === 0 ? (
+        <div
+          className="portal-card"
+          style={{
+            padding: "1.25rem",
+            textAlign: "center",
+            color: "var(--parchment-dim)",
+            fontSize: "0.9rem",
+          }}
+        >
+          No conclusions match the current filters.
+        </div>
+      ) : (
+        <ul
+          style={{
+            listStyle: "none",
+            padding: 0,
+            margin: 0,
+            display: "grid",
+            gap: "0.55rem",
+          }}
+        >
+          {display.map((c) => {
+            const sourceUpload = c.sources?.[0]?.upload;
+            const confidencePct =
+              typeof c.confidence === "number" && c.confidence > 0
+                ? Math.round(c.confidence * 100)
+                : null;
+            return (
               <li
                 key={c.id}
                 className="portal-card"
-                style={{ padding: "1rem 1.25rem" }}
+                style={{
+                  padding: "0.8rem 1rem",
+                  display: "grid",
+                  gridTemplateColumns: "auto 1fr",
+                  gap: "0.75rem",
+                  alignItems: "flex-start",
+                }}
               >
-                <Link
-                  href={`/conclusions/${c.id}`}
-                  style={{
-                    textDecoration: "none",
-                    color: "inherit",
-                    display: "flex",
-                    gap: "0.9rem",
-                    alignItems: "flex-start",
-                  }}
-                >
-                  <ConfidenceTierSigil tier={c.confidenceTier} />
-                  <div style={{ minWidth: 0, flex: 1 }}>
+                <ConfidenceTierSigil tier={c.confidenceTier} />
+                <div style={{ minWidth: 0 }}>
+                  <Link
+                    href={`/conclusions/${c.id}`}
+                    style={{
+                      textDecoration: "none",
+                      color: "inherit",
+                      display: "block",
+                    }}
+                  >
                     <div
                       className="mono"
                       style={{
-                        fontSize: "0.62rem",
+                        fontSize: "0.58rem",
                         color: "var(--amber-dim)",
                         textTransform: "uppercase",
-                        letterSpacing: "0.12em",
+                        letterSpacing: "0.14em",
+                        display: "flex",
+                        flexWrap: "wrap",
+                        gap: "0.4rem",
+                        alignItems: "center",
                       }}
                     >
-                      {c.confidenceTier}
-                      {c.topicHint ? ` · ${c.topicHint}` : ""}
-                      {c.attributedFounder
-                        ? ` · ${founderDisplayName(c.attributedFounder)}`
-                        : ""}
+                      <span style={{ color: "var(--amber)" }}>
+                        {c.confidenceTier}
+                      </span>
+                      {confidencePct !== null ? (
+                        <span>· {confidencePct}%</span>
+                      ) : null}
+                      {c.topicHint ? <span>· {c.topicHint}</span> : null}
+                      {c.attributedFounder ? (
+                        <span>· {founderDisplayName(c.attributedFounder)}</span>
+                      ) : null}
                     </div>
                     <p
                       style={{
-                        marginTop: "0.5rem",
+                        margin: "0.3rem 0 0",
                         color: "var(--parchment)",
+                        lineHeight: 1.45,
+                        fontSize: "0.98rem",
                       }}
                     >
                       {c.text}
                     </p>
-                    {c.rationale && (
-                      <p
-                        style={{
-                          marginTop: "0.35rem",
-                          fontSize: "0.8rem",
-                          color: "var(--parchment-dim)",
-                        }}
+                  </Link>
+                  {c.rationale ? (
+                    <Excerpt
+                      text={c.rationale}
+                      lines={2}
+                      style={{
+                        marginTop: "0.3rem",
+                        fontSize: "0.8rem",
+                        color: "var(--parchment-dim)",
+                        lineHeight: 1.5,
+                      }}
+                    />
+                  ) : null}
+                  {sourceUpload ? (
+                    <div
+                      className="mono"
+                      style={{
+                        marginTop: "0.4rem",
+                        fontSize: "0.58rem",
+                        color: "var(--parchment-dim)",
+                        letterSpacing: "0.1em",
+                        display: "flex",
+                        gap: "0.4rem",
+                        flexWrap: "wrap",
+                      }}
+                    >
+                      <span style={{ textTransform: "uppercase" }}>
+                        source
+                      </span>
+                      <Link
+                        href={`/upload/${sourceUpload.id}`}
+                        style={{ color: "var(--parchment)", textDecoration: "none" }}
                       >
-                        {c.rationale}
-                      </p>
-                    )}
-                  </div>
-                </Link>
+                        {sourceUpload.title}
+                      </Link>
+                      {sourceUpload.sourceType ? (
+                        <span>· {sourceUpload.sourceType}</span>
+                      ) : null}
+                    </div>
+                  ) : null}
+                </div>
               </li>
-            ))}
-          </ul>
-        )}
+            );
+          })}
+        </ul>
+      )}
 
-        {display.length > 0 && (
-          <div
-            style={{
-              display: "flex",
-              justifyContent: "space-between",
-              alignItems: "center",
-              marginTop: "1.5rem",
-              padding: "0.75rem 0",
-              borderTop: "1px solid var(--border)",
-            }}
-          >
-            <span style={{ fontSize: "0.7rem", color: "var(--parchment-dim)" }}>
-              {total} conclusion{total !== 1 ? "s" : ""} · page {page}
-            </span>
-            <div style={{ display: "flex", gap: "0.5rem" }}>
-              {page > 1 && (
-                <Link
-                  href={buildPageUrl(page - 1)}
-                  className="btn"
-                  style={{ fontSize: "0.65rem", textDecoration: "none" }}
-                >
-                  ← Previous
-                </Link>
-              )}
-              {hasNext && (
-                <Link
-                  href={buildPageUrl(page + 1)}
-                  className="btn"
-                  style={{ fontSize: "0.65rem", textDecoration: "none" }}
-                >
-                  Next →
-                </Link>
-              )}
-            </div>
+      {display.length > 0 ? (
+        <div
+          style={{
+            display: "flex",
+            justifyContent: "space-between",
+            alignItems: "center",
+            marginTop: "1.25rem",
+            padding: "0.75rem 0",
+            borderTop: "1px solid var(--border)",
+            flexWrap: "wrap",
+            gap: "0.5rem",
+          }}
+        >
+          <span style={{ fontSize: "0.7rem", color: "var(--parchment-dim)" }}>
+            {total} conclusion{total !== 1 ? "s" : ""} · page {page}
+          </span>
+          <div style={{ display: "flex", gap: "0.5rem" }}>
+            {page > 1 ? (
+              <Link
+                href={buildPageUrl(page - 1)}
+                className="btn"
+                style={{ fontSize: "0.62rem", padding: "0.3rem 0.65rem", textDecoration: "none" }}
+              >
+                ← Previous
+              </Link>
+            ) : null}
+            {hasNext ? (
+              <Link
+                href={buildPageUrl(page + 1)}
+                className="btn"
+                style={{ fontSize: "0.62rem", padding: "0.3rem 0.65rem", textDecoration: "none" }}
+              >
+                Next →
+              </Link>
+            ) : null}
           </div>
-        )}
-      </main>
-    </div>
+        </div>
+      ) : null}
+    </main>
   );
 }
 

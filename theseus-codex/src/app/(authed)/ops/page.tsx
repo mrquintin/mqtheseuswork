@@ -23,6 +23,11 @@ import {
   listRecentAlerts,
   listRecentTraces,
 } from "@/lib/opsApi";
+import { requireTenantContext } from "@/lib/tenant";
+import HealthConsole from "./HealthConsole";
+import { loadOpsHealth } from "./healthLoader";
+
+export const dynamic = "force-dynamic";
 
 type OpsSearchParams = {
   panel?: string;
@@ -34,44 +39,6 @@ type OpsSearchParams = {
   engage?: string;
   domain?: string;
 };
-
-const OPS_PANELS = [
-  {
-    id: "observability",
-    label: "Observability",
-    detail: "In-flight uploads, traces, error spikes, cost burndown.",
-  },
-  {
-    id: "provenance",
-    label: "Provenance",
-    detail: "Extraction records and source chains.",
-  },
-  {
-    id: "contradictions",
-    label: "Contradictions",
-    detail: "Claim pairs whose coherence layers disagree.",
-  },
-  {
-    id: "peer-review",
-    label: "Peer review",
-    detail: "Per-conclusion review history, opened from a conclusion detail page.",
-  },
-  {
-    id: "decay",
-    label: "Decay",
-    detail: "Confidence freshness and revalidation.",
-  },
-  {
-    id: "rigor-gate",
-    label: "Rigor gate",
-    detail: "Mutation approvals, rejections, and overrides.",
-  },
-  {
-    id: "methods",
-    label: "Methods",
-    detail: "Registered extraction and review methods.",
-  },
-] as const;
 
 export default async function OpsPage({
   searchParams,
@@ -151,67 +118,19 @@ function firstPathSegment(value: string | undefined): string {
   return (value || "").split("/").filter(Boolean)[0] || "";
 }
 
-function OpsOverview() {
-  return (
-    <main style={{ maxWidth: "1040px", margin: "0 auto", padding: "3rem 2rem" }}>
-      <header style={{ marginBottom: "1.75rem" }}>
-        <h1
-          style={{
-            fontFamily: "'Cinzel Decorative', 'Cinzel', serif",
-            fontSize: "1.8rem",
-            letterSpacing: "0.16em",
-            color: "var(--amber)",
-            margin: 0,
-            textShadow: "var(--glow-sm)",
-          }}
-        >
-          Ops
-        </h1>
-        <p
-          className="mono"
-          style={{
-            color: "var(--amber-dim)",
-            fontSize: "0.62rem",
-            letterSpacing: "0.24em",
-            textTransform: "uppercase",
-          }}
-        >
-          Advanced tooling · Audit surfaces · Founder operations
+async function OpsOverview() {
+  const tenant = await requireTenantContext();
+  if (!tenant) {
+    return (
+      <main style={{ maxWidth: "640px", margin: "0 auto", padding: "3rem 2rem" }}>
+        <p style={{ color: "var(--parchment-dim)" }}>
+          Sign in to view the operator health console.
         </p>
-      </header>
-
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: "0.85rem" }}>
-        {OPS_PANELS.map((panel) => (
-          <Link
-            key={panel.id}
-            href={`/ops?panel=${panel.id}`}
-            className="portal-card"
-            style={{
-              color: "inherit",
-              display: "block",
-              padding: "1rem 1.1rem",
-              textDecoration: "none",
-            }}
-          >
-            <h2
-              style={{
-                color: "var(--gold)",
-                fontFamily: "'Cinzel', serif",
-                fontSize: "0.9rem",
-                letterSpacing: "0.1em",
-                margin: 0,
-              }}
-            >
-              {panel.label}
-            </h2>
-            <p style={{ color: "var(--parchment-dim)", fontSize: "0.85rem", lineHeight: 1.5, margin: "0.5rem 0 0" }}>
-              {panel.detail}
-            </p>
-          </Link>
-        ))}
-      </div>
-    </main>
-  );
+      </main>
+    );
+  }
+  const health = await loadOpsHealth(tenant);
+  return <HealthConsole health={health} />;
 }
 
 function PeerReviewIndex() {

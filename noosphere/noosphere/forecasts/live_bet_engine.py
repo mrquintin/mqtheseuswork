@@ -50,31 +50,48 @@ async def submit_live_bet(
     """
     Gate and submit one live bet. This function never submits unless
     check_all_gates has passed and operator_id is non-empty.
+
+    Idempotent on re-entry: if the bet already carries an externalOrderId or has
+    progressed past CONFIRMED, the live client is not called a second time. The
+    last persisted bet row is returned instead.
     """
 
     if not operator_id or not operator_id.strip():
         raise ValueError("operator_id is required for live bet submission")
 
     bet, prediction, market, portfolio = _load_submission_context(store, bet_id)
+
+    if _already_submitted(bet):
+        log.info(
+            "forecast_live_bet_already_submitted",
+            bet_id=bet.id,
+            status=_enum_value(bet.status),
+            external_order_id=bet.external_order_id,
+        )
+        return bet
+
     ctx = gate_context_from_env(portfolio)
     check_all_gates(prediction=prediction, bet=bet, ctx=ctx)
 
-    try:
-        if _enum_value(bet.exchange) == ForecastExchange.POLYMARKET.value:
-            client = polymarket_client or PolymarketLiveClient.from_env()
-            order = await _submit_polymarket_order(client, bet, market)
-        elif _enum_value(bet.exchange) == ForecastExchange.KALSHI.value:
-            client = kalshi_client or KalshiLiveClient.from_env()
-            order = await _submit_kalshi_order(client, bet, market)
-        else:
-            raise ValueError(f"unsupported live exchange: {bet.exchange!r}")
+    if _enum_value(bet.exchange) == ForecastExchange.POLYMARKET.value:
+        client = polymarket_client or PolymarketLiveClient.from_env()
+        submit = lambda: _submit_polymarket_order(client, bet, market)  # noqa: E731
+    elif _enum_value(bet.exchange) == ForecastExchange.KALSHI.value:
+        client = kalshi_client or KalshiLiveClient.from_env()
+        submit = lambda: _submit_kalshi_order(client, bet, market)  # noqa: E731
+    else:
+        raise ValueError(f"unsupported live exchange: {bet.exchange!r}")
 
+    submitted_to_exchange = False
+    try:
+        order = await submit()
         submitted = _mark_submitted(
             store,
             bet.id,
             order,
             submitted_at=datetime.now(UTC),
         )
+        submitted_to_exchange = True
         terminal_order, terminal_status = await _poll_order_status(
             client,
             order,
@@ -90,9 +107,42 @@ async def submit_live_bet(
             reset_exchange_error_streak(updated.organization_id)
         return updated
     except Exception as exc:
+        if submitted_to_exchange:
+            # The exchange already accepted the order. Do NOT flip to FAILED
+            # (that would lose track of real exposure). Leave status=SUBMITTED
+            # and surface to the operator for manual reconciliation.
+            log.error(
+                "forecast_live_bet_polling_error_after_submit",
+                bet_id=bet.id,
+                error_code=type(exc).__name__,
+                error_message=str(exc),
+            )
+            return _reload_bet(store, bet.id)
         updated = _mark_failed(store, bet.id, exc)
         record_exchange_error(store, updated.organization_id)
         return updated
+
+
+def _already_submitted(bet: ForecastBet) -> bool:
+    # Key off status, not external_order_id: in production _mark_submitted is
+    # the only writer of external_order_id, but test fixtures pre-stamp it on
+    # pre-submission bets, and status is the contract-bearing field.
+    status = _enum_value(bet.status)
+    return status in {
+        ForecastBetStatus.SUBMITTED.value,
+        ForecastBetStatus.FILLED.value,
+        ForecastBetStatus.SETTLED.value,
+        ForecastBetStatus.CANCELLED.value,
+        ForecastBetStatus.FAILED.value,
+    }
+
+
+def _reload_bet(store: Any, bet_id: str) -> ForecastBet:
+    with store.session() as session:
+        bet = session.get(ForecastBet, bet_id)
+        if bet is None:
+            raise KeyError(f"unknown forecast bet: {bet_id}")
+        return bet.model_copy()
 
 
 async def settle_live_bet_on_resolution(
@@ -255,6 +305,11 @@ def _mark_submitted(
         bet.status = ForecastBetStatus.SUBMITTED
         bet.external_order_id = order.external_order_id
         bet.submitted_at = submitted_at
+        # Persist a stable client-side identifier for reconciliation. Kalshi
+        # already uses this on the wire; Polymarket's SDK derives the id from
+        # the signed order, so this is our local key for the same row.
+        if not bet.client_order_id:
+            bet.client_order_id = bet.id
         session.add(bet)
         session.commit()
         session.refresh(bet)
@@ -285,7 +340,21 @@ def _apply_order_status(
         session.add(bet)
         session.commit()
         session.refresh(bet)
-        return bet.model_copy()
+        result = bet.model_copy()
+
+    if status == ForecastBetStatus.SUBMITTED and _is_partial_fill(
+        order, Decimal(result.stake_usd)
+    ):
+        # Partial fills require operator intervention: there is no automatic
+        # retry or cancel. Surface loudly so the operator UI can act on it.
+        log.warning(
+            "forecast_live_bet_partial_fill_pending_operator",
+            bet_id=result.id,
+            external_order_id=result.external_order_id,
+            stake_usd=str(result.stake_usd),
+            filled_size=str(getattr(order, "filled_size", "0")),
+        )
+    return result
 
 
 def _mark_failed(store: Any, bet_id: str, exc: Exception) -> ForecastBet:

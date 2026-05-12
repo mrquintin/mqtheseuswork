@@ -7,9 +7,13 @@ import ConclusionsPage from "../conclusions/page";
 import ExplorerPage from "../explorer/page";
 import LibraryPage from "../library/page";
 import RetiredRouteToast from "./RetiredRouteToast";
+import KnowledgePrinciplesTab from "./PrinciplesTab";
+import KnowledgeCasesTab from "./CasesTab";
 
 const KNOWLEDGE_TABS = [
   { id: "conclusions", label: "Conclusions" },
+  { id: "principles", label: "Principles" },
+  { id: "cases", label: "Cases" },
   { id: "explorer", label: "Explorer" },
   { id: "library", label: "Library" },
   { id: "transcripts", label: "Transcripts" },
@@ -47,38 +51,25 @@ export default async function KnowledgePage({
   return (
     <>
       <RetiredRouteToast notice={sp.notice} />
-      <section style={{ paddingTop: "1.5rem" }}>
+      <section style={{ paddingTop: "1.25rem" }}>
         <header
           style={{
             maxWidth: "1200px",
-            margin: "0 auto 1rem",
+            margin: "0 auto 0.5rem",
             padding: "0 1.5rem",
           }}
         >
           <h1
             style={{
-              fontFamily: "'Cinzel Decorative', 'Cinzel', serif",
-              fontSize: "1.7rem",
-              letterSpacing: "0.16em",
+              fontFamily: "'Cinzel', serif",
+              fontSize: "1.25rem",
+              letterSpacing: "0.08em",
               color: "var(--amber)",
               margin: 0,
-              textShadow: "var(--glow-sm)",
             }}
           >
             Knowledge
           </h1>
-          <p
-            className="mono"
-            style={{
-              color: "var(--amber-dim)",
-              fontSize: "0.62rem",
-              letterSpacing: "0.24em",
-              margin: "0.3rem 0 0",
-              textTransform: "uppercase",
-            }}
-          >
-            Conclusions · Explorer · Library · Transcripts
-          </p>
         </header>
         <TabNav
           basePath="/knowledge"
@@ -89,6 +80,10 @@ export default async function KnowledgePage({
 
       {activeTab === "conclusions" ? (
         <ConclusionsPage searchParams={Promise.resolve(sp)} />
+      ) : activeTab === "principles" ? (
+        <KnowledgePrinciplesTab />
+      ) : activeTab === "cases" ? (
+        <KnowledgeCasesTab />
       ) : activeTab === "explorer" ? (
         <ExplorerPage />
       ) : activeTab === "library" ? (
@@ -98,6 +93,28 @@ export default async function KnowledgePage({
       )}
     </>
   );
+}
+
+const AUDIO_SOURCE_TYPES = new Set(["audio", "dialectic", "podcast", "session"]);
+
+function transcriptSourceKind(sourceType: string): "audio" | "transcript" | "text" {
+  const normalized = sourceType.trim().toLowerCase();
+  if (AUDIO_SOURCE_TYPES.has(normalized)) return "audio";
+  if (normalized === "transcript") return "transcript";
+  return "text";
+}
+
+function statusBadgeClass(status: string): string {
+  switch (status) {
+    case "ingested":
+      return "badge badge-ingested";
+    case "processing":
+      return "badge badge-processing";
+    case "failed":
+      return "badge badge-failed";
+    default:
+      return "badge badge-pending";
+  }
 }
 
 async function TranscriptsIndex() {
@@ -141,8 +158,8 @@ async function TranscriptsIndex() {
   });
 
   return (
-    <main style={{ maxWidth: "1000px", margin: "0 auto", padding: "2rem 2rem 4rem" }}>
-      <header style={{ marginBottom: "1.75rem" }}>
+    <main style={{ maxWidth: "1040px", margin: "0 auto", padding: "1.5rem 1.5rem 4rem" }}>
+      <header style={{ marginBottom: "1.25rem" }}>
         <h2
           style={{
             fontFamily: "'Cinzel', serif",
@@ -153,8 +170,8 @@ async function TranscriptsIndex() {
         >
           Transcripts
         </h2>
-        <p style={{ color: "var(--parchment-dim)", fontSize: "0.9rem", lineHeight: 1.6, maxWidth: "44rem" }}>
-          Every upload with a transcript surface, including stable chunk anchors for citation and review.
+        <p style={{ color: "var(--parchment-dim)", fontSize: "0.9rem", lineHeight: 1.6, maxWidth: "44rem", margin: "0.35rem 0 0" }}>
+          Audio, dialogue, and other uploads with a readable transcript surface and stable chunk anchors.
         </p>
       </header>
 
@@ -163,43 +180,60 @@ async function TranscriptsIndex() {
           No transcript-indexed uploads are available yet.
         </div>
       ) : (
-        <ul style={{ listStyle: "none", padding: 0, margin: 0, display: "grid", gap: "0.8rem" }}>
-          {uploads.map((upload) => (
-            <li key={upload.id} className="portal-card" style={{ padding: "1rem 1.2rem" }}>
-              <Link
-                href={`/transcripts/${upload.id}`}
-                style={{ color: "inherit", textDecoration: "none" }}
-              >
-                <div
-                  className="mono"
-                  style={{
-                    color: "var(--amber-dim)",
-                    fontSize: "0.6rem",
-                    letterSpacing: "0.18em",
-                    textTransform: "uppercase",
-                  }}
-                >
-                  {upload.sourceType} · {upload.status} · {upload._count.chunks} chunks · {new Date(upload.createdAt).toLocaleDateString()}
+        <ul className="transcript-index-list">
+          {uploads.map((upload) => {
+            const kind = transcriptSourceKind(upload.sourceType);
+            const chunkCount = upload._count.chunks;
+            const hasTranscript = chunkCount > 0;
+            return (
+              <li key={upload.id} className="portal-card transcript-index-row">
+                <div className="transcript-index-row-head">
+                  <span
+                    className={`mono transcript-index-kind transcript-index-kind-${kind}`}
+                    aria-label={`Source type ${upload.sourceType}`}
+                  >
+                    {kind === "audio" ? "AUDIO" : kind === "transcript" ? "TRANSCRIPT" : "TEXT"}
+                  </span>
+                  <h3 className="transcript-index-title">
+                    <Link href={`/transcripts/${upload.id}`}>{upload.title}</Link>
+                  </h3>
                 </div>
-                <h3
-                  style={{
-                    color: "var(--parchment)",
-                    fontFamily: "'EB Garamond', serif",
-                    fontSize: "1.1rem",
-                    margin: "0.35rem 0 0",
-                  }}
-                >
-                  {upload.title}
-                </h3>
-                <p style={{ color: "var(--parchment-dim)", fontSize: "0.85rem", margin: "0.35rem 0 0" }}>
-                  {founderDisplayName(upload.founder)}
-                  {upload.blurb || upload.description
-                    ? ` · ${(upload.blurb || upload.description || "").slice(0, 180)}`
-                    : ""}
-                </p>
-              </Link>
-            </li>
-          ))}
+                <dl className="transcript-index-fields">
+                  <div>
+                    <dt className="mono">Source</dt>
+                    <dd>{upload.sourceType}</dd>
+                  </div>
+                  <div>
+                    <dt className="mono">Transcript</dt>
+                    <dd>{hasTranscript ? "available" : "not chunked"}</dd>
+                  </div>
+                  <div>
+                    <dt className="mono">Chunks</dt>
+                    <dd>{chunkCount.toLocaleString()}</dd>
+                  </div>
+                  <div>
+                    <dt className="mono">State</dt>
+                    <dd>
+                      <span className={statusBadgeClass(upload.status)}>{upload.status}</span>
+                    </dd>
+                  </div>
+                  <div>
+                    <dt className="mono">Created</dt>
+                    <dd>{new Date(upload.createdAt).toLocaleDateString()}</dd>
+                  </div>
+                  <div>
+                    <dt className="mono">Author</dt>
+                    <dd>{founderDisplayName(upload.founder)}</dd>
+                  </div>
+                </dl>
+                {upload.blurb || upload.description ? (
+                  <p className="transcript-index-blurb">
+                    {(upload.blurb || upload.description || "").slice(0, 220)}
+                  </p>
+                ) : null}
+              </li>
+            );
+          })}
         </ul>
       )}
     </main>

@@ -31,7 +31,10 @@ export default function SourceStructurePanel({
           <h2 className="mono" id="source-structure-title">
             Source structure
           </h2>
-          <p>{chunks.length} chunks / {totalWords.toLocaleString()} words</p>
+          <p>
+            {chunks.length} chunks / {totalWords.toLocaleString()} words
+            {sections.length > 0 ? ` / ${sections.length} headings` : " / no headings detected"}
+          </p>
         </div>
         <span className="mono">{sections.length} sections</span>
       </div>

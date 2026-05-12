@@ -23,6 +23,11 @@ interface FeedClientProps {
   health: CurrentsHealth | null;
   seed: PublicOpinion[];
   detailBasePath?: string;
+  /**
+   * Founder/operator views surface backend reasons aloud (disconnected feed,
+   * disabled-ingestion banner). Public views stay calm and hide them.
+   */
+  diagnostic?: boolean;
 }
 
 function matchFilterKey(filter: Filter): string {
@@ -43,12 +48,19 @@ function EmptyFeedMessage({ filtered }: { filtered: boolean }) {
     >
       {filtered
         ? "No opinions match these filters."
-        : "No opinions yet. The firm abstains when its knowledge base does not support a position."}
+        : "The firm is reading public signals. Nothing significant enough to publish yet — opinions appear here when a real-world post crosses the firm's significance and relevance floors."}
     </div>
   );
 }
 
-function DisabledBanner({ health }: { health: CurrentsHealth | null }) {
+function DisabledBanner({
+  health,
+  diagnostic,
+}: {
+  health: CurrentsHealth | null;
+  diagnostic: boolean;
+}) {
+  if (!diagnostic) return null;
   if (!health || health.disabled_reasons.length === 0) return null;
   const reasons = health.disabled_reasons.join(", ");
   return (
@@ -67,8 +79,8 @@ function DisabledBanner({ health }: { health: CurrentsHealth | null }) {
         padding: "0.75rem 0.9rem",
       }}
     >
-      Currents disabled — set X_BEARER_TOKEN. If discovery is disabled, also
-      set CURRENTS_X_CURATED_ACCOUNTS or CURRENTS_X_SEARCH_QUERIES.
+      Currents ingestion disabled — set X_BEARER_TOKEN. If discovery is disabled,
+      also set CURRENTS_X_CURATED_ACCOUNTS or CURRENTS_X_SEARCH_QUERIES.
       <span style={{ color: "var(--currents-parchment-dim)" }}>
         {" "}
         Reason: {reasons}.
@@ -81,6 +93,7 @@ export default function FeedClient({
   health,
   seed,
   detailBasePath = "/currents",
+  diagnostic = false,
 }: FeedClientProps) {
   const seedIds = useRef(new Set(seed.map((opinion) => opinion.id)));
   const seenOpinionIds = useRef(new Set(seed.map((opinion) => opinion.id)));
@@ -137,8 +150,8 @@ export default function FeedClient({
 
   return (
     <section aria-label="Current-events opinions">
-      <DisabledBanner health={health} />
-      <LiveBanner connected={connected} />
+      <DisabledBanner health={health} diagnostic={diagnostic} />
+      <LiveBanner connected={connected} diagnostic={diagnostic} />
       <FilterBar opinions={opinions} />
 
       {otherFilterCount ? (

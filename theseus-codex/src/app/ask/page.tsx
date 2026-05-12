@@ -1,7 +1,9 @@
 import type { Metadata } from "next";
+import { redirect } from "next/navigation";
 
 import PublicAskBox from "@/components/PublicAskBox";
 import PublicHeader from "@/components/PublicHeader";
+import { getFounder } from "@/lib/auth";
 
 /**
  * Public inquiry page. The reader types a question into a single
@@ -10,10 +12,16 @@ import PublicHeader from "@/components/PublicHeader";
  * and pilled with methodology + confidence.
  *
  * Pure retrieval. No generation lives on this surface; the founder
- * workspace's `/codex-ask` keeps the LLM-driven
- * answer pipeline. A reader who wants to know what the firm thinks
- * gets a structured pointer to the firm's actual public output, never
- * a paraphrase.
+ * workspace's `/codex-ask` keeps the LLM-driven answer pipeline.
+ * A reader who wants to know what the firm thinks gets a structured
+ * pointer to the firm's actual public output, never a paraphrase.
+ *
+ * Route split (UI/UX Round 20 §3.6): `/ask` is public-only. A
+ * signed-in operator who lands here — via a stale link, a shared
+ * browser, or a deep link to `/ask?q=...` — is redirected to the
+ * founder surface at `/codex-ask` (which preserves their query
+ * string) so they never see the public retrieval surface in place
+ * of the LLM-grounded one they expect.
  */
 
 export const metadata: Metadata = {
@@ -44,6 +52,14 @@ export default async function PublicAskPage({
 }) {
   const resolved = (await (searchParams ?? Promise.resolve<SearchParams>({}))) ?? {};
   const initialQuery = firstParam(resolved.q).slice(0, 500);
+
+  const founder = await getFounder();
+  if (founder) {
+    const target = initialQuery
+      ? `/codex-ask?q=${encodeURIComponent(initialQuery)}`
+      : "/codex-ask";
+    redirect(target);
+  }
 
   return (
     <main style={{ minHeight: "100vh", position: "relative" }}>

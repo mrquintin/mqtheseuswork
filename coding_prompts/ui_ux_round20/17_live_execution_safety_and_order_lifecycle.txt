@@ -1,0 +1,81 @@
+You are working in `/Users/michaelquintin/Desktop/Theseus`.
+
+Goal: make live prediction-market execution correct end to end after credentials, risk limits, and explicit live enablement are configured.
+
+Product direction:
+The founder wants the infrastructure to work after adding Polymarket/Kalshi credentials and portfolio configuration. "Works" means the system can discover opportunities, generate algorithmic decision traces, create paper and live candidates, authorize candidates, confirm live orders, submit to the correct exchange, poll order state, update the ledger, settle on resolution, and stop immediately when the kill switch or risk gates require it.
+
+Start by reading:
+- `docs/architecture/Algorithmized_Decision_Making.md`
+- `coding_prompts/archive_round10/09_live_betting_safety_and_adapters.txt`
+- `noosphere/noosphere/forecasts/safety.py`
+- `noosphere/noosphere/forecasts/live_bet_engine.py`
+- `noosphere/noosphere/forecasts/_polymarket_live_client.py`
+- `noosphere/noosphere/forecasts/_kalshi_live_client.py`
+- `theseus-codex/src/app/(authed)/api/forecasts/operator/[id]/authorize-live/route.ts`
+- `theseus-codex/src/app/(authed)/api/forecasts/operator/[id]/bets/[betId]/confirm/route.ts`
+- `theseus-codex/src/app/(authed)/forecasts/operator/`
+- live-bet tests.
+
+Implement:
+1. Audit the existing live order lifecycle:
+   - candidate generated;
+   - prediction live-authorized;
+   - bet created/authorized;
+   - per-bet confirmation;
+   - gate check;
+   - exchange submission;
+   - order polling;
+   - filled/partial/cancelled/failed transitions;
+   - ledger and balance updates;
+   - resolution settlement.
+2. Fix any missing state transitions, idempotency, or error handling.
+3. Ensure exchange submissions use idempotent client order IDs where the exchange supports them.
+4. Ensure partial fills are represented honestly:
+   - no false "filled";
+   - no silent retry loop;
+   - clear operator intervention path.
+5. Ensure no live order path can bypass:
+   - `FORECASTS_LIVE_TRADING_ENABLED`;
+   - credential presence;
+   - prediction authorization;
+   - per-bet confirmation;
+   - max stake;
+   - max daily loss;
+   - kill switch;
+   - sufficient balance.
+6. Add startup/readiness self-checks:
+   - PAPER_ONLY;
+   - LIVE_DISABLED_NO_CREDENTIALS;
+   - LIVE_ENABLED_AWAITING_AUTHORIZATION;
+   - LIVE_READY_WITH_LIMITS.
+7. Add or strengthen tests that prove:
+   - no real exchange calls in tests;
+   - each gate fails in isolation;
+   - successful mocked Polymarket fill;
+   - successful mocked Kalshi fill;
+   - exchange error streak engages kill switch;
+   - kill switch blocks even authorized/confirmed bets;
+   - default environment blocks live orders.
+
+Constraints:
+- Do not place a real exchange order in development or tests.
+- Do not add a force/override bypass.
+- Do not auto-confirm live bets.
+- Keep secrets out of logs.
+
+Verification:
+- Run `python -m pytest noosphere/tests/test_live_bet_safety.py noosphere/tests/test_live_bet_engine.py -q`.
+- Run any forecast operator API tests.
+- Run `git diff --check`.
+
+SCOPE:
+MODIFY noosphere/noosphere/forecasts/safety.py
+MODIFY noosphere/noosphere/forecasts/live_bet_engine.py
+MODIFY noosphere/noosphere/forecasts/_polymarket_live_client.py
+MODIFY noosphere/noosphere/forecasts/_kalshi_live_client.py
+MODIFY noosphere/noosphere/forecasts/__init__.py if readiness mode lives there.
+MODIFY noosphere/tests/test_live_bet_safety.py
+MODIFY noosphere/tests/test_live_bet_engine.py
+MAYBE MODIFY theseus-codex/src/app/(authed)/api/forecasts/operator/* routes if lifecycle gaps are in the web API.
+

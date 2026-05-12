@@ -1,0 +1,53 @@
+You are working in `/Users/michaelquintin/Desktop/Theseus`.
+
+Goal: verify the Round 20 UI work end to end and leave a concise report with evidence.
+
+Start by reading:
+- `coding_prompts/ui_ux_round20/PATH_WALK_NOTES.md`
+- `docs/architecture/UI_UX_Round20_Contract.md`
+- all files changed by prompts 01-11;
+- existing test and deployment docs.
+
+Implement:
+1. Create a verification report at `docs/runs/ui_ux_round20_verification.md`.
+2. The report must include:
+   - changed surfaces;
+   - screenshots or screenshot paths for desktop and mobile checks;
+   - build/test commands and results;
+   - routes manually clicked;
+   - remaining issues, if any;
+   - whether public routes can render without slow backend dependency;
+   - whether Ops exposes script/workflow status clearly;
+   - whether audio transcript text is first-class and visible.
+3. Run the strongest practical local verification:
+   - `npm run build` in `theseus-codex`;
+   - `npx tsc --noEmit` in `theseus-codex`;
+   - relevant Jest/Playwright tests if present and not prohibitively slow;
+   - `python3 coding_prompts/_audit_implementation.py` only to confirm prompt archives were not accidentally disturbed.
+4. Browser-check these paths:
+   - `/`;
+   - `/dashboard`;
+   - `/knowledge`;
+   - `/knowledge?tab=transcripts`;
+   - one conclusion detail;
+   - one audio transcript detail;
+   - `/upload`;
+   - `/ask` and the authenticated ask route;
+   - `/currents`;
+   - `/founder-currents`;
+   - `/ops`.
+5. Fix regressions found during verification if they are in scope and safe. If a remaining problem requires service provisioning or secrets, document exactly what is missing.
+
+Constraints:
+- Do not claim deployment success unless actually deployed and verified.
+- Do not sync to GitHub unless explicitly asked by the user or the repo's current workflow requires it for the user's goal.
+- Do not hide failed tests.
+
+Verification:
+- The output of this prompt is the verification report plus any necessary fixes.
+
+SCOPE:
+ADD docs/runs/ui_ux_round20_verification.md
+MAYBE MODIFY any Round 20-touched files to fix regressions.
+MAYBE MODIFY tests/snapshots when UI changes intentionally alter output.
+

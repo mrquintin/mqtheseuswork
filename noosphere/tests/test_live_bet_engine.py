@@ -168,6 +168,127 @@ def test_exchange_error_streak_engages_kill_switch(
     assert state.kill_switch_reason == "EXCHANGE_ERROR_STREAK"
 
 
+def test_submit_is_idempotent_when_already_submitted(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _enable_live_env(monkeypatch)
+    store, bet_id, org_id = _seed_live_store(
+        org_id="org_engine_idempotent",
+        exchange=ForecastExchange.POLYMARKET,
+        side=ForecastBetSide.YES,
+    )
+    first_order = PolymarketLiveOrder(
+        external_order_id="poly_order_first",
+        status="FILLED",
+        filled_size=Decimal("10.00"),
+        average_price=Decimal("0.500000"),
+    )
+    client = _CountingPolymarketClient([first_order])
+
+    first = asyncio.run(
+        submit_live_bet(
+            store,
+            bet_id,
+            polymarket_client=client,
+            operator_id="operator_1",
+        )
+    )
+    assert first.status == ForecastBetStatus.FILLED
+    assert client.place_order_calls == 1
+
+    second = asyncio.run(
+        submit_live_bet(
+            store,
+            bet_id,
+            polymarket_client=client,
+            operator_id="operator_1",
+        )
+    )
+    assert second.status == ForecastBetStatus.FILLED
+    assert second.external_order_id == "poly_order_first"
+    assert client.place_order_calls == 1
+
+
+def test_polling_error_after_submit_leaves_bet_submitted(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _enable_live_env(monkeypatch)
+    # Give the poll loop a non-zero budget so get_order actually fires.
+    monkeypatch.setenv("FORECASTS_LIVE_ORDER_POLL_TIMEOUT_S", "0.05")
+    store, bet_id, org_id = _seed_live_store(
+        org_id="org_engine_polling_err",
+        exchange=ForecastExchange.POLYMARKET,
+        side=ForecastBetSide.YES,
+    )
+    placed_order = PolymarketLiveOrder(
+        external_order_id="poly_order_pending",
+        status="live",
+        filled_size=Decimal("0"),
+        average_price=None,
+    )
+    client = _PollingErrorPolymarketClient(placed_order)
+
+    result = asyncio.run(
+        submit_live_bet(
+            store,
+            bet_id,
+            polymarket_client=client,
+            operator_id="operator_1",
+        )
+    )
+
+    assert result.status == ForecastBetStatus.SUBMITTED
+    assert result.external_order_id == "poly_order_pending"
+    state = store.get_portfolio_state(org_id)
+    assert state is not None
+    assert state.kill_switch_engaged is False, (
+        "polling errors must not auto-engage the kill switch via the exchange-error "
+        "streak path once the order is already at the exchange"
+    )
+
+
+def test_gate_failure_does_not_record_exchange_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _enable_live_env(monkeypatch)
+    store, bet_id, org_id = _seed_live_store(
+        org_id="org_engine_gate_block",
+        exchange=ForecastExchange.POLYMARKET,
+        side=ForecastBetSide.YES,
+    )
+    # Engage the kill switch so the kill_switch_clear gate fails.
+    engage_kill_switch(store, org_id, reason="OPERATOR", engaged_at=NOW)
+    client = _MockPolymarketClient(
+        [
+            PolymarketLiveOrder(
+                external_order_id="poly_order_unused",
+                status="FILLED",
+                filled_size=Decimal("10.00"),
+                average_price=Decimal("0.500000"),
+            )
+        ]
+    )
+
+    from noosphere.forecasts.safety import GateFailure
+
+    with pytest.raises(GateFailure) as excinfo:
+        asyncio.run(
+            submit_live_bet(
+                store,
+                bet_id,
+                polymarket_client=client,
+                operator_id="operator_1",
+            )
+        )
+    assert excinfo.value.code == "KILL_SWITCH_ENGAGED"
+
+    with store.session() as session:
+        bet = session.get(ForecastBet, bet_id)
+        assert bet is not None
+        assert bet.status == ForecastBetStatus.CONFIRMED
+        assert bet.external_order_id is None
+
+
 def test_disengage_requires_long_note() -> None:
     store = Store.from_database_url("sqlite:///:memory:")
     org_id = "org_engine_disengage"
@@ -329,3 +450,24 @@ class _MockKalshiClient:
 class _FailingPolymarketClient:
     async def place_order(self, *_args, **_kwargs) -> PolymarketLiveOrder:  # type: ignore[no-untyped-def]
         raise RuntimeError("mock exchange outage")
+
+
+class _CountingPolymarketClient(_MockPolymarketClient):
+    def __init__(self, orders: list[PolymarketLiveOrder]) -> None:
+        super().__init__(orders)
+        self.place_order_calls = 0
+
+    async def place_order(self, *_args, **_kwargs) -> PolymarketLiveOrder:  # type: ignore[no-untyped-def]
+        self.place_order_calls += 1
+        return self._orders[0]
+
+
+class _PollingErrorPolymarketClient:
+    def __init__(self, placed_order: PolymarketLiveOrder) -> None:
+        self._placed_order = placed_order
+
+    async def place_order(self, *_args, **_kwargs) -> PolymarketLiveOrder:  # type: ignore[no-untyped-def]
+        return self._placed_order
+
+    async def get_order(self, _order_id: str) -> PolymarketLiveOrder:
+        raise RuntimeError("mock polling error after submission")

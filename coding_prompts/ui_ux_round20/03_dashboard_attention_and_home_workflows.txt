@@ -1,0 +1,51 @@
+You are working in `/Users/michaelquintin/Desktop/Theseus`.
+
+Goal: turn the dashboard into an operational home instead of a noisy forum/ceremonial page.
+
+Current live problems:
+- The dashboard first viewport shows a large decorative header, "Forum", display-name reminder, contradiction warning, and repeated attention actions.
+- The useful workflow is not obvious: what just uploaded, what is processing, what failed, what needs review, what conclusions changed.
+- Decorative labels compete with urgent operational signals.
+
+Start by reading:
+- `docs/architecture/UI_UX_Round20_Contract.md`
+- `theseus-codex/src/app/(authed)/dashboard/page.tsx`
+- dashboard-related tests and snapshots;
+- upload/processing helpers used by the dashboard;
+- attention/contradiction queue helpers.
+
+Implement:
+1. Replace the default dashboard hierarchy with:
+   - compact status header;
+   - processing/automation status summary;
+   - attention queue grouped by severity and action;
+   - recent uploads;
+   - recent conclusions;
+   - recent publication/currents/forecast jobs if available.
+2. Collapse or relocate noncritical reminders:
+   - display-name reminder;
+   - shortcut hint;
+   - decorative welcome copy.
+3. Group repeated attention actions into a table/list with one action menu per item or a bulk-action pattern.
+4. Make contradiction alerts clear but not visually overwhelming:
+   - show count, severity, newest item, and link to review.
+5. Use plain English labels and compact cards/panels.
+6. Make empty states useful:
+   - explain what will appear after upload/processing;
+   - include one clear next action.
+
+Constraints:
+- Do not hide real failures.
+- Do not remove access to any existing dashboard capabilities.
+- Preserve tenant scoping and auth.
+
+Verification:
+- Run `npm run build` in `theseus-codex`.
+- Browser-check `/dashboard` with the current seeded/live data.
+- Confirm first viewport answers: processing health, attention needed, recent activity.
+
+SCOPE:
+MODIFY theseus-codex/src/app/(authed)/dashboard/page.tsx
+MAYBE ADD focused dashboard components under theseus-codex/src/app/(authed)/dashboard/
+MAYBE MODIFY dashboard tests/snapshots.
+

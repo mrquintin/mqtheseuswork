@@ -1,0 +1,72 @@
+You are working in `/Users/michaelquintin/Desktop/Theseus`.
+
+Goal: evaluate decisions from multiple rigorous algorithmized perspectives, including game-theory-like frames.
+
+Product direction:
+Noosphere should not collapse every decision into one confidence score. For market, institutional, and strategic decisions, it should run several explicit decision frames and then compare them:
+- adversarial incentives;
+- coordination equilibria;
+- principal-agent dynamics;
+- option value;
+- reflexivity and feedback loops;
+- signaling and reputation;
+- institutional constraints;
+- causal mechanism plausibility;
+- contradiction pressure;
+- empirical transfer from prior cases.
+
+Start by reading:
+- `docs/architecture/Algorithmized_Decision_Making.md`
+- `noosphere/noosphere/forecasts/decision_metrics.py`
+- `noosphere/noosphere/principles/`
+- `noosphere/noosphere/cases/`
+- `noosphere/noosphere/coherence/`
+- `noosphere/noosphere/peer_review/`
+- forecast and principle tests.
+
+Implement:
+1. Add a multi-frame decision engine:
+   - each frame has a name, inputs, assumptions, metrics, output, and failure modes;
+   - each frame returns a structured result;
+   - the combined decision trace records agreement/disagreement across frames.
+2. Implement at least these frames:
+   - incentive alignment;
+   - coordination/equilibrium;
+   - principal-agent;
+   - reflexivity/second-order effects;
+   - option value/asymmetry;
+   - contradiction/adversarial pressure;
+   - empirical transfer.
+3. Add a synthesis rule:
+   - strong action only when multiple frames agree and no hard-stop frame fails;
+   - WATCH when frames split but evidence is relevant;
+   - ABSTAIN when assumptions are too unstable or a hard-stop contradiction is present;
+   - hedge/reduce/exit when downside or contradiction frames dominate.
+4. Integrate with market decision traces from prompt 14:
+   - include frame results;
+   - include frame disagreement;
+   - include final synthesis.
+5. Add tests:
+   - all frames agree on watch/trade;
+   - empirical transfer supports trade but incentive frame blocks it;
+   - contradiction frame forces abstain;
+   - reflexivity frame downgrades a naive edge.
+
+Constraints:
+- Do not import a heavy game-theory solver unless clearly needed.
+- Use explicit deterministic rules for v1.
+- Do not let LLM prose decide the final action.
+
+Verification:
+- Run focused tests for the multi-frame engine.
+- Run forecast decision metric tests.
+- Run `git diff --check`.
+
+SCOPE:
+ADD noosphere/noosphere/decisions/
+ADD noosphere/noosphere/decisions/frames.py
+ADD noosphere/noosphere/decisions/synthesis.py
+ADD noosphere/tests/test_decision_frames.py
+MODIFY noosphere/noosphere/forecasts/decision_metrics.py
+MAYBE MODIFY noosphere/noosphere/principles/transfer.py
+

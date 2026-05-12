@@ -83,16 +83,28 @@ function sourcePreview(source: Source, citations: ResolvedCitationMap): string {
   return citationForSource(source, citations)?.preview || source.text;
 }
 
-export default function AskForm() {
-  const [question, setQuestion] = useState("");
+export default function AskForm({
+  initialQuestion = "",
+}: {
+  initialQuestion?: string;
+} = {}) {
+  const [question, setQuestion] = useState(initialQuestion);
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<AskResult | null>(null);
   const [error, setError] = useState("");
   const [showSources, setShowSources] = useState(false);
 
+  const trimmed = question.trim();
+  const canSubmit = trimmed.length > 0 && !loading;
+  const disabledReason = loading
+    ? "Consulting the oracle…"
+    : trimmed.length === 0
+    ? "Type a question to enable Ask"
+    : "";
+
   async function submit(e: React.FormEvent) {
     e.preventDefault();
-    if (!question.trim() || loading) return;
+    if (!canSubmit) return;
     setError("");
     setResult(null);
     setLoading(true);
@@ -100,7 +112,7 @@ export default function AskForm() {
       const res = await fetch("/api/ask", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ question: question.trim() }),
+        body: JSON.stringify({ question: trimmed }),
       });
       const data = await res.json();
       if (!res.ok) {
@@ -113,6 +125,15 @@ export default function AskForm() {
     } finally {
       setLoading(false);
     }
+  }
+
+  // Enter (without Shift) submits — keyboard parity with the Ask
+  // button. Shift+Enter still inserts a newline so multi-line
+  // questions remain easy to compose.
+  function onKeyDown(event: React.KeyboardEvent<HTMLTextAreaElement>) {
+    if (event.key !== "Enter" || event.shiftKey) return;
+    event.preventDefault();
+    void submit(event as unknown as React.FormEvent);
   }
 
   const conclusionSources = (result?.sources ?? []).filter(
@@ -138,19 +159,46 @@ export default function AskForm() {
         <textarea
           value={question}
           onChange={(e) => setQuestion(e.target.value)}
+          onKeyDown={onKeyDown}
           placeholder="What does the firm believe about base-rate neglect in early-stage underwriting?"
           rows={4}
           disabled={loading}
+          aria-label="Your question for the Codex"
           style={{ resize: "vertical", minHeight: "100px" }}
         />
-        <button
-          type="submit"
-          className="btn-solid btn"
-          disabled={loading || !question.trim()}
-          style={{ alignSelf: "flex-end" }}
+        <div
+          style={{
+            alignItems: "center",
+            display: "flex",
+            gap: "0.85rem",
+            justifyContent: "flex-end",
+          }}
         >
-          {loading ? "Consulting the oracle…" : "Ask the Codex"}
-        </button>
+          {disabledReason ? (
+            <span
+              className="mono"
+              aria-live="polite"
+              data-loading={loading ? "true" : undefined}
+              style={{
+                color: loading ? "var(--amber)" : "var(--parchment-dim)",
+                fontSize: "0.6rem",
+                letterSpacing: "0.18em",
+                textTransform: "uppercase",
+              }}
+            >
+              {disabledReason}
+            </span>
+          ) : null}
+          <button
+            type="submit"
+            className="btn-solid btn"
+            disabled={!canSubmit}
+            aria-busy={loading}
+            title={disabledReason || "Ask the Codex (Enter)"}
+          >
+            {loading ? "Consulting the oracle…" : "Ask the Codex"}
+          </button>
+        </div>
       </form>
 
       {error && (
@@ -345,7 +393,7 @@ export default function AskForm() {
                       fontWeight: 500,
                     }}
                   >
-                    Conclusiones · Firm claims ({conclusionSources.length})
+                    Firm conclusions ({conclusionSources.length})
                   </h3>
                   <ul
                     style={{

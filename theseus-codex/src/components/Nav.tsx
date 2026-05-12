@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 
 import LabyrinthIcon from "./LabyrinthIcon";
@@ -18,6 +19,10 @@ import { canManageFounders, canWrite } from "@/lib/roles";
  * Each entry can declare a `requires` predicate; if present, the link
  * is omitted for callers whose role doesn't satisfy it. Today the gated
  * links are `/upload` (write-only) and `/founders/manage` (admin-only).
+ *
+ * Layout is delegated to the `.nav-shell*` classes in `globals.css` so
+ * the bar can collapse cleanly at narrow widths without inline-style
+ * breakpoint logic in this file.
  */
 type RoleGate = (role: string) => boolean;
 
@@ -113,115 +118,50 @@ export default function Nav({
   }
 
   return (
-    <nav
-      style={{
-        borderBottom: "1px solid var(--border)",
-        background: "var(--stone)",
-        position: "sticky",
-        top: 0,
-        zIndex: 50,
-      }}
-    >
-      <div
-        style={{
-          maxWidth: "1200px",
-          margin: "0 auto",
-          // Vertical padding gives the tabs room to breathe below the
-          // browser chrome. Before this the nav had `padding: "0 1rem"`
-          // so the tabs sat flush against the top of the viewport; we
-          // add ~20px top/bottom and bump minHeight accordingly so the
-          // row is centered with clear whitespace on either side.
-          padding: "1.25rem 1rem",
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "space-between",
-          minHeight: "88px",
-          flexWrap: "wrap",
-          gap: "0.5rem",
-        }}
-      >
-        <a
-          href="/"
-          aria-label="Theseus Codex — home"
-          style={{
-            display: "inline-flex",
-            alignItems: "center",
-            gap: "0.55rem",
-            fontFamily: "'Cinzel', serif",
-            fontSize: "1rem",
-            letterSpacing: "0.24em",
-            color: "var(--amber)",
-            textDecoration: "none",
-            fontWeight: 600,
-            textShadow: "var(--glow-sm)",
-          }}
-        >
-          <LabyrinthIcon size={22} glow />
+    <nav className="nav-shell" aria-label="Primary">
+      <div className="nav-shell__inner">
+        <Link href="/" aria-label="Theseus Codex — home" className="nav-shell__brand">
+          <LabyrinthIcon size={20} glow />
           THESEUS
-        </a>
+        </Link>
 
-        <div
-          style={{
-            display: "flex",
-            flexWrap: "wrap",
-            gap: "1rem 1.75rem",
-            justifyContent: "center",
-          }}
-        >
-          {visibleLinks.map((link) => (
-            <a
-              key={link.label}
-              href={link.href}
-              aria-label={
-                link.href === "/dashboard" && dashboardHasUnseenResponses
-                  ? "Dashboard - unseen responses"
-                  : undefined
-              }
-              style={{
-                ...(link.href === "/dashboard" && dashboardHasUnseenResponses
-                  ? {
-                      alignItems: "center",
-                      display: "inline-flex",
-                      gap: "0.35rem",
-                    }
-                  : {}),
-                fontFamily: "'Cinzel', serif",
-                fontSize: "0.7rem",
-                letterSpacing: "0.14em",
-                textTransform: "uppercase",
-                color: isActive(link.href)
-                  ? "var(--gold)"
-                  : "var(--parchment-dim)",
-                textDecoration: "none",
-                transition: "color 0.2s",
-              }}
-            >
-              {link.label}
-              {link.href === "/dashboard" && dashboardHasUnseenResponses ? (
-                <span aria-hidden className="currents-pulse" />
-              ) : null}
-            </a>
-          ))}
+        <div className="nav-shell__links">
+          {visibleLinks.map((link) => {
+            const active = isActive(link.href);
+            return (
+              <Link
+                key={link.label}
+                href={link.href}
+                aria-current={active ? "page" : undefined}
+                aria-label={
+                  link.href === "/dashboard" && dashboardHasUnseenResponses
+                    ? "Dashboard - unseen responses"
+                    : undefined
+                }
+                className="nav-shell__link"
+              >
+                {link.label}
+                {link.href === "/dashboard" && dashboardHasUnseenResponses ? (
+                  <span aria-hidden className="currents-pulse" />
+                ) : null}
+              </Link>
+            );
+          })}
         </div>
 
-        <div style={{ display: "flex", gap: "1rem", alignItems: "center" }}>
+        <div className="nav-shell__meta">
           {/* User guide PDF lives in /public/ so it's statically served.
               Opening in a new tab keeps a first-time visitor from losing
-              their place mid-flow if they click it accidentally. */}
+              their place mid-flow if they click it accidentally. The
+              label collapses on the narrowest viewport — the `?` keymap
+              overlay covers the discoverability gap. */}
           <a
             href="/Theseus_Codex_User_Guide.pdf"
             target="_blank"
             rel="noopener noreferrer"
             title="User guide (PDF, 10 pages)"
-            style={{
-              fontFamily: "'Cinzel', serif",
-              fontSize: "0.65rem",
-              letterSpacing: "0.12em",
-              textTransform: "uppercase",
-              color: "var(--parchment-dim)",
-              textDecoration: "none",
-              borderBottom: "1px dotted var(--parchment-dim)",
-            }}
+            aria-label="User guide"
+            className="nav-shell__help"
           >
             Help
           </a>
@@ -229,64 +169,34 @@ export default function Nav({
             <>
               {/* Founder's name doubles as the entry point to /account —
                   the single surface for passphrase rotation and (later)
-                  profile / email / avatar edits. A subtle hover-
-                  underline signals the affordance without adding chrome. */}
-              <a
+                  profile / email / avatar edits. */}
+              <Link
                 href="/account"
                 title="Account settings"
-                style={{
-                  fontFamily: "'Cinzel', serif",
-                  fontSize: "0.65rem",
-                  letterSpacing: "0.1em",
-                  color: "var(--gold-dim)",
-                  textDecoration: "none",
-                  borderBottom: "1px dotted transparent",
-                  transition: "border-color 0.15s, color 0.15s",
-                }}
-                onMouseEnter={(e) => {
-                  e.currentTarget.style.color = "var(--amber)";
-                  e.currentTarget.style.borderBottomColor = "var(--amber-dim)";
-                }}
-                onMouseLeave={(e) => {
-                  e.currentTarget.style.color = "var(--gold-dim)";
-                  e.currentTarget.style.borderBottomColor = "transparent";
-                }}
+                className="nav-shell__account"
               >
                 {founder.name}
                 {founder.organizationSlug ? (
-                  <span
-                    style={{
-                      marginLeft: "0.5rem",
-                      color: "var(--parchment-dim)",
-                    }}
-                  >
+                  <span className="nav-shell__account-org">
                     · {founder.organizationSlug}
                   </span>
                 ) : null}
-              </a>
+              </Link>
               <ThemeToggle size={28} />
               <button
+                type="button"
                 onClick={handleLogout}
-                className="btn"
-                style={{ fontSize: "0.65rem", padding: "0.3rem 0.8rem" }}
+                className="btn btn--quiet nav-shell__signout"
               >
-                Sign Out
+                Sign out
               </button>
             </>
           ) : (
             <>
               <ThemeToggle size={28} />
-              <a
-                href="/"
-                className="btn"
-                style={{
-                  fontSize: "0.65rem",
-                  padding: "0.3rem 0.8rem",
-                  textDecoration: "none",
-                }}
-              >
-                Sign In
-              </a>
+              <Link href="/" className="btn btn--quiet nav-shell__signout">
+                Sign in
+              </Link>
             </>
           )}
         </div>

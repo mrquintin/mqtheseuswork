@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import hmac
+import json
 import os
 import time
 from collections.abc import AsyncIterator
@@ -31,7 +32,14 @@ from current_events_api.schemas import (
 )
 
 from noosphere.forecasts.live_bet_engine import submit_live_bet
-from noosphere.forecasts.safety import GateFailure, disengage_kill_switch, engage_kill_switch
+from noosphere.forecasts.safety import (
+    GateFailure,
+    current_trading_mode,
+    disengage_kill_switch,
+    engage_kill_switch,
+    gate_context_from_env,
+)
+from noosphere.forecasts.status import parse_utc_iso, read_status, status_path_from_env
 from noosphere.models import (
     ForecastBet,
     ForecastBetMode,
@@ -350,6 +358,174 @@ def list_live_bets(
     return {
         "items": [operator_bet(row) for row in rows[:limit]],
         "next_offset": next_offset,
+    }
+
+
+def _env_present(name: str) -> bool:
+    return bool(os.getenv(name, "").strip())
+
+
+def _env_float_or_none(name: str) -> float | None:
+    raw = os.getenv(name, "").strip()
+    if not raw:
+        return None
+    try:
+        return float(raw)
+    except ValueError:
+        return None
+
+
+def _scheduler_status_payload() -> dict[str, object]:
+    path = status_path_from_env()
+    max_age_raw = os.getenv("FORECASTS_STATUS_MAX_AGE_SECONDS", "1800").strip()
+    try:
+        max_age_s = max(1.0, float(max_age_raw))
+    except ValueError:
+        max_age_s = 1800.0
+
+    payload: dict[str, object] = {
+        "status_path": str(path),
+        "present": False,
+        "fresh": False,
+        "age_seconds": None,
+        "max_age_seconds": max_age_s,
+        "last_ingest_ts": None,
+        "last_generate_ts": None,
+        "last_live_submission_ts": None,
+        "error": None,
+    }
+    if not path.is_file():
+        return payload
+    payload["present"] = True
+    try:
+        body = read_status(path)
+    except (OSError, json.JSONDecodeError) as exc:
+        payload["error"] = str(exc)
+        return payload
+
+    last_ingest = parse_utc_iso(body.get("last_ingest_ts"))
+    payload["last_ingest_ts"] = body.get("last_ingest_ts")
+    payload["last_generate_ts"] = body.get("last_generate_ts")
+    payload["last_live_submission_ts"] = body.get("last_live_submission_ts")
+    if last_ingest is not None:
+        age_s = (datetime.now(UTC) - last_ingest).total_seconds()
+        payload["age_seconds"] = round(age_s, 3)
+        payload["fresh"] = age_s <= max_age_s
+    return payload
+
+
+@router.get("/setup-status", dependencies=[Depends(require_operator)])
+def get_setup_status(store: Annotated[Store, Depends(get_store)]) -> dict[str, object]:
+    """Read-only setup readiness for Polymarket and Kalshi.
+
+    Reports configuration presence (never key material), scheduler liveness,
+    risk-limit caps, and a layered readiness verdict. This endpoint never
+    returns private keys, never echoes raw secrets, and does not mutate state.
+    """
+
+    organization_id = _organization_id(store)
+    state = store.get_portfolio_state(organization_id)
+    ctx = gate_context_from_env(state)
+    mode = current_trading_mode()
+
+    polymarket = {
+        "configured": ctx.polymarket_configured,
+        "required_env_vars": [
+            {"name": "POLYMARKET_PRIVATE_KEY", "present": _env_present("POLYMARKET_PRIVATE_KEY")},
+        ],
+        "optional_env_vars": [
+            {"name": "POLYMARKET_CLOB_BASE", "present": _env_present("POLYMARKET_CLOB_BASE")},
+            {"name": "POLYMARKET_CHAIN_ID", "present": _env_present("POLYMARKET_CHAIN_ID")},
+            {"name": "POLYMARKET_SIGNATURE_TYPE", "present": _env_present("POLYMARKET_SIGNATURE_TYPE")},
+            {"name": "POLYMARKET_FUNDER_ADDRESS", "present": _env_present("POLYMARKET_FUNDER_ADDRESS")},
+            {"name": "POLYMARKET_DEFAULT_TICK_SIZE", "present": _env_present("POLYMARKET_DEFAULT_TICK_SIZE")},
+            {"name": "POLYMARKET_DEFAULT_NEG_RISK", "present": _env_present("POLYMARKET_DEFAULT_NEG_RISK")},
+            {"name": "FORECASTS_POLYMARKET_CATEGORIES", "present": _env_present("FORECASTS_POLYMARKET_CATEGORIES")},
+        ],
+    }
+
+    kalshi_private_key_present = (
+        _env_present("KALSHI_API_PRIVATE_KEY") or _env_present("KALSHI_PRIVATE_KEY_PEM")
+    )
+    kalshi = {
+        "configured": ctx.kalshi_configured,
+        "required_env_vars": [
+            {"name": "KALSHI_API_KEY_ID", "present": _env_present("KALSHI_API_KEY_ID")},
+            {
+                "name": "KALSHI_API_PRIVATE_KEY",
+                "present": kalshi_private_key_present,
+                "alternate": "KALSHI_PRIVATE_KEY_PEM",
+            },
+        ],
+        "optional_env_vars": [
+            {"name": "KALSHI_API_BASE", "present": _env_present("KALSHI_API_BASE")},
+            {"name": "FORECASTS_KALSHI_CATEGORIES", "present": _env_present("FORECASTS_KALSHI_CATEGORIES")},
+        ],
+    }
+
+    max_stake = _env_float_or_none("FORECASTS_MAX_STAKE_USD")
+    max_daily_loss = _env_float_or_none("FORECASTS_MAX_DAILY_LOSS_USD")
+    kill_switch_threshold = _env_float_or_none("FORECASTS_KILL_SWITCH_AUTO_THRESHOLD_USD")
+    risk_limits = {
+        "max_stake_usd": ctx.max_stake_usd,
+        "max_daily_loss_usd": ctx.max_daily_loss_usd,
+        "kill_switch_auto_threshold_usd": kill_switch_threshold,
+        "max_stake_configured": max_stake is not None and max_stake > 0,
+        "max_daily_loss_configured": max_daily_loss is not None and max_daily_loss > 0,
+    }
+
+    scheduler = _scheduler_status_payload()
+    kill_switch = {
+        "engaged": ctx.kill_switch_engaged,
+        "reason": state.kill_switch_reason if state is not None else None,
+        "updated_at": state.updated_at.isoformat() if state is not None and state.updated_at else None,
+        "daily_loss_usd": ctx.daily_loss_usd,
+        "live_balance_usd": ctx.live_balance_usd,
+    }
+
+    blockers: list[str] = []
+    monitoring_active = bool(scheduler["fresh"])
+    if not monitoring_active:
+        blockers.append("scheduler_status_stale_or_missing")
+    if not (polymarket["configured"] or kalshi["configured"]):
+        blockers.append("no_exchange_configured")
+    if ctx.kill_switch_engaged:
+        blockers.append("kill_switch_engaged")
+
+    ready_for_live_candidates = (
+        monitoring_active
+        and (polymarket["configured"] or kalshi["configured"])
+        and not ctx.kill_switch_engaged
+    )
+    if not ctx.live_trading_enabled:
+        blockers.append("live_trading_flag_disabled")
+
+    ready_for_live_orders = (
+        ready_for_live_candidates
+        and ctx.live_trading_enabled
+        and risk_limits["max_stake_configured"]
+        and risk_limits["max_daily_loss_configured"]
+    )
+    if not risk_limits["max_stake_configured"]:
+        blockers.append("max_stake_usd_not_configured")
+    if not risk_limits["max_daily_loss_configured"]:
+        blockers.append("max_daily_loss_usd_not_configured")
+
+    return {
+        "organization_id": organization_id,
+        "trading_mode": mode,
+        "live_trading_enabled": ctx.live_trading_enabled,
+        "exchanges": {"polymarket": polymarket, "kalshi": kalshi},
+        "risk_limits": risk_limits,
+        "scheduler": scheduler,
+        "kill_switch": kill_switch,
+        "readiness": {
+            "monitoring_active": monitoring_active,
+            "ready_for_live_candidates": ready_for_live_candidates,
+            "ready_for_live_orders": ready_for_live_orders,
+            "blockers": blockers,
+        },
+        "checked_at": datetime.now(UTC).isoformat(),
     }
 
 

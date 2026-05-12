@@ -3,8 +3,9 @@
 import { RadioTower } from "lucide-react";
 import { useCallback, useMemo, useState } from "react";
 
-import type { OperatorBet, PublicForecast } from "@/lib/forecastsTypes";
+import type { DecisionTrace, OperatorBet, PublicForecast } from "@/lib/forecastsTypes";
 
+import { ActionBadge } from "../portfolio/DecisionTracePanel";
 import OperatorBetStream, { type OperatorStreamFrame } from "./OperatorBetStream";
 
 type SortKey = "date" | "market" | "pnl";
@@ -52,9 +53,11 @@ function sortedRows(rows: OperatorBet[], predictionsById: Record<string, PublicF
 }
 
 export default function LiveBetLedger({
+  decisionTracesByPredictionId = {},
   initialRows,
   predictionsById,
 }: {
+  decisionTracesByPredictionId?: Record<string, DecisionTrace>;
   initialRows: OperatorBet[];
   predictionsById: Record<string, PublicForecast>;
 }) {
@@ -97,6 +100,7 @@ export default function LiveBetLedger({
             <tr className="mono" style={{ color: "var(--parchment-dim)", fontSize: "0.62rem", textAlign: "left" }}>
               <th style={{ padding: "0.45rem" }}>Date</th>
               <th style={{ padding: "0.45rem" }}>Market</th>
+              <th style={{ padding: "0.45rem" }}>Algo action</th>
               <th style={{ padding: "0.45rem" }}>Exchange</th>
               <th style={{ padding: "0.45rem" }}>Side</th>
               <th style={{ padding: "0.45rem" }}>Stake</th>
@@ -108,12 +112,14 @@ export default function LiveBetLedger({
           <tbody>
             {visibleRows.length === 0 ? (
               <tr>
-                <td colSpan={8} style={{ color: "var(--parchment-dim)", padding: "0.8rem" }}>
+                <td colSpan={9} style={{ color: "var(--parchment-dim)", padding: "0.8rem" }}>
                   No live bets have been created.
                 </td>
               </tr>
             ) : (
-              visibleRows.map((bet) => (
+              visibleRows.map((bet) => {
+                const trace = decisionTracesByPredictionId[bet.prediction_id] ?? null;
+                return (
                 <tr
                   data-bet-id={bet.id}
                   key={bet.id}
@@ -121,6 +127,15 @@ export default function LiveBetLedger({
                 >
                   <td className="mono" style={{ padding: "0.55rem" }}>{dateLabel(bet.created_at)}</td>
                   <td style={{ padding: "0.55rem" }}>{predictionsById[bet.prediction_id]?.headline ?? bet.prediction_id}</td>
+                  <td style={{ padding: "0.55rem" }}>
+                    {trace ? (
+                      <ActionBadge action={trace.action} size="sm" />
+                    ) : (
+                      <span className="mono" style={{ color: "var(--parchment-dim)", fontSize: "0.62rem" }}>
+                        no trace
+                      </span>
+                    )}
+                  </td>
                   <td className="mono" style={{ padding: "0.55rem" }}>{bet.exchange}</td>
                   <td className="mono" style={{ padding: "0.55rem" }}>{bet.side}</td>
                   <td className="mono" style={{ padding: "0.55rem" }}>{money(bet.stake_usd)}</td>
@@ -130,7 +145,8 @@ export default function LiveBetLedger({
                     <RadioTower aria-hidden="true" size={13} /> {bet.status}
                   </td>
                 </tr>
-              ))
+                );
+              })
             )}
           </tbody>
         </table>

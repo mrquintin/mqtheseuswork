@@ -25,15 +25,15 @@ test("dashboard Knowledge nav opens the four knowledge tabs", async ({ page }) =
   await expect(page.getByRole("link", { name: "Explorer" })).toBeVisible();
   await expect(page.getByRole("link", { name: "Library" })).toBeVisible();
   await expect(page.getByRole("link", { name: "Transcripts" })).toBeVisible();
-  await expect(page.getByRole("heading", { name: "Conclusiones" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Knowledge" })).toBeVisible();
 
   await page.getByRole("link", { name: "Explorer" }).click();
   await expect(page).toHaveURL(/\/knowledge\?tab=explorer$/);
-  await expect(page.getByRole("heading", { name: "Semantic Explorer" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Explorer" })).toBeVisible();
 
   await page.getByRole("link", { name: "Library" }).click();
   await expect(page).toHaveURL(/\/knowledge\?tab=library$/);
-  await expect(page.getByRole("heading", { name: "Bibliotheca" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Library" })).toBeVisible();
 
   await page.getByRole("link", { name: "Transcripts" }).click();
   await expect(page).toHaveURL(/\/knowledge\?tab=transcripts$/);

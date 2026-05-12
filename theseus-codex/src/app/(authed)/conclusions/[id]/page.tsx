@@ -11,11 +11,9 @@ import {
 } from "@/lib/methodologyProfiles";
 import { canWrite } from "@/lib/roles";
 import { requireTenantContext } from "@/lib/tenant";
-import PageHelp from "@/components/PageHelp";
 import PublishToggle from "@/components/PublishToggle";
 import TabNav from "@/components/TabNav";
 import PublicationClient from "../../publication/PublicationClient";
-import ConclusionSigil from "./conclusion-sigil";
 import ProvenanceTab from "./provenance-tab";
 import CascadeTab from "./cascade-tab";
 import PeerReviewTab from "./peer-review-tab";
@@ -63,6 +61,13 @@ const TIER_THRESHOLDS: Array<{ tier: string; min: number; color: string }> = [
   { tier: "speculative", min: 0, color: "var(--parchment-dim)" },
 ];
 
+const ACTIVE_REVIEW_STATES = new Set([
+  "queued",
+  "in_review",
+  "needs_revision",
+  "revising",
+]);
+
 function tryParse(raw: string): string[] {
   try {
     const v = JSON.parse(raw);
@@ -70,6 +75,13 @@ function tryParse(raw: string): string[] {
   } catch {
     return [];
   }
+}
+
+function formatDate(d: Date | string | null | undefined): string {
+  if (!d) return "";
+  const date = typeof d === "string" ? new Date(d) : d;
+  if (Number.isNaN(date.getTime())) return "";
+  return date.toISOString().slice(0, 10);
 }
 
 export default async function ConclusionDetailPage({
@@ -94,10 +106,6 @@ export default async function ConclusionDetailPage({
       include: {
         attributedFounder: true,
         organization: true,
-        // Source uploads: the M:N bridge row plus the underlying Upload
-        // metadata we need for the "Source documents" list in the Overview
-        // tab and the inline source publish toggles below. Filtered in app
-        // code to drop uploads that have been soft-deleted since extraction.
         sources: {
           include: {
             upload: {
@@ -149,9 +157,38 @@ export default async function ConclusionDetailPage({
   const evidenceIds = tryParse(conclusion.evidenceChainClaimIds);
   const dissentIds = tryParse(conclusion.dissentClaimIds);
 
-  // Batch one lookup for every ID across all three arrays — the helper
-  // queries the Conclusion table by id, returns a Record<id, text>.
-  // IDs that don't resolve are displayed as opaque IDs with a note.
+  // Look for accepted Principle rows that reference this conclusion in
+  // either their cited or full cluster set. The presence of such a row
+  // is the closest available proxy for "this conclusion has been
+  // abstracted into a principle". This is read-only; the classification
+  // chip below reflects what already exists, not a new classification.
+  const linkedPrinciples = await db.principle.findMany({
+    where: {
+      organizationId: tenant.organizationId,
+      status: "accepted",
+      OR: [
+        { citedConclusionIds: { contains: `"${conclusion.id}"` } },
+        { clusterConclusionIds: { contains: `"${conclusion.id}"` } },
+      ],
+    },
+    orderBy: { convictionScore: "desc" },
+    select: {
+      id: true,
+      text: true,
+      convictionScore: true,
+      domainsJson: true,
+      citedConclusionIds: true,
+    },
+    take: 8,
+  });
+
+  const claimKind: "abstract_principle" | "empirical" | "decision_rule" | "unclassified" =
+    linkedPrinciples.length > 0
+      ? "abstract_principle"
+      : conclusion.confidenceTier === "firm" || conclusion.confidenceTier === "founder"
+        ? "empirical"
+        : "unclassified";
+
   const allIds = [...supportIds, ...evidenceIds, ...dissentIds];
   const idTextMap = await resolveClaimTexts(tenant.organizationId, allIds);
 
@@ -224,13 +261,21 @@ export default async function ConclusionDetailPage({
       (tenant.role === "admin" || source.founderId === tenant.founderId),
   );
 
+  const hasActiveReview = publicationReviewProps.some((r) =>
+    ACTIVE_REVIEW_STATES.has(r.status),
+  );
+  const reviewPanelOpenDefault =
+    Boolean(sp.queued) || hasActiveReview;
+  const diagnosticsOpenDefault = matchedFailureModes.some(
+    (m) => m.severity === "high",
+  );
+
   async function requestConclusionDeletion(formData: FormData) {
     "use server";
     const cid = String(formData.get("conclusionId") || "");
     if (!cid) return;
     const t = await requireTenantContext();
     if (!t) redirect("/login");
-    // Prevent a dup pending request from the same founder.
     const existing = await db.conclusionDeletionRequest.findFirst({
       where: { conclusionId: cid, requesterId: t.founderId, status: "pending" },
       select: { id: true },
@@ -256,105 +301,42 @@ export default async function ConclusionDetailPage({
     redirect(`/conclusions/${cid}?deletionRequested=1`);
   }
 
-  return (
-    <main style={{ padding: "2rem 0" }}>
-      <ConclusionKeymap conclusionId={id} canPublish={writer} />
-      <PageHelp
-        title="Conclusion"
-        purpose={`"${conclusion.text.slice(0, 140)}${conclusion.text.length > 140 ? "…" : ""}"`}
-        howTo="The tabs below show everything the system knows about this conclusion: its origin (Provenance), its downstream consequences (Cascade), and peer reactions to it (Peer review)."
-        sigil={<ConclusionSigil />}
-      />
+  const tierColor =
+    TIER_THRESHOLDS.find((t) => t.tier === conclusion.confidenceTier)?.color ??
+    "var(--gold)";
+  const updatedAtIso = conclusion.updatedAt ?? conclusion.createdAt;
+  const attributionLabel = conclusion.attributedFounder
+    ? founderDisplayName(conclusion.attributedFounder)
+    : "";
 
-      <div style={{ maxWidth: "1200px", margin: "0 auto", padding: "0 1.5rem" }}>
+  return (
+    <main style={{ padding: "1.25rem 0 2rem" }}>
+      <ConclusionKeymap conclusionId={id} canPublish={writer} />
+
+      <div style={{ maxWidth: "1080px", margin: "0 auto", padding: "0 1.5rem" }}>
         {sp.queued && (
-          <div
-            className="portal-card"
-            style={{
-              padding: "0.6rem 1rem",
-              marginBottom: "1rem",
-              borderLeft: "3px solid var(--gold)",
-              fontSize: "0.8rem",
-              color: "var(--gold)",
-            }}
-          >
-            Queued for publication review.
-          </div>
+          <BannerLine tone="gold">Queued for publication review.</BannerLine>
+        )}
+        {sp.deletionRequested && (
+          <BannerLine tone="amber">Deletion request submitted.</BannerLine>
         )}
 
-        <header style={{ marginBottom: "1.5rem" }}>
-          <div
-            style={{
-              display: "flex",
-              alignItems: "baseline",
-              gap: "1rem",
-              flexWrap: "wrap",
-            }}
-          >
-            <span
-              style={{
-                fontFamily: "'Cinzel', serif",
-                fontSize: "0.65rem",
-                letterSpacing: "0.15em",
-                textTransform: "uppercase",
-                padding: "0.2rem 0.6rem",
-                border: "1px solid var(--gold-dim)",
-                color: "var(--gold)",
-                borderRadius: 2,
-              }}
-            >
-              {conclusion.confidenceTier}
-            </span>
-            <span
-              style={{
-                fontSize: "0.75rem",
-                color: "var(--parchment-dim)",
-              }}
-            >
-              Confidence {(conclusion.confidence * 100).toFixed(0)}%
-              {conclusion.attributedFounder
-                ? ` · Attributed to ${founderDisplayName(conclusion.attributedFounder)}`
-                : ""}
-              {conclusion.topicHint ? ` · ${conclusion.topicHint}` : ""}
-            </span>
-          </div>
-
-          <ConfidenceContext confidence={conclusion.confidence} />
-
-          {conclusion.rationale ? (
-            <p
-              style={{
-                marginTop: "0.75rem",
-                fontSize: "0.95rem",
-                color: "var(--parchment)",
-                fontStyle: "italic",
-              }}
-            >
-              Rationale: {conclusion.rationale}
-            </p>
-          ) : null}
-        </header>
-
-        <PublicationInlinePanel
-          canUseReviewControls={writer}
-          currentFounderId={tenant.founderId}
-          firmConclusions={firmConclusionProps}
-          publishedVersions={publishedVersions.map((version) => ({
-            ...version,
-            publishedAt: version.publishedAt.toISOString(),
-          }))}
-          reviews={publicationReviewProps}
-          sourceUploads={toggleableSourceUploads}
+        <ClaimSummary
+          claim={conclusion.text}
+          tier={conclusion.confidenceTier}
+          tierColor={tierColor}
+          confidence={conclusion.confidence}
+          topicHint={conclusion.topicHint}
+          attribution={attributionLabel}
+          rationale={conclusion.rationale}
+          createdAt={formatDate(conclusion.createdAt)}
+          updatedAt={formatDate(updatedAtIso)}
+          sources={sources}
+          claimKind={claimKind}
+          linkedPrinciples={linkedPrinciples.map((p) => ({ id: p.id, text: p.text }))}
         />
 
-        {mqs ? <MqsCard mqs={mqs} /> : null}
-
-        <FailureModesCard
-          conclusionId={conclusion.id}
-          matched={matchedFailureModes}
-        />
-
-        <ActionsBar conclusionId={id} />
+        <ActionsBar conclusionId={id} canWrite={writer} />
 
         <TabNav
           basePath={`/conclusions/${id}`}
@@ -362,15 +344,15 @@ export default async function ConclusionDetailPage({
           tabs={TABS as unknown as ReadonlyArray<{ id: string; label: string }>}
         />
 
-        <section style={{ marginTop: "1.5rem" }}>
+        <section style={{ marginTop: "1.25rem" }}>
           {activeTab === "overview" ? (
             <OverviewTab
-              text={conclusion.text}
               supportIds={supportIds}
               evidenceIds={evidenceIds}
               dissentIds={dissentIds}
               idTextMap={idTextMap}
               sources={sources}
+              claimKind={claimKind}
             />
           ) : activeTab === "provenance" ? (
             <ProvenanceTab conclusionId={id} />
@@ -392,11 +374,87 @@ export default async function ConclusionDetailPage({
           )}
         </section>
 
-        <nav
+        <Disclosure
+          id="review-and-publication"
+          title="Review and publication"
+          summary={reviewPanelSummary(publicationReviewProps, publishedVersions)}
+          defaultOpen={reviewPanelOpenDefault}
+        >
+          <PublicationInlinePanel
+            canUseReviewControls={writer}
+            currentFounderId={tenant.founderId}
+            firmConclusions={firmConclusionProps}
+            publishedVersions={publishedVersions.map((version) => ({
+              ...version,
+              publishedAt: version.publishedAt.toISOString(),
+            }))}
+            reviews={publicationReviewProps}
+            sourceUploads={toggleableSourceUploads}
+          />
+        </Disclosure>
+
+        <Disclosure
+          id="diagnostics"
+          title="Diagnostics"
+          summary={diagnosticsSummary(matchedFailureModes.length, mqs?.composite)}
+          defaultOpen={diagnosticsOpenDefault}
+        >
+          <div style={{ display: "grid", gap: "0.85rem" }}>
+            <FailureModesCard
+              conclusionId={conclusion.id}
+              matched={matchedFailureModes}
+            />
+            {mqs ? <MqsCard mqs={mqs} /> : null}
+            <div
+              style={{
+                display: "flex",
+                gap: "0.5rem",
+                flexWrap: "wrap",
+                paddingTop: "0.25rem",
+              }}
+            >
+              <Link
+                href={`/ops?panel=peer-review&target=${encodeURIComponent(id)}`}
+                className="btn"
+                style={{ fontSize: "0.65rem", textDecoration: "none" }}
+              >
+                Peer review history
+              </Link>
+              <Link
+                href="/ops?panel=decay"
+                className="btn"
+                style={{ fontSize: "0.65rem", textDecoration: "none" }}
+              >
+                Decay dashboard
+              </Link>
+              <a
+                href="/api/publication/export"
+                className="btn"
+                style={{ fontSize: "0.65rem", textDecoration: "none" }}
+              >
+                Export JSON
+              </a>
+              <Link
+                href={`/conclusions/${id}?tab=lineage`}
+                className="btn"
+                style={{ fontSize: "0.65rem", textDecoration: "none" }}
+              >
+                Lineage tab
+              </Link>
+            </div>
+          </div>
+        </Disclosure>
+
+        <AboutThisPage />
+
+        <footer
           style={{
-            marginTop: "2rem",
+            marginTop: "1.75rem",
+            paddingTop: "0.75rem",
+            borderTop: "1px solid var(--border)",
             display: "flex",
             alignItems: "center",
+            justifyContent: "space-between",
             gap: "1rem",
             flexWrap: "wrap",
           }}
@@ -413,110 +471,489 @@ export default async function ConclusionDetailPage({
           >
             ← Knowledge
           </Link>
-          <form action={requestConclusionDeletion}>
-            <input type="hidden" name="conclusionId" value={id} />
-            <button
-              type="submit"
-              className="btn"
+          <details>
+            <summary
+              className="mono"
               style={{
-                fontSize: "0.65rem",
-                color: "var(--ember)",
-                borderColor: "var(--ember)",
+                cursor: "pointer",
+                color: "var(--parchment-dim)",
+                fontSize: "0.6rem",
+                letterSpacing: "0.18em",
+                textTransform: "uppercase",
               }}
             >
               Request deletion
-            </button>
-          </form>
-          {sp.deletionRequested && (
-            <span
-              style={{
-                fontSize: "0.7rem",
-                color: "var(--amber)",
-              }}
-            >
-              Deletion request submitted.
-            </span>
-          )}
-        </nav>
+            </summary>
+            <form action={requestConclusionDeletion} style={{ marginTop: "0.4rem" }}>
+              <input type="hidden" name="conclusionId" value={id} />
+              <button
+                type="submit"
+                className="btn"
+                style={{
+                  fontSize: "0.65rem",
+                  color: "var(--ember)",
+                  borderColor: "var(--ember)",
+                }}
+              >
+                Submit deletion request
+              </button>
+            </form>
+          </details>
+        </footer>
       </div>
     </main>
   );
 }
 
-function ConfidenceContext({ confidence }: { confidence: number }) {
-  const pct = Math.max(0, Math.min(1, confidence)) * 100;
+function BannerLine({
+  children,
+  tone,
+}: {
+  children: React.ReactNode;
+  tone: "gold" | "amber";
+}) {
+  const color = tone === "gold" ? "var(--gold)" : "var(--amber)";
   return (
-    <div style={{ marginTop: "0.5rem", maxWidth: "30rem" }}>
-      <div
+    <div
+      style={{
+        padding: "0.5rem 0.85rem",
+        marginBottom: "0.85rem",
+        borderLeft: `2px solid ${color}`,
+        background: "var(--stone-light)",
+        fontSize: "0.78rem",
+        color,
+      }}
+    >
+      {children}
+    </div>
+  );
+}
+
+const CLAIM_KIND_LABELS: Record<
+  "abstract_principle" | "empirical" | "decision_rule" | "unclassified",
+  { label: string; tooltip: string; color: string }
+> = {
+  abstract_principle: {
+    color: "var(--gold)",
+    label: "Abstract principle",
+    tooltip:
+      "This conclusion is referenced by an accepted Principle row, so the firm treats it as a load-bearing abstract rule.",
+  },
+  decision_rule: {
+    color: "var(--amber)",
+    label: "Decision rule",
+    tooltip:
+      "Reads as an action policy (a should/must rule) rather than a description of the world.",
+  },
+  empirical: {
+    color: "var(--amber)",
+    label: "Empirical observation",
+    tooltip:
+      "Firm/founder-tier claim grounded in source material; no abstract-principle link recorded yet.",
+  },
+  unclassified: {
+    color: "var(--parchment-dim)",
+    label: "Unclassified",
+    tooltip:
+      "Open or speculative; the firm has not assigned this conclusion to a principle or treated it as an empirical baseline.",
+  },
+};
+
+function ClaimSummary({
+  claim,
+  tier,
+  tierColor,
+  confidence,
+  topicHint,
+  attribution,
+  rationale,
+  createdAt,
+  updatedAt,
+  sources,
+  claimKind,
+  linkedPrinciples,
+}: {
+  claim: string;
+  tier: string;
+  tierColor: string;
+  confidence: number;
+  topicHint: string;
+  attribution: string;
+  rationale: string;
+  createdAt: string;
+  updatedAt: string;
+  sources: { uploadId: string; title: string; sourceType: string }[];
+  claimKind: "abstract_principle" | "empirical" | "decision_rule" | "unclassified";
+  linkedPrinciples: { id: string; text: string }[];
+}) {
+  const kind = CLAIM_KIND_LABELS[claimKind];
+  const pct = Math.max(0, Math.min(1, confidence)) * 100;
+  const showUpdated = updatedAt && updatedAt !== createdAt;
+  return (
+    <header style={{ marginBottom: "1rem" }}>
+      <blockquote
         style={{
-          display: "flex",
-          alignItems: "center",
-          gap: "0.75rem",
+          margin: 0,
+          padding: "0.85rem 1.15rem",
+          borderLeft: `3px solid ${tierColor}`,
+          background: "var(--stone-light)",
+          fontSize: "1.1rem",
+          lineHeight: 1.55,
+          color: "var(--parchment)",
         }}
       >
-        <div
+        {claim}
+      </blockquote>
+
+      <dl
+        style={{
+          display: "flex",
+          flexWrap: "wrap",
+          gap: "0.4rem 1rem",
+          margin: "0.75rem 0 0",
+          padding: 0,
+          fontSize: "0.75rem",
+          color: "var(--parchment-dim)",
+          alignItems: "baseline",
+        }}
+      >
+        <SummaryPair label="Tier">
+          <span
+            style={{
+              color: tierColor,
+              textTransform: "uppercase",
+              letterSpacing: "0.1em",
+              fontFamily: "'Cinzel', serif",
+              fontSize: "0.7rem",
+            }}
+          >
+            {tier}
+          </span>
+        </SummaryPair>
+        <SummaryPair label="Kind">
+          <span
+            data-claim-kind={claimKind}
+            title={kind.tooltip}
+            style={{
+              color: kind.color,
+              fontFamily: "'Cinzel', serif",
+              fontSize: "0.7rem",
+              letterSpacing: "0.1em",
+              textTransform: "uppercase",
+            }}
+          >
+            {kind.label}
+          </span>
+        </SummaryPair>
+        <SummaryPair label="Confidence">
+          <span style={{ color: "var(--parchment)" }}>{pct.toFixed(0)}%</span>
+        </SummaryPair>
+        {topicHint ? (
+          <SummaryPair label="Topic">
+            <span style={{ color: "var(--parchment)" }}>{topicHint}</span>
+          </SummaryPair>
+        ) : null}
+        {attribution ? (
+          <SummaryPair label="Attributed to">
+            <span style={{ color: "var(--parchment)" }}>{attribution}</span>
+          </SummaryPair>
+        ) : null}
+        {createdAt ? (
+          <SummaryPair label={showUpdated ? "Created" : "Recorded"}>
+            <time dateTime={createdAt} style={{ color: "var(--parchment)" }}>
+              {createdAt}
+            </time>
+          </SummaryPair>
+        ) : null}
+        {showUpdated ? (
+          <SummaryPair label="Updated">
+            <time dateTime={updatedAt} style={{ color: "var(--parchment)" }}>
+              {updatedAt}
+            </time>
+          </SummaryPair>
+        ) : null}
+      </dl>
+
+      {rationale ? (
+        <p
           style={{
-            width: "12rem",
-            height: "6px",
-            background: "var(--border)",
-            borderRadius: 3,
-            position: "relative",
-            overflow: "hidden",
+            margin: "0.65rem 0 0",
+            fontSize: "0.9rem",
+            color: "var(--parchment)",
+            lineHeight: 1.55,
           }}
         >
-          <div
+          <span
+            className="mono"
             style={{
-              width: `${pct.toFixed(1)}%`,
-              height: "100%",
-              background: "var(--gold)",
-              borderRadius: 3,
+              color: "var(--parchment-dim)",
+              fontSize: "0.6rem",
+              letterSpacing: "0.18em",
+              textTransform: "uppercase",
+              marginRight: "0.45rem",
             }}
-          />
-        </div>
-        <span style={{ fontSize: "0.7rem", color: "var(--parchment-dim)" }}>
-          {pct.toFixed(0)}%
-        </span>
-      </div>
-      <details style={{ marginTop: "0.35rem" }}>
-        <summary
+          >
+            Rationale
+          </span>
+          {rationale}
+        </p>
+      ) : null}
+
+      {linkedPrinciples.length > 0 ? (
+        <div
           style={{
-            cursor: "pointer",
-            fontSize: "0.6rem",
-            color: "var(--parchment-dim)",
-            letterSpacing: "0.1em",
+            margin: "0.55rem 0 0",
+            display: "flex",
+            flexWrap: "wrap",
+            gap: "0.4rem",
+            alignItems: "center",
+          }}
+        >
+          <span
+            className="mono"
+            style={{
+              color: "var(--parchment-dim)",
+              fontSize: "0.6rem",
+              letterSpacing: "0.18em",
+              textTransform: "uppercase",
+            }}
+          >
+            Abstracted into
+          </span>
+          {linkedPrinciples.map((p) => (
+            <Link
+              key={p.id}
+              href={`/principles/${p.id}`}
+              title={p.text}
+              style={{
+                border: "1px solid rgba(205, 151, 67, 0.55)",
+                borderRadius: 2,
+                color: "var(--amber)",
+                fontSize: "0.74rem",
+                padding: "0.15rem 0.5rem",
+                textDecoration: "none",
+              }}
+            >
+              {p.text.slice(0, 90)}
+              {p.text.length > 90 ? "…" : ""}
+            </Link>
+          ))}
+        </div>
+      ) : null}
+
+      {sources.length > 0 ? (
+        <div
+          style={{
+            margin: "0.65rem 0 0",
+            display: "flex",
+            flexWrap: "wrap",
+            gap: "0.4rem",
+            alignItems: "center",
+          }}
+        >
+          <span
+            className="mono"
+            style={{
+              color: "var(--parchment-dim)",
+              fontSize: "0.6rem",
+              letterSpacing: "0.18em",
+              textTransform: "uppercase",
+            }}
+          >
+            Source
+          </span>
+          {sources.map((s) => (
+            <Link
+              key={s.uploadId}
+              href="/knowledge?tab=library"
+              style={{
+                padding: "0.15rem 0.55rem",
+                border: "1px solid var(--border)",
+                borderRadius: 2,
+                color: "var(--parchment)",
+                textDecoration: "none",
+                fontSize: "0.75rem",
+                lineHeight: 1.4,
+              }}
+            >
+              {s.title}
+              <span
+                style={{
+                  marginLeft: "0.35rem",
+                  color: "var(--parchment-dim)",
+                  fontSize: "0.65rem",
+                }}
+              >
+                {s.sourceType}
+              </span>
+            </Link>
+          ))}
+        </div>
+      ) : null}
+    </header>
+  );
+}
+
+function SummaryPair({
+  label,
+  children,
+}: {
+  label: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <div style={{ display: "inline-flex", alignItems: "baseline", gap: "0.35rem" }}>
+      <dt
+        className="mono"
+        style={{
+          color: "var(--parchment-dim)",
+          fontSize: "0.58rem",
+          letterSpacing: "0.18em",
+          textTransform: "uppercase",
+          margin: 0,
+        }}
+      >
+        {label}
+      </dt>
+      <dd style={{ margin: 0 }}>{children}</dd>
+    </div>
+  );
+}
+
+function Disclosure({
+  id,
+  title,
+  summary,
+  defaultOpen,
+  children,
+}: {
+  id: string;
+  title: string;
+  summary?: string;
+  defaultOpen?: boolean;
+  children: React.ReactNode;
+}) {
+  return (
+    <details
+      id={id}
+      open={defaultOpen}
+      style={{
+        marginTop: "1.25rem",
+        border: "1px solid var(--border)",
+        borderRadius: 2,
+        padding: "0.6rem 0.85rem",
+      }}
+    >
+      <summary
+        style={{
+          cursor: "pointer",
+          display: "flex",
+          alignItems: "baseline",
+          justifyContent: "space-between",
+          gap: "0.75rem",
+          flexWrap: "wrap",
+          listStyle: "none",
+        }}
+      >
+        <span
+          className="mono"
+          style={{
+            color: "var(--amber-dim)",
+            fontSize: "0.62rem",
+            letterSpacing: "0.22em",
             textTransform: "uppercase",
           }}
         >
-          How confidence works
-        </summary>
-        <div
-          style={{
-            fontSize: "0.75rem",
-            color: "var(--parchment-dim)",
-            marginTop: "0.35rem",
-            lineHeight: 1.6,
-          }}
-        >
-          <p style={{ margin: 0 }}>
-            Confidence is the system&apos;s assessment of epistemic warrant,
-            computed from coherence scores, evidence strength, and peer-review
-            outcomes.
-          </p>
-          <p style={{ margin: "0.35rem 0 0" }}>
-            {TIER_THRESHOLDS.map((t, i) => (
-              <span key={t.tier}>
-                <strong style={{ color: t.color }}>
-                  {t.tier[0].toUpperCase() + t.tier.slice(1)}
-                </strong>
-                {t.min > 0 ? ` (≥${(t.min * 100).toFixed(0)}%)` : " (<30%)"}
-                {i < TIER_THRESHOLDS.length - 1 ? " · " : ""}
-              </span>
-            ))}
-          </p>
-        </div>
-      </details>
-    </div>
+          {title}
+        </span>
+        {summary ? (
+          <span style={{ color: "var(--parchment-dim)", fontSize: "0.75rem" }}>
+            {summary}
+          </span>
+        ) : null}
+      </summary>
+      <div style={{ marginTop: "0.85rem" }}>{children}</div>
+    </details>
   );
+}
+
+function AboutThisPage() {
+  return (
+    <details
+      style={{
+        marginTop: "1.25rem",
+        padding: "0.5rem 0.85rem",
+      }}
+    >
+      <summary
+        className="mono"
+        style={{
+          cursor: "pointer",
+          color: "var(--parchment-dim)",
+          fontSize: "0.6rem",
+          letterSpacing: "0.18em",
+          textTransform: "uppercase",
+          listStyle: "none",
+        }}
+      >
+        About this page
+      </summary>
+      <div
+        style={{
+          marginTop: "0.5rem",
+          fontSize: "0.82rem",
+          color: "var(--parchment-dim)",
+          lineHeight: 1.55,
+          maxWidth: "64ch",
+        }}
+      >
+        <p style={{ margin: 0 }}>
+          The tabs above show what the system knows about this conclusion:
+          its origin (Provenance), downstream consequences (Cascade), and
+          peer reactions (Peer review). Confidence is computed from
+          coherence scores, evidence strength, and peer-review outcomes.
+        </p>
+        <p style={{ margin: "0.4rem 0 0" }}>
+          {TIER_THRESHOLDS.map((t, i) => (
+            <span key={t.tier}>
+              <strong style={{ color: t.color }}>
+                {t.tier[0].toUpperCase() + t.tier.slice(1)}
+              </strong>
+              {t.min > 0 ? ` (≥${(t.min * 100).toFixed(0)}%)` : " (<30%)"}
+              {i < TIER_THRESHOLDS.length - 1 ? " · " : ""}
+            </span>
+          ))}
+        </p>
+      </div>
+    </details>
+  );
+}
+
+function reviewPanelSummary(
+  reviews: Array<{ status: string; updatedAt: string }>,
+  publishedVersions: Array<{ version: number; publishedAt: Date }>,
+): string {
+  const latestPublished = publishedVersions[0];
+  const latestReview = reviews[0];
+  const parts: string[] = [];
+  if (latestPublished) {
+    parts.push(`v${latestPublished.version} published`);
+  } else {
+    parts.push("not published");
+  }
+  if (latestReview) {
+    parts.push(`review ${latestReview.status}`);
+  }
+  return parts.join(" · ");
+}
+
+function diagnosticsSummary(modeCount: number, mqsComposite: number | undefined): string {
+  const parts: string[] = [];
+  if (mqsComposite !== undefined) {
+    parts.push(`MQS ${Math.round(mqsComposite * 100)}%`);
+  }
+  parts.push(`${modeCount} matched failure mode${modeCount === 1 ? "" : "s"}`);
+  return parts.join(" · ");
 }
 
 function PublicationInlinePanel({
@@ -583,33 +1020,12 @@ function PublicationInlinePanel({
   const latest = publishedVersions[0];
 
   return (
-    <section
-      className="portal-card"
-      style={{
-        padding: "1rem 1.25rem",
-        marginBottom: "1rem",
-        display: "grid",
-        gap: "0.85rem",
-      }}
-    >
+    <div style={{ display: "grid", gap: "0.85rem" }}>
       <div style={{ display: "flex", justifyContent: "space-between", gap: "1rem", flexWrap: "wrap" }}>
-        <div>
-          <h2
-            className="mono"
-            style={{
-              color: "var(--amber-dim)",
-              fontSize: "0.62rem",
-              letterSpacing: "0.22em",
-              margin: 0,
-              textTransform: "uppercase",
-            }}
-          >
-            Publish state
-          </h2>
-          <p style={{ color: "var(--parchment-dim)", fontSize: "0.82rem", margin: "0.35rem 0 0" }}>
-            Publication review now lives with the conclusion instead of in a separate top-level tab.
-          </p>
-        </div>
+        <p style={{ color: "var(--parchment-dim)", fontSize: "0.82rem", margin: 0 }}>
+          Publication review for this conclusion. Source-post visibility toggles
+          live below.
+        </p>
         {latest ? (
           <Link
             className="btn"
@@ -704,67 +1120,73 @@ function PublicationInlinePanel({
           ))}
         </div>
       ) : null}
-    </section>
+    </div>
   );
 }
 
 function OverviewTab({
-  text,
   supportIds,
   evidenceIds,
   dissentIds,
   idTextMap,
   sources,
+  claimKind,
 }: {
-  text: string;
   supportIds: string[];
   evidenceIds: string[];
   dissentIds: string[];
   idTextMap: Record<string, string>;
   sources: { uploadId: string; title: string; sourceType: string }[];
+  claimKind: "abstract_principle" | "empirical" | "decision_rule" | "unclassified";
 }) {
-  return (
-    <div style={{ display: "flex", flexDirection: "column", gap: "1.5rem" }}>
-      <blockquote
-        style={{
-          margin: 0,
-          padding: "1rem 1.25rem",
-          borderLeft: "3px solid var(--gold)",
-          background: "var(--stone-light)",
-          fontSize: "1.1rem",
-          lineHeight: 1.6,
-          color: "var(--parchment)",
-        }}
-      >
-        {text}
-      </blockquote>
+  const lists: Array<{ label: string; ids: string[] }> = [
+    { label: "Supporting principles", ids: supportIds },
+    { label: "Evidence chain claims", ids: evidenceIds },
+    { label: "Dissenting claims", ids: dissentIds },
+  ];
+  const nonEmpty = lists.filter((l) => l.ids.length > 0);
+  const empty = lists.filter((l) => l.ids.length === 0);
 
-      <ExpandableIdList
-        label="Supporting principles"
-        ids={supportIds}
-        idTextMap={idTextMap}
-      />
-      <ExpandableIdList
-        label="Evidence chain claims"
-        ids={evidenceIds}
-        idTextMap={idTextMap}
-      />
-      <ExpandableIdList
-        label="Dissenting claims"
-        ids={dissentIds}
-        idTextMap={idTextMap}
-      />
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
+      {nonEmpty.map((l) => (
+        <ExpandableIdList
+          key={l.label}
+          label={l.label}
+          ids={l.ids}
+          idTextMap={idTextMap}
+        />
+      ))}
+
+      {empty.length > 0 ? (
+        <p
+          className="mono"
+          style={{
+            margin: 0,
+            color: "var(--parchment-dim)",
+            fontSize: "0.7rem",
+            letterSpacing: "0.12em",
+          }}
+        >
+          {empty
+            .map((l) => `${l.label.toLowerCase()}: none`)
+            .join(" · ")}
+        </p>
+      ) : null}
+
+      <CasesSection claimKind={claimKind} />
+
 
       {sources.length > 0 && (
         <div>
           <div
+            className="mono"
             style={{
-              fontFamily: "'Cinzel', serif",
               fontSize: "0.6rem",
-              letterSpacing: "0.15em",
+              letterSpacing: "0.18em",
               textTransform: "uppercase",
               color: "var(--parchment-dim)",
-              marginBottom: "0.5rem",
+              marginBottom: "0.4rem",
             }}
           >
             Source documents
@@ -801,6 +1223,68 @@ function OverviewTab({
   );
 }
 
+function CasesSection({
+  claimKind,
+}: {
+  claimKind: "abstract_principle" | "empirical" | "decision_rule" | "unclassified";
+}) {
+  const hint =
+    claimKind === "abstract_principle"
+      ? "Empirical case studies that support, bound, or contradict this principle are not yet persisted to the Codex DB. When the case extractor's rows land, supporting and contradicting cases will appear here."
+      : "Empirical case rows are not yet persisted in the Codex. Once the case extractor's output is wired in, observed situations citing this conclusion will surface here.";
+  return (
+    <details
+      data-section="cases"
+      style={{
+        padding: "0.65rem 0.85rem",
+        border: "1px solid var(--border)",
+        borderRadius: 2,
+      }}
+    >
+      <summary
+        style={{
+          cursor: "pointer",
+          display: "flex",
+          justifyContent: "space-between",
+          alignItems: "baseline",
+        }}
+      >
+        <span
+          className="mono"
+          style={{
+            color: "var(--parchment-dim)",
+            fontSize: "0.6rem",
+            letterSpacing: "0.18em",
+            textTransform: "uppercase",
+          }}
+        >
+          Supporting / contradicting cases
+        </span>
+        <span
+          className="mono"
+          style={{
+            color: "var(--parchment-dim)",
+            fontSize: "0.6rem",
+            letterSpacing: "0.12em",
+          }}
+        >
+          0
+        </span>
+      </summary>
+      <p
+        style={{
+          color: "var(--parchment-dim)",
+          fontSize: "0.8rem",
+          lineHeight: 1.55,
+          margin: "0.45rem 0 0",
+        }}
+      >
+        {hint}
+      </p>
+    </details>
+  );
+}
+
 function ExpandableIdList({
   label,
   ids,
@@ -813,25 +1297,24 @@ function ExpandableIdList({
   return (
     <details
       style={{
-        padding: "0.75rem 1rem",
+        padding: "0.65rem 0.85rem",
         border: "1px solid var(--border)",
         borderRadius: 2,
       }}
     >
       <summary
         style={{
-          cursor: ids.length > 0 ? "pointer" : "default",
+          cursor: "pointer",
           display: "flex",
           justifyContent: "space-between",
           alignItems: "baseline",
-          listStyle: ids.length > 0 ? undefined : "none",
         }}
       >
         <span
+          className="mono"
           style={{
-            fontFamily: "'Cinzel', serif",
             fontSize: "0.6rem",
-            letterSpacing: "0.15em",
+            letterSpacing: "0.18em",
             textTransform: "uppercase",
             color: "var(--parchment-dim)",
           }}
@@ -840,7 +1323,7 @@ function ExpandableIdList({
         </span>
         <span
           style={{
-            fontSize: "1.1rem",
+            fontSize: "1rem",
             color: "var(--gold)",
             fontFamily: "'Cinzel', serif",
           }}
@@ -848,40 +1331,38 @@ function ExpandableIdList({
           {ids.length}
         </span>
       </summary>
-      {ids.length === 0 ? null : (
-        <div style={{ marginTop: "0.5rem", display: "flex", flexDirection: "column", gap: "0.4rem" }}>
-          {ids.map((id) => {
-            const text = idTextMap[id];
-            return (
-              <div
-                key={id}
-                style={{
-                  padding: "0.35rem 0.5rem",
-                  borderLeft: "2px solid var(--border)",
-                }}
-              >
-                {text ? (
-                  <p style={{ margin: 0, fontSize: "0.85rem", color: "var(--parchment)" }}>
-                    {text}
-                  </p>
-                ) : (
-                  <p
-                    style={{
-                      margin: 0,
-                      fontSize: "0.75rem",
-                      color: "var(--parchment-dim)",
-                      fontStyle: "italic",
-                    }}
-                  >
-                    {id.slice(0, 12)}… — text unavailable (may require Noosphere
-                    connection)
-                  </p>
-                )}
-              </div>
-            );
-          })}
-        </div>
-      )}
+      <div style={{ marginTop: "0.5rem", display: "flex", flexDirection: "column", gap: "0.4rem" }}>
+        {ids.map((id) => {
+          const text = idTextMap[id];
+          return (
+            <div
+              key={id}
+              style={{
+                padding: "0.35rem 0.5rem",
+                borderLeft: "2px solid var(--border)",
+              }}
+            >
+              {text ? (
+                <p style={{ margin: 0, fontSize: "0.85rem", color: "var(--parchment)" }}>
+                  {text}
+                </p>
+              ) : (
+                <p
+                  style={{
+                    margin: 0,
+                    fontSize: "0.75rem",
+                    color: "var(--parchment-dim)",
+                    fontStyle: "italic",
+                  }}
+                >
+                  {id.slice(0, 12)}… — text unavailable (may require Noosphere
+                  connection)
+                </p>
+              )}
+            </div>
+          );
+        })}
+      </div>
     </details>
   );
 }

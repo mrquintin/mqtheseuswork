@@ -17,10 +17,14 @@ import { founderDisplayName } from "@/lib/founderDisplay";
 import { profilesForUpload } from "@/lib/methodologyProfiles";
 import { canWrite } from "@/lib/roles";
 
+import CasesAndPrinciplesPanel, {
+  type ClassifiedConclusion,
+} from "./CasesAndPrinciplesPanel";
 import ConversationGeometryPanel from "./ConversationGeometryPanel";
 import MethodologyProfilesPanel from "./MethodologyProfilesPanel";
 import SourceStructurePanel from "./SourceStructurePanel";
 import TranscriptAnchorClient from "./TranscriptAnchorClient";
+import TranscriptReader from "./TranscriptReader";
 
 export const dynamic = "force-dynamic";
 
@@ -51,13 +55,6 @@ function formatDate(value: Date): string {
     day: "numeric",
     year: "numeric",
   }).format(value);
-}
-
-function formatTimestamp(ms: number): string {
-  const totalSeconds = Math.max(0, Math.floor(ms / 1000));
-  const minutes = Math.floor(totalSeconds / 60);
-  const seconds = totalSeconds % 60;
-  return `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
 }
 
 function excerpt(text: string | null | undefined, max = 360): string {
@@ -289,7 +286,7 @@ export default async function TranscriptPage({
   const uploadYear = upload.createdAt.getUTCFullYear();
   const yearStart = new Date(Date.UTC(uploadYear, 0, 1));
   const yearEnd = new Date(Date.UTC(uploadYear + 1, 0, 1));
-  const [related, yearUploads, methodologyProfiles] = await Promise.all([
+  const [related, yearUploads, methodologyProfiles, sourcedConclusions] = await Promise.all([
     relatedConclusions(founder.organizationId, transcriptText, upload.id),
     db.upload.findMany({
       where: {
@@ -318,6 +315,22 @@ export default async function TranscriptPage({
       },
     }),
     profilesForUpload(founder.organizationId, upload.id),
+    db.conclusion.findMany({
+      where: {
+        organizationId: founder.organizationId,
+        sources: { some: { uploadId: upload.id } },
+      },
+      orderBy: { createdAt: "desc" },
+      select: {
+        id: true,
+        text: true,
+        confidenceTier: true,
+        topicHint: true,
+        rationale: true,
+        supportingPrincipleIds: true,
+      },
+      take: 40,
+    }),
   ]);
   const geometry = buildConversationGeometry(displayChunks);
   const conversationLike = isConversationLike(upload.sourceType, displayChunks);
@@ -330,10 +343,19 @@ export default async function TranscriptPage({
       chunks: item.chunks,
     })),
   );
+  const classifiedConclusions = await classifyConclusions(
+    founder.organizationId,
+    sourcedConclusions,
+  );
   const writer = canWrite(founder.role);
   const canPublish = writer && Boolean(transcriptText.trim());
   const canTogglePublic = writer && (founder.role === "admin" || founder.id === upload.founderId);
   const blurb = upload.blurb?.trim() || upload.description?.trim() || excerpt(transcriptText, 520);
+
+  const hasSpeakerLabels = displayChunks.some((chunk) => Boolean(chunk.speakerLabel?.trim()));
+  const hasTranscript = displayChunks.length > 0;
+  const analysisFailed = upload.status === "failed" && hasTranscript;
+  const showConversationGeometry = conversationLike && hasSpeakerLabels;
 
   return (
     <main className="transcript-shell">
@@ -345,7 +367,23 @@ export default async function TranscriptPage({
           </Link>
           <h1>{upload.title}</h1>
           <p className="mono transcript-meta">
-            {founderDisplayName(upload.founder)} / {formatDate(upload.createdAt)} / Source: {upload.sourceType} / {upload.status}
+            {founderDisplayName(upload.founder)} / {formatDate(upload.createdAt)} / Source: {upload.sourceType}
+          </p>
+          <p className="mono transcript-status-row">
+            <span className={`badge ${analysisFailed ? "badge-ingested" : `badge-${upload.status}`}`}>
+              {analysisFailed ? "transcript ready" : upload.status}
+            </span>
+            {analysisFailed ? (
+              <span className="badge badge-failed">analysis failed</span>
+            ) : null}
+            {hasTranscript ? (
+              <span className="mono transcript-status-note">
+                {displayChunks.length} chunk{displayChunks.length === 1 ? "" : "s"}
+                {hasSpeakerLabels ? "" : " · no speaker labels"}
+              </span>
+            ) : (
+              <span className="mono transcript-status-note">no transcript chunks</span>
+            )}
           </p>
         </div>
         <div className="transcript-toolbar">
@@ -369,72 +407,10 @@ export default async function TranscriptPage({
         </p>
       ) : null}
 
-      <section className="portal-card transcript-blurb-card" aria-labelledby="transcript-blurb-title">
-        <h2 className="mono" id="transcript-blurb-title">
-          Blurb
-        </h2>
-        <p>{blurb || "No blurb has been generated for this upload yet."}</p>
-        {headings.length > 0 ? (
-          <nav className="transcript-chip-row" aria-label="Transcript sections">
-            {headings.map((heading) => (
-              <a
-                className="transcript-chip"
-                href={`/transcripts/${encodeURIComponent(upload.id)}?anchor=${encodeURIComponent(heading.anchor)}`}
-                key={heading.anchor}
-              >
-                {heading.label}
-              </a>
-            ))}
-          </nav>
-        ) : null}
-      </section>
-
-      <div className="transcript-insight-grid">
-        {conversationLike ? (
-          <ConversationGeometryPanel
-            geometry={geometry}
-            uploadId={upload.id}
-            yearStats={yearStats}
-          />
-        ) : (
-          <SourceStructurePanel chunks={displayChunks} />
-        )}
-        <MethodologyProfilesPanel profiles={methodologyProfiles} />
-      </div>
-
       <div className="transcript-grid">
-        <article className="transcript-main" aria-label="Raw transcript">
-          {displayChunks.length > 0 ? (
-            displayChunks.map((chunk) => {
-              const anchor = `chunk-${chunk.id}`;
-              return (
-                <section
-                  className="transcript-chunk"
-                  data-testid={`transcript-chunk-${chunk.id}`}
-                  id={anchor}
-                  key={chunk.id}
-                >
-                  <div className="transcript-chunk-grid">
-                    <div className="transcript-time-slot">
-                      {chunk.startMs !== null ? (
-                        <a
-                          className="mono transcript-time"
-                          href={`/transcripts/${encodeURIComponent(upload.id)}?anchor=${encodeURIComponent(anchor)}`}
-                        >
-                          [{formatTimestamp(chunk.startMs)}]
-                        </a>
-                      ) : null}
-                    </div>
-                    <p className="transcript-body">
-                      {chunk.speakerLabel ? (
-                        <strong className="transcript-speaker">{chunk.speakerLabel}: </strong>
-                      ) : null}
-                      {chunk.text}
-                    </p>
-                  </div>
-                </section>
-              );
-            })
+        <article className="transcript-primary" aria-label="Raw transcript">
+          {hasTranscript ? (
+            <TranscriptReader chunks={displayChunks} uploadId={upload.id} />
           ) : (
             <section className="portal-card transcript-empty">
               This upload has no persisted transcript chunks yet. Re-run ingestion to create stable line anchors.
@@ -442,17 +418,150 @@ export default async function TranscriptPage({
           )}
         </article>
 
-        <aside className="portal-card transcript-related-rail" aria-label="What the firm thinks about this">
-          <RelatedPanel related={related} />
+        <aside className="transcript-side-rail" aria-label="Transcript navigation">
+          <section className="portal-card transcript-blurb-card" aria-labelledby="transcript-blurb-title">
+            <h2 className="mono" id="transcript-blurb-title">
+              Blurb
+            </h2>
+            <p>{blurb || "No blurb has been generated for this upload yet."}</p>
+          </section>
+          {headings.length > 0 ? (
+            <nav className="portal-card transcript-section-nav" aria-label="Transcript sections">
+              <h2 className="mono">Sections</h2>
+              <ul>
+                {headings.map((heading) => (
+                  <li key={heading.anchor}>
+                    <a
+                      href={`/transcripts/${encodeURIComponent(upload.id)}?anchor=${encodeURIComponent(heading.anchor)}`}
+                    >
+                      {heading.label}
+                    </a>
+                  </li>
+                ))}
+              </ul>
+            </nav>
+          ) : null}
+          <section className="portal-card transcript-related-rail" aria-label="What the firm thinks about this">
+            <RelatedPanel related={related} />
+          </section>
         </aside>
       </div>
 
-      <details className="portal-card transcript-related-drawer">
-        <summary className="mono">What the firm thinks about this</summary>
-        <RelatedPanel related={related} />
-      </details>
+      <CasesAndPrinciplesPanel
+        classifiedConclusions={classifiedConclusions}
+        uploadId={upload.id}
+      />
+
+      <section className="transcript-analysis" aria-label="Transcript analysis">
+        <p className="mono transcript-analysis-kicker">Analysis (secondary)</p>
+        {!hasSpeakerLabels && conversationLike ? (
+          <p className="transcript-analysis-note">
+            No speaker labels were detected on this transcript. Conversation geometry is not used as the source identity here.
+          </p>
+        ) : null}
+        <div className="transcript-insight-grid">
+          {showConversationGeometry ? (
+            <ConversationGeometryPanel
+              geometry={geometry}
+              uploadId={upload.id}
+              yearStats={yearStats}
+            />
+          ) : (
+            <SourceStructurePanel chunks={displayChunks} />
+          )}
+          <MethodologyProfilesPanel profiles={methodologyProfiles} />
+        </div>
+      </section>
     </main>
   );
+}
+
+async function classifyConclusions(
+  organizationId: string,
+  rows: Array<{
+    id: string;
+    text: string;
+    confidenceTier: string;
+    topicHint: string;
+    rationale: string;
+    supportingPrincipleIds: string;
+  }>,
+): Promise<ClassifiedConclusion[]> {
+  if (rows.length === 0) return [];
+
+  // A conclusion is treated as an *abstract principle* when an
+  // accepted Principle row references it in its cited or cluster set.
+  // Empirical-vs-decision-rule is a soft heuristic — we don't yet
+  // persist that distinction, so we surface it conservatively.
+  const conclusionIds = rows.map((r) => r.id);
+  const linkedPrinciples = await db.principle.findMany({
+    where: {
+      organizationId,
+      status: "accepted",
+      OR: [
+        ...conclusionIds.map((cid) => ({
+          citedConclusionIds: { contains: `"${cid}"` },
+        })),
+        ...conclusionIds.map((cid) => ({
+          clusterConclusionIds: { contains: `"${cid}"` },
+        })),
+      ],
+    },
+    select: {
+      id: true,
+      text: true,
+      citedConclusionIds: true,
+      clusterConclusionIds: true,
+    },
+  });
+
+  const cited = new Map<string, Array<{ id: string; text: string }>>();
+  const clustered = new Map<string, Array<{ id: string; text: string }>>();
+  for (const p of linkedPrinciples) {
+    const tryIds = (raw: string): string[] => {
+      try {
+        const parsed = JSON.parse(raw);
+        return Array.isArray(parsed) ? parsed.filter((x): x is string => typeof x === "string") : [];
+      } catch {
+        return [];
+      }
+    };
+    for (const cid of tryIds(p.citedConclusionIds)) {
+      if (!cited.has(cid)) cited.set(cid, []);
+      cited.get(cid)!.push({ id: p.id, text: p.text });
+    }
+    for (const cid of tryIds(p.clusterConclusionIds)) {
+      if (!clustered.has(cid)) clustered.set(cid, []);
+      clustered.get(cid)!.push({ id: p.id, text: p.text });
+    }
+  }
+
+  return rows.map((row) => {
+    const citedBy = cited.get(row.id) ?? [];
+    const clusteredBy = clustered.get(row.id) ?? [];
+    const principles = [
+      ...citedBy,
+      ...clusteredBy.filter((p) => !citedBy.some((c) => c.id === p.id)),
+    ];
+    const tier = row.confidenceTier.toLowerCase();
+    let claimKind: ClassifiedConclusion["claimKind"];
+    if (principles.length > 0) {
+      claimKind = "abstract_principle";
+    } else if (tier === "firm" || tier === "founder") {
+      claimKind = "empirical";
+    } else {
+      claimKind = "unclassified";
+    }
+    return {
+      claimKind,
+      confidenceTier: row.confidenceTier,
+      id: row.id,
+      linkedPrinciples: principles,
+      rationale: row.rationale,
+      text: row.text,
+      topicHint: row.topicHint,
+    };
+  });
 }
 
 function RelatedPanel({

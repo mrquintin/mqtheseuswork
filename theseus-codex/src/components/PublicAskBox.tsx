@@ -63,12 +63,25 @@ export default function PublicAskBox({
 
   const flatResults = useMemo(() => flattenResults(response), [response]);
 
+  const trimmedQuery = query.trim();
+  const tooShort = trimmedQuery.length < 3;
+  const submitDisabled = pending || tooShort;
+  const submitDisabledReason = pending
+    ? "Searching…"
+    : tooShort
+    ? "Type at least 3 characters"
+    : "";
+
   const submit = useCallback(
     async (raw: string) => {
       const trimmed = raw.trim();
       if (trimmed.length < 3) {
         setResponse(null);
-        setError(null);
+        setError(
+          mode === "full" && trimmed.length > 0
+            ? "Type at least 3 characters to search."
+            : null,
+        );
         return;
       }
       if (mode === "compact") {
@@ -216,19 +229,22 @@ export default function PublicAskBox({
         <button
           type="submit"
           className="mono"
-          disabled={pending}
+          disabled={submitDisabled}
+          aria-busy={pending}
           data-testid="public-ask-submit"
+          title={submitDisabledReason || "Search the firm (Enter)"}
           style={{
-            background: "var(--amber)",
-            border: "1px solid var(--amber)",
+            background: submitDisabled ? "var(--amber-dim)" : "var(--amber)",
+            border: `1px solid ${submitDisabled ? "var(--amber-dim)" : "var(--amber)"}`,
             borderRadius: 3,
             color: "#120d08",
             fontWeight: 700,
             fontSize: "0.7rem",
             letterSpacing: "0.18em",
+            opacity: submitDisabled && !pending ? 0.7 : 1,
             padding: "0.7rem 1rem",
             textTransform: "uppercase",
-            cursor: pending ? "wait" : "pointer",
+            cursor: pending ? "wait" : submitDisabled ? "not-allowed" : "pointer",
           }}
         >
           {pending ? "Searching…" : "Search"}
@@ -249,12 +265,49 @@ export default function PublicAskBox({
       </p>
 
       {error ? (
-        <p role="alert" style={{ color: "var(--amber)", marginTop: "0.8rem" }}>
+        <p
+          role="alert"
+          data-testid="public-ask-error"
+          style={{ color: "var(--amber)", marginTop: "0.8rem" }}
+        >
           {error}
         </p>
       ) : null}
 
-      {mode === "full" && response ? (
+      {mode === "full" && pending ? (
+        <p
+          aria-live="polite"
+          className="mono"
+          data-testid="public-ask-pending"
+          style={{
+            color: "var(--amber-dim)",
+            fontSize: "0.62rem",
+            letterSpacing: "0.22em",
+            marginTop: "1.2rem",
+            textTransform: "uppercase",
+          }}
+        >
+          Searching the firm's published material…
+        </p>
+      ) : null}
+
+      {mode === "full" && !pending && !response && !error ? (
+        <p
+          data-testid="public-ask-empty"
+          style={{
+            color: "var(--parchment-dim)",
+            fontSize: "0.95rem",
+            fontStyle: "italic",
+            lineHeight: 1.55,
+            marginTop: "1.2rem",
+          }}
+        >
+          Type a question above and press Enter or Search. We return only
+          what the firm has actually published — never a paraphrase.
+        </p>
+      ) : null}
+
+      {mode === "full" && response && !pending ? (
         <ResultsView response={response} activeIdx={activeIdx} flat={flatResults} />
       ) : null}
     </section>

@@ -1,0 +1,64 @@
+You are working in `/Users/michaelquintin/Desktop/Theseus`.
+
+Goal: monitor new empirical situations by applying abstract principles learned from prior cases.
+
+Product direction:
+When Noosphere encounters a new event, market, company, institution, or case, it should not only retrieve topically similar source material. It should ask: which abstract principles apply, which preconditions are present, which failure conditions are present, which prior cases are structurally analogous, and what decision follows under each applicable framework.
+
+Start by reading:
+- `docs/architecture/Algorithmized_Decision_Making.md`
+- `noosphere/noosphere/cases/`
+- `noosphere/noosphere/principles/`
+- `noosphere/noosphere/forecasts/decision_metrics.py`
+- `noosphere/noosphere/currents/`
+- `noosphere/noosphere/forecasts/retrieval_adapter.py`
+- embedding/domain-locality code if present.
+
+Implement:
+1. Add an analogical transfer engine:
+   - input: new case/event/market;
+   - retrieve candidate principles;
+   - retrieve prior cases;
+   - score structural similarity, not only keyword similarity;
+   - check preconditions;
+   - check failure conditions;
+   - return transfer recommendations.
+2. Add transfer metrics:
+   - structural fit;
+   - missing preconditions;
+   - contradiction risk;
+   - case distance;
+   - domain shift;
+   - time-decay risk;
+   - mechanism match;
+   - outcome uncertainty.
+3. Integrate with decision traces:
+   - a market decision trace should show which empirical cases and abstract principles influenced it;
+   - if the current case is too different from prior cases, the trace should downgrade to WATCH or ABSTAIN.
+4. Add monitoring hooks:
+   - new Currents events can create new case candidates;
+   - market refresh can create new case candidates;
+   - new uploads can create case candidates;
+   - cases can later update principle confidence.
+5. Add tests:
+   - close analogical match;
+   - superficial keyword match but poor structural fit;
+   - structurally similar case in a different domain;
+   - failure condition present causing abstention/downgrade.
+
+Constraints:
+- Do not use analogy as proof.
+- Do not let a single case dominate a decision unless the trace says why.
+- Do not expose private source text publicly.
+
+Verification:
+- Run focused analogical transfer tests.
+- Run forecast decision metric tests.
+- Run `git diff --check`.
+
+SCOPE:
+ADD noosphere/noosphere/principles/transfer.py
+ADD noosphere/tests/test_analogical_transfer.py
+MODIFY noosphere/noosphere/forecasts/decision_metrics.py
+MAYBE MODIFY noosphere/noosphere/currents/ or forecast retrieval adapters for case candidate hooks.
+

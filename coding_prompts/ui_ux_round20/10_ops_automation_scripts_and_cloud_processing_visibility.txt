@@ -1,0 +1,61 @@
+You are working in `/Users/michaelquintin/Desktop/Theseus`.
+
+Goal: make Ops show whether the automatic processing system is actually running, and expose clear remediation when scripts/workflows fail.
+
+Current live problem:
+The product depends on cloud processing after uploads: transcription/extraction, Noosphere ingestion, conclusion synthesis, embeddings, plotting, Currents ingestion/generation, articles, forecasts, and scheduled reruns. The UI does not make it obvious whether those scripts/workflows are running or stuck.
+
+Start by reading:
+- `docs/architecture/UI_UX_Round20_Contract.md`
+- `theseus-codex/src/app/(authed)/ops/page.tsx`
+- `.github/workflows/noosphere-process-uploads.yml`
+- other relevant `.github/workflows/*.yml`
+- `scripts/reanalyze-codex.sh`
+- `scripts/sync-to-github.sh`
+- noosphere queued-upload and processing CLI commands;
+- current-events scheduler/API files;
+- docs/deployment/runbook files if present.
+
+Implement:
+1. Redesign `/ops` as a health console:
+   - upload processing queue;
+   - transcription/extraction status;
+   - Noosphere ingestion status;
+   - embeddings status;
+   - article/publication generation status;
+   - Currents ingest/generation status;
+   - workflow/scheduler status.
+2. Avoid one giant grid of unrelated panels. Use triage-first sections:
+   - broken now;
+   - running/queued;
+   - healthy/recent;
+   - diagnostics.
+3. Add "last run", "last success", "last failure", and "next expected run" wherever that data already exists or can be cheaply derived.
+4. Expose safe repair actions only if they already exist:
+   - retry queue;
+   - re-run embeddings;
+   - re-run analysis;
+   - clear stale processing locks;
+   - trigger workflows.
+5. If a required always-on worker/scheduler is not provisioned, say that clearly in founder Ops and document the subscription/service requirement.
+6. Do not let the public site depend on slow backend calls at build time.
+
+Constraints:
+- Do not run destructive cleanup without explicit confirmation.
+- Do not hide workflow failures.
+- Do not claim cloud processing is fixed unless verified.
+- Keep secrets out of logs and UI.
+
+Verification:
+- Run `npm run build` in `theseus-codex`.
+- Run relevant noosphere smoke tests if touched.
+- Browser-check `/ops`.
+- Confirm the page can answer: are scripts running, what failed, what can be retried.
+
+SCOPE:
+MODIFY theseus-codex/src/app/(authed)/ops/page.tsx
+MAYBE ADD ops helper components under theseus-codex/src/app/(authed)/ops/
+MAYBE MODIFY ops/status API routes.
+MAYBE MODIFY workflow docs only to describe actual behavior.
+MAYBE MODIFY noosphere status helpers if the UI lacks necessary data.
+

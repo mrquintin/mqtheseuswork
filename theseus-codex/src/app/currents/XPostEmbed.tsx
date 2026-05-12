@@ -106,6 +106,7 @@ export default function XPostEmbed({
   const embedChromeStyle: CSSProperties = {
     background: surfaceBackground,
     borderRadius: WIDGET_RADIUS,
+    isolation: "isolate",
     overflow: "hidden",
   };
 
@@ -125,12 +126,24 @@ export default function XPostEmbed({
         data-conversation="none"
         data-dnt="true"
         data-theme="dark"
-        style={embedChromeStyle}
+        style={{
+          ...embedChromeStyle,
+          color: "var(--currents-parchment, #e8e1d3)",
+          fontFamily: "'IBM Plex Mono', monospace",
+          fontSize: "0.86rem",
+          margin: 0,
+          padding: "0.85rem 0.95rem",
+        }}
       >
-        <p lang="en" dir="ltr">
+        <p lang="en" dir="ltr" style={{ margin: 0 }}>
           {fallbackText?.trim() || "View this post on X."}
         </p>
-        <a href={normalizedUrl} rel="noopener nofollow ugc" target="_blank">
+        <a
+          href={normalizedUrl}
+          rel="noopener nofollow ugc"
+          target="_blank"
+          style={{ color: "var(--currents-gold, #d4a017)" }}
+        >
           {displayHandle}
           {fallbackAt ? ` - ${fallbackAt}` : ""}
         </a>

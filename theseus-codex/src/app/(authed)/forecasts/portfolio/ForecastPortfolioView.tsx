@@ -11,6 +11,9 @@ import type {
   TracePrinciple,
   WatchingState,
 } from "@/lib/forecastPortfolioData";
+import type { DecisionTrace } from "@/lib/forecastsTypes";
+
+import DecisionTracePanel, { ActionBadge } from "./DecisionTracePanel";
 
 type WatchState = "added" | "invalid" | "unsupported" | null;
 
@@ -56,6 +59,13 @@ const tdStyle: CSSProperties = {
   fontSize: "0.86rem",
   padding: "0.72rem",
   verticalAlign: "top",
+};
+
+const sectionLabelStyle: CSSProperties = {
+  color: "var(--amber-dim)",
+  fontSize: "0.62rem",
+  letterSpacing: "0.18em",
+  textTransform: "uppercase",
 };
 
 function modeColor(mode: PortfolioMode): string {
@@ -105,20 +115,43 @@ function formatDate(value: Date | string | null): string {
   });
 }
 
-function SectionTitle({ children, id }: { children: ReactNode; id: string }) {
+function SectionTitle({
+  children,
+  id,
+  subtitle,
+}: {
+  children: ReactNode;
+  id: string;
+  subtitle?: string;
+}) {
   return (
-    <h2
-      id={id}
-      style={{
-        color: "var(--amber)",
-        fontFamily: "'Cinzel', serif",
-        fontSize: "1.05rem",
-        letterSpacing: "0.06em",
-        margin: 0,
-      }}
-    >
-      {children}
-    </h2>
+    <div style={{ display: "grid", gap: "0.2rem" }}>
+      <h2
+        id={id}
+        style={{
+          color: "var(--amber)",
+          fontFamily: "'Cinzel', serif",
+          fontSize: "1.05rem",
+          letterSpacing: "0.06em",
+          margin: 0,
+        }}
+      >
+        {children}
+      </h2>
+      {subtitle ? (
+        <p
+          className="mono"
+          style={{
+            color: "var(--parchment-dim)",
+            fontSize: "0.66rem",
+            letterSpacing: "0.1em",
+            margin: 0,
+          }}
+        >
+          {subtitle}
+        </p>
+      ) : null}
+    </div>
   );
 }
 
@@ -165,6 +198,83 @@ function FailedGates({ gates }: { gates: TraceGateResult[] }) {
   );
 }
 
+function buildSetupChecklist(surface: ForecastPortfolioSurface): {
+  label: string;
+  done: boolean;
+}[] {
+  const { mode, watching, pipeline, openPositions } = surface;
+  const hasCategories =
+    watching.polymarketCategories.length > 0 || watching.kalshiCategories.length > 0;
+  const hasCorpusTrace = openPositions.some((row) => row.decisionTrace !== null) ||
+    pipeline.some((row) => row.decisionTrace !== null);
+  const hasCandidates = pipeline.length > 0;
+  const liveCredOk = !mode.failedGates.some((g) => g.gateName === "exchange_credentials_configured");
+  const killSwitchClear = !mode.failedGates.some((g) => g.gateName === "kill_switch_clear");
+  return [
+    { done: hasCategories, label: "Configure market categories to watch (Polymarket, Kalshi)" },
+    { done: hasCandidates, label: "Ingest at least one open market into the pipeline" },
+    { done: hasCorpusTrace, label: "Run the forecast generator to produce a decision trace" },
+    {
+      done: mode.liveTradingEnabled,
+      label: "Enable live trading server-side (FORECASTS_LIVE_TRADING_ENABLED)",
+    },
+    { done: liveCredOk, label: "Wire exchange credentials for Polymarket and/or Kalshi" },
+    { done: killSwitchClear, label: "Kill-switch clear" },
+  ];
+}
+
+function SetupReadinessSection({ surface }: { surface: ForecastPortfolioSurface }) {
+  const checklist = buildSetupChecklist(surface);
+  const allReady = checklist.every((item) => item.done);
+  return (
+    <section
+      aria-labelledby="setup-readiness-heading"
+      data-testid="forecast-setup-readiness"
+      style={sectionStyle}
+    >
+      <SectionTitle
+        id="setup-readiness-heading"
+        subtitle="setup → ingestion → algorithm → safety → live"
+      >
+        Setup and readiness
+      </SectionTitle>
+      <p style={{ color: "var(--parchment-dim)", fontSize: "0.78rem", margin: "0.5rem 0 0.7rem" }}>
+        {allReady
+          ? "All gates clear. The algorithm is ready to surface decision candidates."
+          : "Configure what is left before the algorithm can surface live candidates."}
+      </p>
+      <ul style={{ listStyle: "none", margin: 0, padding: 0 }}>
+        {checklist.map((item) => (
+          <li
+            key={item.label}
+            data-checklist-done={item.done ? "true" : "false"}
+            style={{ display: "flex", gap: "0.5rem", padding: "0.25rem 0" }}
+          >
+            <span
+              aria-hidden="true"
+              style={{
+                color: item.done ? "rgba(127, 196, 143, 0.95)" : "var(--ember)",
+                fontFamily: "'IBM Plex Mono', monospace",
+                width: "1.3rem",
+              }}
+            >
+              {item.done ? "[x]" : "[ ]"}
+            </span>
+            <span
+              style={{
+                color: item.done ? "var(--parchment)" : "var(--parchment-dim)",
+                fontSize: "0.82rem",
+              }}
+            >
+              {item.label}
+            </span>
+          </li>
+        ))}
+      </ul>
+    </section>
+  );
+}
+
 function ModeBanner({ surface }: { surface: ForecastPortfolioSurface }) {
   const accent = modeColor(surface.mode.mode);
   return (
@@ -183,18 +293,50 @@ function ModeBanner({ surface }: { surface: ForecastPortfolioSurface }) {
         padding: "1rem",
       }}
     >
-      <div style={{ alignItems: "start", display: "flex", gap: "1rem", justifyContent: "space-between", flexWrap: "wrap" }}>
+      <div
+        style={{
+          alignItems: "start",
+          display: "flex",
+          gap: "1rem",
+          justifyContent: "space-between",
+          flexWrap: "wrap",
+        }}
+      >
         <div>
-          <p className="mono" style={{ color: accent, fontSize: "0.68rem", letterSpacing: "0.22em", margin: 0, textTransform: "uppercase" }}>
+          <p
+            className="mono"
+            style={{
+              color: accent,
+              fontSize: "0.68rem",
+              letterSpacing: "0.22em",
+              margin: 0,
+              textTransform: "uppercase",
+            }}
+          >
             Current mode
           </p>
-          <h1 id="forecast-mode-heading" style={{ color: accent, fontFamily: "'Cinzel Decorative', 'Cinzel', serif", margin: "0.2rem 0 0" }}>
+          <h1
+            id="forecast-mode-heading"
+            style={{
+              color: accent,
+              fontFamily: "'Cinzel Decorative', 'Cinzel', serif",
+              margin: "0.2rem 0 0",
+            }}
+          >
             {surface.mode.mode}
           </h1>
         </div>
-        <div className="mono" style={{ color: "var(--parchment-dim)", fontSize: "0.72rem", lineHeight: 1.7, maxWidth: "34rem" }}>
-          <div>paper: conclusions - forecast trace - PaperBetEngine - paper ledger</div>
-          <div>live: conclusions - forecast trace - safety.check_all_gates - live engine</div>
+        <div
+          className="mono"
+          style={{
+            color: "var(--parchment-dim)",
+            fontSize: "0.72rem",
+            lineHeight: 1.7,
+            maxWidth: "34rem",
+          }}
+        >
+          <div>market → corpus → metrics → rule graph → decision → safety → ledger</div>
+          <div>paper: PaperBetEngine | live: safety.check_all_gates → LiveBetEngine</div>
         </div>
       </div>
       <FailedGates gates={surface.mode.failedGates} />
@@ -211,10 +353,22 @@ function KpiStrip({ surface }: { surface: ForecastPortfolioSurface }) {
     ["Hit rate", formatPercent(surface.kpis.hitRate)],
   ];
   return (
-    <section aria-label="Forecast position summary" style={{ display: "grid", gap: "0.75rem", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))" }}>
+    <section
+      aria-label="Forecast position summary"
+      style={{ display: "grid", gap: "0.75rem", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))" }}
+    >
       {items.map(([label, value]) => (
         <div key={label} style={sectionStyle}>
-          <p className="mono" style={{ color: "var(--amber-dim)", fontSize: "0.6rem", letterSpacing: "0.15em", margin: 0, textTransform: "uppercase" }}>
+          <p
+            className="mono"
+            style={{
+              color: "var(--amber-dim)",
+              fontSize: "0.6rem",
+              letterSpacing: "0.15em",
+              margin: 0,
+              textTransform: "uppercase",
+            }}
+          >
             {label}
           </p>
           <strong style={{ color: "var(--parchment)", display: "block", fontSize: "1.35rem", marginTop: "0.3rem" }}>
@@ -226,50 +380,70 @@ function KpiStrip({ surface }: { surface: ForecastPortfolioSurface }) {
   );
 }
 
-function OpenPositionsTable({ rows }: { rows: PortfolioPositionRow[] }) {
+function PositionDecisionRow({ row }: { row: PortfolioPositionRow }) {
   return (
-    <section aria-labelledby="open-positions-heading" style={sectionStyle}>
-      <SectionTitle id="open-positions-heading">Open positions</SectionTitle>
-      <div style={{ ...tableWrapStyle, marginTop: "0.85rem" }}>
-        <table style={tableStyle}>
-          <thead>
-            <tr>
-              {["Market", "Side", "Size", "Avg price", "Current implied prob", "Driving principles", "Last updated"].map((label) => (
-                <th key={label} style={thStyle}>{label}</th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {rows.length === 0 ? (
-              <tr>
-                <td colSpan={7} style={tdStyle}>No open paper or live positions.</td>
-              </tr>
+    <article
+      data-testid="forecast-position-row"
+      data-bet-id={row.betId}
+      style={{ border: "1px solid rgba(232, 225, 211, 0.12)", borderRadius: 6, padding: "0.95rem", display: "grid", gap: "0.65rem" }}
+    >
+      <header
+        style={{
+          alignItems: "flex-start",
+          display: "flex",
+          gap: "0.8rem",
+          flexWrap: "wrap",
+          justifyContent: "space-between",
+        }}
+      >
+        <div>
+          <strong style={{ color: "var(--parchment)", fontSize: "1rem" }}>
+            {row.marketUrl ? (
+              <a
+                href={row.marketUrl}
+                rel="noreferrer"
+                target="_blank"
+                style={{ color: "var(--amber)", textDecoration: "none" }}
+              >
+                {row.marketTitle}
+              </a>
             ) : (
-              rows.map((row) => (
-                <tr key={row.betId} data-testid="forecast-position-row">
-                  <td style={tdStyle}>
-                    {row.marketUrl ? (
-                      <a href={row.marketUrl} rel="noreferrer" target="_blank" style={{ color: "var(--amber)", textDecoration: "none" }}>
-                        {row.marketTitle}
-                      </a>
-                    ) : (
-                      row.marketTitle
-                    )}
-                    <div className="mono" style={{ color: "var(--parchment-dim)", fontSize: "0.62rem", marginTop: "0.25rem" }}>
-                      {row.mode} / {row.predictionId.slice(0, 8)}
-                    </div>
-                  </td>
-                  <td style={tdStyle}>{row.side}</td>
-                  <td style={tdStyle}>{formatUnsignedUsd(row.sizeUsd)}</td>
-                  <td style={tdStyle}>{row.avgPrice.toFixed(3)}</td>
-                  <td style={tdStyle}>{formatPercent(row.currentImpliedProb)}</td>
-                  <td style={tdStyle}><PrincipleChips principles={row.drivingPrinciples} /></td>
-                  <td style={tdStyle}>{formatDate(row.lastUpdated)}</td>
-                </tr>
-              ))
+              row.marketTitle
             )}
-          </tbody>
-        </table>
+          </strong>
+          <div className="mono" style={{ color: "var(--parchment-dim)", fontSize: "0.62rem", marginTop: "0.2rem" }}>
+            {row.mode} · {row.side} · {formatUnsignedUsd(row.sizeUsd)} @ {row.avgPrice.toFixed(3)} ·
+            current {formatPercent(row.currentImpliedProb)} · {formatDate(row.lastUpdated)}
+          </div>
+        </div>
+        {row.decisionTrace ? <ActionBadge action={row.decisionTrace.action} /> : null}
+      </header>
+      <div>
+        <span style={sectionLabelStyle}>Driving principles</span>
+        <div style={{ marginTop: "0.25rem" }}>
+          <PrincipleChips principles={row.drivingPrinciples} />
+        </div>
+      </div>
+      <DecisionTracePanel trace={row.decisionTrace} prose={row.decisionTrace?.rationale ?? null} />
+    </article>
+  );
+}
+
+function PaperPortfolioSection({ rows }: { rows: PortfolioPositionRow[] }) {
+  return (
+    <section aria-labelledby="paper-portfolio-heading" style={sectionStyle}>
+      <SectionTitle
+        id="paper-portfolio-heading"
+        subtitle="open paper + live positions with their full decision traces"
+      >
+        Paper portfolio
+      </SectionTitle>
+      <div style={{ display: "grid", gap: "0.85rem", marginTop: "0.85rem" }}>
+        {rows.length === 0 ? (
+          <p style={{ color: "var(--parchment-dim)", margin: 0 }}>No open paper or live positions.</p>
+        ) : (
+          rows.map((row) => <PositionDecisionRow key={row.betId} row={row} />)
+        )}
       </div>
     </section>
   );
@@ -277,24 +451,40 @@ function OpenPositionsTable({ rows }: { rows: PortfolioPositionRow[] }) {
 
 function ResolvedTable({ rows }: { rows: ResolvedPositionRow[] }) {
   return (
-    <section aria-labelledby="recently-resolved-heading" style={sectionStyle}>
-      <SectionTitle id="recently-resolved-heading">Recently resolved</SectionTitle>
+    <section aria-labelledby="order-ledger-heading" style={sectionStyle}>
+      <SectionTitle
+        id="order-ledger-heading"
+        subtitle="settled paper/live fills + calibration & postmortems"
+      >
+        Order ledger and postmortems
+      </SectionTitle>
       <div style={{ ...tableWrapStyle, marginTop: "0.85rem" }}>
         <table style={tableStyle}>
           <thead>
             <tr>
               {["Market", "Outcome", "Our side", "P&L", "Reasoning"].map((label) => (
-                <th key={label} style={thStyle}>{label}</th>
+                <th key={label} style={thStyle}>
+                  {label}
+                </th>
               ))}
             </tr>
           </thead>
           <tbody>
             {rows.length === 0 ? (
-              <tr><td colSpan={5} style={tdStyle}>No resolved positions yet.</td></tr>
+              <tr>
+                <td colSpan={5} style={tdStyle}>
+                  No resolved positions yet.
+                </td>
+              </tr>
             ) : (
               rows.map((row) => (
                 <tr key={row.betId}>
-                  <td style={tdStyle}>{row.marketTitle}<div className="mono" style={{ color: "var(--parchment-dim)", fontSize: "0.62rem" }}>{formatDate(row.resolvedAt)}</div></td>
+                  <td style={tdStyle}>
+                    {row.marketTitle}
+                    <div className="mono" style={{ color: "var(--parchment-dim)", fontSize: "0.62rem" }}>
+                      {formatDate(row.resolvedAt)}
+                    </div>
+                  </td>
                   <td style={tdStyle}>{row.outcome}</td>
                   <td style={tdStyle}>{row.ourSide}</td>
                   <td style={tdStyle}>{row.pnlUsd === null ? "n/a" : formatUsd(row.pnlUsd)}</td>
@@ -313,35 +503,172 @@ function ResolvedTable({ rows }: { rows: ResolvedPositionRow[] }) {
   );
 }
 
-function PipelinePanel({ rows }: { rows: PipelineCandidateRow[] }) {
+function DecisionCandidatesSection({ rows }: { rows: PipelineCandidateRow[] }) {
+  const candidates = rows.filter(
+    (row) =>
+      row.decisionTrace !== null &&
+      ["PAPER_TRADE", "LIVE_CANDIDATE", "REDUCE", "EXIT", "HEDGE"].includes(
+        row.decisionTrace.action,
+      ),
+  );
   return (
-    <section aria-labelledby="pipeline-heading" style={sectionStyle}>
-      <SectionTitle id="pipeline-heading">Pipeline</SectionTitle>
+    <section aria-labelledby="decision-candidates-heading" style={sectionStyle}>
+      <SectionTitle
+        id="decision-candidates-heading"
+        subtitle="markets where the rule graph emitted a non-passive action"
+      >
+        Decision candidates
+      </SectionTitle>
       <div style={{ display: "grid", gap: "0.75rem", marginTop: "0.85rem" }}>
-        {rows.length === 0 ? (
-          <p style={{ color: "var(--parchment-dim)", margin: 0 }}>No candidate markets are queued.</p>
+        {candidates.length === 0 ? (
+          <p style={{ color: "var(--parchment-dim)", margin: 0 }}>
+            No markets cleared the algorithm into a non-passive action.
+          </p>
         ) : (
-          rows.map((row) => (
-            <article key={row.marketId} style={{ border: "1px solid rgba(232, 225, 211, 0.12)", borderRadius: 6, padding: "0.85rem" }}>
-              <div style={{ display: "flex", gap: "1rem", justifyContent: "space-between", flexWrap: "wrap" }}>
-                <div>
-                  <strong style={{ color: "var(--parchment)" }}>{row.marketTitle}</strong>
-                  <div className="mono" style={{ color: "var(--parchment-dim)", fontSize: "0.62rem", marginTop: "0.2rem" }}>
-                    {row.source}{row.category ? ` / ${row.category}` : ""} / {formatDate(row.lastUpdated)}
-                  </div>
-                </div>
-                <span className="mono" style={{ color: row.gateResults.some((gate) => !gate.passed) ? "var(--ember)" : "rgba(127, 196, 143, 0.92)", fontSize: "0.66rem" }}>
-                  {row.gateState}
-                </span>
-              </div>
-              <div style={{ marginTop: "0.65rem" }}>
-                <PrincipleChips principles={row.drivingPrinciples} />
-              </div>
-            </article>
-          ))
+          candidates.map((row) => <PipelineCandidateCard key={row.marketId} row={row} />)
         )}
       </div>
     </section>
+  );
+}
+
+function PipelineCandidateCard({ row }: { row: PipelineCandidateRow }) {
+  const failed = row.gateResults.some((gate) => !gate.passed);
+  return (
+    <article
+      data-market-id={row.marketId}
+      style={{ border: "1px solid rgba(232, 225, 211, 0.12)", borderRadius: 6, padding: "0.85rem", display: "grid", gap: "0.55rem" }}
+    >
+      <header style={{ alignItems: "flex-start", display: "flex", gap: "0.8rem", flexWrap: "wrap", justifyContent: "space-between" }}>
+        <div>
+          <strong style={{ color: "var(--parchment)" }}>{row.marketTitle}</strong>
+          <div className="mono" style={{ color: "var(--parchment-dim)", fontSize: "0.62rem", marginTop: "0.2rem" }}>
+            {row.source}
+            {row.category ? ` / ${row.category}` : ""} / {formatDate(row.lastUpdated)}
+          </div>
+        </div>
+        <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: "0.3rem" }}>
+          {row.decisionTrace ? <ActionBadge action={row.decisionTrace.action} /> : null}
+          <span
+            className="mono"
+            style={{
+              color: failed ? "var(--ember)" : "rgba(127, 196, 143, 0.92)",
+              fontSize: "0.66rem",
+            }}
+          >
+            {row.gateState}
+          </span>
+        </div>
+      </header>
+      <div>
+        <span style={sectionLabelStyle}>Driving principles</span>
+        <div style={{ marginTop: "0.25rem" }}>
+          <PrincipleChips principles={row.drivingPrinciples} />
+        </div>
+      </div>
+      <DecisionTracePanel trace={row.decisionTrace} />
+    </article>
+  );
+}
+
+function MarketMonitorSection({ rows }: { rows: PipelineCandidateRow[] }) {
+  return (
+    <section aria-labelledby="market-monitor-heading" style={sectionStyle}>
+      <SectionTitle
+        id="market-monitor-heading"
+        subtitle="every market in the algorithm's working set"
+      >
+        Market monitor
+      </SectionTitle>
+      <div style={{ ...tableWrapStyle, marginTop: "0.85rem" }}>
+        <table style={tableStyle}>
+          <thead>
+            <tr>
+              {["Market", "Yes", "No", "Action", "Why", "Updated"].map((label) => (
+                <th key={label} style={thStyle}>
+                  {label}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {rows.length === 0 ? (
+              <tr>
+                <td colSpan={6} style={tdStyle}>
+                  No markets ingested yet.
+                </td>
+              </tr>
+            ) : (
+              rows.map((row) => (
+                <tr key={row.marketId} data-market-id={row.marketId}>
+                  <td style={tdStyle}>
+                    {row.marketUrl ? (
+                      <a
+                        href={row.marketUrl}
+                        rel="noreferrer"
+                        target="_blank"
+                        style={{ color: "var(--amber)", textDecoration: "none" }}
+                      >
+                        {row.marketTitle}
+                      </a>
+                    ) : (
+                      row.marketTitle
+                    )}
+                    <div className="mono" style={{ color: "var(--parchment-dim)", fontSize: "0.62rem", marginTop: "0.25rem" }}>
+                      {row.source}
+                      {row.category ? ` / ${row.category}` : ""}
+                    </div>
+                  </td>
+                  <td className="mono" style={tdStyle}>
+                    {formatPercent(row.marketYesPrice)}
+                  </td>
+                  <td className="mono" style={tdStyle}>
+                    {formatPercent(row.marketNoPrice)}
+                  </td>
+                  <td style={tdStyle}>
+                    {row.decisionTrace ? (
+                      <ActionBadge action={row.decisionTrace.action} size="sm" />
+                    ) : (
+                      <span className="mono" style={{ color: "var(--parchment-dim)", fontSize: "0.66rem" }}>
+                        queued
+                      </span>
+                    )}
+                  </td>
+                  <td style={tdStyle}>
+                    <ReasonBlurb trace={row.decisionTrace} gateState={row.gateState} />
+                  </td>
+                  <td className="mono" style={tdStyle}>
+                    {formatDate(row.lastUpdated)}
+                  </td>
+                </tr>
+              ))
+            )}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  );
+}
+
+function ReasonBlurb({
+  trace,
+  gateState,
+}: {
+  trace: DecisionTrace | null;
+  gateState: string;
+}) {
+  if (!trace) {
+    return (
+      <span className="mono" style={{ color: "var(--parchment-dim)", fontSize: "0.66rem" }}>
+        {gateState}
+      </span>
+    );
+  }
+  const first = trace.reasons[0];
+  return (
+    <span style={{ color: "var(--parchment)", fontSize: "0.74rem" }}>
+      {first || trace.rules.find((r) => r.fired && !r.passed)?.detail || "rule graph cleared"}
+    </span>
   );
 }
 
@@ -364,10 +691,31 @@ function WatchingPanel({
           : null;
   return (
     <section aria-labelledby="watching-heading" style={sectionStyle}>
-      <SectionTitle id="watching-heading">Watching</SectionTitle>
-      <div style={{ display: "grid", gap: "0.85rem", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", marginTop: "0.85rem" }}>
+      <SectionTitle
+        id="watching-heading"
+        subtitle="market discovery — categories + ad-hoc additions"
+      >
+        Watching
+      </SectionTitle>
+      <div
+        style={{
+          display: "grid",
+          gap: "0.85rem",
+          gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))",
+          marginTop: "0.85rem",
+        }}
+      >
         <div>
-          <p className="mono" style={{ color: "var(--amber-dim)", fontSize: "0.64rem", letterSpacing: "0.16em", margin: 0, textTransform: "uppercase" }}>
+          <p
+            className="mono"
+            style={{
+              color: "var(--amber-dim)",
+              fontSize: "0.64rem",
+              letterSpacing: "0.16em",
+              margin: 0,
+              textTransform: "uppercase",
+            }}
+          >
             Categories
           </p>
           <p style={{ color: "var(--parchment)", margin: "0.4rem 0 0" }}>
@@ -381,7 +729,16 @@ function WatchingPanel({
           </p>
         </div>
         <form action={action} style={{ display: "grid", gap: "0.5rem" }}>
-          <label className="mono" htmlFor="marketUrl" style={{ color: "var(--amber-dim)", fontSize: "0.64rem", letterSpacing: "0.16em", textTransform: "uppercase" }}>
+          <label
+            className="mono"
+            htmlFor="marketUrl"
+            style={{
+              color: "var(--amber-dim)",
+              fontSize: "0.64rem",
+              letterSpacing: "0.16em",
+              textTransform: "uppercase",
+            }}
+          >
             Ad-hoc market URL
           </label>
           <input
@@ -400,14 +757,27 @@ function WatchingPanel({
           <button className="btn btn-solid" type="submit" style={{ justifySelf: "start" }}>
             Add market
           </button>
-          {message ? <p role="status" style={{ color: watchState === "added" ? "rgba(127, 196, 143, 0.92)" : "var(--ember)", margin: 0 }}>{message}</p> : null}
+          {message ? (
+            <p
+              role="status"
+              style={{
+                color: watchState === "added" ? "rgba(127, 196, 143, 0.92)" : "var(--ember)",
+                margin: 0,
+              }}
+            >
+              {message}
+            </p>
+          ) : null}
         </form>
       </div>
       {state.watchedMarkets.length > 0 ? (
         <ul style={{ color: "var(--parchment-dim)", margin: "0.9rem 0 0", paddingLeft: "1.1rem" }}>
           {state.watchedMarkets.slice(0, 5).map((row) => (
             <li key={row.id}>
-              <span className="mono">{row.source}</span> / <a href={row.url} rel="noreferrer" target="_blank" style={{ color: "var(--amber)" }}>{row.url}</a>
+              <span className="mono">{row.source}</span> /{" "}
+              <a href={row.url} rel="noreferrer" target="_blank" style={{ color: "var(--amber)" }}>
+                {row.url}
+              </a>
             </li>
           ))}
         </ul>
@@ -424,10 +794,12 @@ export default function ForecastPortfolioView({
   return (
     <main style={{ display: "grid", gap: "1rem", margin: "0 auto", maxWidth: 1180, padding: "1.5rem 1rem 3rem" }}>
       <ModeBanner surface={surface} />
+      <SetupReadinessSection surface={surface} />
       <KpiStrip surface={surface} />
-      <OpenPositionsTable rows={surface.openPositions} />
+      <MarketMonitorSection rows={surface.pipeline} />
+      <DecisionCandidatesSection rows={surface.pipeline} />
+      <PaperPortfolioSection rows={surface.openPositions} />
       <ResolvedTable rows={surface.recentlyResolved} />
-      <PipelinePanel rows={surface.pipeline} />
       <WatchingPanel action={addWatchedMarketAction} state={surface.watching} watchState={watchState} />
     </main>
   );

@@ -1,0 +1,65 @@
+You are working in `/Users/michaelquintin/Desktop/Theseus`.
+
+Goal: abstract empirical cases into reusable, contradiction-testable principles and organize them into a transfer graph.
+
+Product direction:
+Noosphere should not merely say "case A resembles case B." It should derive a principle such as: "when a coordination system rewards credential signaling over truth-seeking, local actors optimize for legibility rather than discovery." That principle should be represented in a structured form so it can be tested, contradicted, applied to new cases, and used in decision algorithms.
+
+Start by reading:
+- `docs/architecture/Algorithmized_Decision_Making.md`
+- `noosphere/noosphere/cases/` from prompt 20
+- `noosphere/noosphere/coherence/`
+- `noosphere/noosphere/methods/contradiction_geometry.py`
+- `noosphere/noosphere/methods/contradiction_probe.py`
+- `noosphere/noosphere/peer_review/geometric_blindspot.py`
+- `noosphere/noosphere/models.py`
+- existing principle/conclusion/claim tests.
+
+Implement:
+1. Add a principle abstraction model:
+   - principle id;
+   - canonical statement;
+   - scope/domain;
+   - mechanism;
+   - preconditions;
+   - expected outcomes;
+   - failure conditions;
+   - supporting cases;
+   - contradicting cases;
+   - confidence/calibration fields;
+   - transfer-risk fields.
+2. Build a transfer graph:
+   - case -> principle;
+   - principle -> case;
+   - principle -> principle;
+   - contradicts;
+   - refines;
+   - generalizes;
+   - bounds.
+3. Implement a principle-abstraction pass that can consume case-study extractions and produce candidate principles.
+4. Make principles contradiction-testable:
+   - every principle should have explicit negation/contradiction candidates;
+   - every principle should list conditions under which it should fail;
+   - store those failure conditions for future case monitoring.
+5. Add tests:
+   - two cases abstract to the same principle;
+   - a third case bounds or contradicts that principle;
+   - an abstract-only source creates a principle without a case edge;
+   - transfer graph serialization is stable.
+
+Constraints:
+- Do not treat every source claim as a principle.
+- Do not promote a principle to firm-level confidence merely because it has multiple examples.
+- Preserve provenance from source span to case to principle.
+
+Verification:
+- Run focused principle/case tests.
+- Run existing coherence/contradiction tests if practical.
+- Run `git diff --check`.
+
+SCOPE:
+ADD noosphere/noosphere/principles/
+ADD noosphere/tests/test_principle_abstraction.py
+MODIFY noosphere/noosphere/cases/ only as needed for case-principle links.
+MAYBE MODIFY noosphere/noosphere/models.py if persistent models are required.
+

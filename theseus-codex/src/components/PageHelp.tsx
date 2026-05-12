@@ -5,6 +5,11 @@ import type { ReactNode } from "react";
  * these at the top so a first-time visitor knows what they're looking at
  * and how to use it.
  *
+ * Round 20 tones the default variant down: smaller heading, less letter
+ * spacing, normal (non-italic) body, and a single left rule for grouping
+ * rather than a filled card. The "subtle" variant stays a near-flat
+ * label-only banner.
+ *
  * Optional `sigil` slot: a decorative ornament rendered next to the page
  * title. In practice this receives an `<AsciiSigil />` from the AutoPageHelp
  * client wrapper, but it's typed as a plain ReactNode here so PageHelp
@@ -31,14 +36,14 @@ export default function PageHelp({
     <header
       aria-label={`About this page: ${title}`}
       style={{
-        margin: "0 auto 1.5rem",
+        margin: "0 auto 1.25rem",
         maxWidth: "1200px",
-        padding: isSubtle ? "0.75rem 1.25rem" : "1.1rem 1.5rem",
+        padding: isSubtle ? "0.6rem 1rem" : "0.85rem 1.1rem",
         background: isSubtle ? "transparent" : "var(--stone-light)",
-        borderLeft: `3px solid var(--amber${isSubtle ? "-dim" : ""})`,
+        borderLeft: `2px solid var(--amber${isSubtle ? "-dim" : ""})`,
         borderRadius: 2,
         display: "flex",
-        gap: "1rem",
+        gap: "0.85rem",
         alignItems: "flex-start",
       }}
     >
@@ -67,8 +72,9 @@ export default function PageHelp({
           <h1
             style={{
               fontFamily: "'Cinzel', serif",
-              fontSize: isSubtle ? "1rem" : "1.35rem",
-              letterSpacing: "0.1em",
+              fontSize: isSubtle ? "0.95rem" : "1.15rem",
+              fontWeight: 500,
+              letterSpacing: "0.05em",
               color: "var(--amber)",
               margin: 0,
             }}
@@ -82,8 +88,8 @@ export default function PageHelp({
               rel="noopener noreferrer"
               style={{
                 fontFamily: "'Inter', sans-serif",
-                fontSize: "0.65rem",
-                letterSpacing: "0.1em",
+                fontSize: "0.62rem",
+                letterSpacing: "0.08em",
                 textTransform: "uppercase",
                 color: "var(--parchment-dim)",
                 textDecoration: "none",
@@ -97,10 +103,12 @@ export default function PageHelp({
         <p
           style={{
             fontFamily: "'EB Garamond', Georgia, serif",
-            fontSize: isSubtle ? "0.95rem" : "1.05rem",
-            lineHeight: 1.55,
+            fontSize: isSubtle ? "0.9rem" : "0.98rem",
+            fontStyle: "normal",
+            lineHeight: 1.5,
             color: "var(--parchment)",
-            margin: "0.4rem 0 0",
+            margin: "0.3rem 0 0",
+            maxWidth: "64ch",
           }}
         >
           {purpose}
@@ -109,10 +117,12 @@ export default function PageHelp({
           <p
             style={{
               fontFamily: "'EB Garamond', Georgia, serif",
-              fontSize: "0.9rem",
-              lineHeight: 1.55,
+              fontSize: "0.86rem",
+              fontStyle: "normal",
+              lineHeight: 1.5,
               color: "var(--parchment-dim)",
-              margin: "0.3rem 0 0",
+              margin: "0.25rem 0 0",
+              maxWidth: "64ch",
             }}
           >
             {howTo}

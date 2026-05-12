@@ -1,0 +1,72 @@
+You are working in `/Users/michaelquintin/Desktop/Theseus`.
+
+Goal: make market monitoring and metric application run automatically at realistic intervals.
+
+Product direction:
+The system should ingest Polymarket and Kalshi markets, refresh prices, apply Noosphere's logic metrics, generate watch/live-candidate decisions, update paper positions, and expose scheduler status. It should not depend on a human manually running a script after setup.
+
+Start by reading:
+- `docs/architecture/Algorithmized_Decision_Making.md`
+- `noosphere/noosphere/forecasts/scheduler.py`
+- `noosphere/noosphere/forecasts/status.py`
+- `noosphere/noosphere/forecasts/polymarket_ingestor.py`
+- `noosphere/noosphere/forecasts/kalshi_ingestor.py`
+- `noosphere/noosphere/forecasts/decision_metrics.py`
+- `.github/workflows/*.yml`
+- `docker-compose.yml`
+- `current_events_api` scheduler/deployment patterns if relevant.
+
+Implement:
+1. Extend the forecasts scheduler so it has explicit loops for:
+   - market ingestion/price refresh;
+   - decision metric evaluation;
+   - paper-trade candidate drain;
+   - live-candidate queue refresh;
+   - open bet/order polling;
+   - resolution polling;
+   - calibration update;
+   - status-file writing.
+2. Set realistic default intervals and make them configurable:
+   - market ingest/price refresh: 5-15 minutes;
+   - decision metric scan: 5-10 minutes after refresh;
+   - order/live candidate polling: 30-120 seconds when live enabled;
+   - resolution polling: 5-15 minutes;
+   - calibration/public reports: daily unless explicitly overridden.
+3. Add or update CLI commands/scripts:
+   - run one scheduler tick;
+   - run continuous scheduler;
+   - run decision metric scan only;
+   - write status JSON without side effects.
+4. Update status output so `/ops` and forecast operator pages can show:
+   - last market refresh;
+   - last metric scan;
+   - last generated candidate;
+   - last paper bet;
+   - last live candidate;
+   - last live submission attempt;
+   - last error.
+5. Ensure public pages never block builds on live scheduler/API availability.
+6. Add documentation for how this should be hosted:
+   - local dev;
+   - GitHub Actions sweep if currently used;
+   - always-on service/cron if required for reliable production.
+
+Constraints:
+- Do not submit live orders automatically unless prompt 17 safety gates and explicit operator settings allow it.
+- Do not require new paid services unless the current hosting model cannot support always-on monitoring; if so, document the exact requirement.
+- Keep credentials out of logs and status files.
+
+Verification:
+- Run forecast scheduler tests or add focused ones.
+- Run a dry one-tick command against a local/test store.
+- Run `git diff --check`.
+
+SCOPE:
+MODIFY noosphere/noosphere/forecasts/scheduler.py
+MODIFY noosphere/noosphere/forecasts/status.py
+MODIFY noosphere/noosphere/typer_cli.py or the active noosphere CLI entrypoint
+MAYBE ADD scripts/run-forecast-scheduler.sh
+MAYBE MODIFY `.github/workflows/` only if that is the current scheduler mechanism.
+MAYBE ADD noosphere/tests/test_forecast_scheduler_decision_metrics.py
+MAYBE MODIFY docs/operations/Runbook.md or add forecast-specific runbook docs.
+

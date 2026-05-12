@@ -1,0 +1,58 @@
+You are working in `/Users/michaelquintin/Desktop/Theseus`.
+
+Goal: make audio transcripts first-class reading/exploration objects.
+
+Current live problem:
+Audio transcript entries exist and `/transcripts/c6080d00458676eb57380e57d` loads, but the page front-loads "Conversation Geometry / Harvest Table" and methodology panels. The raw transcript is not visually primary. If speaker labels are absent, the page still feels like it is selling conversation geometry instead of letting the user read the transcript.
+
+Start by reading:
+- `docs/architecture/UI_UX_Round20_Contract.md`
+- `theseus-codex/src/app/(authed)/knowledge/page.tsx`
+- `theseus-codex/src/app/(authed)/transcripts/[uploadId]/page.tsx`
+- `theseus-codex/src/app/(authed)/transcripts/[uploadId]/SourceStructurePanel.tsx`
+- `theseus-codex/src/app/(authed)/upload/[id]/page.tsx`
+- transcript tests.
+
+Implement:
+1. Transcript index:
+   - show source type, transcript availability, chunk count, processing state, and title in separate compact fields;
+   - do not render each row as one giant anchor blob;
+   - make audio/podcast entries visually easy to find.
+2. Transcript detail:
+   - make raw transcript/chunks the primary central column;
+   - add search/filter within transcript text;
+   - add copyable chunk links;
+   - preserve stable chunk anchors;
+   - keep readable line length.
+3. Move analysis panels:
+   - conversation geometry;
+   - methodology profiles;
+   - conclusion harvest;
+   - source structure;
+   into secondary panels/right rail/tabs below the raw transcript priority.
+4. If speaker labels are missing:
+   - say so quietly;
+   - do not make "conversation geometry" the source identity;
+   - do not fabricate speakers.
+5. Upload detail:
+   - if transcript text/chunks exist, link clearly to transcript detail;
+   - if downstream Noosphere analysis failed, distinguish it from transcription success.
+
+Constraints:
+- Do not require re-upload.
+- Do not erase failed statuses; clarify them.
+- Do not invent transcript text, speaker labels, or chunk counts.
+
+Verification:
+- Run `npm run build` in `theseus-codex`.
+- Browser-check `/knowledge?tab=transcripts`.
+- Browser-check one audio transcript and one written transcript.
+- Confirm raw transcript text is visible without hunting.
+
+SCOPE:
+MODIFY theseus-codex/src/app/(authed)/knowledge/page.tsx
+MODIFY theseus-codex/src/app/(authed)/transcripts/[uploadId]/page.tsx
+MODIFY theseus-codex/src/app/(authed)/transcripts/[uploadId]/SourceStructurePanel.tsx
+MODIFY theseus-codex/src/app/(authed)/upload/[id]/page.tsx
+MAYBE MODIFY related transcript tests/snapshots.
+

@@ -1,0 +1,53 @@
+You are working in `/Users/michaelquintin/Desktop/Theseus`.
+
+Goal: make Knowledge lists scannable and make Explorer feel like a working tool, not a dense archive.
+
+Current live problems:
+- `/knowledge` still has decorative or odd labels and a dense conclusion list.
+- Conclusion entries include long rationale/source text in a way that overwhelms scanning.
+- The Knowledge sub-tabs should feel like clear modes: Conclusions, Explorer, Library, Transcripts.
+
+Start by reading:
+- `docs/architecture/UI_UX_Round20_Contract.md`
+- `theseus-codex/src/app/(authed)/knowledge/page.tsx`
+- `theseus-codex/src/components/*Explorer*`
+- `theseus-codex/src/lib/embeddingHealth.ts`
+- relevant Knowledge/Explorer tests.
+
+Implement:
+1. Replace ornamental headings with plain labels.
+2. Redesign conclusion rows/cards for scanning:
+   - tier/status badge;
+   - concise claim text;
+   - confidence;
+   - source title;
+   - topic/type;
+   - small action row.
+3. Truncate excerpts consistently with an expand affordance.
+4. Make filters compact and sticky enough to be usable, without creating horizontal overflow.
+5. In Explorer:
+   - show embedding health clearly;
+   - show whether data is missing because embeddings are not populated;
+   - include a direct repair/retry path if one already exists;
+   - avoid blank canvases with no explanation.
+6. In Library:
+   - separate source state from analysis state;
+   - make audio/podcast/written/PDF types visible.
+7. Preserve current URLs and tab query parameters.
+
+Constraints:
+- Do not change backend data models unless a real type mismatch blocks the UI.
+- Do not hide failure states from founder views.
+- Do not invent embeddings or source statuses.
+
+Verification:
+- Run `npm run build` in `theseus-codex`.
+- Browser-check `/knowledge`, `/knowledge?tab=explorer`, `/knowledge?tab=library`, `/knowledge?tab=transcripts`.
+- Confirm list rows remain readable at mobile width.
+
+SCOPE:
+MODIFY theseus-codex/src/app/(authed)/knowledge/page.tsx
+MAYBE MODIFY Explorer components/helpers under theseus-codex/src/components/
+MAYBE MODIFY theseus-codex/src/lib/embeddingHealth.ts only if needed for clearer UI state.
+MAYBE MODIFY related tests/snapshots.
+
