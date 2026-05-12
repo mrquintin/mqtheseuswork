@@ -44,7 +44,7 @@ PROVIDER_DEFAULTS: dict[str, ProviderDefaults] = {
         name="anthropic",
         env_key="ANTHROPIC_API_KEY",
         default_model_env="THESEUS_PEER_REVIEW_ANTHROPIC_MODEL",
-        default_model="claude-3-5-sonnet-20241022",
+        default_model="claude-sonnet-4-20250514",
         cost_per_1k_in=0.003,
         cost_per_1k_out=0.015,
     ),

@@ -902,10 +902,54 @@ def ingest_from_codex(
         except Exception as sep_err:
             print(f"pertinent_text_failed: {sep_err}")
 
+        # Persist the extracted transcript and a coarse explorer chunk set
+        # before any LLM-dependent work. A stale model name, quota outage, or
+        # temporary provider error must not make the transcript invisible in
+        # the Codex UI after Whisper/pypdf already succeeded.
+        if not dry_run:
+            transcript_now = datetime.now(timezone.utc)
+            cur.execute(
+                '''UPDATE "Upload"
+                   SET "textContent" = CASE
+                           WHEN "textContent" IS NULL OR length(trim("textContent")) = 0 THEN %s
+                           ELSE "textContent"
+                       END,
+                       "errorMessage" = NULL,
+                       "extractionMethod" = %s
+                   WHERE id = %s''',
+                (
+                    _db_safe(extracted_text, cap=2_000_000),
+                    _db_safe(extracted.extraction_method, cap=64),
+                    upload_id,
+                ),
+            )
+            try:
+                seeded_chunks = _ensure_basic_upload_chunks(
+                    cur,
+                    upload_id,
+                    text,
+                    transcript_now,
+                )
+                if seeded_chunks:
+                    print(f"upload_chunks_seeded_early count={seeded_chunks}")
+            except Exception as chunk_exc:
+                print(
+                    "upload_chunk_seed_early_failed: "
+                    f"{type(chunk_exc).__name__}: {chunk_exc}"
+                )
+            conn.commit()
+
         # ── Extract claims ───────────────────────────────────────────────
+        llm_error: str | None = None
         if use_llm:
-            claims = llm_extract_claims(text, upload_id=upload_id, max_chunks=10)
-            mode = "llm"
+            try:
+                claims = llm_extract_claims(text, upload_id=upload_id, max_chunks=10)
+                mode = "llm"
+            except Exception as exc:
+                llm_error = f"claim_extraction:{type(exc).__name__}: {exc}"
+                print(f"llm_claim_extraction_failed: {llm_error}")
+                claims = naive_extract_claims(text, max_claims=max_claims)
+                mode = "naive_fallback"
         else:
             claims = naive_extract_claims(text, max_claims=max_claims)
             mode = "naive"
@@ -1060,7 +1104,6 @@ def ingest_from_codex(
         heuristic_pairs = naive_detect_contradictions(claims)
 
         llm_payload: dict | None = None
-        llm_error: str | None = None
         if use_llm:
             try:
                 # Pull up to 40 recent firm conclusions for cross-upload checking.
@@ -1081,7 +1124,8 @@ def ingest_from_codex(
                 # LLM failure is non-fatal — we still have the heuristic
                 # contradictions and the inserted Conclusions. Record the
                 # reason so the caller can surface it in the process log.
-                llm_error = f"{type(exc).__name__}: {exc}"
+                pass_error = f"contradictions:{type(exc).__name__}: {exc}"
+                llm_error = f"{llm_error}; {pass_error}" if llm_error else pass_error
 
         # ── Write contradictions (both sources merged) ──────────────────
         # Every contradiction carries `sourceUploadId = upload_id` — it's
@@ -1440,9 +1484,10 @@ def list_queued_uploads(
     """List uploads currently waiting for processing or needing repair.
 
     The repair branch intentionally includes audio rows that were previously
-    marked ``ingested`` but have neither persisted transcript text nor chunks.
-    Those rows were produced by the broken bridge path that extracted audio for
-    claim analysis without writing the transcript back to the Codex DB.
+    marked ``ingested`` or ``failed`` but have neither persisted transcript text
+    nor chunks. Those rows were produced by older bridge paths that extracted
+    audio for claim analysis without writing the transcript back to the Codex DB,
+    or by a later LLM error after extraction had already begun.
     """
     url = _resolve_codex_db_url(codex_db_url)
     conn = _open_codex_connection(url)
@@ -1457,7 +1502,7 @@ def list_queued_uploads(
                       status IN ('pending', 'queued_offline', 'processing')
                       OR status IS NULL
                       OR (
-                           status = 'ingested'
+                           status IN ('ingested', 'failed')
                            AND (
                                 "textContent" IS NULL
                                 OR length(trim("textContent")) = 0

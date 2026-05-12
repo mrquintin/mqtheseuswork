@@ -639,7 +639,7 @@ Context: {context if context else "(none)"}"""
 
         try:
             response = self.client.messages.create(
-                model="claude-3-5-sonnet-20241022",
+                model="claude-sonnet-4-20250514",
                 max_tokens=2000,
                 messages=[{"role": "user", "content": user_message}],
                 system=system_prompt,
@@ -1006,7 +1006,7 @@ intellectual case AGAINST the original principle. Be precise and avoid strawmann
 Respond with only the counter-position statement, nothing else."""
 
         response = self.client.messages.create(
-            model="claude-3-5-sonnet-20241022",
+            model="claude-sonnet-4-20250514",
             max_tokens=300,
             messages=[{"role": "user", "content": prompt}],
         )

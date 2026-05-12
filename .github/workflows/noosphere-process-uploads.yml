@@ -230,6 +230,8 @@ jobs:
           THESEUS_CODEX_DATABASE_URL: ${{ secrets.CODEX_DATABASE_URL }}
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          THESEUS_LLM_PROVIDER: openai
+          THESEUS_LLM_MODEL: gpt-4o-mini
           # Required when uploads land in Supabase Storage (filePath like
           # storage://… or supabase://…). The extractor mints a signed
           # download URL; without these it hard-fails with
@@ -268,6 +270,8 @@ jobs:
           THESEUS_CODEX_DATABASE_URL: ${{ secrets.CODEX_DATABASE_URL }}
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          THESEUS_LLM_PROVIDER: openai
+          THESEUS_LLM_MODEL: gpt-4o-mini
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
           SUPABASE_AUDIO_BUCKET: ${{ secrets.SUPABASE_AUDIO_BUCKET }}
@@ -280,10 +284,11 @@ jobs:
           echo "+ python -m noosphere codex-queued --limit 25"
           python -m noosphere codex-queued --limit 25 > /tmp/queued.json
           # `codex-queued` returns clean waiting rows plus a narrow repair
-          # class: audio uploads previously marked ingested despite having
-          # no transcript text/chunks. Skip `processing` to avoid duplicate
-          # claims, but repair those malformed ingested rows automatically.
-          python -c "import json,sys; d=json.load(open('/tmp/queued.json')); rows=d.get('rows',[]); [print(r['id']) for r in rows if (r.get('status') or '').lower() in ('pending','queued_offline','','ingested')]" > /tmp/ids.txt
+          # class: audio uploads previously marked ingested/failed despite
+          # having no transcript text/chunks. Skip `processing` to avoid
+          # duplicate claims, but repair those malformed terminal rows
+          # automatically.
+          python -c "import json,sys; d=json.load(open('/tmp/queued.json')); rows=d.get('rows',[]); [print(r['id']) for r in rows if (r.get('status') or '').lower() in ('pending','queued_offline','','ingested','failed')]" > /tmp/ids.txt
           id_count=$(wc -l < /tmp/ids.txt | tr -d ' ')
           total_count=$(python -c "import json; print(json.load(open('/tmp/queued.json')).get('count',0))")
           echo "::notice::Codex has $total_count row(s) in queue states; sweep will process $id_count of them"
@@ -319,6 +324,8 @@ jobs:
           THESEUS_CODEX_DATABASE_URL: ${{ secrets.CODEX_DATABASE_URL }}
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          THESEUS_LLM_PROVIDER: openai
+          THESEUS_LLM_MODEL: gpt-4o-mini
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
           SUPABASE_AUDIO_BUCKET: ${{ secrets.SUPABASE_AUDIO_BUCKET }}

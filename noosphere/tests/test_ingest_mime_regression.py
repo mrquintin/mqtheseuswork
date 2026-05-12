@@ -18,6 +18,7 @@ from pathlib import Path
 
 import pytest
 
+import noosphere.codex_bridge as codex_bridge
 from noosphere.codex_bridge import ingest_from_codex
 from noosphere.extractors import audio_extractor
 from noosphere.extractors.base import ExtractedText, ExtractionFailed
@@ -130,6 +131,71 @@ def test_audio_upload_does_not_error_on_missing_textcontent(
     ).fetchone()["count"]
     assert chunk_count >= 1
     assert result.num_claims_extracted >= 1
+
+
+def test_audio_transcript_persists_when_llm_claim_extraction_fails(
+    fake_codex_db,
+    codex_sqlite_url,
+    upload_factory,
+    monkeypatch,
+    tmp_path,
+):
+    """A provider/model outage must not hide an already-extracted transcript."""
+    dummy = _dummy_m4a(tmp_path)
+    uid = upload_factory(
+        mime="audio/mp4",
+        text=None,
+        file_path=str(dummy),
+        file_size=dummy.stat().st_size,
+    )
+
+    def _fake_extract(self, content):
+        return ExtractedText(
+            text=(
+                "the purpose of the school is inquiry not credentialing, "
+                "and this sentence exists to satisfy the naive extractor."
+            ),
+            source_format="audio/mp4",
+            extraction_method="faster-whisper",
+        )
+
+    def _llm_boom(*args, **kwargs):
+        raise RuntimeError("model: claude-3-5-sonnet-20241022")
+
+    monkeypatch.setattr(audio_extractor.AudioExtractor, "extract", _fake_extract)
+    monkeypatch.setattr(codex_bridge, "llm_extract_claims", _llm_boom)
+    monkeypatch.setattr(
+        codex_bridge,
+        "llm_detect_contradictions_and_questions",
+        lambda *args, **kwargs: {
+            "contradictions": [],
+            "cross_contradictions": [],
+            "open_questions": [],
+            "research_suggestions": [],
+        },
+    )
+
+    result = ingest_from_codex(
+        upload_id=uid,
+        use_llm=True,
+        dry_run=False,
+        codex_db_url=codex_sqlite_url,
+    )
+
+    row = fake_codex_db.execute(
+        'SELECT status, "errorMessage", "extractionMethod", "textContent" FROM "Upload" WHERE id = ?',
+        (uid,),
+    ).fetchone()
+    assert row["status"] == "ingested"
+    assert row["errorMessage"] is None
+    assert row["extractionMethod"] == "faster-whisper"
+    assert "inquiry not credentialing" in row["textContent"]
+    assert result.mode == "naive_fallback"
+    chunk_count = fake_codex_db.execute(
+        'SELECT COUNT(*) AS count FROM "UploadChunk" WHERE "uploadId" = ?',
+        (uid,),
+    ).fetchone()["count"]
+    assert chunk_count >= 1
 
 
 def test_failure_message_no_longer_mentions_textcontent(

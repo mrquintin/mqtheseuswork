@@ -80,6 +80,44 @@ def test_queue_includes_ingested_audio_missing_transcript_chunks(
     assert healthy_id not in ids
 
 
+def test_queue_includes_failed_audio_missing_transcript_chunks(
+    fake_codex_db, codex_sqlite_url, upload_factory, scratch_binary_fixture
+):
+    """LLM-era failures after extraction starts must remain retryable."""
+    repair_id = upload_factory(
+        mime="audio/mp4",
+        text=None,
+        source_type="audio",
+        file_path=str(scratch_binary_fixture),
+        file_size=scratch_binary_fixture.stat().st_size,
+        title="failed audio needing repair",
+    )
+    healthy_failed_id = upload_factory(
+        mime="audio/mp4",
+        text="already transcribed failed audio should not be queue-repaired",
+        source_type="audio",
+        file_path=str(scratch_binary_fixture),
+        file_size=scratch_binary_fixture.stat().st_size,
+        title="healthy failed audio",
+    )
+    fake_codex_db.execute(
+        'UPDATE "Upload" SET status = ?, "errorMessage" = ? WHERE id IN (?, ?)',
+        (
+            "failed",
+            "Local ingest-from-codex failed: stale LLM model",
+            repair_id,
+            healthy_failed_id,
+        ),
+    )
+    fake_codex_db.commit()
+
+    rows = list_queued_uploads(codex_db_url=codex_sqlite_url, limit=25)
+    ids = {row["id"] for row in rows}
+
+    assert repair_id in ids
+    assert healthy_failed_id not in ids
+
+
 def test_ingest_refuses_soft_deleted_uploads(
     fake_codex_db, codex_sqlite_url, upload_factory
 ):

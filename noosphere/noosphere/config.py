@@ -42,7 +42,7 @@ class NoosphereSettings(BaseSettings):
     embedding_device: str = "cpu"
     nli_model_name: str = "roberta-large-mnli"
     llm_provider: Literal["anthropic", "openai"] = "anthropic"
-    llm_model: str = "claude-3-5-sonnet-20241022"
+    llm_model: str = "claude-sonnet-4-20250514"
     llm_api_key: str = ""
     database_url: str = "sqlite:///./noosphere_data/noosphere.db"
     data_dir: Path = Field(default_factory=lambda: _repo_root() / "noosphere_data")
@@ -133,7 +133,7 @@ class NoosphereSettings(BaseSettings):
         if provider == "openai" and ("gpt" in lower or lower.startswith("o1")):
             return model
         return (
-            "claude-3-5-sonnet-20241022"
+            "claude-sonnet-4-20250514"
             if provider == "anthropic"
             else "gpt-4o-mini"
         )

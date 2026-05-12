@@ -300,7 +300,7 @@ Generate methodological observations about these claims."""
 
         try:
             response = self.client.messages.create(
-                model="claude-3-5-sonnet-20241022",
+                model="claude-sonnet-4-20250514",
                 max_tokens=1500,
                 messages=[{"role": "user", "content": prompt}]
             )
@@ -364,7 +364,7 @@ Analyze the logical structure of this reasoning chain."""
 
         try:
             response = self.client.messages.create(
-                model="claude-3-5-sonnet-20241022",
+                model="claude-sonnet-4-20250514",
                 max_tokens=1500,
                 messages=[{"role": "user", "content": prompt}]
             )
@@ -462,7 +462,7 @@ Generate pattern observations about recurring methodological habits."""
 
         try:
             response = self.client.messages.create(
-                model="claude-3-5-sonnet-20241022",
+                model="claude-sonnet-4-20250514",
                 max_tokens=1000,
                 messages=[{"role": "user", "content": prompt}]
             )
@@ -541,7 +541,7 @@ Provide methodological feedback."""
 
         try:
             response = self.client.messages.create(
-                model="claude-3-5-sonnet-20241022",
+                model="claude-sonnet-4-20250514",
                 max_tokens=500,
                 messages=[{"role": "user", "content": prompt}]
             )
