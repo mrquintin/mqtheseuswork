@@ -804,8 +804,8 @@ def ingest_from_codex(
         # alive before any LLM calls happen.
         if not dry_run:
             cur.execute(
-                'UPDATE "Upload" SET status = %s WHERE id = %s',
-                ("extracting", upload_id),
+                'UPDATE "Upload" SET status = %s, "updatedAt" = %s WHERE id = %s',
+                ("extracting", datetime.now(timezone.utc), upload_id),
             )
             conn.commit()
 
@@ -821,9 +821,14 @@ def ingest_from_codex(
             if not dry_run:
                 cur.execute(
                     '''UPDATE "Upload"
-                       SET status = %s, "errorMessage" = %s
+                       SET status = %s, "errorMessage" = %s, "updatedAt" = %s
                        WHERE id = %s''',
-                    ("failed", _db_safe(reason, cap=400), upload_id),
+                    (
+                        "failed",
+                        _db_safe(reason, cap=400),
+                        datetime.now(timezone.utc),
+                        upload_id,
+                    ),
                 )
                 conn.commit()
             raise
@@ -865,16 +870,16 @@ def ingest_from_codex(
         # the stall point is visible.
         if not dry_run:
             cur.execute(
-                'UPDATE "Upload" SET status = %s WHERE id = %s',
-                ("awaiting_ingest", upload_id),
+                'UPDATE "Upload" SET status = %s, "updatedAt" = %s WHERE id = %s',
+                ("awaiting_ingest", datetime.now(timezone.utc), upload_id),
             )
             conn.commit()
 
         # ── Mark processing (non-dry only) ───────────────────────────────
         if not dry_run:
             cur.execute(
-                'UPDATE "Upload" SET status = %s WHERE id = %s',
-                ("processing", upload_id),
+                'UPDATE "Upload" SET status = %s, "updatedAt" = %s WHERE id = %s',
+                ("processing", datetime.now(timezone.utc), upload_id),
             )
             conn.commit()
 
@@ -915,11 +920,13 @@ def ingest_from_codex(
                            ELSE "textContent"
                        END,
                        "errorMessage" = NULL,
-                       "extractionMethod" = %s
+                       "extractionMethod" = %s,
+                       "updatedAt" = %s
                    WHERE id = %s''',
                 (
                     _db_safe(extracted_text, cap=2_000_000),
                     _db_safe(extracted.extraction_method, cap=64),
+                    transcript_now,
                     upload_id,
                 ),
             )
@@ -1341,7 +1348,8 @@ def ingest_from_codex(
                    "claimsCount" = %s,
                    "methodCount" = %s,
                    "errorMessage" = NULL,
-                   "extractionMethod" = %s
+                   "extractionMethod" = %s,
+                   "updatedAt" = %s
                WHERE id = %s''',
             (
                 "ingested",
@@ -1349,6 +1357,7 @@ def ingest_from_codex(
                 written + deduped,
                 methodology_profiles_written,
                 _db_safe(extracted.extraction_method, cap=64),
+                now,
                 upload_id,
             ),
         )
@@ -1458,7 +1467,7 @@ def ingest_from_codex(
                 ec = err.cursor()
                 ec.execute(
                     '''UPDATE "Upload"
-                       SET status = %s, "errorMessage" = %s
+                       SET status = %s, "errorMessage" = %s, "updatedAt" = %s
                        WHERE id = %s''',
                     (
                         "failed",
@@ -1466,6 +1475,7 @@ def ingest_from_codex(
                             f"Local ingest-from-codex failed: {sys.exc_info()[1]}",
                             cap=400,
                         ),
+                        datetime.now(timezone.utc),
                         upload_id,
                     ),
                 )
@@ -1496,10 +1506,17 @@ def list_queued_uploads(
         cur.execute(
             '''SELECT id, title, "originalName", status, "mimeType",
                       "fileSize", "createdAt"
+                      "updatedAt"
                FROM "Upload"
                WHERE "deletedAt" IS NULL
                  AND (
-                      status IN ('pending', 'queued_offline', 'processing')
+                      status IN (
+                          'pending',
+                          'queued_offline',
+                          'processing',
+                          'extracting',
+                          'awaiting_ingest'
+                      )
                       OR status IS NULL
                       OR (
                            status IN ('ingested', 'failed')

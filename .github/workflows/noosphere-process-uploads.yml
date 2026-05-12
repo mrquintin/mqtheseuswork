@@ -285,10 +285,40 @@ jobs:
           python -m noosphere codex-queued --limit 25 > /tmp/queued.json
           # `codex-queued` returns clean waiting rows plus a narrow repair
           # class: audio uploads previously marked ingested/failed despite
-          # having no transcript text/chunks. Skip `processing` to avoid
-          # duplicate claims, but repair those malformed terminal rows
-          # automatically.
-          python -c "import json,sys; d=json.load(open('/tmp/queued.json')); rows=d.get('rows',[]); [print(r['id']) for r in rows if (r.get('status') or '').lower() in ('pending','queued_offline','','ingested','failed')]" > /tmp/ids.txt
+          # having no transcript text/chunks. Transient rows are only retried
+          # after they are stale, so active long audio transcriptions are not
+          # duplicated but crashed jobs still recover on a later cron pass.
+          python - <<'PY' > /tmp/ids.txt
+          import json
+          from datetime import datetime, timedelta, timezone
+
+          clean = {"pending", "queued_offline", "", "ingested", "failed"}
+          transient = {"processing", "extracting", "awaiting_ingest"}
+          stale_before = datetime.now(timezone.utc) - timedelta(minutes=90)
+
+          def parse_dt(value):
+              if not value:
+                  return None
+              text = str(value).replace("Z", "+00:00")
+              try:
+                  parsed = datetime.fromisoformat(text)
+              except ValueError:
+                  return None
+              if parsed.tzinfo is None:
+                  parsed = parsed.replace(tzinfo=timezone.utc)
+              return parsed
+
+          rows = json.load(open("/tmp/queued.json")).get("rows", [])
+          for row in rows:
+              status = (row.get("status") or "").lower()
+              if status in clean:
+                  print(row["id"])
+                  continue
+              if status in transient:
+                  updated_at = parse_dt(row.get("updatedAt"))
+                  if updated_at and updated_at < stale_before:
+                      print(row["id"])
+          PY
           id_count=$(wc -l < /tmp/ids.txt | tr -d ' ')
           total_count=$(python -c "import json; print(json.load(open('/tmp/queued.json')).get('count',0))")
           echo "::notice::Codex has $total_count row(s) in queue states; sweep will process $id_count of them"
