@@ -181,6 +181,12 @@ def _dt(v: datetime | date) -> datetime:
     return datetime(v.year, v.month, v.day, tzinfo=timezone.utc)
 
 
+def _as_utc_aware(v: datetime | None) -> datetime | None:
+    if v is None or v.tzinfo is not None:
+        return v
+    return v.replace(tzinfo=timezone.utc)
+
+
 def _utcnow() -> datetime:
     return datetime.now(timezone.utc)
 
@@ -2313,6 +2319,10 @@ class Store:
             )
 
     def add_forecast_followup_session(self, session: ForecastFollowUpSession) -> str:
+        session.created_at = _as_utc_aware(session.created_at) or session.created_at
+        session.last_activity_at = (
+            _as_utc_aware(session.last_activity_at) or session.last_activity_at
+        )
         with self.session() as s:
             s.add(session)
             s.commit()
@@ -2322,9 +2332,16 @@ class Store:
         self, session_id: str
     ) -> Optional[ForecastFollowUpSession]:
         with self.session() as s:
-            return s.get(ForecastFollowUpSession, session_id)
+            row = s.get(ForecastFollowUpSession, session_id)
+            if row is not None:
+                row.created_at = _as_utc_aware(row.created_at) or row.created_at
+                row.last_activity_at = (
+                    _as_utc_aware(row.last_activity_at) or row.last_activity_at
+                )
+            return row
 
     def add_forecast_followup_message(self, message: ForecastFollowUpMessage) -> str:
+        message.created_at = _as_utc_aware(message.created_at) or message.created_at
         with self.session() as s:
             s.add(message)
             session = s.get(ForecastFollowUpSession, message.session_id)
@@ -2338,7 +2355,10 @@ class Store:
         self, message_id: str
     ) -> Optional[ForecastFollowUpMessage]:
         with self.session() as s:
-            return s.get(ForecastFollowUpMessage, message_id)
+            row = s.get(ForecastFollowUpMessage, message_id)
+            if row is not None:
+                row.created_at = _as_utc_aware(row.created_at) or row.created_at
+            return row
 
     def list_claim_ids(self) -> list[str]:
         with self.session() as s:
