@@ -199,14 +199,35 @@ parse_prisma_pending_count() {
 
   count="$(
     printf '%s\n' "$output" |
-      awk '/^[[:space:]]*[0-9]{14}_[[:alnum:]_ -]+[[:space:]]*$/ { c++ } END { print c + 0 }'
+      awk '
+        BEGIN { in_block = 0; c = 0 }
+        {
+          line = $0
+          lower = tolower(line)
+          if (lower ~ /^[[:space:]]*following migrations? (has|have) not (yet )?(been )?applied:/) {
+            in_block = 1
+            next
+          }
+          if (!in_block) next
+          sub(/^[[:space:]]+/, "", line)
+          sub(/[[:space:]]+$/, "", line)
+          lower = tolower(line)
+          if (line == "") next
+          if (lower ~ /^to apply migrations/) {
+            in_block = 0
+            next
+          }
+          c++
+        }
+        END { print c + 0 }
+      '
   )"
   if [[ "$count" -gt 0 ]]; then
     printf '%s\n' "$count"
     return
   fi
 
-  if printf '%s\n' "$output" | grep -Eiq 'not yet applied|not applied|pending'; then
+  if printf '%s\n' "$output" | grep -Eiq 'not yet( been)? applied|not applied|pending'; then
     printf '1\n'
     return
   fi

@@ -2,7 +2,8 @@ import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 
 import { db } from "@/lib/db";
-import { assembleLineage, filterPublic } from "@/lib/lineage";
+import { filterPublic } from "@/lib/lineage";
+import { assembleLineage } from "@/lib/lineage-server";
 import { publicCorsHeaders } from "@/lib/publicCors";
 
 export const runtime = "nodejs";

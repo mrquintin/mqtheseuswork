@@ -23,11 +23,6 @@ import { describe, expect, it, vi } from "vitest";
  * pure projection helpers in `@/lib/lineage`.
  */
 
-// `@/lib/lineage` imports the Prisma client for its server-side
-// assembler; the v2 rendering helpers under test never touch the DB, so
-// a bare stub keeps the module graph importable in the node test env.
-vi.mock("@/lib/db", () => ({ db: {} }));
-
 vi.mock("next/link", () => ({
   default: ({
     children,

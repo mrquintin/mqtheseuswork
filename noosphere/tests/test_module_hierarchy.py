@@ -20,6 +20,8 @@ from __future__ import annotations
 
 import importlib
 import pkgutil
+import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -86,6 +88,19 @@ def test_cli_facade_exposes_typer_and_legacy_click() -> None:
     assert callable(getattr(cli_pkg, "parse_date", None))
     # ``cli_commands`` plugin registry is reachable.
     assert hasattr(cli_pkg, "cli_commands")
+
+
+def test_cli_package_is_directly_executable() -> None:
+    """``python -m noosphere.cli`` must keep the legacy Click surface alive."""
+
+    result = subprocess.run(
+        [sys.executable, "-m", "noosphere.cli", "--help"],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 0, result.stderr
+    assert "benchmark" in result.stdout
 
 
 # ── 2. CLI subcommand surface is preserved post-shim. ──────────────────────
