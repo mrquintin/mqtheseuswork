@@ -45,9 +45,9 @@ def upgrade() -> None:
     op.create_table(
         "quantitative_test_result",
         sa.Column("id", sa.String(), primary_key=True),
-        sa.Column("formalisation_id", sa.String(), nullable=False, index=True),
+        sa.Column("formalisation_id", sa.String(), nullable=False),
         sa.Column("principle_id", sa.String(), nullable=False, server_default=""),
-        sa.Column("run_stamp", sa.String(), nullable=False, index=True),
+        sa.Column("run_stamp", sa.String(), nullable=False),
         sa.Column(
             "status", sa.String(), nullable=False, server_default="RAN"
         ),
@@ -60,6 +60,11 @@ def upgrade() -> None:
             sa.DateTime(timezone=True),
             nullable=False,
             server_default=sa.text("CURRENT_TIMESTAMP"),
+        ),
+        sa.UniqueConstraint(
+            "formalisation_id",
+            "run_stamp",
+            name="uq_quantitative_test_result_formalisation_run",
         ),
     )
     op.create_index(
@@ -77,21 +82,11 @@ def upgrade() -> None:
         "quantitative_test_result",
         ["principle_id"],
     )
-    op.create_unique_constraint(
-        "uq_quantitative_test_result_formalisation_run",
-        "quantitative_test_result",
-        ["formalisation_id", "run_stamp"],
-    )
 
 
 def downgrade() -> None:
     if not _table_exists("quantitative_test_result"):
         return
-    op.drop_constraint(
-        "uq_quantitative_test_result_formalisation_run",
-        "quantitative_test_result",
-        type_="unique",
-    )
     op.drop_index(
         "ix_quantitative_test_result_principle_id",
         table_name="quantitative_test_result",

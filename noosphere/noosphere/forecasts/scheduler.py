@@ -119,6 +119,17 @@ class SchedulerConfig:
     max_equity_signals_per_cycle: int = 8
     max_articles_per_week: int = DEFAULT_WEEKLY_ARTICLE_CAP
 
+    def __post_init__(self) -> None:
+        if (
+            self.equities_budget_file == DEFAULT_EQUITIES_BUDGET_PATH
+            and self.budget_file != DEFAULT_BUDGET_PATH
+        ):
+            object.__setattr__(
+                self,
+                "equities_budget_file",
+                self.budget_file.with_name("equities_budget.json"),
+            )
+
     @classmethod
     def from_env(cls) -> "SchedulerConfig":
         data_dir = os.environ.get("NOOSPHERE_DATA_DIR", "").strip()
@@ -1539,7 +1550,17 @@ async def run_once(
     state = SchedulerState()
     status_lock = asyncio.Lock()
     budget = PersistentHourlyBudgetGuard(config.budget_file)
-    equities_budget = EquitiesPersistentHourlyBudgetGuard(config.equities_budget_file)
+    selected = list(loops) if loops is not None else list(_LOOP_NAMES)
+    equities_budget: EquitiesPersistentHourlyBudgetGuard | None = None
+
+    def get_equities_budget() -> EquitiesPersistentHourlyBudgetGuard:
+        nonlocal equities_budget
+        if equities_budget is None:
+            equities_budget = EquitiesPersistentHourlyBudgetGuard(
+                config.equities_budget_file
+            )
+        return equities_budget
+
     locks = {name: asyncio.Lock() for name in _LOOP_NAMES}
     all_runners: dict[str, Callable[[], Awaitable[TickReport]]] = {
         "ingest": lambda: _tick_ingest(
@@ -1576,7 +1597,7 @@ async def run_once(
             config=config,
             state=state,
             status_lock=status_lock,
-            budget=equities_budget,
+            budget=get_equities_budget(),
         ),
         "public_calibration": lambda: _tick_public_calibration(
             store, config=config, state=state, status_lock=status_lock,
@@ -1588,7 +1609,6 @@ async def run_once(
             store, config=config, state=state, status_lock=status_lock,
         ),
     }
-    selected = list(loops) if loops is not None else list(_LOOP_NAMES)
     unknown = [name for name in selected if name not in all_runners]
     if unknown:
         raise ValueError(f"unknown scheduler loops: {unknown}")
@@ -1597,7 +1617,8 @@ async def run_once(
         await _guarded_tick(name, locks[name], all_runners[name], state)
     state.last_tick_ts = utc_now_iso()
     budget.save()
-    equities_budget.save()
+    if equities_budget is not None:
+        equities_budget.save()
     return _status_payload(store, state)
 
 

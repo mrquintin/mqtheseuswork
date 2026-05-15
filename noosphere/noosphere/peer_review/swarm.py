@@ -255,11 +255,15 @@ class SwarmOrchestrator:
             )
 
         if len(roster) == 1:
-            logger.warning(
-                "monoculture review: only one provider available (%s); "
-                "swarm diversity guarantees do not hold for this run.",
-                roster[0].name,
+            warning_msg = (
+                "monoculture review: only one provider available "
+                f"({roster[0].name}); swarm diversity guarantees do not "
+                "hold for this run."
             )
+            logger.warning(
+                warning_msg,
+            )
+            logging.getLogger().warning(warning_msg)
 
         # Provider order: highest weight first, ties broken by the
         # roster's insertion order so callers can pin order without

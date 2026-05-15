@@ -1,0 +1,73 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://theseus.local/presets/preset.schema.json",
+  "title": "Theseus tenant preset",
+  "type": "object",
+  "required": ["name", "modules"],
+  "additionalProperties": false,
+  "properties": {
+    "name": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Human-readable preset name shown in the bootstrap wizard."
+    },
+    "description": {
+      "type": "string",
+      "description": "One-line description of the intended customer."
+    },
+    "default_principle_domains": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 },
+      "uniqueItems": true,
+      "description": "Domain tags the principle extractor will preferentially attach. These are HINTS to the LLM, not a closed set."
+    },
+    "seed_artifacts": {
+      "type": "array",
+      "description": "Empty directories the bootstrap CLI creates under the tenant's data dir, each with a README explaining what to drop there.",
+      "items": {
+        "type": "object",
+        "required": ["path", "readme"],
+        "additionalProperties": false,
+        "properties": {
+          "path": { "type": "string", "minLength": 1 },
+          "readme": { "type": "string", "minLength": 1 }
+        }
+      }
+    },
+    "modules": {
+      "type": "object",
+      "description": "Module-enable flags. The preset is opinionated, not locked — a tenant can flip any flag back on later.",
+      "additionalProperties": false,
+      "properties": {
+        "forecasts": { "type": "boolean" },
+        "equities": { "type": "boolean" },
+        "oracle": { "type": "boolean" },
+        "currents": { "type": "boolean" },
+        "principles": { "type": "boolean" },
+        "deals": { "type": "boolean" }
+      },
+      "required": ["forecasts", "equities", "oracle", "currents", "principles"]
+    },
+    "decision_surface": {
+      "type": "object",
+      "description": "UI layout opinion. The bootstrap writes this into the tenant config so the sidebar primaries/secondaries/hidden routes follow it.",
+      "additionalProperties": false,
+      "properties": {
+        "primary": {
+          "type": "string",
+          "description": "Route the daily-driver page lands on after login."
+        },
+        "adjacent": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Routes shown next to the primary in the sidebar."
+        },
+        "hidden": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Routes hidden until re-enabled."
+        }
+      }
+    }
+  }
+}

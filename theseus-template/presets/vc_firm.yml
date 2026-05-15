@@ -1,0 +1,88 @@
+# Theseus tenant preset — VC firm.
+#
+# Opinionated configuration for a venture-capital firm whose intellectual
+# capital is its partners' writing, podcasts, and interview transcripts.
+# Validates against ./schema/preset.schema.json.
+#
+# A preset is opinionated, not locked. Every module flag below can be
+# flipped back on later by editing .env.live or the org settings.
+# Public-equities and prediction-market trading remain OFF unless the
+# tenant explicitly toggles them and completes the operator rehearsal.
+
+name: "VC firm"
+description: >-
+  A venture-capital firm with founders who have published essays, sat for
+  podcasts, given interviews. Theseus distills their beliefs into firm
+  principles, then surfaces which principles apply to each new deal.
+
+default_principle_domains:
+  - market_size
+  - founder_quality
+  - timing
+  - moats
+  - unit_economics
+  - competition
+  - team
+  - regulatory
+
+seed_artifacts:
+  - path: founders
+    readme: |
+      # founders/
+      The bootstrap CLI creates one folder per founding partner under this
+      directory (e.g. founders/jane-doe/). Drop each partner's writing
+      there: PDF essays, markdown notes, podcast transcripts, interview
+      transcripts. The principle extractor (prompt 56) walks each folder
+      and emits claim → principle candidates tagged against the firm's
+      `default_principle_domains`.
+  - path: founders/founder_a_essays
+    readme: |
+      # founders/founder_a_essays/
+      Drop essays, blog posts, and long-form writing by founding partner A
+      here. Markdown and PDF are both accepted. Each file becomes a
+      Source; its claims feed the principle distillation pass.
+  - path: founders/founder_a_podcasts_transcripts
+    readme: |
+      # founders/founder_a_podcasts_transcripts/
+      Drop podcast transcripts (interviews, talks, fireside chats) by
+      founding partner A here. Plain text or .srt is fine; the
+      ingestion adapter normalises both.
+  - path: firm_memos
+    readme: |
+      # firm_memos/
+      Internal investment-committee memos, retrospective decks, post-mortem
+      docs — anything that records the firm's accumulated reasoning across
+      deals. The extractor weights firm memos higher than individual
+      partner writing for the `unit_economics` and `moats` domains.
+  - path: partner_meeting_notes
+    readme: |
+      # partner_meeting_notes/
+      Append-only log of partner-meeting notes. The /deals page links each
+      note to the principle(s) it cites. Notes are append-only by design:
+      revisions go in a new file with a date prefix.
+
+modules:
+  # VCs typically do not care about Polymarket; off by default.
+  forecasts: false
+  # VCs invest privately; public-equity signal is rarely on the critical
+  # path. Off by default; can be toggled later for a partner who wants
+  # macro readouts.
+  equities: false
+  # On — partners ask questions of the firm's own corpus daily.
+  oracle: true
+  # On — firms benefit from grounded opinion on current events.
+  currents: true
+  # On — this is the load-bearing module for the VC preset.
+  principles: true
+  # VC-specific surface introduced by prompt 69; only meaningful for
+  # this preset.
+  deals: true
+
+decision_surface:
+  primary: /deals
+  adjacent:
+    - /principles
+    - /oracle
+  hidden:
+    - /forecasts
+    - /equities

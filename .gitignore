@@ -155,6 +155,10 @@ theseus-template/*
 !theseus-template/scripts/
 !theseus-template/scripts/bootstrap.sh
 !theseus-template/README.md
+!theseus-template/presets/
+!theseus-template/presets/vc_firm.yml
+!theseus-template/presets/schema/
+!theseus-template/presets/schema/preset.schema.json
 !theseus-template/.github/
 !theseus-template/.github/workflows/
 !theseus-template/.github/workflows/template_ci.yml

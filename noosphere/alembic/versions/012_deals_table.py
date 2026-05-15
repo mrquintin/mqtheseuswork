@@ -180,11 +180,11 @@ def upgrade() -> None:
                 name="DealPrincipleAlignment_dealId_fkey",
                 ondelete="CASCADE",
             ),
-        )
-        op.create_unique_constraint(
-            "DealPrincipleAlignment_dealId_principleId_key",
-            "DealPrincipleAlignment",
-            ["dealId", "principleId"],
+            sa.UniqueConstraint(
+                "dealId",
+                "principleId",
+                name="DealPrincipleAlignment_dealId_principleId_key",
+            ),
         )
         op.create_index(
             "DealPrincipleAlignment_organizationId_dealId_idx",

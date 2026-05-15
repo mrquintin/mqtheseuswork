@@ -23,7 +23,7 @@ else:
 from sqlalchemy import Column, LargeBinary, asc, desc, inspect, text
 from sqlalchemy.engine import Engine
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
-from sqlalchemy.pool import NullPool
+from sqlalchemy.pool import NullPool, StaticPool
 from sqlmodel import Field, Session, SQLModel, create_engine, select
 
 from noosphere.models import (
@@ -169,6 +169,8 @@ def _is_supabase_transaction_pooler(url: str) -> bool:
 def _engine_kwargs_for_url(url: str) -> dict[str, Any]:
     """Keep long-lived Noosphere processes inside managed Postgres limits."""
 
+    if url in {"sqlite://", "sqlite:///:memory:"}:
+        return {"poolclass": StaticPool}
     if not _is_postgres_url(url):
         return {}
     if _is_supabase_transaction_pooler(url):

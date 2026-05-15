@@ -231,7 +231,7 @@ def test_equity_gate_check_returns_disabled_under_default_env(
 
 
 def test_alembic_upgrade_downgrade_upgrade(tmp_path) -> None:
-    """Alembic upgrade head → downgrade -1 → upgrade head leaves equities tables intact."""
+    """Alembic upgrade head → downgrade pre-equities → upgrade head is clean."""
     from unittest.mock import MagicMock, patch
 
     from alembic import command
@@ -266,8 +266,10 @@ def test_alembic_upgrade_downgrade_upgrade(tmp_path) -> None:
         ):
             assert expected in tables_at_head, f"missing table after upgrade: {expected}"
 
-        # Roll back the equities migration.
-        command.downgrade(cfg, "-1")
+        # Roll back the equities migration. Later migrations may exist after
+        # equities, so target the last known pre-equities revision directly
+        # instead of assuming `head - 1` is the equities downgrade.
+        command.downgrade(cfg, "009_quantitative_formalisation")
         engine = create_engine(db_url)
         tables_after_down = set(inspect(engine).get_table_names())
         engine.dispose()
