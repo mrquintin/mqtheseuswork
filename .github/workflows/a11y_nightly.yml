@@ -41,14 +41,28 @@ jobs:
     name: axe-core sweep
     runs-on: ubuntu-latest
     timeout-minutes: 25
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: theseus
+          POSTGRES_PASSWORD: theseus
+          POSTGRES_DB: theseus
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U theseus -d theseus"
+          --health-interval 3s
+          --health-timeout 3s
+          --health-retries 20
     defaults:
       run:
         working-directory: theseus-codex
     env:
-      # The seed DB is sufficient for public-surface routes — no
-      # founder-portal interaction is required.
-      DATABASE_URL: "file:./dev.db"
-      DIRECT_URL: "file:./dev.db"
+      # Prisma is Postgres-only in this app; the sweep uses an isolated
+      # throwaway service database rather than the production Supabase DB.
+      DATABASE_URL: "postgresql://theseus:theseus@127.0.0.1:5432/theseus"
+      DIRECT_URL: "postgresql://theseus:theseus@127.0.0.1:5432/theseus"
       NODE_ENV: test
       NEXT_TELEMETRY_DISABLED: "1"
       PLAYWRIGHT_BASE_URL: "http://127.0.0.1:3000"
@@ -75,7 +89,7 @@ jobs:
 
       - name: Seed local database
         run: |
-          npx prisma db push --skip-generate
+          npx prisma db push
           npm run db:seed || true
 
       - name: Build app

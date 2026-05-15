@@ -45,6 +45,10 @@ jobs:
     # 1.20 = 20% headroom. Bumping it is itself a code-review event.
     env:
       BUDGET_RATIO: '1.20'
+      # Prisma 7 validates DATABASE_URL during postinstall/generate even for
+      # bundle-only CI runs. This job never connects to the database.
+      DATABASE_URL: 'postgresql://placeholder:placeholder@localhost:5432/placeholder'
+      DIRECT_URL: 'postgresql://placeholder:placeholder@localhost:5432/placeholder'
 
     steps:
       - name: Check out PR head
@@ -75,7 +79,6 @@ jobs:
       - name: Build head
         env:
           NEXT_TELEMETRY_DISABLED: '1'
-          DATABASE_URL: 'postgresql://placeholder:placeholder@localhost:5432/placeholder'
         run: npm run build | tee build_head.txt
 
       - name: Parse head bundle table
@@ -101,7 +104,6 @@ jobs:
       - name: Build baseline
         env:
           NEXT_TELEMETRY_DISABLED: '1'
-          DATABASE_URL: 'postgresql://placeholder:placeholder@localhost:5432/placeholder'
         run: npm run build | tee build_base.txt
         working-directory: ${{ github.workspace }}/../base-worktree/theseus-codex
 

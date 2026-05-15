@@ -70,6 +70,12 @@ jobs:
       - name: Install node deps
         working-directory: ${{ inputs.working-directory }}
         env:
+          # Prisma 7 loads prisma.config.ts during postinstall/generate and
+          # requires a syntactically valid Postgres DATABASE_URL even when it
+          # is not connecting. This non-secret placeholder is scoped to the
+          # install step only; workflow scripts can still export real DB URLs.
+          DATABASE_URL: postgresql://placeholder:placeholder@localhost:5432/placeholder
+          DIRECT_URL: postgresql://placeholder:placeholder@localhost:5432/placeholder
           INSTALL_COMMAND: ${{ inputs.install-command }}
           EXTRA_NPM_PACKAGES: ${{ inputs.extra-npm-packages }}
         run: |

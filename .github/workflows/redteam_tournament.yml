@@ -9,7 +9,7 @@ name: Red-team tournament
 # Round 17 consolidation: setup is delegated to ./_setup_python.yml.
 # Provider API keys flow via `secrets: inherit`; the reusable maps
 # the well-known LLM provider secret names into env. See
-# .github/workflows/_secrets.yml for the registry.
+# .github/workflows/_secrets.md for the registry.
 
 on:
   schedule:
@@ -50,8 +50,6 @@ jobs:
       install-editable: 'noosphere'
       working-directory: 'noosphere'
       timeout-minutes: 30
-      env-vars: |
-        REDTEAM_ARCHIVE=${{ github.workspace }}/noosphere_data/redteam_tournament/archive
       upload-artifact-name: redteam-tournament-${{ github.run_id }}
       upload-artifact-path: |
         noosphere_data/redteam_tournament/archive/
@@ -64,6 +62,7 @@ jobs:
         # and skipped, never error.
         PYTHONPATH="${GITHUB_WORKSPACE}/noosphere" pytest tests/test_redteam_tournament.py -q
 
+        export REDTEAM_ARCHIVE="${GITHUB_WORKSPACE}/noosphere_data/redteam_tournament/archive"
         mkdir -p "${REDTEAM_ARCHIVE}"
         cd "${GITHUB_WORKSPACE}"
         ./noosphere/scripts/run_redteam_tournament.sh

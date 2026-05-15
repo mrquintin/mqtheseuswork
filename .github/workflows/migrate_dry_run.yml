@@ -38,6 +38,7 @@ jobs:
 
     env:
       DATABASE_URL: postgresql://postgres:postgres@localhost:5432/theseus
+      DIRECT_URL: postgresql://postgres:postgres@localhost:5432/theseus
       THESEUS_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/theseus
 
     steps:

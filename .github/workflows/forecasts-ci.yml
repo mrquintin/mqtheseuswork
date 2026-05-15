@@ -48,6 +48,11 @@ jobs:
 
   codex-forecasts-tests:
     runs-on: ubuntu-latest
+    env:
+      # Prisma 7 loads prisma.config.ts during postinstall/generate. These UI
+      # tests do not connect to Postgres, but `npm ci` still needs a valid URL.
+      DATABASE_URL: postgresql://placeholder:placeholder@localhost:5432/placeholder
+      DIRECT_URL: postgresql://placeholder:placeholder@localhost:5432/placeholder
     steps:
       - uses: actions/checkout@v4
 

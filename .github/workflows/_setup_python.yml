@@ -70,7 +70,7 @@ on:
         default: 'warn'
     secrets:
       # Well-known secrets are declared here so callers can opt in via
-      # `secrets: inherit`. Listed in `_secrets.yml`. Keep this list in
+      # `secrets: inherit`. Listed in `_secrets.md`. Keep this list in
       # sync with that doc.
       ANTHROPIC_API_KEY:
         required: false

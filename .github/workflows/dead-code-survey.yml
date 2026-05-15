@@ -32,6 +32,11 @@ jobs:
 
       - name: Install node deps (theseus-codex)
         working-directory: theseus-codex
+        env:
+          # `npm ci` runs postinstall -> prisma generate; this survey does not
+          # connect to a database, so a non-secret placeholder is sufficient.
+          DATABASE_URL: postgresql://placeholder:placeholder@localhost:5432/placeholder
+          DIRECT_URL: postgresql://placeholder:placeholder@localhost:5432/placeholder
         run: npm ci --no-audit --no-fund
 
       - name: Install vulture

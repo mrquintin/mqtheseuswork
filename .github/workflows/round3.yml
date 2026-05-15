@@ -29,7 +29,11 @@ jobs:
   ts-tests:
     runs-on: ubuntu-latest
     env:
-      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/theseus
+      # The TypeScript job does not connect to Postgres, but Prisma 7 validates
+      # DATABASE_URL during `npm ci` because package.json postinstall runs
+      # `prisma generate`.
+      DATABASE_URL: postgresql://placeholder:placeholder@localhost:5432/placeholder
+      DIRECT_URL: postgresql://placeholder:placeholder@localhost:5432/placeholder
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
