@@ -80,8 +80,6 @@ function runJsonSchemaToTs(input: string, output: string): void {
       JSON.stringify(input),
       "--output",
       JSON.stringify(output),
-      "--style.singleQuote",
-      "false",
       "--no-additionalProperties",
       "--unreachableDefinitions",
     ].join(" "),

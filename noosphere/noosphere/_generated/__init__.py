@@ -2,34 +2,19 @@
 # Re-exports the generated Pydantic models so callers can import them as
 #   from noosphere._generated import Conclusion
 # rather than reaching into the per-schema module files.
-#
-# Regenerate with:
-#   python packages/shared-schemas/scripts/generate_pydantic.py
 
-from .citation_verdict import CitationVerdict
 from .conclusion import Conclusion
-from .lineage import Lineage, LineageEdge, LineageNode
-from .method_track_record import MethodTrackRecord
 from .mqs import MethodologyQualityScore as Mqs
-from .mqs import SubScore
-from .revision_event import (
-    ConfidenceShift,
-    RevisionEvent,
-    RevisionInput,
-    RevisionPlan,
-)
+from .method_track_record import MethodTrackRecord
+from .revision_event import RevisionEvent
+from .citation_verdict import CitationVerdict
+from .lineage import Lineage
 
 __all__ = [
-    "CitationVerdict",
     "Conclusion",
-    "ConfidenceShift",
-    "Lineage",
-    "LineageEdge",
-    "LineageNode",
-    "MethodTrackRecord",
     "Mqs",
+    "MethodTrackRecord",
     "RevisionEvent",
-    "RevisionInput",
-    "RevisionPlan",
-    "SubScore",
+    "CitationVerdict",
+    "Lineage",
 ]

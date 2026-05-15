@@ -2,40 +2,10 @@
  * Re-exports the generated TS types so callers can import them as
  *   import type { Conclusion } from "@/lib/_generated";
  * rather than reaching into the per-schema module files.
- *
- * Regenerate with:
- *   tsx packages/shared-schemas/scripts/generate_typescript.ts
  */
-
-export type {
-  Conclusion,
-  ConclusionKind,
-  ConfidenceTier,
-  Freshness,
-} from "./conclusion";
-
-export type { MethodologyQualityScore, SubScore } from "./mqs";
-
+export type { Conclusion } from "./conclusion";
+export type { MethodologyQualityScore } from "./mqs";
 export type { MethodTrackRecord } from "./method_track_record";
-
-export type {
-  ConfidenceShift,
-  RevisionEvent,
-  RevisionInput,
-  RevisionPlan,
-  ShiftClassification,
-} from "./revision_event";
-
-export type {
-  CitationKind,
-  CitationRelation,
-  CitationVerdict,
-  VerdictLabel,
-} from "./citation_verdict";
-
-export type {
-  Lineage,
-  LineageEdge,
-  LineageNode,
-  LineageNodeKind,
-} from "./lineage";
+export type { RevisionEvent } from "./revision_event";
+export type { CitationVerdict } from "./citation_verdict";
+export type { Lineage } from "./lineage";
