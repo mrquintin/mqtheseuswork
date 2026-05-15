@@ -707,8 +707,6 @@ async function fetchLatestTestResult(
     metricValuesJson: string | null;
     thresholdCrossingsJson: string | null;
   };
-  // @ts-expect-error — generated client may lag; the model exists in
-  // schema.prisma and the runtime resolves once `prisma generate` runs.
   const row: Row | null = await db.quantitativeTestResult?.findFirst({
     where: { formalisationId },
     orderBy: { createdAt: "desc" },

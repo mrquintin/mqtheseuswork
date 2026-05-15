@@ -109,7 +109,6 @@ async function loadEnrichedPrinciples(): Promise<EnrichedPrinciple[]> {
     // generated client yet on this branch.
     (async () => {
       try {
-        // @ts-expect-error — generated client may lag schema; falls back to [].
         const rows = (await db.quantitativeFormalisation?.findMany({
           where: { principleId: { in: principleIds }, status: "APPROVED" },
           select: { principleId: true },
