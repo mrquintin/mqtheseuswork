@@ -291,7 +291,7 @@ function mergeConfig(
     if (value === undefined) continue;
     next[key] = value;
   }
-  return next as AppConfig;
+  return next as unknown as AppConfig;
 }
 
 /**

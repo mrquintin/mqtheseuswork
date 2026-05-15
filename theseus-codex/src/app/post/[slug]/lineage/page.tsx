@@ -5,7 +5,8 @@ import LineageTimeline from "@/components/LineageTimeline";
 import PublicHeader from "@/components/PublicHeader";
 import { getFounder } from "@/lib/auth";
 import { db } from "@/lib/db";
-import { assembleLineage, filterPublic, type Lineage } from "@/lib/lineage";
+import { filterPublic, type Lineage } from "@/lib/lineage";
+import { assembleLineage } from "@/lib/lineage-server";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 60;

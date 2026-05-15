@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 
-import { assembleLineage } from "@/lib/lineage";
+import { assembleLineage } from "@/lib/lineage-server";
 import { requireTenantContext } from "@/lib/tenant";
 
 export const dynamic = "force-dynamic";

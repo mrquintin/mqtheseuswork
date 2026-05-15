@@ -137,9 +137,6 @@ export async function getFormalisationForPrinciple(
   organizationId: string,
   principleId: string,
 ): Promise<QuantitativeFormalisationRow | null> {
-  // @ts-expect-error — generated client may not be regenerated yet;
-  // the model exists in schema.prisma. Runtime resolves correctly
-  // once `prisma generate` runs.
   const row: PrismaRow | null = await db.quantitativeFormalisation?.findFirst({
     where: { organizationId, principleId },
     orderBy: { updatedAt: "desc" },
@@ -154,7 +151,6 @@ export async function getApprovedFormalisationForPrinciple(
   principleId: string,
   organizationId?: string,
 ): Promise<QuantitativeFormalisationRow | null> {
-  // @ts-expect-error — see above.
   const row: PrismaRow | null = await db.quantitativeFormalisation?.findFirst({
     where: {
       principleId,
@@ -203,7 +199,6 @@ export async function approveFormalisation(
       "APPROVED formalisation requires at least one test",
     );
   }
-  // @ts-expect-error — see above.
   await db.quantitativeFormalisation?.updateMany({
     where: { id, organizationId },
     data: {
@@ -225,7 +220,6 @@ export async function rejectFormalisation(
   founderId: string,
   reason: string,
 ): Promise<void> {
-  // @ts-expect-error — see above.
   await db.quantitativeFormalisation?.updateMany({
     where: { id, organizationId },
     data: {
