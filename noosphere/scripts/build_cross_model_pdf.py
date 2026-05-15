@@ -105,6 +105,40 @@ def _abstract(analysis: dict[str, Any]) -> str:
         f"{n_rows} prediction rows and compare per-model accuracy, AUROC, "
         "and ECE against random and cosine baselines."
     )
+    # Headline finding: the domain-controlled probe-vs-cosine test. This
+    # is stated in the abstract because it is the question the study
+    # exists to answer; it is rendered only when the test actually ran.
+    pvc = analysis.get("probe_vs_cosine") or {}
+    if str(pvc.get("method", "")).startswith("permutation"):
+        stat = pvc.get("statistic")
+        p = pvc.get("p_value")
+        try:
+            stat_f = float(stat)
+        except (TypeError, ValueError):
+            stat_f = float("nan")
+        try:
+            p_f = float(p)
+        except (TypeError, ValueError):
+            p_f = float("nan")
+        direction = (
+            "outperforms" if stat_f > 0 else
+            "underperforms" if stat_f < 0 else "matches"
+        )
+        verdict = (
+            "is statistically significant"
+            if (not math.isnan(p_f) and p_f < 0.05)
+            else "is not statistically significant"
+        )
+        body += (
+            "\\par\\textbf{Headline.} Across the "
+            f"{int(pvc.get('n_models', 0))} model(s) that ran, the firm's "
+            f"probe {direction} the cosine baseline on accuracy "
+            f"(domain-averaged $\\Delta = {_fmt(stat_f)}$), and the "
+            f"difference {verdict} (one-sided paired permutation "
+            f"$p = {_fmt(p_f)}$). The paid-API back-ends did not run this "
+            "round, so this is a within-local-embedder result, not the "
+            "general cross-model claim."
+        )
     if losses:
         names = ", ".join(f"\\texttt{{{_escape(l['model'])}}}" for l in losses)
         body += (
@@ -211,6 +245,39 @@ def _stat_test_section(analysis: dict[str, Any]) -> str:
     )
 
 
+def _probe_vs_cosine_section(analysis: dict[str, Any]) -> str:
+    """Render the domain-controlled probe-vs-cosine test, if it ran.
+
+    Backward compatible: an analysis JSON without a ``probe_vs_cosine``
+    key (older runs) renders nothing.
+    """
+    pvc = analysis.get("probe_vs_cosine")
+    if not pvc:
+        return ""
+    method = _escape(str(pvc.get("method", "n/a")))
+    notes = _escape(str(pvc.get("notes", "")))
+    lines = [
+        "\\section{Headline test: is the probe better than cosine, "
+        "controlling for domain?}",
+        "\\textbf{Method.} \\texttt{" + method + "}\\\\",
+        "\\textbf{Statistic} (domain-averaged $\\Delta$ accuracy, geometry "
+        "$-$ cosine)\\textbf{.} " + _fmt(pvc.get("statistic")) + "\\\\",
+        "\\textbf{p-value} (one-sided, H1 = probe better)\\textbf{.} "
+        f"{_fmt(pvc.get('p_value'))}\\\\",
+        f"\\textbf{{Paired observations.}} {int(pvc.get('n_observations', 0))} "
+        f"across {int(pvc.get('n_models', 0))} model(s).\\\\",
+    ]
+    deltas = pvc.get("domain_deltas") or {}
+    if deltas:
+        cells = ", ".join(
+            f"\\texttt{{{_escape(d)}}} {_fmt(v)}" for d, v in sorted(deltas.items())
+        )
+        lines.append(f"\\textbf{{Per-domain $\\Delta$.}} {cells}.\\\\")
+    lines.append(f"\\textit{{{notes}}}")
+    lines.append("")
+    return "\n".join(lines)
+
+
 def _figures_section(analysis: dict[str, Any], figures_dir: Path, tex_dir: Path) -> str:
     figs = analysis.get("figures") or {}
     out: list[str] = ["\\section{Figures}"]
@@ -247,8 +314,12 @@ def _figures_section(analysis: dict[str, Any], figures_dir: Path, tex_dir: Path)
             "\\begin{figure}[h]\\centering"
             f"\\includegraphics[width=0.7\\linewidth]{{{ag_rel}}}"
             "\\caption{Inter-model agreement on the binary contradicting "
-            "label, geometry runner. High off-diagonal entries indicate "
-            "the geometry signal is consistent across embedding spaces.}"
+            "label, geometry runner. Off-diagonal entries near the diagonal "
+            "value indicate the geometry signal is labelled consistently "
+            "across embedding spaces; entries collapsed to 0/1 indicate the "
+            "frozen threshold is constant-predicting on those models rather "
+            "than discriminating --- a calibration diagnostic, not a "
+            "language-versus-model verdict.}"
             "\\end{figure}"
         )
     return "\n\n".join(out) + "\n"
@@ -311,6 +382,7 @@ def render_tex(analysis: dict[str, Any], figures_dir: Path, tex_dir: Path) -> st
     parts.append("\n\n")
     parts.append(_agreement_table(analysis))
     parts.append("\n\n")
+    parts.append(_probe_vs_cosine_section(analysis))
     parts.append(_stat_test_section(analysis))
     parts.append(_figures_section(analysis, figures_dir, tex_dir))
     parts.append(

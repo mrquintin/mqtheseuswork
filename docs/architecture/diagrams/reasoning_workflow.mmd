@@ -1,0 +1,14 @@
+%% Theseus end-to-end reasoning workflow.
+%% Embedded in docs/architecture/Theseus_Architecture.md section 5.
+flowchart TD
+  A["Ingestion: transcripts, documents, Currents events"] --> B["Claim & conclusion extraction"]
+  B --> C["Methodology profile + MQS scoring"]
+  C --> D["Cascade graph: signed weighted edges"]
+  D --> E["Review: coherence, adversarial, peer-review, citation chain"]
+  E --> F{"Blocking objection or drift?"}
+  F -->|yes| G["Revision engine -> RevisionEvent ledger"]
+  G --> D
+  F -->|no| H["Publication & signing pipeline"]
+  H --> I["Outcome: forecast resolution, calibration"]
+  I --> J["Method track record + drift detector"]
+  J --> G

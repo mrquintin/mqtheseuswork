@@ -1,10 +1,18 @@
 from __future__ import annotations
 
+from datetime import datetime, timezone
+
 from noosphere.cli_commands.embed_backfill import run_backfill
 from noosphere.config import get_settings
 from noosphere.embedding_pipeline import _embedding_id, embed_and_store
 from noosphere.models import Conclusion
-from noosphere.store import Store, StoredConclusion, StoredEmbedding
+from noosphere.store import (
+    Store,
+    StoredConclusion,
+    StoredEmbedding,
+    StoredEmbeddingModelVersion,
+)
+from sqlalchemy import event
 from sqlmodel import select
 
 
@@ -29,6 +37,34 @@ class FailingEmbeddingClient:
 def _file_store(tmp_path) -> tuple[str, Store]:
     db_url = f"sqlite:///{tmp_path / 'embeddings.db'}"
     return db_url, Store.from_database_url(db_url)
+
+
+def test_active_embedding_model_name_uses_latest_scalar_version(tmp_path) -> None:
+    _db_url, st = _file_store(tmp_path)
+    with st.session() as s:
+        s.add(
+            StoredEmbeddingModelVersion(
+                id="unit-embedding-model-version",
+                effective_from=datetime(2024, 1, 1, tzinfo=timezone.utc),
+                model_name="unit-embed-v2",
+                notes="test row",
+            )
+        )
+        s.commit()
+
+    def fail_on_orm_load(*_args, **_kwargs) -> None:
+        raise AssertionError("active embedding model lookup loaded an ORM row")
+
+    event.listen(StoredEmbeddingModelVersion, "load", fail_on_orm_load)
+    try:
+        assert (
+            st.active_embedding_model_name(
+                as_of=datetime(2025, 1, 1, tzinfo=timezone.utc),
+            )
+            == "unit-embed-v2"
+        )
+    finally:
+        event.remove(StoredEmbeddingModelVersion, "load", fail_on_orm_load)
 
 
 def test_embed_and_store_is_idempotent(monkeypatch, tmp_path) -> None:

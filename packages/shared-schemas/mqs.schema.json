@@ -1,0 +1,53 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://theseus.dev/schemas/mqs.schema.json",
+  "title": "MethodologyQualityScore",
+  "description": "Methodology Quality Score payload. The scorer lives in noosphere/evaluation/mqs.py (Python is canonical for the computation); this schema is the wire-shape that the codex stores and renders. Composite formula and sub-score semantics are documented in docs/methods/MQS_Specification.md.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "conclusion_id",
+    "progressivity",
+    "severity",
+    "aim_method_fit",
+    "compressibility",
+    "domain_sensitivity",
+    "composite"
+  ],
+  "properties": {
+    "schema": {
+      "type": "string",
+      "const": "theseus.mqs.v1"
+    },
+    "conclusion_id": { "type": "string", "minLength": 1 },
+    "progressivity": { "$ref": "#/$defs/SubScore" },
+    "severity": { "$ref": "#/$defs/SubScore" },
+    "aim_method_fit": { "$ref": "#/$defs/SubScore" },
+    "compressibility": { "$ref": "#/$defs/SubScore" },
+    "domain_sensitivity": { "$ref": "#/$defs/SubScore" },
+    "composite": { "type": "number", "minimum": 0.0, "maximum": 1.0 },
+    "composite_formula": {
+      "type": "string",
+      "default": "domain_sensitivity * mean(progressivity, severity, aim_method_fit, compressibility)"
+    },
+    "model_name": { "type": "string", "default": "stub" },
+    "prompt_version": { "type": "string", "default": "mqs-prompt-v1.0" },
+    "scored_at": { "type": "string", "format": "date-time" }
+  },
+  "$defs": {
+    "SubScore": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["score"],
+      "properties": {
+        "score": { "type": "number", "minimum": 0.0, "maximum": 1.0 },
+        "evidence": {
+          "type": "object",
+          "additionalProperties": true,
+          "default": {}
+        }
+      }
+    }
+  }
+}

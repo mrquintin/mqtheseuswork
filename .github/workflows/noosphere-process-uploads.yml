@@ -346,6 +346,7 @@ jobs:
 
       - name: Backfill explorer data
         if: steps.secretcheck.outputs.skip != 'true'
+        continue-on-error: true
         working-directory: noosphere
         env:
           PYTHONPATH: ${{ github.workspace }}/noosphere
@@ -367,7 +368,7 @@ jobs:
           python -m noosphere codex-reanalyze --apply --limit 500 --max-embeddings 1000
 
       - name: Refresh public Currents and articles
-        if: steps.secretcheck.outputs.skip != 'true'
+        if: always() && steps.secretcheck.outputs.skip != 'true'
         working-directory: noosphere
         env:
           PYTHONPATH: ${{ github.workspace }}/noosphere

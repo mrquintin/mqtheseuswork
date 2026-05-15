@@ -1,0 +1,131 @@
+name: Bundle Budget
+
+# Regression guard for the Codex Next.js client bundle.
+#
+# Why this exists:
+#   The 2026-05-13 perf audit (`docs/perf/2026-05-13_baseline/report.md`)
+#   found the dashboard route at 412 kB First Load JS — a number that
+#   had grown silently over many merges because nothing in CI flagged
+#   it. This workflow runs `next build` against the PR head, parses the
+#   route-by-route output, and fails the check if ANY route's First
+#   Load JS has grown by more than 20% relative to the same route on
+#   the base branch.
+#
+# How it decides:
+#   * Baseline = `next build` on the PR's merge base (or `main` if
+#     merge-base resolution fails).
+#   * Head     = `next build` on the PR head.
+#   * For each route present in both: pct_change = (head - base) / base.
+#     A route is allowed up to 20% growth before the workflow fails.
+#   * Routes only present on head (newly added) are exempt from the
+#     budget — there is nothing to compare against, and new pages are
+#     allowed to land. They get a one-line warning in the summary.
+#   * Routes only present on base (deleted) are silently ignored.
+#
+# Bypass:
+#   Add the PR label `bundle-budget-bypass` for a single-PR exemption.
+#   The job still runs and posts the numbers; it just doesn't fail.
+#   This is the explicit allow-list mechanism the perf prompt calls for.
+
+on:
+  pull_request:
+    paths:
+      - 'theseus-codex/**'
+      - '.github/workflows/bundle-budget.yml'
+  workflow_dispatch:
+
+jobs:
+  budget:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: theseus-codex
+
+    # The threshold lives here so it's grep-able from one place.
+    # 1.20 = 20% headroom. Bumping it is itself a code-review event.
+    env:
+      BUDGET_RATIO: '1.20'
+
+    steps:
+      - name: Check out PR head
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+
+      - name: Resolve baseline ref
+        id: baseline
+        run: |
+          BASE_SHA="${{ github.event.pull_request.base.sha }}"
+          if ! git cat-file -e "$BASE_SHA^{commit}" 2>/dev/null; then
+            BASE_SHA="origin/${{ github.event.pull_request.base.ref }}"
+          fi
+          echo "sha=$BASE_SHA" >> "$GITHUB_OUTPUT"
+        working-directory: ${{ github.workspace }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: theseus-codex/package-lock.json
+
+      - name: Install deps (head)
+        run: npm ci
+
+      - name: Build head
+        env:
+          NEXT_TELEMETRY_DISABLED: '1'
+          DATABASE_URL: 'postgresql://placeholder:placeholder@localhost:5432/placeholder'
+        run: npm run build | tee build_head.txt
+
+      - name: Parse head bundle table
+        run: |
+          # `next build` prints a per-route table at the end. Extract
+          # (route, firstLoadKB) tuples and write JSON keyed by route.
+          # The parsing intentionally stays in-repo (no fancy GitHub
+          # Actions) so a developer can re-run it locally with
+          # `node scripts/parse-bundle-table.js build_head.txt`.
+          node scripts/parse-bundle-table.js build_head.txt > head_bundle.json
+          cat head_bundle.json
+
+      - name: Check out baseline
+        run: |
+          git fetch --no-tags --depth=1 origin "${{ steps.baseline.outputs.sha }}" || true
+          git -c advice.detachedHead=false worktree add ../base-worktree "${{ steps.baseline.outputs.sha }}"
+        working-directory: ${{ github.workspace }}
+
+      - name: Install deps (baseline)
+        run: npm ci
+        working-directory: ${{ github.workspace }}/../base-worktree/theseus-codex
+
+      - name: Build baseline
+        env:
+          NEXT_TELEMETRY_DISABLED: '1'
+          DATABASE_URL: 'postgresql://placeholder:placeholder@localhost:5432/placeholder'
+        run: npm run build | tee build_base.txt
+        working-directory: ${{ github.workspace }}/../base-worktree/theseus-codex
+
+      - name: Parse baseline bundle table
+        run: |
+          node scripts/parse-bundle-table.js \
+            ${{ github.workspace }}/../base-worktree/theseus-codex/build_base.txt \
+            > base_bundle.json
+          cat base_bundle.json
+
+      - name: Compare and enforce budget
+        id: compare
+        run: |
+          # Exit codes:
+          #   0 → all routes within budget (or PR has the bypass label)
+          #   1 → at least one route exceeded the budget
+          BYPASS='false'
+          for label in ${{ join(github.event.pull_request.labels.*.name, ' ') }}; do
+            if [ "$label" = "bundle-budget-bypass" ]; then
+              BYPASS='true'
+            fi
+          done
+          node scripts/compare-bundles.js \
+            base_bundle.json head_bundle.json \
+            --ratio "$BUDGET_RATIO" \
+            --bypass "$BYPASS" \
+            >> "$GITHUB_STEP_SUMMARY"

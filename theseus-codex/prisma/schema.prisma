@@ -118,6 +118,53 @@ enum ForecastFollowUpRole {
   ASSISTANT
 }
 
+// ── Equities (USD-only, cash-account long-equity in v1) ─────────────────────
+
+enum EquityAssetClass {
+  STOCK
+  ETF
+  ADR
+}
+
+enum EquityPriceSource {
+  ALPACA
+  ROBINHOOD
+  YFINANCE
+  MANUAL
+}
+
+enum EquitySignalDirection {
+  BULLISH
+  BEARISH
+  NEUTRAL
+  ABSTAINED
+}
+
+enum EquitySignalStatus {
+  PUBLISHED
+  ABSTAINED
+  REVOKED
+}
+
+enum EquityPositionMode {
+  PAPER
+  LIVE
+}
+
+enum EquityPositionSide {
+  LONG
+  SHORT
+  CASH_RESERVE
+}
+
+enum EquityPositionStatus {
+  PENDING
+  OPEN
+  CLOSED
+  CANCELLED
+  FAILED
+}
+
 // ── Multi-tenant root (cloud: Postgres + RLS; local dev: SQLite) ─────────────
 
 model Organization {
@@ -130,52 +177,63 @@ model Organization {
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
 
-  founders                 Founder[]
-  sessions                 Session[]
-  uploads                  Upload[]
-  conclusions              Conclusion[]
-  contradictions           Contradiction[]
-  driftEvents              DriftEvent[]
-  researchSuggestions      ResearchSuggestion[]
-  reviewItems              ReviewItem[]
-  openQuestions            OpenQuestion[]
-  auditEvents              AuditEvent[]
-  publicationReviews       PublicationReview[]
-  publishedConclusions     PublishedConclusion[]
-  publicResponses          PublicResponse[]
-  responseTriages          ResponseTriage[]
-  publicReplies            PublicReply[]
-  apiKeys                  ApiKey[]
-  currentEvents            CurrentEvent[]
-  eventOpinions            EventOpinion[]
-  methodologyProfiles      MethodologyProfile[]
-  methodologyQualityScores MethodologyQualityScore[]
-  socialPosts              SocialPost[]
-  operatorStates           OperatorState[]
-  forecastMarkets          ForecastMarket[]
-  forecastPredictions      ForecastPrediction[]
-  forecastTraces           ForecastTrace[]
-  forecastBets             ForecastBet[]
-  forecastPortfolios       ForecastPortfolioState[]
-  watchedMarkets           WatchedMarket[]
-  conclusionMethods        ConclusionMethod[]
-  methodTrackRecords       MethodTrackRecord[]
-  methodVersions           MethodVersion[]
-  anchorRevisions          AnchorRevision[]
-  domainBoundVerdicts      DomainBoundVerdict[]
-  calibrationModels        CalibrationModel[]
-  recalibrationOverrides   RecalibrationOverride[]
-  revisionEvents           RevisionEvent[]
-  sourceStandings          SourceStanding[]
-  sourceTriageItems        SourceTriageItem[]
-  sourceCredibility        SourceCredibilityUpdate[]
-  citationVerdicts         CitationVerdict[]
-  attentionActions         AttentionAction[]
-  subscribers              Subscriber[]
-  principles               Principle[]
-  addenda                  Addendum[]
-  critiqueSubmissions      CritiqueSubmission[]
-  critiqueBountyPayouts    CritiqueBountyPayout[]
+  founders                      Founder[]
+  sessions                      Session[]
+  uploads                       Upload[]
+  conclusions                   Conclusion[]
+  contradictions                Contradiction[]
+  driftEvents                   DriftEvent[]
+  researchSuggestions           ResearchSuggestion[]
+  reviewItems                   ReviewItem[]
+  openQuestions                 OpenQuestion[]
+  auditEvents                   AuditEvent[]
+  publicationReviews            PublicationReview[]
+  publishedConclusions          PublishedConclusion[]
+  publicResponses               PublicResponse[]
+  responseTriages               ResponseTriage[]
+  publicReplies                 PublicReply[]
+  apiKeys                       ApiKey[]
+  currentEvents                 CurrentEvent[]
+  eventOpinions                 EventOpinion[]
+  methodologyProfiles           MethodologyProfile[]
+  methodologyQualityScores      MethodologyQualityScore[]
+  socialPosts                   SocialPost[]
+  operatorStates                OperatorState[]
+  forecastMarkets               ForecastMarket[]
+  forecastPredictions           ForecastPrediction[]
+  forecastTraces                ForecastTrace[]
+  forecastBets                  ForecastBet[]
+  forecastPortfolios            ForecastPortfolioState[]
+  watchedMarkets                WatchedMarket[]
+  conclusionMethods             ConclusionMethod[]
+  methodTrackRecords            MethodTrackRecord[]
+  methodVersions                MethodVersion[]
+  methodRetirements             MethodRetirement[]
+  anchorRevisions               AnchorRevision[]
+  domainBoundVerdicts           DomainBoundVerdict[]
+  calibrationModels             CalibrationModel[]
+  recalibrationOverrides        RecalibrationOverride[]
+  revisionEvents                RevisionEvent[]
+  sourceStandings               SourceStanding[]
+  sourceTriageItems             SourceTriageItem[]
+  sourceCredibility             SourceCredibilityUpdate[]
+  citationVerdicts              CitationVerdict[]
+  attentionActions              AttentionAction[]
+  subscribers                   Subscriber[]
+  digestSends                   DigestSend[]
+  digestAcks                    DigestAck[]
+  subscriberBounces             SubscriberBounce[]
+  principles                    Principle[]
+  quantitativeFormalisations    QuantitativeFormalisation[]
+  addenda                       Addendum[]
+  critiqueSubmissions           CritiqueSubmission[]
+  critiqueBountyPayouts         CritiqueBountyPayout[]
+  methodologyReviewWeeks        MethodologyReviewWeek[]
+  methodologyReviewDaySummaries MethodologyReviewDaySummary[]
+  equitySignals                 EquitySignal[]
+  equityPositions               EquityPosition[]
+  equityPortfolios              EquityPortfolioState[]
+  deals                         Deal[]
 }
 
 // ── Founders (portal users) — maps to FounderProfile in noosphere/models.py ─
@@ -238,9 +296,13 @@ model Founder {
   /// founder explicitly opts in. See `src/lib/dailyDigestEmail.ts`.
   dailyDigestOptIn Boolean @default(false)
 
+  // Round-18 audit: the @@unique([organizationId, email]) below already
+  // creates a btree whose leading column is organizationId, so any
+  // equality query on organizationId alone is served by the unique
+  // index. The previously-present @@index([organizationId]) was
+  // redundant and was dropped in migrations/round18_consolidation.
   @@unique([organizationId, email])
   @@unique([organizationId, username])
-  @@index([organizationId])
 }
 
 /// Browser session (server-side row; cookie carries signed opaque token)
@@ -403,6 +465,20 @@ model Upload {
   // panel, failed/pending counts on the banner). A plain btree index
   // is enough — the org-scope is already covered by organizationId.
   @@index([status])
+  // Homepage articles rail: `WHERE organizationId AND publishedAt IS
+  // NOT NULL AND deletedAt IS NULL AND visibility='org' AND slug IS NOT
+  // NULL ORDER BY publishedAt DESC`. The four existing single-column
+  // indexes are individually unselective enough that the planner
+  // falls back to a seq scan; this composite serves the exact predicate
+  // and ordering used by `listUploadArticles` in
+  // `src/lib/publicSurface.ts`. The partial WHERE keeps the index tiny
+  // (only published, non-deleted rows). Sort:Desc on `publishedAt`
+  // lets the planner walk the index in order and stop at LIMIT N.
+  @@index([organizationId, publishedAt(sort: Desc), id])
+  // Dashboard "recent uploads" panel orders by `createdAt DESC` over
+  // the org; without this, every dashboard render sorted 3k+ rows in
+  // memory. Same shape, different timestamp than the public rail.
+  @@index([organizationId, createdAt(sort: Desc)])
 }
 
 model UploadChunk {
@@ -497,6 +573,29 @@ model Conclusion {
   /// column was added; the semantic explorer backfills on demand.
   embeddingJson String?
 
+  // ── Principle-shape contract (prompt 56, 2026-05-13) ───────────────
+  // Populated by the rewritten principle extractor in
+  // `noosphere.claim_extractor.PrincipleExtractor`. Legacy rows leave
+  // these null until they pass through the founder-confirmable
+  // re-extraction queue at `/extractor/re-extract`.
+  /// One of RULE | CRITERION | MECHANISM | HEURISTIC | DEFINITION |
+  /// FORMULA | ALGORITHM. Null on legacy conclusions.
+  principleKind         String?
+  /// ≤ 300 chars: where the rule applies, where it does not. Null on
+  /// legacy conclusions.
+  domainOfApplicability String?
+  /// JSON string[] of metric / dataset names that could
+  /// operationalise the principle. Feeds the quantitative-bridge
+  /// pipeline (prompts 57 + 64). Defaults to "[]".
+  quantifiableProxies   String  @default("[]")
+  /// JSON string[] of ≤ 3 example decisions the principle would
+  /// inform. Defaults to "[]".
+  decisionExamples      String  @default("[]")
+  /// Verbatim substring of the source span the principle was lifted
+  /// from. Preserved end-to-end so the re-extraction review page can
+  /// show the founder the original context. Null on legacy rows.
+  sourceSpan            String?
+
   attributedFounderId     String?
   attributedFounder       Founder?                    @relation("ConclusionFounder", fields: [attributedFounderId], references: [id])
   organization            Organization                @relation(fields: [organizationId], references: [id], onDelete: Restrict)
@@ -518,6 +617,12 @@ model Conclusion {
 
   @@index([organizationId])
   @@index([organizationId, normalizedText])
+  // Dashboard "recent conclusions" panel orders by `createdAt DESC`
+  // over the org and takes 8. ~12k Conclusion rows per org in
+  // production means the prior plan (index scan on organizationId →
+  // in-memory sort) hit ~400 ms p95. This composite serves the
+  // ORDER BY directly so the LIMIT short-circuits.
+  @@index([organizationId, createdAt(sort: Desc)])
 }
 
 /// Many-to-many bridge Conclusion ↔ Upload.
@@ -613,10 +718,25 @@ model PublishedConclusion {
   responses    PublicResponse[]
   signature    PublicationSignature?
 
+  // Natural key for the public surface: a slug + revision integer
+  // identifies one immutable snapshot. Republishing a conclusion bumps
+  // version; the (slug, version) tuple is the URL-stable identity.
   @@unique([slug, version])
   @@index([organizationId])
   @@index([slug])
   @@index([kind, publishedAt])
+  // Homepage conclusions rail does a `DISTINCT ON (slug)` after
+  // `WHERE organizationId AND kind='CONCLUSION'`, ordering by
+  // `slug, version DESC`. The existing `(kind, publishedAt)` composite
+  // has the wrong leading column and doesn't serve the slug-ordered
+  // DISTINCT ON; this one is the exact access path used by
+  // `listHomepageConclusions` and `listPublishedArticles` in
+  // `src/lib/publicSurface.ts` + `src/lib/conclusionsRead.ts`.
+  @@index([organizationId, kind, slug, version(sort: Desc)])
+  // Articles list reads `WHERE organizationId AND kind='ARTICLE' ORDER
+  // BY publishedAt DESC LIMIT N`. Same leading-org+kind pair, ordered
+  // by publishedAt so the LIMIT short-circuits on the index walk.
+  @@index([organizationId, kind, publishedAt(sort: Desc)])
 }
 
 /// Cryptographic signature for a PublishedConclusion.
@@ -627,10 +747,10 @@ model PublishedConclusion {
 /// /api/public/signature/[slug]. Readers can re-verify with
 /// `noosphere ledger verify-publication <slug>`.
 model PublicationSignature {
-  id                     String   @id @default(cuid())
-  publishedConclusionId  String   @unique
-  slug                   String
-  version                Int
+  id                    String @id @default(cuid())
+  publishedConclusionId String @unique
+  slug                  String
+  version               Int
 
   /// Hex-encoded SHA-256 of the canonicalized inputs (see noosphere.ledger.canonicalize).
   canonicalHash  String
@@ -685,7 +805,7 @@ model Addendum {
   summary String @db.Text
   /// Full body of the addendum. Markdown is allowed; the public page
   /// renders it inside a dated block below the original article.
-  body String @default("") @db.Text
+  body    String @default("") @db.Text
 
   /// pending | published | dismissed. Only `published` rows surface on
   /// the public page; `dismissed` carries `dismissedReason`.
@@ -739,9 +859,9 @@ model CritiqueSubmission {
 
   /// Specific claim the critic challenges (free-form text — the
   /// canonical claim id is not exposed publicly).
-  targetClaim     String  @db.Text
+  targetClaim      String @db.Text
   /// Counter-evidence presented by the critic.
-  counterEvidence String  @db.Text
+  counterEvidence  String @db.Text
   /// Method used to derive the counter-evidence ("how did you arrive
   /// at this?" — replication, audit, lit review, expert opinion).
   derivationMethod String @db.Text
@@ -753,29 +873,46 @@ model CritiqueSubmission {
   /// `displayName` and `publicUrl` are what the public hall-of-fame
   /// renders when the critique is accepted.
   submitterEmail String
-  displayName    String  @default("")
-  publicUrl      String  @default("")
-  bio            String  @default("") @db.Text
-  orcid          String  @default("")
+  displayName    String @default("")
+  publicUrl      String @default("")
+  bio            String @default("") @db.Text
+  orcid          String @default("")
 
   /// pending | accepted | partial | rejected | archived
-  status         String   @default("pending")
+  status        String @default("pending")
   /// Reason recorded by the founder when status moves out of `pending`.
   /// For partial: explains why it's a private discussion. For rejected:
   /// shown to the critic in the rejection email.
-  moderatorNote  String   @default("") @db.Text
+  moderatorNote String @default("") @db.Text
+
+  /// Round-17 prompt 44 open-critique pilot tag. Empty for ordinary
+  /// inbound critique; set to the pilot identifier (e.g.
+  /// `round17_pilot_2026Q2`) when the row arrived via a per-reviewer
+  /// pre-shared link. The founder queue routes pilot rows to the top
+  /// while the pilot window is open (see
+  /// `noosphere.social.critique_routing.pilot_priority_sort`).
+  pilotTag          String  @default("")
+  /// Slug of the specific pilot reviewer who filed this critique
+  /// (e.g. `peer-reviewer-a`). Maps to the per-reviewer pre-shared
+  /// link defined in `src/lib/critiquePilot.ts`. Empty for non-pilot.
+  pilotReviewerSlug String  @default("")
+  /// Explicit consent for the critic's name / URL to appear on the
+  /// public hall-of-fame at `/critiques`. Off by default — the
+  /// pilot intake form requires the critic to opt in before any
+  /// public attribution.
+  hallOfFameConsent Boolean @default(false)
 
   /// Severity label assigned at acceptance time per the rubric in
   /// `noosphere.peer_review.severity` — "low" | "medium" | "high".
   /// Only `high` makes the critique bounty-eligible.
-  severityLabel  String   @default("")
+  severityLabel String @default("")
   /// Cached severity value in [0, 1].
-  severityValue  Float    @default(0)
+  severityValue Float  @default(0)
 
   /// Founder who acted on the row (accepted/rejected). Null while
   /// pending.
-  decidedById    String?
-  decidedAt      DateTime?
+  decidedById String?
+  decidedAt   DateTime?
 
   /// Set when the critique materially changed an article — points at
   /// the `RevisionEvent.id` produced by routing through prompt 16.
@@ -786,14 +923,15 @@ model CritiqueSubmission {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  organization Organization                 @relation(fields: [organizationId], references: [id], onDelete: Restrict)
-  decidedBy    Founder?                     @relation("CritiqueDecidedBy", fields: [decidedById], references: [id])
+  organization Organization          @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  decidedBy    Founder?              @relation("CritiqueDecidedBy", fields: [decidedById], references: [id])
   bounty       CritiqueBountyPayout?
 
   @@index([organizationId])
   @@index([organizationId, status])
   @@index([organizationId, articleSlug, status])
   @@index([severityValue])
+  @@index([organizationId, pilotTag, status])
 }
 
 /// Queued bounty payout for an accepted high-severity critique.
@@ -815,33 +953,33 @@ model CritiqueBountyPayout {
 
   /// Default 500 (USD); configurable per-org via the queue UI before
   /// the founder confirms.
-  amountUsd  Int    @default(500)
+  amountUsd   Int    @default(500)
   /// "self" — paid to the critic's email of record. "charity" —
   /// donated to the charity captured in `destination`.
-  payoutMode String @default("self")
+  payoutMode  String @default("self")
   /// For payoutMode=self: "" (use submitter email). For
   /// payoutMode=charity: the charity name / URL the critic chose.
   destination String @default("")
 
   /// pending_founder_confirmation | confirmed | cancelled
-  status String @default("pending_founder_confirmation")
+  status           String @default("pending_founder_confirmation")
   /// Reason recorded if cancelled.
   cancellationNote String @default("")
 
   /// `confirmed`-state metadata — set only after the founder confirms.
-  confirmedById   String?
-  confirmedAt     DateTime?
+  confirmedById String?
+  confirmedAt   DateTime?
   /// External payouts-pipeline reference id (set by the off-codex job
   /// that actually disburses funds; the codex only stores it for the
   /// audit trail).
-  externalRef     String   @default("")
+  externalRef   String    @default("")
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  organization        Organization       @relation(fields: [organizationId], references: [id], onDelete: Restrict)
-  critiqueSubmission  CritiqueSubmission @relation(fields: [critiqueSubmissionId], references: [id], onDelete: Cascade)
-  confirmedBy         Founder?           @relation("CritiqueBountyConfirmedBy", fields: [confirmedById], references: [id])
+  organization       Organization       @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  critiqueSubmission CritiqueSubmission @relation(fields: [critiqueSubmissionId], references: [id], onDelete: Cascade)
+  confirmedBy        Founder?           @relation("CritiqueBountyConfirmedBy", fields: [confirmedById], references: [id])
 
   @@index([organizationId])
   @@index([organizationId, status])
@@ -1373,6 +1511,142 @@ model ForecastFollowUpMessage {
   @@index([sessionId, createdAt])
 }
 
+// ── Equities — instruments, ticks, signals, positions, portfolio state ──────
+
+model EquityInstrument {
+  id          String           @id @default(cuid())
+  symbol      String           @db.VarChar(16)
+  exchange    String           @db.VarChar(16)
+  assetClass  EquityAssetClass
+  name        String           @db.VarChar(280)
+  cusip       String?          @db.VarChar(16)
+  figi        String?          @db.VarChar(16)
+  isTradable  Boolean          @default(true)
+  lastPrice   Decimal?         @db.Decimal(18, 6)
+  lastPriceAt DateTime?
+  currency    String           @default("USD") @db.VarChar(8)
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
+
+  ticks     EquityPriceTick[]
+  signals   EquitySignal[]
+  positions EquityPosition[]
+
+  @@unique([symbol, exchange])
+  @@index([assetClass])
+  @@index([updatedAt])
+}
+
+model EquityPriceTick {
+  id           String            @id @default(cuid())
+  instrumentId String
+  ts           DateTime
+  open         Decimal           @db.Decimal(18, 6)
+  high         Decimal           @db.Decimal(18, 6)
+  low          Decimal           @db.Decimal(18, 6)
+  close        Decimal           @db.Decimal(18, 6)
+  volume       Decimal           @db.Decimal(20, 4)
+  source       EquityPriceSource
+  createdAt    DateTime          @default(now())
+
+  instrument EquityInstrument @relation(fields: [instrumentId], references: [id], onDelete: Cascade)
+
+  @@index([instrumentId, ts])
+  @@index([source])
+}
+
+model EquitySignal {
+  id               String                @id @default(cuid())
+  instrumentId     String
+  organizationId   String
+  direction        EquitySignalDirection
+  confidenceLow    Decimal               @db.Decimal(8, 6)
+  confidenceHigh   Decimal               @db.Decimal(8, 6)
+  targetPriceLow   Decimal?              @db.Decimal(18, 6)
+  targetPriceHigh  Decimal?              @db.Decimal(18, 6)
+  horizonDays      Int
+  headline         String                @db.VarChar(140)
+  reasoning        String                @db.Text
+  modelName        String
+  promptTokens     Int                   @default(0)
+  completionTokens Int                   @default(0)
+  status           EquitySignalStatus
+  abstentionReason String?
+  liveAuthorizedAt DateTime?
+  liveAuthorizedBy String?
+  createdAt        DateTime              @default(now())
+  updatedAt        DateTime              @updatedAt
+
+  instrument   EquityInstrument       @relation(fields: [instrumentId], references: [id], onDelete: Cascade)
+  organization Organization           @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  citations    EquitySignalCitation[]
+  positions    EquityPosition[]
+
+  @@index([organizationId, status, createdAt])
+  @@index([instrumentId, createdAt])
+  @@index([liveAuthorizedAt])
+}
+
+model EquitySignalCitation {
+  id           String               @id @default(cuid())
+  signalId     String
+  sourceType   String
+  sourceId     String
+  quotedSpan   String               @db.Text
+  supportLabel ForecastSupportLabel
+  createdAt    DateTime             @default(now())
+
+  signal EquitySignal @relation(fields: [signalId], references: [id], onDelete: Cascade)
+
+  @@index([signalId])
+  @@index([sourceType, sourceId])
+}
+
+model EquityPosition {
+  id               String               @id @default(cuid())
+  signalId         String
+  instrumentId     String
+  organizationId   String
+  mode             EquityPositionMode   @default(PAPER)
+  side             EquityPositionSide
+  qty              Decimal              @db.Decimal(20, 6)
+  entryPrice       Decimal              @db.Decimal(18, 6)
+  entryAt          DateTime
+  exitPrice        Decimal?             @db.Decimal(18, 6)
+  exitAt           DateTime?
+  status           EquityPositionStatus
+  externalOrderId  String?
+  realizedPnlUsd   Decimal?             @db.Decimal(14, 4)
+  unrealizedPnlUsd Decimal?             @db.Decimal(14, 4)
+  liveAuthorizedAt DateTime?
+  createdAt        DateTime             @default(now())
+  updatedAt        DateTime             @updatedAt
+
+  signal       EquitySignal     @relation(fields: [signalId], references: [id], onDelete: Cascade)
+  instrument   EquityInstrument @relation(fields: [instrumentId], references: [id], onDelete: Restrict)
+  organization Organization     @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+
+  @@index([signalId])
+  @@index([instrumentId, status])
+  @@index([externalOrderId])
+}
+
+model EquityPortfolioState {
+  id                     String   @id @default(cuid())
+  organizationId         String
+  paperBalanceUsd        Decimal  @db.Decimal(14, 2)
+  liveBalanceUsd         Decimal? @db.Decimal(14, 2)
+  dailyLossUsd           Decimal  @default(0) @db.Decimal(14, 2)
+  dailyLossWindowResetAt DateTime
+  killSwitchEngaged      Boolean  @default(false)
+  killSwitchReason       String?
+  updatedAt              DateTime @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+
+  @@unique([organizationId])
+}
+
 /// Structured reader responses — moderation queue (SP10).
 model PublicResponse {
   id             String @id @default(cuid())
@@ -1429,25 +1703,25 @@ model ResponseTriage {
   publicResponseId String @unique
 
   /// SUBSTANTIVE_OBJECTION | CLARIFICATION_REQUEST | GENERAL_ENGAGEMENT | SPAM_NOISE
-  label      String
+  label       String
   /// Founder override of `label`. Empty string = honour the classifier label.
   manualLabel String @default("")
 
   /// "" | too_short | promotional_link | off_topic | abusive_language | repeat_sender | low_information
-  spamReason String @default("")
+  spamReason   String @default("")
   /// Founder override of `spamReason` (audit trail; e.g. when un-spamming).
   manualReason String @default("")
 
-  confidence  Float
+  confidence       Float
   /// One-sentence reduction of the implied objection. Empty unless
   /// label == SUBSTANTIVE_OBJECTION. Feeds the severity rubric.
-  impliedObjection String @default("") @db.Text
-  rationale        String @default("") @db.Text
+  impliedObjection String  @default("") @db.Text
+  rationale        String  @default("") @db.Text
   usedLlm          Boolean @default(false)
 
   /// SHA-256 of the lowercased submitter email; "" for pseudonymous.
-  senderHash          String  @default("")
-  elevatedSenderFlag  Boolean @default(false)
+  senderHash         String  @default("")
+  elevatedSenderFlag Boolean @default(false)
 
   /// Severity input snapshot from the cascade graph at triage time —
   /// stored so the queue can sort by potential severity without a
@@ -1457,11 +1731,11 @@ model ResponseTriage {
   /// Cached numeric severity in [0, 1] derived from the snapshot.
   severityValue      Float  @default(0)
 
-  createdAt DateTime  @default(now())
+  createdAt   DateTime  @default(now())
   /// Set when the founder archives the row (spam path or
   /// substantive-but-handled). Archived rows drop out of the queue.
-  archivedAt   DateTime?
-  archiveNote  String    @default("")
+  archivedAt  DateTime?
+  archiveNote String    @default("")
 
   organization   Organization   @relation(fields: [organizationId], references: [id], onDelete: Restrict)
   publicResponse PublicResponse @relation(fields: [publicResponseId], references: [id], onDelete: Cascade)
@@ -1485,29 +1759,33 @@ model PublicReply {
   founderId        String
 
   /// private | public
-  visibility    String @default("private")
-  body          String @db.Text
+  visibility String @default("private")
+  body       String @db.Text
 
   /// True only when the founder explicitly confirmed the publish step
   /// AND the underlying PublicResponse.publishConsent was true at the
   /// time of confirmation. Snapshotted here so a later consent-revoke
   /// does not change the audit record.
-  publishConfirmed     Boolean   @default(false)
-  publishConfirmedAt   DateTime?
+  publishConfirmed   Boolean   @default(false)
+  publishConfirmedAt DateTime?
 
   /// Whether this reply also opened a review-queue item for the
   /// implied objection. Track here so the queue UI can show "already
   /// promoted" without a join.
-  promotedToReview     Boolean   @default(false)
+  promotedToReview    Boolean @default(false)
   /// Whether the reply triggered a revision-engine (prompt 16) input.
   /// Stores the RevisionEvent.id when set.
-  triggeredRevisionId  String?
+  triggeredRevisionId String?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   organization   Organization   @relation(fields: [organizationId], references: [id], onDelete: Restrict)
   publicResponse PublicResponse @relation(fields: [publicResponseId], references: [id], onDelete: Cascade)
+  // Round-18 audit: relation FK left at the Prisma default
+  // (ON DELETE RESTRICT). The reply carries consent attribution that
+  // must not be lost if a founder is removed — Founder rows are
+  // deactivated, not deleted, by firm policy.
   founder        Founder        @relation("PublicReplyFounder", fields: [founderId], references: [id])
 
   @@index([organizationId])
@@ -1575,6 +1853,13 @@ model Contradiction {
   @@index([organizationId])
   @@index([sourceUploadId])
   @@index([status])
+  // Dashboard operational signals filter `WHERE organizationId AND
+  // status='active' ORDER BY severity DESC, createdAt DESC`. The
+  // existing `(organizationId)` and `(status)` indexes are each
+  // unselective alone; this composite serves both the equality and
+  // the leading sort column, so the ORDER BY collapses to an index
+  // walk + LIMIT.
+  @@index([organizationId, status, severity(sort: Desc)])
 }
 
 // ── ConclusionDeletionRequest ─────────────────────────────────────────
@@ -1820,6 +2105,10 @@ model RevisionEvent {
   createdAt  DateTime  @default(now())
   revertedAt DateTime?
 
+  // Round-18 audit: relation FK left at the Prisma default
+  // (ON DELETE RESTRICT). The revision ledger is the audit record for
+  // every committed belief revision; it must outlive the founder row
+  // that produced it.
   founder      Founder      @relation(fields: [founderId], references: [id])
   organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
 
@@ -1947,10 +2236,10 @@ model MethodVersion {
   /// `public: true` modes so private framings never leak. Kept
   /// alongside the row rather than re-derived on the fly so the
   /// changelog is reproducible even if the on-disk file changes.
-  source              String
-  rationale           String
-  failuresPublicYaml  String @default("")
-  domainBoundJson     String @default("")
+  source             String
+  rationale          String
+  failuresPublicYaml String @default("")
+  domainBoundJson    String @default("")
 
   /// Wall-clock capture time. Used only for ordering on the
   /// changelog; the hash is what makes a version unique.
@@ -2016,6 +2305,67 @@ model MethodTrackRecord {
   @@unique([organizationId, methodName, methodVersion, domain])
   @@index([methodName, methodVersion])
   @@index([organizationId, computedAt])
+}
+
+// ── Method retirement workflow ───────────────────────────────────────────
+//
+// Mirrors the operational retirement state owned by
+// `noosphere/noosphere/methods/retirement.py`. The durable source of
+// truth on the noosphere side is the founder review memo at
+// `docs/methods/retirement/<method>.md` (its YAML frontmatter); this
+// table is the Codex web app's read model, so the methods registry page
+// and the public methodology page can render retirement state without
+// shelling out to the filesystem.
+//
+// Keyed on (organization, methodName) — retirement is about method
+// IDENTITY, not a pinned version. A RETIRED method is refused across
+// every version; the registry does not keep a "still-good" version of a
+// retired method.
+//
+// Rows are NEVER deleted: a retired method's record is part of the
+// firm's permanent history, the same way the memo file is never
+// deleted and the method's source is never deleted.
+model MethodRetirement {
+  id             String @id @default(cuid())
+  organizationId String
+
+  methodName String
+
+  /// One of {active, under_review, deprecated, retired} — see
+  /// `RetirementState` in retirement.py. `active` means the method has
+  /// a memo on record (e.g. a rejected review) but is fully in service.
+  state String @default("active")
+
+  /// Method that takes over this one's responsibility. Empty until a
+  /// review names one; a retired method MAY have no replacement (its
+  /// conclusions are then under review for revision/retraction).
+  replacement String @default("")
+
+  /// Rationale captured when the review opened — which criteria fired.
+  rationale String @default("")
+
+  /// Path to the founder review memo (the durable source of truth).
+  memoPath String @default("")
+
+  /// Timeline. Null until the corresponding transition happens.
+  reviewOpenedAt DateTime?
+  deprecatedAt   DateTime?
+  retiredAt      DateTime?
+  /// Sunset deadline shown on banners — reanalysis should complete by here.
+  sunsetAt       DateTime?
+
+  /// Permanent transition ledger. JSON array of
+  /// `{ at, fromState, toState, actor, reason }`.
+  transitionsJson String @default("[]")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+
+  @@unique([organizationId, methodName])
+  @@index([methodName])
+  @@index([organizationId, state])
 }
 
 // ── Domain Bounds: per-method declarative applicability gates ───────────
@@ -2221,6 +2571,10 @@ model RecalibrationOverride {
 
   organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
   conclusion   Conclusion   @relation(fields: [conclusionId], references: [id], onDelete: Cascade)
+  // Round-18 audit: relation FK left at the Prisma default
+  // (ON DELETE RESTRICT). Founder rows are deactivated, not deleted, by
+  // firm policy; we never want a founder removal to silently flip a
+  // conclusion's calibration display.
   founder      Founder      @relation(fields: [founderId], references: [id])
 
   @@index([organizationId])
@@ -2302,10 +2656,10 @@ model SourceTriageItem {
 
   /// The standing event that caused this triage row. Empty string when
   /// trigger="citation_verdict".
-  standingId String @default("")
+  standingId   String @default("")
   /// The verdict row that caused this triage row. Empty when
   /// trigger="standing".
-  verdictId  String @default("")
+  verdictId    String @default("")
   /// Canonical source id (denormalised for fast UI rendering).
   sourceId     String
   /// Conclusion whose evidence weight is being challenged.
@@ -2465,7 +2819,7 @@ model CitationVerdict {
   /// Foreign id within `citationKind`. Composite-keyed citation rows
   /// (ConclusionSource: conclusionId+uploadId) encode as
   /// "conclusionId:uploadId".
-  citationId String
+  citationId   String
 
   /// Canonical source id — matches SourceStanding.sourceId.
   sourceId String
@@ -2536,7 +2890,7 @@ model AttentionAction {
 
   /// Stable queue identifier — see `AttentionQueueId` in
   /// `src/lib/attention.ts` for the canonical vocabulary.
-  queue String
+  queue  String
   /// Identifier of the underlying row inside that queue. Composite ids
   /// (e.g. citation verdicts keyed by kind+id) collapse into a single
   /// string here.
@@ -2585,7 +2939,10 @@ model Subscriber {
   /// Empty string for `firm`; otherwise the per-scope key (see above).
   scopeKey String @default("")
 
-  /// pending | active | unsubscribed
+  /// pending | active | unsubscribed | paused
+  /// `paused` is set automatically when repeated bounces cross the
+  /// SUBSCRIBER_BOUNCE_PAUSE_THRESHOLD; the founder can resume from
+  /// the subscribers dashboard after investigating.
   status String @default("pending")
 
   /// Cadence of digests: weekly (default) | immediate | monthly. Immediate
@@ -2594,30 +2951,147 @@ model Subscriber {
   cadence String @default("weekly")
 
   /// URL-safe random token for the double-opt-in confirm link. Cleared on confirm.
-  confirmToken      String  @default("")
+  confirmToken     String @default("")
   /// URL-safe random token for one-click unsubscribe; embedded in every digest.
-  unsubscribeToken  String  @unique
+  unsubscribeToken String @unique
 
   /// Set when the reader clicks the confirm link.
-  confirmedAt    DateTime?
+  confirmedAt       DateTime?
   /// Set when the reader unsubscribes; row is retained as a tombstone so
   /// re-subscribing the same email cannot bypass another opt-in step.
-  unsubscribedAt DateTime?
+  unsubscribedAt    DateTime?
   /// Free-text reason captured at unsubscribe time. Empty if not given.
-  unsubscribeReason String @default("")
+  unsubscribeReason String    @default("")
 
   /// Timestamp of the most recent digest sent to this subscriber. Drives
   /// the per-subscriber "since" window the digest builder reads from.
   lastSentAt DateTime?
+
+  /// Rolling count of recent delivery failures (bounces/blocks). Reset
+  /// to 0 on the next successful delivery. When this crosses
+  /// SUBSCRIBER_BOUNCE_PAUSE_THRESHOLD (see lib/subscribers.ts) the row
+  /// is paused (status="paused") rather than dropped, so the founder
+  /// can investigate.
+  bounceCount  Int       @default(0)
+  lastBounceAt DateTime?
+  /// Set when repeated bounces auto-pause the subscriber. Paused
+  /// subscribers are excluded from digest builds but kept on the books
+  /// so the founder can review the bounce trail and resume them.
+  pausedAt     DateTime?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
 
+  digestSends DigestSend[]
+  bounces     SubscriberBounce[]
+
   @@unique([organizationId, email, scope, scopeKey])
   @@index([organizationId, status, cadence])
   @@index([scope, scopeKey])
+}
+
+// ── Follow-digest delivery ledger ─────────────────────────────────────────
+//
+// One row per rendered digest the firm hands to the mailer. We capture
+// the *fact* of a send (subscriber, item count, transport id) but not
+// the rendered body — the email itself goes through the existing
+// sendMail path and is not re-stored.
+//
+// `ackTokenHash` is the SHA-256 of a one-time token embedded in the
+// "I read this" link. The raw token never leaves the email; the server
+// hashes the incoming token and looks up the matching send. This gives
+// the firm a voluntary, opt-in open-rate signal without tracking pixels
+// or any per-recipient identifier the recipient cannot delete by
+// unsubscribing.
+model DigestSend {
+  id             String @id @default(cuid())
+  organizationId String
+  subscriberId   String
+
+  /// SHA-256 hex of the ack token for this send. Empty if no ack link
+  /// was rendered (e.g. for early dry-run sends).
+  ackTokenHash String @default("")
+
+  /// Number of digest items in the rendered email.
+  itemCount   Int       @default(0)
+  /// Subject line as rendered. Useful for the founder dashboard.
+  subject     String    @default("")
+  /// Mailer's message id, if returned. Empty for SMTP transports that
+  /// do not surface one.
+  messageId   String    @default("")
+  /// pending | delivered | bounced | blocked
+  ///   pending   — handed to transport, no terminal status yet
+  ///   delivered — transport accepted the message
+  ///   bounced   — hard/soft bounce; see SubscriberBounce for detail
+  ///   blocked   — transport rejected before send (suppression, policy)
+  status      String    @default("pending")
+  sentAt      DateTime  @default(now())
+  deliveredAt DateTime?
+  bouncedAt   DateTime?
+
+  /// Set when the recipient clicks the "I read this" link. Stored only
+  /// as a timestamp; the link is hashed-token, not email-keyed.
+  ackedAt DateTime?
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  subscriber   Subscriber   @relation(fields: [subscriberId], references: [id], onDelete: Cascade)
+  acks         DigestAck[]
+
+  @@index([organizationId, sentAt])
+  @@index([subscriberId, sentAt])
+  @@index([ackTokenHash])
+}
+
+// One row per "I read this" click. We retain the digest send id and
+// the timestamp; we never retain the recipient's email here. The same
+// send can be acked more than once (e.g. forwarded to a colleague who
+// also clicked); we keep all clicks for an honest count.
+model DigestAck {
+  id             String @id @default(cuid())
+  organizationId String
+  digestSendId   String
+
+  /// SHA-256 hex of the ack token actually received (matches the
+  /// DigestSend.ackTokenHash on the parent row). Stored alongside the
+  /// FK so a stray ack to a deleted send still has a record.
+  receivedHash String
+
+  ackedAt DateTime @default(now())
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  digestSend   DigestSend   @relation(fields: [digestSendId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId, ackedAt])
+  @@index([digestSendId])
+}
+
+// One row per delivery failure. The transport (Resend / SMTP) calls
+// `recordSubscriberBounce` with the bounce class; after
+// SUBSCRIBER_BOUNCE_PAUSE_THRESHOLD failures the subscriber row is
+// auto-paused rather than continuing to spam an invalid address. The
+// founder reviews these from the subscribers dashboard.
+model SubscriberBounce {
+  id             String @id @default(cuid())
+  organizationId String
+  subscriberId   String
+
+  /// hard | soft | block | other
+  kind      String @default("soft")
+  /// Provider-supplied reason / diagnostic. Trimmed to a reasonable
+  /// upper bound; long DSN bodies are clipped.
+  reason    String @default("")
+  /// Provider message id, if any.
+  messageId String @default("")
+
+  occurredAt DateTime @default(now())
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  subscriber   Subscriber   @relation(fields: [subscriberId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId, occurredAt])
+  @@index([subscriberId, occurredAt])
 }
 
 // ── Principles (cross-domain distillations) ────────────────────────────────
@@ -2655,18 +3129,18 @@ model Principle {
   citedConclusionIds   String @default("[]")
 
   /// status ladder — see model docstring.
-  status String @default("draft")
+  status       String  @default("draft")
   /// draft | accepted | rejected | merged | needs_rereview source.
-  triageReason String @default("")
+  triageReason String  @default("")
   /// Set on `merged`: target principle id this row was folded into.
   mergedIntoId String?
 
   /// Conservative score in [0, 1]. Conviction-weighted ordering on the
   /// public methodology page reads this column.
-  convictionScore Float @default(0.0)
+  convictionScore           Float @default(0.0)
   /// Distinct domains in the cluster — proxy for cross-domain
   /// convergence. Zero unless the cluster spans multiple disciplines.
-  domainBreadth   Int   @default(0)
+  domainBreadth             Int   @default(0)
   /// Mean cosine similarity of cluster members to the cluster centroid.
   clusterCentroidSimilarity Float @default(0.0)
 
@@ -2690,9 +3164,120 @@ model Principle {
 
   organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
 
+  quantitativeFormalisations QuantitativeFormalisation[] @relation("PrincipleFormalisations")
+
   @@index([organizationId])
   @@index([organizationId, status])
   @@index([organizationId, publicVisible])
+}
+
+/// Quantitative-formalisation spec for a principle.
+///
+/// Bridges the firm's logical principles to numerical, falsifiable
+/// tests. Each row carries a null hypothesis, structured metric specs,
+/// statistical tests, named data sources, and decision thresholds
+/// (what numerical reading would update the firm's confidence).
+///
+/// Status ladder mirrors the Pydantic `FormalisationStatus`:
+///   DRAFT          — drafter has proposed; not yet in the queue.
+///   PENDING_REVIEW — promoted to the founder triage queue.
+///   APPROVED       — founder accepted; surfaces on the public
+///                    principle page. Never set by the drafter.
+///   RETIRED        — superseded or invalidated; kept for audit.
+///   UNFORMALISABLE — drafter declined to formalise (e.g. pure-
+///                    normative; no accessible dataset). Carries a
+///                    structured `unformalisableReason`.
+///
+/// Columns are duplicated as JSON strings (`metricsJson`, `testsJson`,
+/// etc.) so the Codex UI does not have to parse `payloadJson` for the
+/// public surface; `payloadJson` is the authoritative round-trip of
+/// the Pydantic payload from noosphere.
+model QuantitativeFormalisation {
+  id             String @id @default(cuid())
+  organizationId String
+  principleId    String
+
+  status                 String  @default("DRAFT")
+  nullHypothesis         String  @default("")
+  /// JSON-encoded list of MetricSpec.
+  metricsJson            String  @default("[]")
+  /// JSON-encoded list of StatisticalTestSpec.
+  testsJson              String  @default("[]")
+  /// JSON-encoded list of DataSourceSpec.
+  dataSourcesJson        String  @default("[]")
+  /// JSON-encoded list of decision-threshold strings.
+  decisionThresholdsJson String  @default("[]")
+  /// Set when status = UNFORMALISABLE.
+  unformalisableReason   String?
+  drafterModel           String  @default("")
+  drafterNotes           String  @default("")
+  /// Authoritative round-trip of the noosphere Pydantic payload.
+  payloadJson            String  @default("{}")
+
+  reviewedByFounderId String?
+  reviewedAt          DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  organization Organization             @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  principle    Principle                @relation("PrincipleFormalisations", fields: [principleId], references: [id], onDelete: Cascade)
+  testResults  QuantitativeTestResult[] @relation("FormalisationTestResults")
+
+  @@index([principleId])
+  @@index([organizationId, status])
+}
+
+/// Prompt 63 runner output: one row per QuantitativeRunner pass over an
+/// APPROVED QuantitativeFormalisation. The full Pydantic payload is
+/// round-tripped in `payloadJson`; the duplicated JSON columns power
+/// the public principle detail page without re-parsing payloadJson.
+model QuantitativeTestResult {
+  id                     String  @id @default(cuid())
+  organizationId         String
+  formalisationId        String
+  principleId            String  @default("")
+  runStamp               String
+  status                 String  @default("RAN")
+  /// JSON-encoded { metric name → { value, as_of } }.
+  metricValuesJson       String  @default("{}")
+  /// JSON-encoded list of QuantitativeTestOutput.
+  testOutputsJson        String  @default("[]")
+  decisionSummary        String  @default("")
+  artifactsPath          String  @default("")
+  /// JSON-encoded list of decision-threshold strings the run crossed.
+  thresholdCrossingsJson String  @default("[]")
+  error                  String?
+  payloadJson            String  @default("{}")
+
+  createdAt DateTime @default(now())
+
+  formalisation QuantitativeFormalisation @relation("FormalisationTestResults", fields: [formalisationId], references: [id], onDelete: Cascade)
+
+  @@unique([formalisationId, runStamp])
+  @@index([formalisationId])
+  @@index([principleId])
+}
+
+/// Founder-confirmable queue: when a quantitative test crosses any
+/// configured decision threshold, the runner enqueues a row here
+/// rather than auto-updating the principle's conviction score. Same
+/// recommend-then-accept pattern as the prompt-58 triage UI.
+model PrincipleConvictionUpdateQueue {
+  id                  String    @id @default(cuid())
+  organizationId      String?
+  principleId         String
+  formalisationId     String
+  runStamp            String
+  crossingsJson       String    @default("[]")
+  summary             String    @default("")
+  status              String    @default("PENDING")
+  resolvedByFounderId String?
+  resolvedAt          DateTime?
+  createdAt           DateTime  @default(now())
+
+  @@index([principleId])
+  @@index([status])
 }
 
 /// One unit of observable work in the noosphere pipeline. Spans nest
@@ -2701,19 +3286,19 @@ model Principle {
 /// `MethodMetricRollup` and may be archived after 30 days; the rollup
 /// is the durable record.
 model Span {
-  id           String  @id
-  traceId      String
-  parentSpanId String?
-  name         String
-  status       String  @default("ok")
-  startedAt    DateTime
-  endedAt      DateTime?
-  durationMs   Float?
-  errorKind    String?
-  errorMessage String?
+  id             String    @id
+  traceId        String
+  parentSpanId   String?
+  name           String
+  status         String    @default("ok")
+  startedAt      DateTime
+  endedAt        DateTime?
+  durationMs     Float?
+  errorKind      String?
+  errorMessage   String?
   /// Sanitised attributes — never raw user text or credentials.
-  attrs        Json    @default("{}")
-  costUsd      Float   @default(0.0)
+  attrs          Json      @default("{}")
+  costUsd        Float     @default(0.0)
   organizationId String?
 
   createdAt DateTime @default(now())
@@ -2728,19 +3313,21 @@ model Span {
 /// that computes track record. Survives span retention so the dashboard
 /// keeps long-horizon trendlines without scanning raw spans.
 model MethodMetricRollup {
-  id           String   @id @default(cuid())
-  method       String
-  windowStart  DateTime
-  windowEnd    DateTime
-  count        Int
-  errorCount   Int
-  p50Ms        Float
-  p95Ms        Float
-  errorRate    Float
-  costUsd      Float
+  id          String   @id @default(cuid())
+  method      String
+  windowStart DateTime
+  windowEnd   DateTime
+  count       Int
+  errorCount  Int
+  p50Ms       Float
+  p95Ms       Float
+  errorRate   Float
+  costUsd     Float
 
   createdAt DateTime @default(now())
 
+  // One row per (method, time-window). The materialiser upserts on
+  // this triple so re-runs of the rollup job are idempotent.
   @@unique([method, windowStart, windowEnd])
   @@index([method, windowStart])
   @@index([windowStart])
@@ -2751,15 +3338,15 @@ model MethodMetricRollup {
 /// cost_usd, count). `webhookUrl` is optional — when null the rule
 /// only writes to the unified attention queue.
 model AlertRule {
-  id             String  @id @default(cuid())
-  name           String  @unique
-  metric         String
-  threshold      Float
-  method         String  @default("*")
-  windowMinutes  Int     @default(15)
-  minSamples     Int     @default(5)
-  webhookUrl     String?
-  enabled        Boolean @default(true)
+  id            String  @id @default(cuid())
+  name          String  @unique
+  metric        String
+  threshold     Float
+  method        String  @default("*")
+  windowMinutes Int     @default(15)
+  minSamples    Int     @default(5)
+  webhookUrl    String?
+  enabled       Boolean @default(true)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -2768,18 +3355,232 @@ model AlertRule {
 /// One firing of an `AlertRule`. The unified attention queue (prompt 34)
 /// reads from here.
 model AlertEvent {
-  id         String   @id @default(cuid())
-  ruleName   String
-  method     String
-  metric     String
-  value      Float
-  threshold  Float
-  firedAt    DateTime
+  id             String    @id @default(cuid())
+  ruleName       String
+  method         String
+  metric         String
+  value          Float
+  threshold      Float
+  firedAt        DateTime
   acknowledgedAt DateTime?
   acknowledgedBy String?
-  deliveredTo Json   @default("[]")
+  deliveredTo    Json      @default("[]")
 
   @@index([firedAt])
   @@index([ruleName, firedAt])
   @@index([acknowledgedAt])
+}
+
+// ── Methodology Review Week ───────────────────────────────────────────────
+//
+// The firm holds a quarterly Methodology Review Week (Round 17–18 follow-on)
+// — five working days, mid-quarter, with a fixed day-by-day focus: drift
+// events, failure modes, domain bounds, retirement candidates, then the
+// methodology section of the seasonal review (prompt 46). The schedule is
+// generated from the Python module `noosphere.inquiry.methodology_review_week`
+// and mirrored into these tables for the web app to triage and present.
+//
+// Opt-in policy: a `status="postponed"` or `status="skipped"` week is
+// logged, not punished. The public methodology page reads the most recent
+// completed week and the next scheduled week from these rows.
+model MethodologyReviewWeek {
+  id             String @id @default(cuid())
+  organizationId String
+
+  /// Calendar year and quarter (1..4). Together they identify the week
+  /// regardless of postponement.
+  year    Int
+  quarter Int
+
+  /// Day-1 (Monday) and day-5 (Friday) of the five-working-day window.
+  /// On a postponed week these reflect the new dates.
+  startDate DateTime
+  endDate   DateTime
+
+  /// scheduled | active | completed | postponed | skipped
+  /// Defaults to `scheduled`. The agent never flips this on the founder's
+  /// behalf — opt-in per founder.
+  status String @default("scheduled")
+
+  /// Set when the founder postpones the week. Carries the new Monday
+  /// and a free-text reason. The public hint surfaces the new date.
+  postponedTo    DateTime?
+  postponeReason String    @default("") @db.Text
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  organization Organization                  @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  daySummaries MethodologyReviewDaySummary[]
+
+  @@unique([organizationId, year, quarter])
+  @@index([organizationId, startDate])
+  @@index([organizationId, status])
+}
+
+// One day-end summary inside a Methodology Review Week. Days 1..4 are
+// triage notes against the day's filtered attention queue; day 5 is the
+// methodology section that feeds the seasonal review.
+//
+// The founder writes the body; the agent may produce a `draftBody` based
+// on the day's queue and the founder edits or replaces it (drafts are
+// clearly labelled). Once `signature` and `signedAt` are set the row is
+// immutable — subsequent body changes must clear the signature first
+// (matching the Python module's `apply_founder_edit` → re-sign workflow).
+model MethodologyReviewDaySummary {
+  id             String @id @default(cuid())
+  organizationId String
+  weekId         String
+
+  /// 1..5. Pairs with the focus vocabulary below.
+  dayIndex Int
+  /// drift_events | failure_modes | domain_bounds | retirement_candidates
+  /// | methodology_section — must match the Python module's DAY_FOCUS.
+  focus    String
+
+  /// Agent-generated draft (clearly labelled with the DRAFT banner) and
+  /// the founder's submitted body. The draft is never auto-promoted to
+  /// the body.
+  draftBody        String    @default("") @db.Text
+  draftGeneratedAt DateTime?
+  body             String    @default("") @db.Text
+
+  /// Number of founder edits applied since the first draft landed.
+  /// The audit trail itself (per-edit timestamps + prior bodies) is held
+  /// in the JSON sidecar on disk; this column is the inexpensive summary
+  /// the queue page needs.
+  editCount Int @default(0)
+
+  /// Ed25519 signature over the canonical bytes of (weekSlug, dayIndex,
+  /// focus, body). Hex-encoded. Empty until the founder signs the day.
+  signature             String    @default("")
+  signedAt              DateTime?
+  signingKeyFingerprint String    @default("")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  week         MethodologyReviewWeek @relation(fields: [weekId], references: [id], onDelete: Cascade)
+  organization Organization          @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+
+  @@unique([weekId, dayIndex])
+  @@index([organizationId, signedAt])
+}
+
+// ── VC firm preset: deals + principle-alignment runs ────────────────────────
+//
+// A Deal models an investment opportunity. Source documents and notes
+// are append-only; the principle-alignment table is a denormalised
+// snapshot of the latest noosphere run (see
+// noosphere/noosphere/vc/principle_alignment.py). The agent's job is
+// to surface which firm principles apply — the partner makes the
+// decision.
+
+enum DealDecisionStatus {
+  EXPLORING
+  NEXT_MEETING
+  COMMITTED
+  PASSED
+  EXITED
+}
+
+enum PrincipleAlignmentVerdict {
+  MATCH
+  CONFLICT
+  UNCLEAR
+}
+
+model Deal {
+  id             String       @id @default(cuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+
+  name        String
+  description String @default("") @db.Text
+  /// Free-form: seed, series-A, pre-seed, etc. — kept TEXT so adding a
+  /// new stage is a UI change, not a migration.
+  stage       String @default("")
+  sector      String @default("")
+  geo         String @default("")
+
+  decisionStatus DealDecisionStatus @default(EXPLORING)
+
+  /// JSON-encoded list of {label, uri, kind} pointers to uploaded
+  /// pitch decks, founder bios, market reports, and the firm's own
+  /// notes. The actual blobs live in object storage; this column is
+  /// the manifest the UI renders.
+  sourceDocumentsJson String @default("[]") @db.Text
+
+  /// Append-only memo body; auto-promoted draft from MemoDrafter sits
+  /// in `memoDraft` until the partner edits/signs and copies it here.
+  memoDraft             String    @default("") @db.Text
+  memoFinal             String    @default("") @db.Text
+  memoSignedAt          DateTime?
+  /// Founder id who signed; references Founder via app-level join.
+  memoSignedByFounderId String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  alignments DealPrincipleAlignment[]
+  notes      DealNote[]
+
+  @@index([organizationId])
+  @@index([organizationId, decisionStatus])
+  @@index([organizationId, sector])
+}
+
+/// One row per (Deal, Principle) verdict produced by the alignment
+/// runner. Persisted so the UI can render the table without re-running
+/// the LLM, and so re-runs are idempotent — the runner upserts on
+/// (dealId, principleId).
+model DealPrincipleAlignment {
+  id             String @id @default(cuid())
+  organizationId String
+  dealId         String
+  principleId    String
+
+  verdict       PrincipleAlignmentVerdict
+  rationale     String                    @default("") @db.Text
+  /// JSON-encoded list of citation objects:
+  ///   {conclusion_id?, source_uri?, quote, locator}
+  citationsJson String                    @default("[]") @db.Text
+  /// Score in [0, 1] reflecting the runner's confidence. Conservative:
+  /// unclear verdicts cap at 0.5.
+  confidence    Float                     @default(0.0)
+  /// Identifier of the alignment run that produced this row. Used to
+  /// distinguish re-runs and to GC stale rows when principles are
+  /// retired.
+  runId         String
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  deal Deal @relation(fields: [dealId], references: [id], onDelete: Cascade)
+
+  @@unique([dealId, principleId])
+  @@index([organizationId, dealId])
+  @@index([organizationId, principleId])
+}
+
+/// Partner-meeting note. Append-only by convention — edits create a
+/// new row that links to the predecessor via `supersedesId` rather
+/// than mutating in place.
+model DealNote {
+  id             String @id @default(cuid())
+  organizationId String
+  dealId         String
+
+  authorFounderId       String
+  body                  String  @default("") @db.Text
+  /// JSON-encoded list of Principle ids this note explicitly cites.
+  /// The UI auto-links each citation to the principle detail page.
+  citedPrincipleIdsJson String  @default("[]")
+  supersedesId          String?
+
+  createdAt DateTime @default(now())
+
+  deal Deal @relation(fields: [dealId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId, dealId, createdAt])
 }

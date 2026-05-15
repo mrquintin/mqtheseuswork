@@ -1,0 +1,120 @@
+You are operating in /Users/michaelquintin/Desktop/Theseus.
+
+Goal: integrate Alpaca's official API for equity market data and
+paper trading. Alpaca is the primary broker for the equity track
+because (a) its API is published and supported, (b) it ships a
+paper-trading environment that is the standard rehearsal surface,
+and (c) it does not require Polygon-wallet or RSA-signing oddities.
+
+This prompt wires Alpaca's paper environment. Live trading on
+Alpaca is gated behind the eight-gate safety contract (same as
+Polymarket/Kalshi from Round 10/11) and is opt-in via env flags.
+
+Before you start — read:
+1. `noosphere/noosphere/forecasts/_polymarket_client.py` —
+   the read-only Gamma client. Your `_alpaca_client.py` mirrors
+   that structure (httpx async, retry policy, no global state).
+2. Alpaca docs: https://docs.alpaca.markets/ (or current
+   location). Confirm endpoints + auth scheme:
+   - Headers `APCA-API-KEY-ID` and `APCA-API-SECRET-KEY`.
+   - Paper base URL `https://paper-api.alpaca.markets` and
+     market-data base `https://data.alpaca.markets`. Verify
+     these are current before populating.
+3. `.env.live.template` — extend with the Alpaca keys (this
+   prompt edits the template).
+
+Implement:
+
+A. Config dataclass `AlpacaConfig` in
+   `noosphere/noosphere/equities/config.py`:
+   - `api_base`, `data_base`, `api_key_id`, `api_secret_key`,
+     `organization_id`, `is_paper` (default True),
+     `request_timeout_s` (default 15.0),
+     `accepted_symbols` (csv filter; empty = unrestricted).
+   - `from_env()` classmethod.
+   - `is_configured` property.
+
+B. `noosphere/noosphere/equities/_alpaca_client.py`:
+   - `class AlpacaClient`:
+     - `async get_account()` returns equity, buying power,
+       cash, day-trading status.
+     - `async list_assets(asset_class='us_equity',
+                          tradable_only=True, limit=None)`.
+     - `async get_bars(symbol, timeframe, start, end,
+                       limit)` for historical price data.
+     - `async get_latest_quote(symbol)`.
+     - `async place_order(symbol, qty, side, type,
+                          time_in_force, limit_price=None,
+                          stop_price=None,
+                          client_order_id=None)`. Returns the
+       order id + status.
+     - `async cancel_order(order_id)`.
+     - `async get_order(order_id)`.
+     - `async list_positions()`.
+   - httpx async client. Retries on 429/5xx with tenacity
+     exponential 0.5s → 8s, 5 attempts. Honor Retry-After.
+
+C. Ingestor `noosphere/noosphere/equities/alpaca_ingestor.py`:
+   - `ingest_once(store, *, config)` returns `IngestResult`
+     (same shape as the prediction-market ingestors).
+   - Pulls active tradeable US equities + ETFs, filters by
+     `accepted_symbols` if set, upserts `EquityInstrument`.
+   - Updates `lastPrice` only when changed by ≥ 0.5% OR > 5
+     minutes since last update.
+   - For instruments the firm currently holds a published
+     signal on, pulls intraday bars and writes
+     `EquityPriceTick` rows.
+   - If `is_configured` is False: no-op, single structured-log
+     line `ALPACA_NOT_CONFIGURED`, no httpx call attempted.
+
+D. Paper-trade adapter `noosphere/noosphere/equities/paper_trader.py`:
+   - `submit_paper_order(store, position_id, *, client)`: takes
+     an `EquityPosition` with status=PENDING, submits via Alpaca
+     paper (no real money), polls for fill, updates the row to
+     OPEN / FAILED with realised fields. Eight-gate check is
+     NOT applied to paper trades — paper is the rehearsal
+     surface, not the live one.
+   - `close_paper_position(store, position_id, *, client)`:
+     submits the closing order, updates entry/exit and realised
+     P&L on FILL.
+
+E. CLI:
+   - `noosphere equities ingest alpaca` runs `ingest_once`.
+   - `noosphere equities paper status` prints account + open
+     positions.
+   - `noosphere equities paper close <position_id>` closes a
+     paper position.
+
+F. Env-var additions to `.env.live.template`:
+   `ALPACA_API_BASE`, `ALPACA_DATA_BASE`, `ALPACA_API_KEY_ID`,
+   `ALPACA_API_SECRET_KEY`, `ALPACA_IS_PAPER=true`,
+   `EQUITIES_ACCEPTED_SYMBOLS` (csv; empty = all).
+
+G. Tests:
+   - httpx-mock fixtures for each endpoint; happy path +
+     429-retry path.
+   - `test_no_real_alpaca_called`: pytest asserts no httpx
+     call leaves the mock for non-mocked URLs.
+   - Ingest fixture covers a fresh insert, an update at the
+     price-change threshold, and a skip below threshold.
+   - Paper-trade fixture round-trips a PENDING → OPEN → CLOSED
+     position with a realised P&L computation.
+
+Constraints
+- No real-money calls in tests. Mock at the httpx layer.
+- Paper trades MUST set `mode=PAPER` on the EquityPosition.
+- Live trading on Alpaca is prompt 62's territory; this prompt
+  does not enable it. The live env flag introduced here
+  (`ALPACA_IS_PAPER`) defaults TRUE.
+
+SCOPE
+- `noosphere/noosphere/equities/__init__.py` CREATE
+- `noosphere/noosphere/equities/config.py` CREATE
+- `noosphere/noosphere/equities/_alpaca_client.py` CREATE
+- `noosphere/noosphere/equities/alpaca_ingestor.py` CREATE
+- `noosphere/noosphere/equities/paper_trader.py` CREATE
+- `noosphere/noosphere/cli.py` MODIFY
+- `.env.live.template` MODIFY
+- `noosphere/tests/test_alpaca_client.py` CREATE
+- `noosphere/tests/test_alpaca_ingestor.py` CREATE
+- `noosphere/tests/test_paper_trader.py` CREATE

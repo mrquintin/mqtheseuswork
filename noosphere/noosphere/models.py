@@ -195,6 +195,54 @@ class ForecastFollowUpRole(str, Enum):
     ASSISTANT = "ASSISTANT"
 
 
+# ── Equities (USD-only, cash-account long-equity in v1) ──────────────────────
+
+
+class EquityAssetClass(str, Enum):
+    STOCK = "STOCK"
+    ETF = "ETF"
+    ADR = "ADR"
+
+
+class EquityPriceSource(str, Enum):
+    ALPACA = "ALPACA"
+    ROBINHOOD = "ROBINHOOD"
+    YFINANCE = "YFINANCE"
+    MANUAL = "MANUAL"
+
+
+class EquitySignalDirection(str, Enum):
+    BULLISH = "BULLISH"
+    BEARISH = "BEARISH"
+    NEUTRAL = "NEUTRAL"
+    ABSTAINED = "ABSTAINED"
+
+
+class EquitySignalStatus(str, Enum):
+    PUBLISHED = "PUBLISHED"
+    ABSTAINED = "ABSTAINED"
+    REVOKED = "REVOKED"
+
+
+class EquityPositionMode(str, Enum):
+    PAPER = "PAPER"
+    LIVE = "LIVE"
+
+
+class EquityPositionSide(str, Enum):
+    LONG = "LONG"
+    SHORT = "SHORT"
+    CASH_RESERVE = "CASH_RESERVE"
+
+
+class EquityPositionStatus(str, Enum):
+    PENDING = "PENDING"
+    OPEN = "OPEN"
+    CLOSED = "CLOSED"
+    CANCELLED = "CANCELLED"
+    FAILED = "FAILED"
+
+
 def _new_cuid() -> str:
     """Prisma-compatible textual id shape for Python-created Currents rows."""
     return f"c{uuid.uuid4().hex[:24]}"
@@ -301,6 +349,30 @@ class ConclusionKind(str, Enum):
     METHOD = "method"
     SYNTHESIS = "synthesis"
     ARTICLE = "article"
+
+
+class PrincipleKind(str, Enum):
+    """Kind of decision-rule shape a principle-shaped conclusion carries.
+
+    See docs/research/internal/extractor_diagnosis_2026_05_13.md for the
+    contract that introduced these — every conclusion produced by the
+    rewritten principle extractor must declare one of these.
+    """
+
+    RULE = "RULE"
+    CRITERION = "CRITERION"
+    MECHANISM = "MECHANISM"
+    HEURISTIC = "HEURISTIC"
+    DEFINITION = "DEFINITION"
+    FORMULA = "FORMULA"
+    ALGORITHM = "ALGORITHM"
+
+
+# Sentinel string the principle extractor logs when a source span is
+# purely autobiographical / aesthetic and no transferable rule can be
+# lifted. The re-extraction review UI treats this as an explicit
+# refusal rather than an empty extraction.
+NO_PRINCIPLE_EXTRACTABLE = "NO_PRINCIPLE_EXTRACTABLE"
 
 
 class AdversarialChallengeStatus(str, Enum):
@@ -1041,6 +1113,20 @@ class Conclusion(BaseModel):
     # Round 3 additions
     freshness: Freshness = Freshness.FRESH
     last_validated_at: Optional[datetime] = None
+
+    # ── Principle-shape contract (prompt 56, 2026-05-13) ────────────────
+    # These fields are populated by the rewritten principle extractor
+    # (see noosphere.claim_extractor.PrincipleExtractor). Older
+    # conclusions ingested before the rewrite leave these null until
+    # they pass through the founder-confirmable re-extraction queue.
+    principle_kind: Optional[PrincipleKind] = None
+    domain_of_applicability: Optional[str] = Field(default=None, max_length=300)
+    quantifiable_proxies: list[str] = Field(default_factory=list)
+    decision_examples: list[str] = Field(default_factory=list)
+    # Verbatim substring of the source span the principle was lifted
+    # from. Preserved end-to-end so re-extraction can show the founder
+    # the original context. None for legacy rows.
+    source_span: Optional[str] = None
 
     @model_validator(mode="after")
     def _sync_legacy_aliases(self) -> Conclusion:
@@ -2175,6 +2261,317 @@ class ForecastFollowUpMessage(SQLModel, table=True):
     )
 
 
+# ── Equities tables (mirror Prisma EquityInstrument et al.) ──────────────────
+
+
+class EquityInstrument(SQLModel, table=True):
+    """A tradeable stock or ETF mirrored from the broker reference data."""
+
+    __tablename__ = "EquityInstrument"
+    __table_args__ = (
+        UniqueConstraint(
+            "symbol", "exchange", name="EquityInstrument_symbol_exchange_key"
+        ),
+        Index("EquityInstrument_assetClass_idx", "assetClass"),
+        Index("EquityInstrument_updatedAt_idx", "updatedAt"),
+    )
+
+    id: str = SQLField(default_factory=_new_cuid, primary_key=True)
+    symbol: str = SQLField(sa_column=Column("symbol", String(16), nullable=False))
+    exchange: str = SQLField(sa_column=Column("exchange", String(16), nullable=False))
+    asset_class: EquityAssetClass = SQLField(
+        sa_column=Column("assetClass", String, nullable=False)
+    )
+    name: str = SQLField(sa_column=Column("name", String(280), nullable=False))
+    cusip: Optional[str] = SQLField(
+        default=None, sa_column=Column("cusip", String(16), nullable=True)
+    )
+    figi: Optional[str] = SQLField(
+        default=None, sa_column=Column("figi", String(16), nullable=True)
+    )
+    is_tradable: bool = SQLField(
+        default=True, sa_column=Column("isTradable", SABoolean, nullable=False)
+    )
+    last_price: Optional[Decimal] = SQLField(
+        default=None, sa_column=Column("lastPrice", Numeric(18, 6), nullable=True)
+    )
+    last_price_at: Optional[datetime] = SQLField(
+        default=None, sa_column=Column("lastPriceAt", SADateTime, nullable=True)
+    )
+    currency: str = SQLField(
+        default="USD",
+        sa_column=Column("currency", String(8), nullable=False, server_default="USD"),
+    )
+    created_at: datetime = SQLField(
+        default_factory=_now, sa_column=Column("createdAt", SADateTime, nullable=False)
+    )
+    updated_at: datetime = SQLField(
+        default_factory=_now, sa_column=Column("updatedAt", SADateTime, nullable=False)
+    )
+
+
+class EquityPriceTick(SQLModel, table=True):
+    """Append-only OHLCV history for one instrument."""
+
+    __tablename__ = "EquityPriceTick"
+    __table_args__ = (
+        Index(
+            "EquityPriceTick_instrumentId_ts_idx",
+            "instrumentId",
+            "ts",
+        ),
+        Index("EquityPriceTick_source_idx", "source"),
+    )
+
+    id: str = SQLField(default_factory=_new_cuid, primary_key=True)
+    instrument_id: str = SQLField(
+        sa_column=Column("instrumentId", String, nullable=False)
+    )
+    ts: datetime = SQLField(sa_column=Column("ts", SADateTime, nullable=False))
+    open: Decimal = SQLField(
+        sa_column=Column("open", Numeric(18, 6), nullable=False)
+    )
+    high: Decimal = SQLField(
+        sa_column=Column("high", Numeric(18, 6), nullable=False)
+    )
+    low: Decimal = SQLField(sa_column=Column("low", Numeric(18, 6), nullable=False))
+    close: Decimal = SQLField(
+        sa_column=Column("close", Numeric(18, 6), nullable=False)
+    )
+    volume: Decimal = SQLField(
+        sa_column=Column("volume", Numeric(20, 4), nullable=False)
+    )
+    source: EquityPriceSource = SQLField(
+        sa_column=Column("source", String, nullable=False)
+    )
+    created_at: datetime = SQLField(
+        default_factory=_now, sa_column=Column("createdAt", SADateTime, nullable=False)
+    )
+
+
+class EquitySignal(SQLModel, table=True):
+    """Source-grounded bullish/bearish/neutral take on one instrument."""
+
+    __tablename__ = "EquitySignal"
+    __table_args__ = (
+        Index(
+            "EquitySignal_organizationId_status_createdAt_idx",
+            "organizationId",
+            "status",
+            "createdAt",
+        ),
+        Index(
+            "EquitySignal_instrumentId_createdAt_idx",
+            "instrumentId",
+            "createdAt",
+        ),
+        Index("EquitySignal_liveAuthorizedAt_idx", "liveAuthorizedAt"),
+    )
+
+    id: str = SQLField(default_factory=_new_cuid, primary_key=True)
+    instrument_id: str = SQLField(
+        sa_column=Column("instrumentId", String, nullable=False)
+    )
+    organization_id: str = SQLField(
+        sa_column=Column("organizationId", String, nullable=False)
+    )
+    direction: EquitySignalDirection = SQLField(
+        sa_column=Column("direction", String, nullable=False)
+    )
+    confidence_low: Decimal = SQLField(
+        sa_column=Column("confidenceLow", Numeric(8, 6), nullable=False)
+    )
+    confidence_high: Decimal = SQLField(
+        sa_column=Column("confidenceHigh", Numeric(8, 6), nullable=False)
+    )
+    target_price_low: Optional[Decimal] = SQLField(
+        default=None,
+        sa_column=Column("targetPriceLow", Numeric(18, 6), nullable=True),
+    )
+    target_price_high: Optional[Decimal] = SQLField(
+        default=None,
+        sa_column=Column("targetPriceHigh", Numeric(18, 6), nullable=True),
+    )
+    horizon_days: int = SQLField(
+        sa_column=Column("horizonDays", SAInteger, nullable=False)
+    )
+    headline: str = SQLField(
+        sa_column=Column("headline", String(140), nullable=False)
+    )
+    reasoning: str = SQLField(
+        sa_column=Column("reasoning", Text, nullable=False)
+    )
+    model_name: str = SQLField(
+        sa_column=Column("modelName", String, nullable=False)
+    )
+    prompt_tokens: int = SQLField(
+        default=0, sa_column=Column("promptTokens", SAInteger, nullable=False)
+    )
+    completion_tokens: int = SQLField(
+        default=0, sa_column=Column("completionTokens", SAInteger, nullable=False)
+    )
+    status: EquitySignalStatus = SQLField(
+        sa_column=Column("status", String, nullable=False)
+    )
+    abstention_reason: Optional[str] = SQLField(
+        default=None,
+        sa_column=Column("abstentionReason", String, nullable=True),
+    )
+    # Parent-level gate-3 authorization mirrors ForecastPrediction.liveAuthorizedAt;
+    # required for the shared eight-gate safety contract.
+    live_authorized_at: Optional[datetime] = SQLField(
+        default=None,
+        sa_column=Column("liveAuthorizedAt", SADateTime, nullable=True),
+    )
+    live_authorized_by: Optional[str] = SQLField(
+        default=None,
+        sa_column=Column("liveAuthorizedBy", String, nullable=True),
+    )
+    created_at: datetime = SQLField(
+        default_factory=_now, sa_column=Column("createdAt", SADateTime, nullable=False)
+    )
+    updated_at: datetime = SQLField(
+        default_factory=_now, sa_column=Column("updatedAt", SADateTime, nullable=False)
+    )
+
+
+class EquitySignalCitation(SQLModel, table=True):
+    """Verbatim source span grounding one EquitySignal."""
+
+    __tablename__ = "EquitySignalCitation"
+    __table_args__ = (
+        Index("EquitySignalCitation_signalId_idx", "signalId"),
+        Index(
+            "EquitySignalCitation_sourceType_sourceId_idx", "sourceType", "sourceId"
+        ),
+    )
+
+    id: str = SQLField(default_factory=_new_cuid, primary_key=True)
+    signal_id: str = SQLField(sa_column=Column("signalId", String, nullable=False))
+    source_type: str = SQLField(sa_column=Column("sourceType", String, nullable=False))
+    source_id: str = SQLField(sa_column=Column("sourceId", String, nullable=False))
+    quoted_span: str = SQLField(
+        sa_column=Column("quotedSpan", Text, nullable=False)
+    )
+    support_label: ForecastSupportLabel = SQLField(
+        sa_column=Column("supportLabel", String, nullable=False)
+    )
+    created_at: datetime = SQLField(
+        default_factory=_now, sa_column=Column("createdAt", SADateTime, nullable=False)
+    )
+
+
+class EquityPosition(SQLModel, table=True):
+    """A paper or live cash-account position derived from one EquitySignal."""
+
+    __tablename__ = "EquityPosition"
+    __table_args__ = (
+        CheckConstraint(
+            '"mode" != \'LIVE\' OR "liveAuthorizedAt" IS NOT NULL',
+            name="EquityPosition_live_requires_authorizedAt_check",
+        ),
+        Index("EquityPosition_signalId_idx", "signalId"),
+        Index(
+            "EquityPosition_instrumentId_status_idx",
+            "instrumentId",
+            "status",
+        ),
+        Index("EquityPosition_externalOrderId_idx", "externalOrderId"),
+    )
+
+    id: str = SQLField(default_factory=_new_cuid, primary_key=True)
+    signal_id: str = SQLField(sa_column=Column("signalId", String, nullable=False))
+    instrument_id: str = SQLField(
+        sa_column=Column("instrumentId", String, nullable=False)
+    )
+    organization_id: str = SQLField(
+        sa_column=Column("organizationId", String, nullable=False)
+    )
+    mode: EquityPositionMode = SQLField(
+        default=EquityPositionMode.PAPER,
+        sa_column=Column("mode", String, nullable=False),
+    )
+    side: EquityPositionSide = SQLField(
+        sa_column=Column("side", String, nullable=False)
+    )
+    qty: Decimal = SQLField(sa_column=Column("qty", Numeric(20, 6), nullable=False))
+    entry_price: Decimal = SQLField(
+        sa_column=Column("entryPrice", Numeric(18, 6), nullable=False)
+    )
+    entry_at: datetime = SQLField(
+        sa_column=Column("entryAt", SADateTime, nullable=False)
+    )
+    exit_price: Optional[Decimal] = SQLField(
+        default=None, sa_column=Column("exitPrice", Numeric(18, 6), nullable=True)
+    )
+    exit_at: Optional[datetime] = SQLField(
+        default=None, sa_column=Column("exitAt", SADateTime, nullable=True)
+    )
+    status: EquityPositionStatus = SQLField(
+        sa_column=Column("status", String, nullable=False)
+    )
+    external_order_id: Optional[str] = SQLField(
+        default=None, sa_column=Column("externalOrderId", String, nullable=True)
+    )
+    realized_pnl_usd: Optional[Decimal] = SQLField(
+        default=None,
+        sa_column=Column("realizedPnlUsd", Numeric(14, 4), nullable=True),
+    )
+    unrealized_pnl_usd: Optional[Decimal] = SQLField(
+        default=None,
+        sa_column=Column("unrealizedPnlUsd", Numeric(14, 4), nullable=True),
+    )
+    live_authorized_at: Optional[datetime] = SQLField(
+        default=None,
+        sa_column=Column("liveAuthorizedAt", SADateTime, nullable=True),
+    )
+    created_at: datetime = SQLField(
+        default_factory=_now, sa_column=Column("createdAt", SADateTime, nullable=False)
+    )
+    updated_at: datetime = SQLField(
+        default_factory=_now, sa_column=Column("updatedAt", SADateTime, nullable=False)
+    )
+
+
+class EquityPortfolioState(SQLModel, table=True):
+    """Singleton-per-organization paper + live bankroll state for equities."""
+
+    __tablename__ = "EquityPortfolioState"
+    __table_args__ = (
+        UniqueConstraint(
+            "organizationId", name="EquityPortfolioState_organizationId_key"
+        ),
+    )
+
+    id: str = SQLField(default_factory=_new_cuid, primary_key=True)
+    organization_id: str = SQLField(
+        sa_column=Column("organizationId", String, nullable=False)
+    )
+    paper_balance_usd: Decimal = SQLField(
+        sa_column=Column("paperBalanceUsd", Numeric(14, 2), nullable=False)
+    )
+    live_balance_usd: Optional[Decimal] = SQLField(
+        default=None,
+        sa_column=Column("liveBalanceUsd", Numeric(14, 2), nullable=True),
+    )
+    daily_loss_usd: Decimal = SQLField(
+        default=Decimal("0"),
+        sa_column=Column("dailyLossUsd", Numeric(14, 2), nullable=False),
+    )
+    daily_loss_window_reset_at: datetime = SQLField(
+        sa_column=Column("dailyLossWindowResetAt", SADateTime, nullable=False)
+    )
+    kill_switch_engaged: bool = SQLField(
+        default=False, sa_column=Column("killSwitchEngaged", SABoolean, nullable=False)
+    )
+    kill_switch_reason: Optional[str] = SQLField(
+        default=None, sa_column=Column("killSwitchReason", String, nullable=True)
+    )
+    updated_at: datetime = SQLField(
+        default_factory=_now, sa_column=Column("updatedAt", SADateTime, nullable=False)
+    )
+
+
 # === Round 3 additions ===
 
 # ── Round 3: Methods and Registry ────────────────────────────────────────────
@@ -2756,3 +3153,182 @@ class FounderOverride(BaseModel):
     ledger_entry_id: str
 
     model_config = ConfigDict(strict=True, extra="forbid", frozen=True)
+
+
+# ── Quantitative Formalisation (prompt 63, 2026-05-15) ──────────────────────
+
+
+class FormalisationStatus(str, Enum):
+    DRAFT = "DRAFT"
+    PENDING_REVIEW = "PENDING_REVIEW"
+    APPROVED = "APPROVED"
+    RETIRED = "RETIRED"
+    UNFORMALISABLE = "UNFORMALISABLE"
+
+
+class StatisticalTestKind(str, Enum):
+    REGRESSION = "regression"
+    CLASSIFICATION = "classification"
+    EVENT_STUDY = "event_study"
+    CORRELATION = "correlation"
+    HAZARD = "hazard"
+    KS_TEST = "ks_test"
+    AB = "ab"
+
+
+class MetricSpec(BaseModel):
+    """One numeric quantity, defined precisely enough to be reproducible."""
+
+    name: str
+    definition: str
+    unit: str
+    source_dataset: str
+    update_cadence: str  # e.g. "daily", "monthly", "quarterly", "ad-hoc"
+
+    model_config = ConfigDict(extra="forbid")
+
+
+class StatisticalTestSpec(BaseModel):
+    """One statistical test that would tell us whether the principle holds."""
+
+    kind: StatisticalTestKind
+    dependent: str
+    independents: list[str] = Field(default_factory=list)
+    controls: list[str] = Field(default_factory=list)
+    dataset_filter: str = ""
+    expected_sign_or_magnitude: str
+    expected_p_threshold: float = Field(default=0.05, ge=0.0, le=1.0)
+
+    model_config = ConfigDict(use_enum_values=True, extra="forbid")
+
+
+class DataSourceSpec(BaseModel):
+    """A named dataset with provenance — must be real and accessible."""
+
+    name: str
+    provenance: str  # URL or internal table name
+    license: str
+    refresh_cadence: str
+
+    model_config = ConfigDict(extra="forbid")
+
+
+class QuantitativeFormalisation(BaseModel):
+    """
+    A structured quantitative-formalisation spec for a single Principle.
+
+    Bridges the firm's logical principles to numerical, falsifiable tests.
+    Falsifiability is required: a formalisation cannot ship without a
+    ``null_hypothesis`` stating what would be true if the principle is
+    false. APPROVED rows are surfaced on the public principle page as
+    the firm's "how we test this principle" disclosure.
+
+    Status ladder:
+      DRAFT          — drafter has proposed; founder has not seen it.
+      PENDING_REVIEW — drafter promoted to founder queue.
+      APPROVED       — founder accepted (with optional edits); appears
+                       on the public surface. Never set by the drafter.
+      RETIRED        — superseded or invalidated; kept for audit.
+      UNFORMALISABLE — drafter judged the principle cannot be quantified
+                       with real, accessible data. Carries a structured
+                       ``unformalisable_reason``. Founder still triages.
+    """
+
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    principle_id: str
+
+    null_hypothesis: str = ""
+    metrics: list[MetricSpec] = Field(default_factory=list)
+    tests: list[StatisticalTestSpec] = Field(default_factory=list)
+    data_sources: list[DataSourceSpec] = Field(default_factory=list)
+    decision_thresholds: list[str] = Field(default_factory=list)
+
+    status: FormalisationStatus = FormalisationStatus.DRAFT
+    unformalisable_reason: Optional[str] = None
+
+    drafter_model: str = ""
+    drafter_notes: str = ""
+
+    reviewed_by_founder_id: Optional[str] = None
+    reviewed_at: Optional[datetime] = None
+
+    created_at: datetime = Field(default_factory=datetime.now)
+    updated_at: datetime = Field(default_factory=datetime.now)
+
+    model_config = ConfigDict(use_enum_values=True)
+
+    @model_validator(mode="after")
+    def _enforce_approval_invariants(self) -> "QuantitativeFormalisation":
+        # APPROVED rows must be falsifiable and operational.
+        if self.status == FormalisationStatus.APPROVED.value or (
+            self.status == FormalisationStatus.APPROVED
+        ):
+            if not (self.null_hypothesis or "").strip():
+                raise ValueError(
+                    "APPROVED formalisation requires a non-empty null_hypothesis"
+                )
+            if not self.metrics:
+                raise ValueError(
+                    "APPROVED formalisation requires at least one metric"
+                )
+            if not self.tests:
+                raise ValueError(
+                    "APPROVED formalisation requires at least one test"
+                )
+        # UNFORMALISABLE rows must carry a reason.
+        if self.status in {
+            FormalisationStatus.UNFORMALISABLE,
+            FormalisationStatus.UNFORMALISABLE.value,
+        } and not (self.unformalisable_reason or "").strip():
+            raise ValueError(
+                "UNFORMALISABLE formalisation requires unformalisable_reason"
+            )
+        return self
+
+
+# NOTE: StoredQuantitativeFormalisation lives in noosphere.store next to
+# the other SQLModel tables; keep the payload model here and the
+# persistence row alongside its peers.
+
+
+# ── Quantitative Test Result (prompt 63 runner, 2026-05-15) ────────────────
+
+
+class QuantitativeRunStatus(str, Enum):
+    RAN = "RAN"
+    PARTIAL = "PARTIAL"
+    FAILED = "FAILED"
+
+
+class QuantitativeTestOutput(BaseModel):
+    """One per-test outcome inside a ``QuantitativeTestResult``."""
+
+    test_kind: str
+    statistic: Optional[float] = None
+    p_value: Optional[float] = None
+    effect_size: Optional[float] = None
+    sample_size: Optional[int] = None
+    confidence_interval: Optional[list[float]] = None
+    passed_threshold: Optional[bool] = None
+    notes: str = ""
+
+    model_config = ConfigDict(extra="forbid")
+
+
+class QuantitativeTestResult(BaseModel):
+    """Materialised outcome of a single runner pass over a formalisation."""
+
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    formalisation_id: str
+    principle_id: str = ""
+    run_stamp: str
+    metric_values: dict[str, Any] = Field(default_factory=dict)
+    test_outputs: list[QuantitativeTestOutput] = Field(default_factory=list)
+    decision_summary: str = ""
+    artifacts_path: str = ""
+    status: QuantitativeRunStatus = QuantitativeRunStatus.RAN
+    error: Optional[str] = None
+    threshold_crossings: list[str] = Field(default_factory=list)
+    created_at: datetime = Field(default_factory=datetime.now)
+
+    model_config = ConfigDict(use_enum_values=True)

@@ -7,6 +7,7 @@ import type { PublishedConclusion, PublicResponse } from "@/lib/conclusionsRead"
 import type { MqsRecord } from "@/lib/methodologyProfiles";
 import {
   fallbackReport,
+  publishThresholdFor,
   reportMatchesBody,
   type SentenceProvenanceReport,
 } from "@/lib/sentenceProvenance";
@@ -150,6 +151,7 @@ export default function ConclusionView({
         {isArticle && article && articleReport ? (
           <ProvenanceArticle
             bodyMarkdown={article.bodyMarkdown}
+            publishThreshold={publishThresholdFor(articleReport)}
             report={articleReport}
           />
         ) : isArticle && article ? (
@@ -177,30 +179,33 @@ export default function ConclusionView({
           </p>
           {methodologyNarrative ? <p className="public-method-narrative">{methodologyNarrative}</p> : null}
           {methodologyProfiles.length ? (
-            <div className="public-method-grid" role="list">
+            <ul className="public-method-grid">
               {methodologyProfiles.map((profile, index) => {
                 const headingId = `method-profile-${index}`;
                 return (
-                  <article
-                    aria-labelledby={headingId}
-                    className="public-card public-method-card"
+                  <li
+                    className="public-method-card-wrapper"
                     key={`${profile.patternType}:${profile.title}`}
-                    role="listitem"
                   >
-                    <div className="public-method-meta mono">
-                      <span>{formatPatternType(profile.patternType)}</span>
-                      <span>{percent(profile.confidence)}</span>
-                    </div>
-                    <h3 id={headingId}>{profile.title}</h3>
-                    <p className="public-method-summary">{profile.summary}</p>
-                    <MethodList label="Reasoning moves" items={profile.reasoningMoves} />
-                    <MethodList label="Working assumptions" items={profile.assumptions} />
-                    <MethodList label="Potential transfer targets" items={profile.transferTargets} />
-                    <MethodList label="Failure modes" items={profile.failureModes} />
-                  </article>
+                    <article
+                      aria-labelledby={headingId}
+                      className="public-card public-method-card"
+                    >
+                      <div className="public-method-meta mono">
+                        <span>{formatPatternType(profile.patternType)}</span>
+                        <span>{percent(profile.confidence)}</span>
+                      </div>
+                      <h3 id={headingId}>{profile.title}</h3>
+                      <p className="public-method-summary">{profile.summary}</p>
+                      <MethodList label="Reasoning moves" items={profile.reasoningMoves} />
+                      <MethodList label="Working assumptions" items={profile.assumptions} />
+                      <MethodList label="Potential transfer targets" items={profile.transferTargets} />
+                      <MethodList label="Failure modes" items={profile.failureModes} />
+                    </article>
+                  </li>
                 );
               })}
-            </div>
+            </ul>
           ) : (
             <p className="public-muted">No reusable method profile was attached to this publication.</p>
           )}
@@ -326,9 +331,13 @@ function ArticleSourceList({
                       target={isExternalHref(href) ? "_blank" : undefined}
                     >
                       {sourceText}
+                      <span className="visually-hidden"> ({sourceKind})</span>
                     </Link>
                   ) : (
-                    <span>{sourceText}</span>
+                    <span>
+                      {sourceText}
+                      <span className="visually-hidden"> ({sourceKind})</span>
+                    </span>
                   )}
                   <small aria-hidden="true" className="mono">
                     {sourceKind}

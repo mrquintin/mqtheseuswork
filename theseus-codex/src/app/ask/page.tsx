@@ -16,6 +16,14 @@ import { getFounder } from "@/lib/auth";
  * A reader who wants to know what the firm thinks gets a structured
  * pointer to the firm's actual public output, never a paraphrase.
  *
+ * Round 17 prompt 28: the box now classifies the question (a factual
+ * claim, a methodology question, a prediction request, a request for
+ * the counter-argument, or a browse) and routes each class to its own
+ * rail ordering; results are diversified with MMR and carry a
+ * freshness signal; and a no-result is an enriched page — the closest
+ * open question, the closest related conclusion, and a research-
+ * suggestion form — rather than a dead end.
+ *
  * Route split (UI/UX Round 20 §3.6): `/ask` is public-only. A
  * signed-in operator who lands here — via a stale link, a shared
  * browser, or a deep link to `/ask?q=...` — is redirected to the
@@ -95,12 +103,17 @@ export default async function PublicAskPage({
               maxWidth: "44em",
             }}
           >
-            One box, one question. We return what the firm has actually
-            published on the topic — conclusions, articles, currents
-            opinions, and the open questions still on the table. Snippets
-            are excerpted, never rewritten. When the firm has not
-            addressed your question directly, we say so and point you to
-            the closest open question.
+            One box, one question. We read what kind of question you
+            asked and return what the firm has actually published on the
+            topic — conclusions, articles, currents opinions, and the
+            open questions still on the table — ordered for that kind of
+            question and de-duplicated so you don't get five paraphrases
+            of one result. Each result carries its date and whether the
+            firm still considers it current. Snippets are excerpted,
+            never rewritten. When the firm has not addressed your
+            question directly, we say so — and point you to the closest
+            open question, the closest related conclusion, and a form to
+            put the question on the firm's research queue.
           </p>
         </header>
 

@@ -86,6 +86,8 @@ export type SculptureBackdropProps = {
   offsetY?: number;
   /** Extra CSS for the wrapper. */
   style?: CSSProperties;
+  /** Opt into continuous rotation. Defaults to false for main-thread responsiveness. */
+  animated?: boolean;
 };
 
 const ANCHOR_TO_ALIGN_ITEMS: Record<"top" | "center" | "bottom", string> = {
@@ -124,6 +126,7 @@ export default function SculptureBackdrop({
   offsetX = 0,
   offsetY = 0,
   style,
+  animated = false,
 }: SculptureBackdropProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [isNarrow, setIsNarrow] = useState(false);
@@ -293,6 +296,7 @@ export default function SculptureBackdrop({
           pitch={pitch}
           scale={0.9}
           color="var(--amber)"
+          animated={animated}
         />
       </div>
     </div>

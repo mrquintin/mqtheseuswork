@@ -1,0 +1,128 @@
+\documentclass[11pt]{article}
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage[margin=1in]{geometry}
+\usepackage{booktabs}
+\usepackage{array}
+\usepackage{longtable}
+\usepackage{hyperref}
+\usepackage{xcolor}
+\title{Quintin Hypothesis Benchmark v1 \\ \large First Real Run: Results and Statistical Analysis}
+\author{Theseus / Noosphere Research}
+\date{2026-05-14}
+\begin{document}
+\maketitle
+
+\begin{abstract}We report the first end-to-end run of the Quintin Hypothesis (QH) benchmark v1 against the firm's contradiction-geometry probe and two baselines (a random runner and a cosine-only runner). The frozen v1 dataset contains 1936 items spanning 3 domains. All runners use the deterministic hash-det-v1 embedder, so the comparison is on geometry, not on embedding quality. \par\textbf{Honest negative finding.} On this run a non-firm baseline beats the firm's contradiction-geometry probe on at least one slice. The benchmark was built so the firm could be wrong in public; the losing slices are enumerated in Section~\ref{sec:honest}, not buried. The MQS-on-the-firm-probe composite is below the announcement threshold, so this result is published but not promoted.\end{abstract}
+
+\section{Run envelope}
+\begin{longtable}{l l}
+\toprule
+Run stamp & 20260514T052854Z \\
+Benchmark version & qh-v1 \\
+Git SHA & 0034929158a42e4e536d85efd41ab22721c7ca50 \\
+Git branch & main (dirty=True) \\
+Dataset sha256 & b25ab62102389fbbbf2cdad08cc5a056e4946631835a89672fe88aa0a8fbe7c4 \\
+Dataset items & 1936 \\
+Dataset frozen verified & True (passed) \\
+Embedder & hash-det-v1 (dim 192) \\
+Random-runner seed & 0 \\
+Analysis bootstrap seed & 17 \\
+Bootstrap & 10000 resamples, paired BCa (bias-corrected and accelerated) \\
+Embedding budget & 0 / 50000 credits \\
+Python & 3.13.7 \\
+\bottomrule
+\end{longtable}
+
+\section{Leaderboard}
+\begin{longtable}{l l r r r r}
+\toprule
+Runner & $n$ of $N$ & Accuracy & AUROC & ECE & Latency p50 (ms) \\
+\midrule
+\texttt{contradiction\_geometry} & 1936 of 1936 & 0.2877 & 0.5858 & 0.2752 & 0.0065 \\
+\texttt{random} & 1936 of 1936 & 0.3352 & 0.4964 & 0.2537 & 0.0022 \\
+\texttt{cosine} & 1936 of 1936 & 0.3673 & 0.3987 & 0.3964 & 0.0035 \\
+\bottomrule
+\end{longtable}
+
+\section{Honest findings}\label{sec:honest}
+A non-firm baseline wins on the following slices:
+\begin{itemize}
+\item Overall 3-way accuracy: the cosine baseline (0.3673) beats the firm's contradiction-geometry probe (0.2877).
+\item Overall 3-way accuracy: even the random runner (0.3352) beats the firm probe (0.2877) --- the probe is below chance on accuracy.
+\item Domain 'economics' accuracy: cosine (0.4094) beats the firm probe (0.2596).
+\item Domain 'ethics' AUROC: cosine (0.5124) beats the firm probe (0.4667).
+\item Domain 'physics' accuracy: cosine (0.4037) beats the firm probe (0.2898).
+\item The firm probe is degenerate on this run: it predicts 'contradicting' for every item. Its AUROC is not meaningless, but its accuracy reflects only the base rate of that label.
+\end{itemize}
+
+\section{Statistical analysis: firm probe vs cosine}
+Paired comparison over 1936 aligned items. Confidence intervals are paired BCa bootstrap intervals (10000 resamples); positive values favour the firm probe.
+
+\subsection{3-way accuracy difference}
+\begin{longtable}{l l}
+\toprule
+$\Delta$ accuracy (firm $-$ cosine) & -0.0795 \\
+95\% BCa CI & [-0.1152, -0.0429] \\
+Excludes zero & True \\
+Bootstrap two-sided $p$ & 0.0001 \\
+Effect size (Cohen's $h$) & -0.1698 (negligible) \\
+BCa internals & $z_0$=0.0015, $a$=0.0005 \\
+\bottomrule
+\end{longtable}
+
+\subsection{McNemar's test (paired 3-way correctness)}
+\begin{longtable}{l l}
+\toprule
+Method & \texttt{mcnemar-chi2-continuity} \\
+$b$ (firm right, cosine wrong) & 553 \\
+$c$ (firm wrong, cosine right) & 707 \\
+Discordant pairs & 1260 \\
+Statistic & 18.5786 \\
+$p$-value & 0.0000 \\
+Odds ratio ($b/c$) & 0.7822 \\
+\bottomrule
+\end{longtable}
+
+\subsection{AUROC difference (contradicting vs coherent)}
+\begin{longtable}{l l}
+\toprule
+AUROC firm & 0.5858 \\
+AUROC cosine & 0.3987 \\
+$\Delta$ AUROC (firm $-$ cosine) & 0.1871 \\
+95\% BCa CI & [0.1316, 0.2424] \\
+Excludes zero & True \\
+Bootstrap two-sided $p$ & 0.0001 \\
+\bottomrule
+\end{longtable}
+
+\subsection{Per-domain accuracy difference (firm $-$ cosine)}
+\begin{longtable}{l r r l l}
+\toprule
+Domain & $n$ pairs & $\Delta$ accuracy & 95\% BCa CI & Cohen's $h$ \\
+\midrule
+economics & 574 & -0.1498 & [-0.2160, -0.0854] & -0.3194 (small) \\
+ethics & 344 & 0.1395 & [0.0640, 0.2093] & 0.3213 (small) \\
+physics & 1018 & -0.1139 & [-0.1660, -0.0658] & -0.2402 (small) \\
+\bottomrule
+\end{longtable}
+
+\section{MQS-on-the-firm-probe (announcement gate)}
+Composite quality score for the contradiction-geometry probe: \textbf{0.4741} (threshold 0.50). 
+The composite is below the threshold, so the announcement tweet is suppressed. The result is published but not promoted.
+
+\begin{longtable}{l r}
+\toprule
+Component & Value \\
+\midrule
+accuracy\_lift & 0.0000 \\
+auroc\_lift & 0.1715 \\
+calibration & 0.7248 \\
+beats\_cosine & 1.0000 \\
+\bottomrule
+\end{longtable}
+
+\section{Reproducibility}
+Every number in this document is produced by \texttt{noosphere.benchmarks.qh\_analysis} from the frozen dataset and the recorded envelope; no value is hand-edited. To reproduce: check out git SHA \texttt{0034929158a42e4e536d85efd41ab22721c7ca50}, confirm the dataset sha256 matches the envelope, and re-run \texttt{noosphere/scripts/run\_qh\_full.sh}. The random runner is reproducible from the recorded seed; the cosine and firm probes are deterministic.
+
+\end{document}

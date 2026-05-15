@@ -1,0 +1,388 @@
+\documentclass[11pt]{article}
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage[margin=1in]{geometry}
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage{booktabs}
+\usepackage{array}
+\usepackage{longtable}
+\usepackage{caption}
+\usepackage{hyperref}
+\usepackage{xcolor}
+
+\newcommand{\sP}{s_{\mathrm{P}}}
+\newcommand{\sS}{s_{\mathrm{S}}}
+\newcommand{\sAMF}{s_{\mathrm{AMF}}}
+\newcommand{\sC}{s_{\mathrm{C}}}
+\newcommand{\sDS}{s_{\mathrm{DS}}}
+\newcommand{\code}[1]{\texttt{#1}}
+\newcommand{\clip}{\operatorname{clamp}}
+
+\title{Methodology Quality Score (MQS)\\\large Formal Specification, \texttt{SPEC\_VERSION} = 1.0.0}
+\author{Theseus / Noosphere}
+\date{2026-05-14}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+The Methodology Quality Score is the operational form of the five working
+criteria from \texttt{THE\_META\_METHOD.md}, attached to every Conclusion that
+carries at least one MethodologyProfile. This is the first \emph{formal}
+version of the specification: it states the closed form of each of the five
+sub-scores, the exact gating function, the exact composite operator, and the
+boundary cases. Equations are numbered and the body refers to them. The
+specification is the source of truth for \code{noosphere/noosphere/evaluation/mqs.py};
+\code{scripts/check\_mqs\_doc\_consistency.py} fails CI if the two drift. The
+Markdown rendering at \code{docs/methods/MQS\_Specification.md} is the same
+specification in prose; this PDF restates it in standard mathematical
+notation. No equation in this specification calls an LLM judge --- the judge
+produces sub-score \emph{evidence} and two numeric inputs, and the formulas
+are arithmetic on numbers.
+\end{abstract}
+
+\section{Notation}
+\label{sec:notation}
+
+A conclusion $c$ carries text, a rationale, a topic hint, and links to
+forecasts, dissent claims, and a domain bound. $M(c)$ is the set of
+MethodologyProfiles attached to $c$ (possibly empty); $m \in M(c)$ is one
+method. The five sub-scores and the composite are all in $[0,1]$:
+\[
+\sP,\ \sS,\ \sAMF,\ \sC,\ \sDS \in [0,1], \qquad \mathrm{MQS}(c) \in [0,1].
+\]
+$\sP$ is progressivity, $\sS$ severity, $\sAMF$ aim--method fit, $\sC$
+compressibility, $\sDS$ domain sensitivity.
+
+The typed inputs read from $c$ and $M(c)$:
+\begin{itemize}
+  \item $F(c) \in \mathbb{N}$ --- forecast count linked to $c$.
+  \item $B(c) \in \{0,1\}$ --- $1$ iff $c$ carries a future check-back date.
+  \item $R(c) \in \mathbb{N}$ --- decision-rule phrase count: regex matches of
+        the decision-rule pattern in the conclusion text plus rationale.
+  \item $\mathrm{FM}(c) = \bigcup_{m \in M(c)} \mathrm{failure\_modes}(m)$ ---
+        concatenated failure-mode list; $A(c) = \bigcup_{m \in M(c)}
+        \mathrm{assumptions}(m)$, with $n = |A(c)|$.
+  \item $D(c) \in \mathbb{N}$ --- dissent-claim count.
+  \item $j_{\mathrm{S}}, j_{\mathrm{DS}} \in [0,1] \cup \{\bot\}$ --- the LLM
+        judge's numeric scores for severity and domain sensitivity; $\bot$
+        means the judge produced no number.
+  \item $\kappa \in [0,1] \cup \{\bot\}$ --- severity track-record ceiling.
+  \item $\delta, \omega \in (0,1]$ --- severity drift penalty and objection
+        penalty multipliers.
+  \item $v \in \{\textsf{in\_bounds}, \textsf{edge\_case},
+        \textsf{out\_of\_bounds}\} \cup \{\bot\}$ --- the domain-bound verdict.
+\end{itemize}
+
+$\clip(x)$ maps $x$ into $[0,1]$ and maps $\mathrm{NaN}$ to $0$. Every formula
+in Section~\ref{sec:subscores} is \emph{total} --- defined for every input,
+including $M(c) = \emptyset$ (Section~\ref{sec:boundary}).
+
+\section{Sub-scores}
+\label{sec:subscores}
+
+\subsection{Progressivity $\sP$ --- deterministic}
+
+Did the analysis produce a prediction, implication, or decision rule that can
+later be checked? $\sP$ is a piecewise constant of $F(c), B(c), R(c)$; the
+first matching clause wins:
+\begin{equation}
+\label{eq:progressivity}
+\sP =
+\begin{cases}
+1.00 & B(c)=1 \ \wedge\ F(c)\ge 2 \ \wedge\ R(c)\ge 1,\\[2pt]
+0.85 & \bigl(B(c)=1 \wedge F(c)\ge 1\bigr) \ \vee\ F(c)\ge 2,\\[2pt]
+0.65 & B(c)=1 \ \vee\ F(c)\ge 1,\\[2pt]
+0.40 & R(c)\ge 1,\\[2pt]
+0.00 & \text{otherwise}.
+\end{cases}
+\end{equation}
+
+\subsection{Severity $\sS$ --- deterministic floor, judged, then deterministic caps}
+
+Would the procedure that produced $c$ have caught the claim if it were false?
+$\sS$ is computed in five stages, each of which can only move the score toward
+caution. The deterministic floor:
+\begin{equation}
+\label{eq:sev-floor}
+\mathrm{floor} = \min\!\bigl(1,\ \texttt{SEVERITY\_FAILURE\_MODE\_FLOOR\_STEP}\cdot|\mathrm{FM}(c)|
+ + \texttt{SEVERITY\_DISSENT\_FLOOR\_STEP}\cdot D(c)\bigr).
+\end{equation}
+The judge, floored (with $j_{\mathrm{S}} = \bot$ treated as $0$):
+\begin{equation}
+\label{eq:sev-judge}
+\sS^{(0)} = \max\!\bigl(\mathrm{floor},\ \clip(j_{\mathrm{S}})\bigr).
+\end{equation}
+The no-failure-modes cap --- a method that lists no way it could fail is by
+construction not severe:
+\begin{equation}
+\label{eq:sev-cap}
+\sS^{(1)} =
+\begin{cases}
+\min\!\bigl(\sS^{(0)},\ \texttt{SEVERITY\_NO\_FAILURE\_MODES\_CAP}\bigr)
+  & \mathrm{FM}(c)=\emptyset \ \wedge\ D(c)=0,\\[2pt]
+\sS^{(0)} & \text{otherwise}.
+\end{cases}
+\end{equation}
+The track-record ceiling --- a thin or poorly calibrated
+\code{MethodTrackRecord} cannot project high severity onto new conclusions:
+\begin{equation}
+\label{eq:sev-ceiling}
+\sS^{(2)} =
+\begin{cases}
+\min\!\bigl(\sS^{(1)},\ \clip(\kappa)\bigr) & \kappa \ne \bot,\\[2pt]
+\sS^{(1)} & \kappa = \bot.
+\end{cases}
+\end{equation}
+Finally the multiplicative penalties --- drift $\delta$ before objection
+$\omega$, both in $(0,1]$:
+\begin{equation}
+\label{eq:sev-final}
+\sS = \sS^{(2)} \cdot \delta \cdot \omega.
+\end{equation}
+Drift and objection penalties touch only severity: a method's recent
+calibration and its open objections bound how far to trust \emph{this} claim
+of having weighed counter-evidence; they do not touch the other criteria.
+
+\subsection{Aim--method fit $\sAMF$ --- deterministic}
+
+Is the method actually capable of answering the question being asked? Since
+prompt~31 this sub-score is deterministic: it is the five-level rubric in
+\code{noosphere/noosphere/inquiry/aim\_method\_fit.py}, driven by the question
+typology. Let $\ell \in \{0,1,2,3,4\}$ be the rubric level assigned to $c$.
+Then
+\begin{equation}
+\label{eq:amf}
+\sAMF = \ell / 4 \in \{0.00, 0.25, 0.50, 0.75, 1.00\}.
+\end{equation}
+The rubric and its worked examples are specified in
+\code{docs/methods/Aim\_Method\_Fit\_Rubric.md}. Aim--method fit asks whether
+the method's \emph{output shape} matches the question; domain sensitivity
+(Section~\ref{sec:domain}) asks whether the conclusion is inside the method's
+\emph{domain}. The two are distinct: a method can be in-domain and still
+misfit the question.
+
+\subsection{Compressibility $\sC$ --- deterministic, LLM-pruned}
+
+How many independent assumptions must hold for $c$ to survive? Let $n = |A(c)|$
+and let $d \in [0,n]$ be the count of assumptions the LLM judge classifies as
+decorative. The effective assumption count cannot fall below $1$:
+\begin{equation}
+\label{eq:comp-eff}
+n' = \max(1,\ n - d).
+\end{equation}
+The score decays with each load-bearing assumption beyond the first:
+\begin{equation}
+\label{eq:comp}
+\sC = \frac{1}{1 + (n' - 1)\cdot \texttt{COMPRESSIBILITY\_PENALTY\_STEP}}.
+\end{equation}
+With \texttt{COMPRESSIBILITY\_PENALTY\_STEP} $= 0.25$: $n' \in \{0,1\}
+\mapsto 1.00$, $2 \mapsto 0.80$, $3 \mapsto 0.67$, $4 \mapsto 0.57$,
+$5 \mapsto 0.50$. The LLM only ever reduces $n$; it cannot lift $\sC$ above
+what the raw assumption count allows.
+
+\subsection{Domain sensitivity $\sDS$ --- judged, with deterministic verdict override; the gate}
+\label{sec:domain}
+
+Where should this method stop being trusted, and is $c$ inside or outside that
+domain? Define the pre-verdict score from the judge and a deterministic floor:
+\begin{equation}
+\label{eq:ds-base}
+\sDS^{0} = \max(\mathrm{base},\ \mathrm{floor}),
+\quad
+\mathrm{base} =
+\begin{cases}
+\clip(j_{\mathrm{DS}}) & j_{\mathrm{DS}} \ne \bot,\\
+\texttt{DOMAIN\_BACKFILL\_DEFAULT} & j_{\mathrm{DS}} = \bot,
+\end{cases}
+\quad
+\mathrm{floor} =
+\begin{cases}
+\texttt{DOMAIN\_NO\_FAILURE\_MODES\_FLOOR} & \mathrm{FM}(c)=\emptyset,\\
+0 & \text{otherwise}.
+\end{cases}
+\end{equation}
+The domain-bound verdict $v$ then overrides:
+\begin{equation}
+\label{eq:ds}
+\sDS =
+\begin{cases}
+0 & v = \textsf{out\_of\_bounds},\\[2pt]
+\min\!\bigl(\sDS^{0},\ \texttt{EDGE\_CASE\_DOMAIN\_CEILING}\bigr) & v = \textsf{edge\_case},\\[2pt]
+\sDS^{0} & \text{otherwise}.
+\end{cases}
+\end{equation}
+An \textsf{out\_of\_bounds} verdict is a hard zero --- the orchestrator has
+established $c$ is outside the method's declared \code{DomainBound}. The
+deterministic floor \texttt{DOMAIN\_NO\_FAILURE\_MODES\_FLOOR} $= 0.10$ keeps a
+method with no declared failure modes off zero --- its domain claim is
+\emph{unverifiable}, not \emph{failed} --- but, crucially, that floor is below
+the gate threshold $\theta$ (Section~\ref{sec:composite}), so the floor alone
+never opens the gate.
+
+\section{Composite}
+\label{sec:composite}
+
+Domain sensitivity is a \emph{gate}, not a weighted addend and --- since this
+formal version --- not a soft multiplicative penalty either. With gate
+threshold $\theta = \texttt{DS\_GATE\_THRESHOLD} = 0.15$:
+\begin{equation}
+\label{eq:composite}
+\mathrm{MQS}(c) =
+\begin{cases}
+0 & \sDS < \theta,\\[3pt]
+\operatorname{wgm}(\sP, \sS, \sAMF, \sC) & \sDS \ge \theta.
+\end{cases}
+\end{equation}
+The gate is closed on the passing side: $\sDS = \theta$ exactly opens it. The
+combining operator is the weighted geometric mean, with the
+\code{SUBSCORE\_WEIGHTS} as exponents:
+\begin{equation}
+\label{eq:wgm}
+\operatorname{wgm}(\sP, \sS, \sAMF, \sC)
+ = \sP^{\,w_{\mathrm{P}}}\cdot \sS^{\,w_{\mathrm{S}}}\cdot \sAMF^{\,w_{\mathrm{AMF}}}\cdot \sC^{\,w_{\mathrm{C}}},
+\qquad \sum w_i = 1.
+\end{equation}
+The four weights are equal at $0.25$, so $\operatorname{wgm} = (\sP\, \sS\,
+\sAMF\, \sC)^{1/4}$. The operator has the weakest-link property:
+\begin{equation}
+\label{eq:weakest-link}
+\bigl(\exists\, i:\ x_i = 0\bigr) \ \Longrightarrow\ \operatorname{wgm}(x) = 0.
+\end{equation}
+It is monotone non-decreasing in each argument, equals $1$ if and only if every
+argument equals $1$, and stays in $[0,1]$.
+
+\subsection{Why this composite}
+
+The Round~17 prose draft used $\mathrm{MQS}(c) = \sDS \cdot
+\operatorname{mean}(\sP, \sS, \sAMF, \sC)$ --- a soft penalty in which
+$\sDS = 0.5$ merely capped the composite at $0.5$. The firm's position on a
+method pointed outside its domain is stronger than a discount: such a method
+is not producing a worse answer, it is producing one the firm has no basis to
+trust. Hence the hard gate of Eq.~\eqref{eq:composite}. Among the three
+operators that share the weakest-link property of
+Eq.~\eqref{eq:weakest-link} --- the minimum, the harmonic mean, and the
+weighted geometric mean --- the minimum discards three of four signals and the
+harmonic mean is so dominated by the smallest input that the others barely
+register. The weighted geometric mean keeps all four with proportional weight,
+still refuses redemption, and is the exact multiplicative analogue of the
+prose draft's arithmetic mean (the same weight map, used as exponents). It is
+the choice.
+
+\section{Boundary cases}
+\label{sec:boundary}
+
+Each rule below is pinned by a named test in
+\code{noosphere/tests/test\_mqs\_spec.py}.
+
+\paragraph{Insufficient data.} No sub-score is ever undefined. With
+$M(c) = \emptyset$: $\sP$ is still computed from $c$;
+Eq.~\eqref{eq:sev-floor} gives $\mathrm{floor}=0$ and Eq.~\eqref{eq:sev-cap}
+caps $\sS$ at $0.35$; $\sAMF = 0.5$ (rubric level $2$, ``cannot verify fit'');
+Eq.~\eqref{eq:comp-eff}--\eqref{eq:comp} give $n'=1$ and $\sC = 1.0$;
+Eq.~\eqref{eq:ds-base} floors $\sDS$ at \texttt{DOMAIN\_NO\_FAILURE\_MODES\_FLOOR}
+and, with no judge, uses $\mathrm{base} = \texttt{DOMAIN\_BACKFILL\_DEFAULT}$.
+Insufficient data resolves to a defined, conservative number.
+
+\paragraph{At the gate threshold.} The gate condition $\sDS < \theta$ is
+strict, so $\sDS = \theta$ opens the gate and $\sDS = \theta - \varepsilon$
+closes it. The composite is discontinuous at $\theta$: this is intentional ---
+it makes the gate a verdict, not a dial. Note
+$\texttt{DOMAIN\_NO\_FAILURE\_MODES\_FLOOR} = 0.10 < \theta = 0.15$.
+
+\paragraph{Inputs disagree.} When a deterministic signal and the LLM judge
+disagree, the deterministic signal wins, toward caution: an
+\textsf{out\_of\_bounds} verdict forces $\sDS = 0$ over any $j_{\mathrm{DS}}$
+(Eq.~\eqref{eq:ds}); the no-failure-modes cap overrides a high $j_{\mathrm{S}}$
+(Eq.~\eqref{eq:sev-cap}); the deterministic floor overrides a low
+$j_{\mathrm{S}}$ via the $\max$ of Eq.~\eqref{eq:sev-judge}; the track-record
+and edge-case ceilings override high judge scores via $\min$. The judge moves
+a sub-score only within the window the deterministic rules leave open.
+
+\paragraph{A non-gate sub-score is exactly $0$.} If any of $\sP, \sS, \sAMF,
+\sC$ is $0$ and the gate is open, Eq.~\eqref{eq:weakest-link} gives
+$\mathrm{MQS}(c) = 0$. This is intentional: a conclusion that produces nothing
+checkable, or whose method cannot answer the question at all, has a failing
+methodology quality regardless of the other axes.
+
+\paragraph{Out-of-range or NaN inputs.} Every input passes through $\clip$
+before any arithmetic; $\clip$ confines values to $[0,1]$ and maps
+$\mathrm{NaN}$ to $0$. The composite is always a real number in $[0,1]$.
+
+\section{Composite tiers}
+
+The composite is continuous in $[0,1]$, but the firm reasons about it in four
+tiers, each an inclusive lower bound:
+\begin{center}
+\begin{tabular}{lc}
+\toprule
+Tier & Composite $\ge$\\
+\midrule
+\texttt{strong}      & 0.66\\
+\texttt{adequate}    & 0.40\\
+\texttt{provisional} & 0.15\\
+\texttt{failing}     & 0.00\\
+\bottomrule
+\end{tabular}
+\end{center}
+\code{tier\_rank} gives each tier an ordinal ($\texttt{failing}=0,\dots,
+\texttt{strong}=3$). A re-score that drops a conclusion a tier is routed to
+the founder's queue rather than silently downgraded.
+
+\section{Constants registry}
+
+Every constant the specification depends on, mirrored exactly by
+\code{MQS\_CONSTANTS} in the code and checked bidirectionally by
+\code{scripts/check\_mqs\_doc\_consistency.py}.
+\begin{center}
+\begin{longtable}{lll}
+\toprule
+Constant & Value & Role\\
+\midrule
+\endhead
+\texttt{SPEC\_VERSION} & 1.0.0 & version of this specification.\\
+\texttt{MQS\_SCHEMA} & theseus.mqs.v1 & schema string on every MQS row.\\
+\texttt{PROMPT\_VERSION} & mqs-prompt-v2.0 & LLM-judge prompt version.\\
+\texttt{DS\_GATE\_THRESHOLD} & 0.15 & gate threshold $\theta$ (Eq.~\eqref{eq:composite}).\\
+\texttt{COMPOSITE\_OPERATOR} & weighted\_geometric\_mean & combining operator (Eq.~\eqref{eq:wgm}).\\
+\texttt{SEVERITY\_FAILURE\_MODE\_FLOOR\_STEP} & 0.15 & per-failure-mode floor step (Eq.~\eqref{eq:sev-floor}).\\
+\texttt{SEVERITY\_DISSENT\_FLOOR\_STEP} & 0.10 & per-dissent floor step (Eq.~\eqref{eq:sev-floor}).\\
+\texttt{SEVERITY\_NO\_FAILURE\_MODES\_CAP} & 0.35 & cap when no failure modes (Eq.~\eqref{eq:sev-cap}).\\
+\texttt{COMPRESSIBILITY\_PENALTY\_STEP} & 0.25 & per-assumption penalty step (Eq.~\eqref{eq:comp}).\\
+\texttt{DOMAIN\_NO\_FAILURE\_MODES\_FLOOR} & 0.10 & $\sDS$ floor when no failure modes (Eq.~\eqref{eq:ds-base}).\\
+\texttt{DOMAIN\_BACKFILL\_DEFAULT} & 0.5 & $\sDS$ base when no judge (Eq.~\eqref{eq:ds-base}).\\
+\texttt{EDGE\_CASE\_DOMAIN\_CEILING} & 0.4 & $\sDS$ cap under \textsf{edge\_case} (Eq.~\eqref{eq:ds}).\\
+\texttt{EVIDENCE\_STR\_CAP} & 600 & per-string evidence-blob character cap.\\
+\bottomrule
+\end{longtable}
+\end{center}
+The four \code{SUBSCORE\_WEIGHTS} (all $0.25$) and the \code{COMPOSITE\_TIERS}
+lower bounds are checked separately by the same script.
+
+\section{Versioning and changelog}
+
+\texttt{SPEC\_VERSION} versions this specification; the first formal version
+is \texttt{1.0.0}. Any material change to a formula, a constant, a boundary
+rule, or the composite operator bumps \texttt{SPEC\_VERSION} and adds a
+changelog row. \texttt{PROMPT\_VERSION} versions the LLM-judge prompt and is
+independent.
+
+\begin{center}
+\begin{tabular}{p{0.10\textwidth}p{0.13\textwidth}p{0.67\textwidth}}
+\toprule
+\texttt{SPEC\_VERSION} & Date & Change\\
+\midrule
+1.0.0 & 2026-05-14 & First formal specification. The composite changed from
+the Round~17 prose draft's soft multiplicative gate, $\sDS \cdot
+\operatorname{mean}(\sP,\sS,\sAMF,\sC)$, to the hard piecewise gate of
+Eq.~\eqref{eq:composite} at $\theta = 0.15$ followed by the weighted geometric
+mean of Eq.~\eqref{eq:wgm}. Both the code (\code{composite\_score}) and the
+spec were changed together --- they had previously agreed on the soft formula.
+Rationale in Section~\ref{sec:composite}. Every previously-magic constant was
+named and the constants registry added.\\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\end{document}

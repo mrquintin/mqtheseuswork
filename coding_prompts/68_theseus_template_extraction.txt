@@ -1,0 +1,123 @@
+You are operating in /Users/michaelquintin/Desktop/Theseus.
+
+Goal: extract a TEMPLATE version of Theseus that can be installed
+in another organisation. The founder described this directly:
+"I also want some kind of way of creating a template … so that we
+can install it in businesses, and we can allow them to capitalize
+on their intellectual capital as best as possible". The primary
+intended customer described: a VC firm whose founders have a body
+of written work + podcasts + talks that the firm's decisions
+should be grounded in. Prompt 69 builds the VC-preset on top of
+this template.
+
+Before you start — read:
+1. The whole repo at a structural level. Identify what is
+   FIRM-SPECIFIC (the founder's data, the firm's seed
+   conclusions, the firm's principles, the Round 17/18
+   research benchmarks named after the firm) vs. what is
+   CORE PLATFORM (ingestion pipeline, claim extractor,
+   principle pipeline, Oracle, Currents, Forecasts, the
+   safety layers).
+2. `theseus-codex/prisma/seed.ts` — what fixture data exists
+   today.
+
+Implement:
+
+A. Inventory pass. Produce `docs/template/INVENTORY.md`
+   listing every directory and file, classified as:
+   - CORE — ships in the template.
+   - FIRM — stays in the source repo, removed from the
+     template.
+   - CONFIG — ships as a parameterised stub.
+   - SEED — ships as an empty-by-default fixture the new
+     tenant fills in.
+
+B. Template extraction script
+   `scripts/build_template.sh`:
+   - Outputs a `theseus-template/` sibling directory
+     (gitignored from the SOURCE repo; the script also
+     `git init`s the output as a clean, separate repo with
+     its own initial commit).
+   - Copies every CORE file verbatim.
+   - For CONFIG files, runs a token-substitution pass.
+     A central manifest `scripts/template/manifest.yml`
+     names every replaceable token:
+     `THESEUS_ORG_NAME → "<your firm name>"`,
+     `THESEUS_DEFAULT_LLM → "haiku-4-5"` (overridable),
+     ... etc.
+   - For SEED files, ships an empty-shape version (Markdown
+     headings, no content; SQL fixtures with one demo row).
+   - Strips:
+     - the founder's name and bio from anywhere they appear,
+     - the firm's research benchmarks (the "Quintin
+       Hypothesis" benchmark, etc.) — those are firm-specific
+       intellectual property,
+     - all `.env*` files,
+     - all `coding_prompts/archive_round*` directories,
+     - all `.codex_runs/`, `.claude_code_runs/` log
+       directories,
+     - all generated PDFs except the guides from prompt 67
+       (which are general-purpose).
+
+C. Per-tenant boot wizard
+   `theseus-template/scripts/bootstrap.sh`:
+   - Asks (interactive prompts) for the tenant's:
+     - organisation display name + slug,
+     - primary admin email,
+     - Postgres DATABASE_URL,
+     - LLM provider + key (Anthropic / OpenAI / both),
+     - whether to enable the Forecasts module,
+     - whether to enable the Equities module.
+   - Writes a `.env.live` from `.env.live.template`
+     (template included in the extraction).
+   - Runs prisma migrate deploy + alembic upgrade.
+   - Seeds the new tenant with: one Organization row, one
+     admin Founder row, zero conclusions, zero principles.
+   - Prints next-steps including pointer to the prompt-67
+     guides.
+
+D. Template-side tests. The template repo gets its own CI
+   that:
+   - Builds the frontend (`npm run build` in
+     `theseus-codex/`).
+   - Runs the backend test suite (`pytest noosphere
+     current_events_api`).
+   - Verifies the seed migrate produces a working empty
+     dashboard reachable at `localhost:3000`.
+
+E. Documentation. `theseus-template/README.md` explains:
+   - What this template is.
+   - How to bootstrap a new tenant.
+   - What the source repo `Theseus` does that this template
+     does NOT (firm-specific research benchmarks, etc.).
+   - Where to find the user guides (prompt 67's PDFs are
+     copied in).
+
+F. Tests in the SOURCE repo:
+   - `scripts/template/test_extraction.py` exercises
+     `build_template.sh` against a small synthetic tree and
+     asserts:
+     - every CORE file is present,
+     - no FIRM file is present,
+     - every CONFIG token has been substituted,
+     - the output `git log` has exactly one commit.
+
+Constraints
+- The template is a SEPARATE repo. The extraction script
+  does not modify the source repo. Re-running the script is
+  idempotent: same source → same output (byte-identical
+  modulo file timestamps).
+- Do not include any of the founder's writing, the firm's
+  principles, or the firm's benchmark data in the template.
+- The template's default trading-related flags are all OFF.
+- The template inherits the eight-gate safety contract
+  unchanged.
+
+SCOPE
+- `docs/template/INVENTORY.md` CREATE
+- `scripts/build_template.sh` CREATE
+- `scripts/template/manifest.yml` CREATE
+- `scripts/template/test_extraction.py` CREATE
+- `theseus-template/scripts/bootstrap.sh` CREATE
+- `theseus-template/README.md` CREATE
+- `.gitignore` MODIFY

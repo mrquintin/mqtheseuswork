@@ -10,11 +10,14 @@ import {
 /**
  * Web view of a single seasonal review.
  *
- * Renders the structured-object directly (the PDF is the narrative).
- * Sections whose status reports data_available=false are shown with
- * a "data not available" note rather than hidden — the gap itself is
- * a data point, and the audit-readiness story depends on the absence
- * being recorded as a fact.
+ * Renders the structured-object directly and overlays the narrative
+ * prose pass on top. Sections whose status reports data_available=false
+ * are shown with a "data not available" note rather than hidden — the
+ * gap itself is a data point, and the audit-readiness story depends on
+ * the absence being recorded as a fact.
+ *
+ * The "What we got wrong" section is non-silenceable: it always renders,
+ * with the canonical empty-state line when the quarter has no findings.
  */
 
 export const dynamic = "force-dynamic";
@@ -34,6 +37,7 @@ export default async function SeasonalReviewWebView({
   if (!sidecar) notFound();
 
   const s = sidecar.structured;
+  const prose = sidecar.narrative ?? {};
   const pdfHref = sidecar.pdf_path
     ? `/api/research/seasonal/${encodeURIComponent(slug)}/pdf`
     : null;
@@ -98,7 +102,16 @@ export default async function SeasonalReviewWebView({
         )}
       </header>
 
-      <Section title="Methods" status={s.methods.status}>
+      {prose.overview ? (
+        <section style={{ marginBottom: "2rem" }}>
+          <h2 style={{ fontSize: "1.1rem", marginBottom: "0.5rem" }}>
+            Overview
+          </h2>
+          <p>{prose.overview}</p>
+        </section>
+      ) : null}
+
+      <Section title="Methods" status={s.methods.status} prose={prose.methods}>
         <p>
           Active: {s.methods.active_count}. Deprecated:{" "}
           {s.methods.deprecated_count}. Retired: {s.methods.retired_count}.
@@ -117,7 +130,7 @@ export default async function SeasonalReviewWebView({
         )}
       </Section>
 
-      <Section title="Drift" status={s.drift.status}>
+      <Section title="Drift" status={s.drift.status} prose={prose.drift}>
         <p>{s.drift.event_count} drift event(s) in window.</p>
         {s.drift.events.length > 0 && (
           <ul>
@@ -131,7 +144,11 @@ export default async function SeasonalReviewWebView({
         )}
       </Section>
 
-      <Section title="Calibration trend" status={s.calibration.status}>
+      <Section
+        title="Calibration trend"
+        status={s.calibration.status}
+        prose={prose.calibration}
+      >
         <p>Resolved forecasts in window: {s.calibration.resolved_count}.</p>
         {s.calibration.mean_brier !== null && (
           <p>Mean Brier: {s.calibration.mean_brier.toFixed(3)}.</p>
@@ -141,14 +158,22 @@ export default async function SeasonalReviewWebView({
         )}
       </Section>
 
-      <Section title="Open questions" status={s.open_questions.status}>
+      <Section
+        title="Open questions"
+        status={s.open_questions.status}
+        prose={prose.open_questions}
+      >
         <p>
           Resolved: {s.open_questions.resolved_count}. Added:{" "}
           {s.open_questions.added_count}.
         </p>
       </Section>
 
-      <Section title="Published articles" status={s.articles.status}>
+      <Section
+        title="Published articles"
+        status={s.articles.status}
+        prose={prose.articles}
+      >
         <ul>
           {s.articles.articles.map((a) => (
             <li key={a.slug}>
@@ -159,7 +184,11 @@ export default async function SeasonalReviewWebView({
         </ul>
       </Section>
 
-      <Section title="Principles distilled" status={s.principles.status}>
+      <Section
+        title="Principles distilled"
+        status={s.principles.status}
+        prose={prose.principles}
+      >
         <ul>
           {s.principles.drafted.map((p, i) => (
             <li key={i}>
@@ -176,6 +205,7 @@ export default async function SeasonalReviewWebView({
       <Section
         title="Most-edited conclusions"
         status={s.edited_conclusions.status}
+        prose={prose.edited_conclusions}
       >
         <ul>
           {s.edited_conclusions.rows.map((r) => (
@@ -210,17 +240,22 @@ export default async function SeasonalReviewWebView({
 function Section({
   title,
   status,
+  prose,
   children,
 }: {
   title: string;
   status: SeasonalSectionStatus;
+  prose?: string;
   children: React.ReactNode;
 }) {
   return (
     <section style={{ marginBottom: "1.75rem" }}>
       <h2 style={{ fontSize: "1.1rem", marginBottom: "0.5rem" }}>{title}</h2>
       {status.data_available ? (
-        children
+        <>
+          {prose ? <p style={{ marginBottom: "0.75rem" }}>{prose}</p> : null}
+          {children}
+        </>
       ) : (
         <p style={{ color: "var(--parchment-dim)", fontStyle: "italic" }}>
           {status.note || "data not available"}
@@ -236,11 +271,13 @@ function SelfCritiqueSection({
   sidecar: SeasonalReviewSidecar;
 }) {
   const sc = sidecar.structured.self_critique;
+  const prose = sidecar.narrative?.self_critique;
   return (
     <section style={{ marginBottom: "1.75rem" }}>
       <h2 style={{ fontSize: "1.1rem", marginBottom: "0.5rem" }}>
         What we got wrong
       </h2>
+      {prose ? <p style={{ marginBottom: "0.75rem" }}>{prose}</p> : null}
       {sc.findings.length === 0 ? (
         <p style={{ fontStyle: "italic" }}>
           No self-critique findings were recorded for this quarter.

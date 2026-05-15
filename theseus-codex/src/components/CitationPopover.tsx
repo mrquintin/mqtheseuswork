@@ -29,6 +29,7 @@ import {
   verdictSummary,
   type CitationVerdictPayload,
 } from "@/lib/citationVerdict";
+import { Pill } from "@/components/design";
 
 type CitationWithVisibility = PublicCitation & {
   conclusion_title?: string | null;
@@ -52,11 +53,14 @@ type SourceStanding =
   | "disputed"
   | "expired";
 
+// Data-driven palette: each standing has a distinct, intentional swatch so
+// readers can recognise "retracted" vs "corrected" at a glance without
+// reading the label. Routed through the Pill primitive's `colors` override.
 const STANDING_STYLE: Record<Exclude<SourceStanding, "active">, { bg: string; fg: string; label: string }> = {
-  retracted: { bg: "#5b1414", fg: "#ffd1d1", label: "Retracted" },
-  corrected: { bg: "#5b3414", fg: "#ffe2c2", label: "Corrected" },
-  expired: { bg: "#3a3a3a", fg: "#dcdcdc", label: "Expired" },
-  disputed: { bg: "#5a4a14", fg: "#ffe9a8", label: "Disputed" },
+  retracted: { bg: "#5b1414", fg: "#ffd1d1", label: "Retracted" }, // design-system: allow-color
+  corrected: { bg: "#5b3414", fg: "#ffe2c2", label: "Corrected" }, // design-system: allow-color
+  expired: { bg: "#3a3a3a", fg: "#dcdcdc", label: "Expired" }, // design-system: allow-color
+  disputed: { bg: "#5a4a14", fg: "#ffe9a8", label: "Disputed" }, // design-system: allow-color
 };
 
 function normalizedStanding(citation: CitationWithVisibility): SourceStanding {
@@ -230,11 +234,23 @@ function positionFor(anchor: HTMLElement, dialog: HTMLElement | null): PopoverPo
     window.innerHeight || document.documentElement?.clientHeight || ESTIMATED_HEIGHT;
   const width = effectiveWidth(viewportWidth);
   const height = dialog?.offsetHeight || ESTIMATED_HEIGHT;
-  const preferredTop = rect.top - height - 10;
-  const top =
-    preferredTop >= MARGIN
-      ? preferredTop
-      : Math.min(rect.bottom + 10, Math.max(MARGIN, viewportHeight - height - MARGIN));
+  // R-025: prefer above when the marker is below 80% of viewport
+  // height, so popovers on the last paragraph of a long article don't
+  // clip off the bottom edge. Otherwise prefer below so a popover
+  // opened from a marker at the very top of the page doesn't crowd
+  // above the article header.
+  const preferAbove =
+    rect.top > viewportHeight * 0.8 ||
+    rect.bottom + height + 10 + MARGIN > viewportHeight;
+  const topAbove = rect.top - height - 10;
+  const topBelow = rect.bottom + 10;
+  const top = preferAbove
+    ? topAbove >= MARGIN
+      ? topAbove
+      : Math.max(MARGIN, viewportHeight - height - MARGIN)
+    : topBelow + height + MARGIN <= viewportHeight
+      ? topBelow
+      : Math.max(MARGIN, topAbove);
   const centeredLeft = rect.left + rect.width / 2 - width / 2;
   const left = Math.min(
     Math.max(MARGIN, centeredLeft),
@@ -251,6 +267,8 @@ function CitationVerdictPill({ verdict }: CitationVerdictPillProps) {
   const style = verdictPill(verdict.relation_holds);
   const overridden = Boolean(verdict.overridden_by && verdict.override_reason);
   const summary = verdictSummary(verdict);
+  // verdictPill returns data-driven colors; pass them as overrides so the
+  // Pill primitive still owns layout, typography, and a11y.
   return (
     <div
       data-testid="citation-verdict"
@@ -258,24 +276,15 @@ function CitationVerdictPill({ verdict }: CitationVerdictPillProps) {
       style={{ marginTop: "0.4rem" }}
       title={summary}
     >
-      <span
+      <Pill
         aria-label={`Citation verdict: ${style.label}`}
         data-testid="citation-verdict-pill"
-        style={{
-          background: style.bg,
-          border: "1px solid rgba(0,0,0,0.35)",
-          borderRadius: "999px",
-          color: style.fg,
-          display: "inline-block",
-          fontFamily: "'IBM Plex Mono', monospace",
-          fontSize: "0.65rem",
-          letterSpacing: "0.1em",
-          padding: "0.15rem 0.55rem",
-          textTransform: "uppercase",
-        }}
+        variant="filled"
+        size="sm"
+        colors={{ fg: style.fg, bg: style.bg, border: "rgba(0,0,0,0.35)" }}
       >
         {style.label}
-      </span>
+      </Pill>
       {overridden ? (
         <span
           style={{
@@ -525,7 +534,7 @@ export default function CitationPopover({
 
   return createPortal(
     <div
-      aria-modal="false"
+      aria-label={`Citation: ${citationTitle(citation)}`}
       id={popoverId}
       onKeyDown={trapFocus}
       ref={dialogRef}
@@ -552,24 +561,19 @@ export default function CitationPopover({
           <h2 style={titleStyle}>{citationTitle(citation)}</h2>
           {standingMeta ? (
             <div style={{ marginTop: "0.4rem" }}>
-              <span
+              <Pill
                 aria-label={`Source standing: ${standingMeta.label}`}
                 data-testid="source-standing-pill"
-                style={{
-                  background: standingMeta.bg,
-                  border: "1px solid rgba(0,0,0,0.35)",
-                  borderRadius: "999px",
-                  color: standingMeta.fg,
-                  display: "inline-block",
-                  fontFamily: "'IBM Plex Mono', monospace",
-                  fontSize: "0.65rem",
-                  letterSpacing: "0.1em",
-                  padding: "0.15rem 0.55rem",
-                  textTransform: "uppercase",
+                variant="filled"
+                size="sm"
+                colors={{
+                  fg: standingMeta.fg,
+                  bg: standingMeta.bg,
+                  border: "rgba(0,0,0,0.35)",
                 }}
               >
                 {standingMeta.label}
-              </span>
+              </Pill>
               {reason ? (
                 <span
                   style={{

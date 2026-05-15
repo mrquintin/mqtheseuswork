@@ -18,6 +18,7 @@ methodological decision-making over time.
 
 import json
 import os
+import re
 from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Optional, List, Dict, Tuple
@@ -72,6 +73,33 @@ def run_scaled_coherence_for_conclusion(
             error=str(exc),
         )
         return None
+
+
+# ── Principle-shape helpers (prompt 56, 2026-05-13) ─────────────────────────
+
+# Conservative regex: matches conclusions whose surface form opens with a
+# first-person pronoun (case-insensitive, allowing leading whitespace and
+# quotation). The re-extraction queue uses this to find legacy rows that
+# need to be re-shaped into principles. The PrincipleExtractor itself
+# refuses to emit such rows in the first place.
+_FIRST_PERSON_CONCLUSION_RE = re.compile(
+    r"""^\s*["'“‘]?(i|i['’]\w*|i'd|i'm|i've|we|we['’]\w*|we're|we've|my|our)\b""",
+    re.IGNORECASE,
+)
+
+
+def is_first_person_conclusion(text: str | None) -> bool:
+    """Return True when `text` begins with a first-person pronoun.
+
+    Used by the re-extraction review page and by the regression test to
+    flag legacy conclusions for the founder-confirmable rewrite queue.
+    Empty / None inputs return False — only positive evidence of
+    first-person voice is reported, never assumed.
+    """
+
+    if not text:
+        return False
+    return bool(_FIRST_PERSON_CONCLUSION_RE.match(text))
 
 
 # ── Enums ────────────────────────────────────────────────────────────────────

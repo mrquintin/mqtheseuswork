@@ -1,0 +1,191 @@
+\documentclass[11pt]{article}
+\input{_preamble}
+
+\title{\sffamily\bfseries Knowledge and Principles\\[2pt]\large Guide 2 of 6}
+\date{}
+\author{}
+
+\begin{document}
+\maketitle
+\thispagestyle{empty}
+
+\begin{tldr}
+Theseus turns uploaded material into firm principles through a four-stage
+pipeline: ingest, claim extraction, clustering, and principle
+distillation. The first two stages run automatically; the last two
+involve a triage queue you sit in front of when you want to keep the
+firm's working memory clean. This guide walks the pipeline end to end,
+shows where each artifact lives, and explains the founder's role in
+triage.
+\end{tldr}
+
+\begin{youwillneed}
+\begin{itemize}[leftmargin=*,itemsep=0.2em,topsep=0.2em]
+  \item A signed-in Codex session.
+  \item At least one upload in the corpus --- if you do not have one,
+        complete Guide 1 first.
+  \item Optional: a couple of related documents already uploaded, so
+        that clustering has something to merge across.
+\end{itemize}
+\end{youwillneed}
+
+\begin{notcovered}
+\begin{itemize}[leftmargin=*,itemsep=0.2em,topsep=0.2em]
+  \item Question-answering with the Oracle --- Guide 3.
+  \item Currents opinions that cite principles --- Guide 4.
+  \item Forecasts that may use principle-backed conclusions as a
+        reasoning step --- Guide 5.
+  \item Operator-only deletion / retraction of principles --- Guide 6.
+\end{itemize}
+\end{notcovered}
+
+\section{The pipeline in one diagram}
+
+\begin{center}
+\begin{tabular}{l@{\;\(\to\)\;}l@{\;\(\to\)\;}l@{\;\(\to\)\;}l}
+\sffamily Upload & \sffamily Claims & \sffamily Clusters & \sffamily Principles \\
+ingest layer & claim extractor & clustering pass & distillation
+\end{tabular}
+\end{center}
+
+Each arrow above corresponds to a worker stage. Stages 1 and 2 run on
+upload. Stages 3 and 4 run on a schedule and are also triggerable from
+the founder triage queue.
+
+\section{Stage 1 --- ingest}
+
+Uploads enter through \page{Upload} on the Codex
+(\route{/(authed)/upload}). The ingest worker normalizes the file
+(MIME detection, encoding repair, page extraction for PDFs), persists
+it to storage, and writes an \texttt{Upload} row with
+\texttt{publishedAt=NULL}, \texttt{visibility='private'}, and a
+processing badge that the UI watches.
+
+What you see in the Codex: the new row appears in
+\page{Upload} list, then in \page{Knowledge} once at least one claim
+has been extracted from it. Provenance is captured at ingest:
+file hash, source URL (if any), uploader identity, and timestamps.
+
+\section{Stage 2 --- claim extraction}
+
+The claim extractor reads the normalized upload and emits short,
+declarative, falsifiable statements. Each claim carries:
+
+\begin{itemize}[leftmargin=*,itemsep=0.2em]
+  \item the upload it came from (provenance);
+  \item a topic label and an embedding vector for clustering;
+  \item the verbatim span it summarizes (so the Oracle can cite it);
+  \item an extractor-confidence score.
+\end{itemize}
+
+Look at any claim in \page{Knowledge} and you can click straight back
+to the source line. This is the contract that makes everything
+downstream auditable: no claim is allowed to exist without a pointer
+to the text that produced it.
+
+\screenshot{02_knowledge_claim_view.png}{The claim view in \page{Knowledge}, with a single claim expanded to show its source span.}{kn-claim}
+
+\section{Stage 3 --- clustering}
+
+The clustering pass groups claims by topic and semantic similarity.
+The output is a candidate cluster: a small set of claims that look
+like they are talking about the same thing.
+
+Clusters are not yet principles. They are an intermediate object: an
+invitation to consider whether the firm wants to lift the underlying
+material into a reusable principle.
+
+\section{Stage 4 --- principle distillation}
+
+For each candidate cluster the distillation worker produces a draft
+\page{Principle}: a single, sharp statement that the underlying claims
+support, plus an explicit list of the supporting claims and an
+explicit list of the strongest objections found in the corpus.
+
+A principle has three states that matter:
+
+\begin{itemize}[leftmargin=*,itemsep=0.2em]
+  \item \texttt{draft} --- not visible publicly. Visible in the triage
+        queue.
+  \item \texttt{accepted} --- vetted. May or may not be public.
+  \item \texttt{rejected} / \texttt{merged} / \texttt{needs\_rereview}
+        --- terminal or paused states.
+\end{itemize}
+
+A principle becomes publicly visible only when
+\texttt{status = 'accepted'} \textbf{and} \texttt{publicVisible = true}.
+Both are required. See \file{docs/operator/public\_surfacing.md} for
+the authoritative predicate table.
+
+\section{The founder's role --- the triage queue}
+
+The principles surface in the Codex
+(\route{/(authed)/principles}) is the triage queue. Open it and you
+will see candidate principles in three columns:
+
+\begin{itemize}[leftmargin=*,itemsep=0.2em]
+  \item \textbf{New drafts.} Just produced by distillation. Read the
+        principle, scan supporting claims, scan objections. Decide:
+        \texttt{accept}, \texttt{merge into existing}, or
+        \texttt{reject with reason}.
+  \item \textbf{Needs re-review.} Either contradicted by a newer
+        cluster or flagged by the adversarial pass. The previous
+        decision should be re-justified or rolled back.
+  \item \textbf{Accepted.} The firm's working memory. Editable in
+        place; toggling \texttt{publicVisible} sends a principle to
+        (or removes it from) the public methodology page.
+\end{itemize}
+
+\screenshot{02_principles_triage.png}{The triage queue, with the three columns described above.}{pr-triage}
+
+The triage queue is the only stage in this pipeline that requires
+human judgment. If you ignore it for a week, drafts accumulate; the
+firm's automatic answers keep working off the last batch of accepted
+principles. Nothing collapses, but the firm's public surface stops
+evolving.
+
+\section{Where principles live afterwards}
+
+\begin{itemize}[leftmargin=*,itemsep=0.2em]
+  \item \textbf{Codex (private).} \route{/(authed)/principles}. The
+        full draft + accepted + rejected set, with editing controls.
+  \item \textbf{Public methodology page.} \route{/methodology/principles}
+        on the public site. The accepted-and-public subset.
+  \item \textbf{Currents opinions.} An opinion may cite principles
+        when it leans on a firm position rather than a one-off claim.
+  \item \textbf{Oracle answers.} The Oracle may cite principles for
+        the same reason.
+\end{itemize}
+
+\section{Common failure modes}
+
+\begin{itemize}[leftmargin=*,itemsep=0.3em]
+  \item \textbf{Drafts pile up.} The clustering pass keeps proposing
+        principles; nobody reviews them. Reserve a recurring slot
+        weekly for triage. Five to ten minutes per draft is realistic.
+  \item \textbf{A principle on the public site contradicts a private
+        accepted one.} Flip \texttt{publicVisible=false} on the public
+        one and re-triage. Both stay in the corpus; only their public
+        surfacing changes.
+  \item \textbf{The cluster is junk.} Reject the draft with a reason.
+        The reason is read by the next distillation pass, which uses
+        it to avoid re-proposing the same cluster.
+\end{itemize}
+
+\section{Where the docs are}
+
+\begin{itemize}[leftmargin=*,itemsep=0.2em]
+  \item \file{docs/methods/MQS\_Specification.md} --- the formal claim
+        / conclusion / principle specification.
+  \item \file{docs/operator/public\_surfacing.md} --- which fields gate
+        each public surface, including principles.
+  \item \file{noosphere/noosphere/distillation/} --- the worker code,
+        for the curious.
+\end{itemize}
+
+\begin{nextup}
+Continue with \href{03_The_Oracle.pdf}{Guide 3 --- The Oracle} for how
+question-answering uses the corpus you have just helped curate.
+\end{nextup}
+
+\end{document}

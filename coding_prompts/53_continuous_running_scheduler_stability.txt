@@ -1,0 +1,87 @@
+You are operating in /Users/michaelquintin/Desktop/Theseus.
+
+Goal: diagnose and fix the "continuous running is being weird"
+flakiness the founder reported in the betting / forecasts
+pipeline. The scheduler appears to be the culprit, but the actual
+failure mode is unknown — find it and fix it.
+
+Before you start — read:
+1. `noosphere/noosphere/forecasts/scheduler.py` and
+   `noosphere/noosphere/forecasts/status.py` — the four-loop
+   scheduler and its status-file writer.
+2. `noosphere/noosphere/currents/scheduler.py` — the Currents
+   scheduler this one was modeled on.
+3. Every `forecasts_status.json` and `currents_status.json` that
+   exists on disk. Look at recent values: when was the last
+   tick, is it monotonic, did any field go to null mid-run.
+4. `.codex_runs/` and `.claude_code_runs/` for any scheduler
+   error logs.
+5. `current_events_api/current_events_api/routes/forecasts.py`
+   readyz handler — see how it interprets the status file.
+
+Implement:
+
+A. Diagnosis. Reproduce the flakiness in a controlled
+   environment. Bound the failure mode precisely. Likely
+   candidates (rank, don't assume):
+   - asyncio.Lock contention between the four sub-loops
+     causing one loop to starve.
+   - The Postgres connection pool exhausting on a long tick.
+   - A long generate-tick blocking the heartbeat so the readyz
+     handler flips to "stale" intermittently.
+   - SIGTERM during a tick leaving the budget JSON corrupt.
+   - The scheduler getting killed by OOM (check
+     `dmesg | grep -i kill` if accessible; or container restart
+     timestamps).
+   - DST / wall-clock drift in the interval math (likely if
+     timestamps are stored as naive datetimes anywhere).
+   Write to `docs/bugs/2026-05-13_scheduler_flakiness/diagnosis.md`.
+
+B. Fix the root cause. Do NOT add retries that paper over the
+   real bug. If a sub-loop is failing, identify why and patch
+   the cause; retries are appropriate only for known-transient
+   external dependencies (an httpx call to Polymarket Gamma is
+   fine to retry; an asyncio.Lock contention is a code smell to
+   eliminate).
+
+C. Hardening, regardless of root cause:
+   - Per-tick timeout: every sub-loop tick is wrapped in
+     `asyncio.wait_for` with a generous-but-bounded timeout
+     (10x the interval). On timeout: structured-log + skip,
+     do not silently extend.
+   - Atomic status-file writes: temp-file + rename, never a
+     partial write that readyz could observe mid-flight.
+   - Status-file heartbeat: even when a sub-loop has nothing
+     to do, the scheduler updates `last_tick_ts` at the top
+     of every interval. readyz becomes a real liveness
+     signal, not "we made progress recently".
+   - On SIGTERM/SIGINT: drain ≤ 30s, persist the budget JSON,
+     write a final status row with `shutdown_at`, exit 0.
+
+D. Continuous-run integration test:
+   `noosphere/tests/test_scheduler_continuous.py` — fast-clock
+   (intervals set to 0.05s), run for 3 seconds, assert:
+   - every sub-loop ticked at least 20x.
+   - status file's `last_tick_ts` strictly monotonic.
+   - no asyncio.Lock waited > 1s.
+   - no exception in any sub-loop.
+   - SIGTERM at any point exits cleanly within 5s.
+
+E. Process supervision document. `docs/operator/SCHEDULER_OPS.md`:
+   how to run the scheduler in production, what env vars matter,
+   how to read the status file, what readyz means, what a stuck
+   scheduler looks like in logs, how to recover.
+
+Constraints
+- The fix lives in code, not in cron-restarting the scheduler
+  every hour. If we cannot run continuously for 24h without
+  intervention, the system is not production-ready.
+- Logs are structured JSON, one event per line. No `print()`.
+- The Currents scheduler is the working twin — do not regress it.
+
+SCOPE
+- `docs/bugs/2026-05-13_scheduler_flakiness/diagnosis.md` CREATE
+- `docs/operator/SCHEDULER_OPS.md` CREATE
+- `noosphere/noosphere/forecasts/scheduler.py` MODIFY
+- `noosphere/noosphere/forecasts/status.py` MODIFY
+- `noosphere/tests/test_scheduler_continuous.py` CREATE

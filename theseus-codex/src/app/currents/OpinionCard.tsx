@@ -14,9 +14,9 @@ import {
 } from "react";
 import Link from "next/link";
 
+import RelativeTime from "@/components/design/RelativeTime";
 import type { PublicCitation, PublicOpinion } from "@/lib/currentsTypes";
 import { firmVoice } from "@/lib/firmVoice";
-import { relativeTime } from "@/lib/relativeTime";
 import { renderSafeMarkdown } from "@/lib/safeMarkdown";
 import CitationPopover from "@/components/CitationPopover";
 
@@ -127,10 +127,34 @@ const headlineStyle: CSSProperties = {
   margin: "0 0 0.55rem",
 };
 
+// R-020: clamp card body height with a soft mask fade and a
+// "Continue reading →" link to the underlying detail page. Stops the
+// feed from looking jittery when one card carries an optional
+// dialectic-reconciliation block.
+const BODY_MAX_HEIGHT = "12rem";
+
 const bodyStyle: CSSProperties = {
   color: "var(--currents-parchment)",
   fontSize: "0.95rem",
   lineHeight: 1.6,
+  maxHeight: BODY_MAX_HEIGHT,
+  overflow: "hidden",
+  position: "relative",
+  WebkitMaskImage:
+    "linear-gradient(to bottom, black calc(100% - 2rem), transparent 100%)",
+  maskImage:
+    "linear-gradient(to bottom, black calc(100% - 2rem), transparent 100%)",
+};
+
+const continueReadingStyle: CSSProperties = {
+  display: "inline-block",
+  marginTop: "0.4rem",
+  color: "var(--currents-gold)",
+  fontFamily: "'IBM Plex Mono', monospace",
+  fontSize: "0.72rem",
+  letterSpacing: "0.08em",
+  textTransform: "uppercase",
+  textDecoration: "none",
 };
 
 const observedSourceStyle: CSSProperties = {
@@ -415,7 +439,7 @@ function ObservedSourceExcerpt({ opinion }: { opinion: PublicOpinion }) {
       <div style={observedSourceMetaStyle}>
         <span>{title}</span>
         {handle ? <span>{handle}</span> : null}
-        <span>{relativeTime(event.observed_at)}</span>
+        <RelativeTime iso={event.observed_at} style={{ color: "inherit" }} />
       </div>
       <p style={observedSourceTextStyle}>"{text}"</p>
       {event.url ? (
@@ -473,7 +497,13 @@ export default function OpinionCard({
         >
           {topic}
         </span>
-        <span>· {relativeTime(opinion.generated_at)}</span>
+        <span>
+          ·{" "}
+          <RelativeTime
+            iso={opinion.generated_at}
+            style={{ color: "inherit" }}
+          />
+        </span>
       </div>
 
       <ObservedSourceExcerpt opinion={opinion} />
@@ -491,6 +521,9 @@ export default function OpinionCard({
       </h2>
 
       <OpinionMarkdownBody opinion={opinion} style={bodyStyle} />
+      <Link href={href} style={continueReadingStyle} aria-label="Continue reading">
+        Continue reading →
+      </Link>
 
       {opinion.uncertainty_notes.length ? (
         <div

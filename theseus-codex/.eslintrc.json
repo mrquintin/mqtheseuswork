@@ -1,0 +1,107 @@
+{
+  "$schema": "https://json.schemastore.org/eslintrc.json",
+  "_doc": "Enforces docs/architecture/Naming_Conventions.md for TypeScript. The repo-wide gate is scripts/check_naming_conventions.py; this config is the line-by-line counterpart that fires inside IDEs and on `npm run lint:eslint`.",
+  "root": true,
+  "parser": "@typescript-eslint/parser",
+  "parserOptions": {
+    "ecmaVersion": 2022,
+    "sourceType": "module",
+    "ecmaFeatures": {
+      "jsx": true
+    }
+  },
+  "plugins": ["@typescript-eslint"],
+  "extends": [],
+  "ignorePatterns": [
+    "node_modules/",
+    ".next/",
+    "dist/",
+    "dist-desktop/",
+    "playwright-report/",
+    "test-results/",
+    "src/lib/_generated/",
+    "**/*.d.ts"
+  ],
+  "rules": {
+    "@typescript-eslint/naming-convention": [
+      "error",
+      {
+        "selector": "default",
+        "format": ["camelCase"],
+        "leadingUnderscore": "allow",
+        "trailingUnderscore": "allow"
+      },
+      {
+        "selector": "variable",
+        "format": ["camelCase", "UPPER_CASE", "PascalCase"],
+        "leadingUnderscore": "allow",
+        "trailingUnderscore": "allow"
+      },
+      {
+        "selector": "function",
+        "format": ["camelCase", "PascalCase"],
+        "leadingUnderscore": "allow"
+      },
+      {
+        "selector": "parameter",
+        "format": ["camelCase", "PascalCase"],
+        "leadingUnderscore": "allow"
+      },
+      {
+        "selector": "typeLike",
+        "format": ["PascalCase"]
+      },
+      {
+        "selector": "enumMember",
+        "format": ["PascalCase", "UPPER_CASE"]
+      },
+      {
+        "selector": ["objectLiteralProperty", "typeProperty"],
+        "format": null,
+        "_doc": "API envelope fields and Prisma column names span the boundary; do not lint property names."
+      },
+      {
+        "selector": "import",
+        "format": null,
+        "_doc": "Imported bindings inherit their source module's spelling."
+      }
+    ]
+  },
+  "overrides": [
+    {
+      "files": ["src/__tests__/**/*", "tests/**/*", "e2e/**/*", "playwright/**/*"],
+      "rules": {
+        "@typescript-eslint/naming-convention": "off"
+      }
+    },
+    {
+      "files": [
+        "src/app/**/page.tsx",
+        "src/app/**/layout.tsx",
+        "src/app/**/route.ts",
+        "src/app/**/loading.tsx",
+        "src/app/**/error.tsx",
+        "src/app/**/not-found.tsx",
+        "src/app/**/default.tsx",
+        "src/app/**/template.tsx",
+        "src/app/**/opengraph-image.tsx",
+        "src/middleware.ts",
+        "next.config.ts"
+      ],
+      "rules": {
+        "@typescript-eslint/naming-convention": [
+          "error",
+          {
+            "selector": "default",
+            "format": ["camelCase", "PascalCase", "UPPER_CASE"],
+            "leadingUnderscore": "allow"
+          },
+          {
+            "selector": "typeLike",
+            "format": ["PascalCase"]
+          }
+        ]
+      }
+    }
+  ]
+}

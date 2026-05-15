@@ -1,0 +1,679 @@
+{
+  "schema": "theseus.qh.fullrun.v1",
+  "run_stamp": "20260514T052854Z",
+  "benchmark_version": "qh-v1",
+  "envelope": {
+    "schema": "theseus.qh.envelope.v1",
+    "run_stamp": "20260514T052854Z",
+    "created_utc": "2026-05-14T05:29:24Z",
+    "benchmark_version": "qh-v1",
+    "tooling": "noosphere.benchmarks.qh_analysis",
+    "git_sha": "0034929158a42e4e536d85efd41ab22721c7ca50",
+    "git_branch": "main",
+    "git_dirty": true,
+    "dataset": {
+      "path": "/Users/michaelquintin/Desktop/Theseus/benchmarks/quintin_hypothesis/v1/dataset.jsonl",
+      "sha256": "b25ab62102389fbbbf2cdad08cc5a056e4946631835a89672fe88aa0a8fbe7c4",
+      "n_items": 1936,
+      "domains": [
+        "economics",
+        "ethics",
+        "physics"
+      ],
+      "labels": [
+        "coherent",
+        "contradicting",
+        "orthogonal"
+      ],
+      "frozen_state_verified": true
+    },
+    "embedder": {
+      "id": "hash-det-v1",
+      "dim": 192,
+      "available": true
+    },
+    "runners": [
+      "contradiction_geometry",
+      "cosine",
+      "random"
+    ],
+    "seeds": {
+      "random_runner": 0,
+      "analysis_bootstrap": 17
+    },
+    "bootstrap": {
+      "n_resamples": 10000,
+      "method": "paired BCa (bias-corrected and accelerated)",
+      "alpha": 0.05
+    },
+    "embedding_budget": {
+      "embedder": "hash-det-v1",
+      "estimated_credits": 0,
+      "ceiling": 50000,
+      "within_budget": true,
+      "note": "hash-det-v1 is local and deterministic; 0 API credits."
+    },
+    "preflight": {
+      "checked_utc": "2026-05-14T05:28:54Z",
+      "dataset_n_items": 1936,
+      "dataset_domains": [
+        "economics",
+        "ethics",
+        "physics"
+      ],
+      "dataset_labels": [
+        "coherent",
+        "contradicting",
+        "orthogonal"
+      ],
+      "dataset_sha256": "b25ab62102389fbbbf2cdad08cc5a056e4946631835a89672fe88aa0a8fbe7c4",
+      "dataset_v1_promises_met": true,
+      "dataset_frozen": true,
+      "dataset_frozen_check": "passed",
+      "embedder_available": true,
+      "embedder_id": "hash-det-v1",
+      "embedder_dim": 192,
+      "shard_size": 100,
+      "shard_run": {
+        "contradiction_geometry": {
+          "status": "ok",
+          "n_of_N": "100 of 100",
+          "accuracy": 0.41
+        },
+        "cosine": {
+          "status": "ok",
+          "n_of_N": "100 of 100",
+          "accuracy": 0.2
+        },
+        "random": {
+          "status": "ok",
+          "n_of_N": "100 of 100",
+          "accuracy": 0.36
+        }
+      }
+    },
+    "platform": {
+      "python": "3.13.7",
+      "platform": "macOS-26.2-arm64-arm-64bit-Mach-O",
+      "numpy": "1.26.4"
+    }
+  },
+  "n_items": 1936,
+  "shard": null,
+  "any_runner_partial": false,
+  "runners": {
+    "random": {
+      "runner": "random",
+      "status": "ok",
+      "error": null,
+      "n_completed": 1936,
+      "n_expected": 1936,
+      "n_of_N": "1936 of 1936",
+      "seed": 0,
+      "metrics": {
+        "n": 1936,
+        "accuracy": 0.3352272727272727,
+        "auroc_contradicting_vs_coherent": 0.49637818643136683,
+        "ece_contradicting": 0.25367729747907375,
+        "by_domain": {
+          "economics": {
+            "n": 574,
+            "accuracy": 0.29442508710801396,
+            "auroc_contradicting_vs_coherent": 0.5306434111642484
+          },
+          "ethics": {
+            "n": 344,
+            "accuracy": 0.33430232558139533,
+            "auroc_contradicting_vs_coherent": 0.5285816790241566
+          },
+          "physics": {
+            "n": 1018,
+            "accuracy": 0.35854616895874264,
+            "auroc_contradicting_vs_coherent": 0.4666170766696775
+          }
+        },
+        "confusion": {
+          "coherent": {
+            "contradicting": 208,
+            "coherent": 232,
+            "orthogonal": 194
+          },
+          "contradicting": {
+            "contradicting": 168,
+            "orthogonal": 188,
+            "coherent": 201
+          },
+          "orthogonal": {
+            "orthogonal": 249,
+            "contradicting": 264,
+            "coherent": 232
+          }
+        },
+        "latency_ms_p50": 0.0022080494090914726,
+        "latency_ms_p95": 0.002334010787308216,
+        "label_distribution": {
+          "coherent": 634,
+          "contradicting": 557,
+          "orthogonal": 745
+        },
+        "predicted_distribution": {
+          "contradicting": 640,
+          "orthogonal": 631,
+          "coherent": 665
+        }
+      },
+      "calibration": [
+        {
+          "bin_lower": 0.0,
+          "bin_upper": 0.1,
+          "count": 126,
+          "mean_confidence": 0.048635896061835625,
+          "accuracy": 0.46825396825396826
+        },
+        {
+          "bin_lower": 0.1,
+          "bin_upper": 0.2,
+          "count": 122,
+          "mean_confidence": 0.1475512314829605,
+          "accuracy": 0.48360655737704916
+        },
+        {
+          "bin_lower": 0.2,
+          "bin_upper": 0.3,
+          "count": 110,
+          "mean_confidence": 0.24943502001093468,
+          "accuracy": 0.5272727272727272
+        },
+        {
+          "bin_lower": 0.3,
+          "bin_upper": 0.4,
+          "count": 112,
+          "mean_confidence": 0.3509831363540817,
+          "accuracy": 0.45535714285714285
+        },
+        {
+          "bin_lower": 0.4,
+          "bin_upper": 0.5,
+          "count": 126,
+          "mean_confidence": 0.44722196165900013,
+          "accuracy": 0.4365079365079365
+        },
+        {
+          "bin_lower": 0.5,
+          "bin_upper": 0.6,
+          "count": 127,
+          "mean_confidence": 0.5438887989553924,
+          "accuracy": 0.3937007874015748
+        },
+        {
+          "bin_lower": 0.6,
+          "bin_upper": 0.7,
+          "count": 132,
+          "mean_confidence": 0.6486308263641284,
+          "accuracy": 0.5151515151515151
+        },
+        {
+          "bin_lower": 0.7,
+          "bin_upper": 0.8,
+          "count": 118,
+          "mean_confidence": 0.7456722744915123,
+          "accuracy": 0.4491525423728814
+        },
+        {
+          "bin_lower": 0.8,
+          "bin_upper": 0.9,
+          "count": 102,
+          "mean_confidence": 0.8534294235912844,
+          "accuracy": 0.5196078431372549
+        },
+        {
+          "bin_lower": 0.9,
+          "bin_upper": 1.0,
+          "count": 116,
+          "mean_confidence": 0.9476271948483278,
+          "accuracy": 0.4396551724137931
+        }
+      ]
+    },
+    "cosine": {
+      "runner": "cosine",
+      "status": "ok",
+      "error": null,
+      "n_completed": 1936,
+      "n_expected": 1936,
+      "n_of_N": "1936 of 1936",
+      "seed": 0,
+      "metrics": {
+        "n": 1936,
+        "accuracy": 0.3672520661157025,
+        "auroc_contradicting_vs_coherent": 0.3986826679654979,
+        "ece_contradicting": 0.3964024388440697,
+        "by_domain": {
+          "economics": {
+            "n": 574,
+            "accuracy": 0.4094076655052265,
+            "auroc_contradicting_vs_coherent": 0.5044005947835872
+          },
+          "ethics": {
+            "n": 344,
+            "accuracy": 0.18895348837209303,
+            "auroc_contradicting_vs_coherent": 0.5123774216694571
+          },
+          "physics": {
+            "n": 1018,
+            "accuracy": 0.4037328094302554,
+            "auroc_contradicting_vs_coherent": 0.36067690345890235
+          }
+        },
+        "confusion": {
+          "coherent": {
+            "orthogonal": 338,
+            "coherent": 285,
+            "contradicting": 11
+          },
+          "contradicting": {
+            "coherent": 359,
+            "orthogonal": 194,
+            "contradicting": 4
+          },
+          "orthogonal": {
+            "orthogonal": 422,
+            "coherent": 222,
+            "contradicting": 101
+          }
+        },
+        "latency_ms_p50": 0.0034580007195472717,
+        "latency_ms_p95": 0.0036249402910470963,
+        "label_distribution": {
+          "coherent": 634,
+          "contradicting": 557,
+          "orthogonal": 745
+        },
+        "predicted_distribution": {
+          "orthogonal": 954,
+          "coherent": 866,
+          "contradicting": 116
+        }
+      },
+      "calibration": [
+        {
+          "bin_lower": 0.0,
+          "bin_upper": 0.1,
+          "count": 732,
+          "mean_confidence": 0.00792919020592169,
+          "accuracy": 0.523224043715847
+        },
+        {
+          "bin_lower": 0.1,
+          "bin_upper": 0.2,
+          "count": 87,
+          "mean_confidence": 0.1435268532646574,
+          "accuracy": 0.3218390804597701
+        },
+        {
+          "bin_lower": 0.2,
+          "bin_upper": 0.3,
+          "count": 81,
+          "mean_confidence": 0.24877623952031408,
+          "accuracy": 0.4567901234567901
+        },
+        {
+          "bin_lower": 0.3,
+          "bin_upper": 0.4,
+          "count": 123,
+          "mean_confidence": 0.33882829150018956,
+          "accuracy": 0.43902439024390244
+        },
+        {
+          "bin_lower": 0.4,
+          "bin_upper": 0.5,
+          "count": 33,
+          "mean_confidence": 0.4634159223903277,
+          "accuracy": 0.3333333333333333
+        },
+        {
+          "bin_lower": 0.5,
+          "bin_upper": 0.6,
+          "count": 68,
+          "mean_confidence": 0.5408209805025481,
+          "accuracy": 0.38235294117647056
+        },
+        {
+          "bin_lower": 0.6,
+          "bin_upper": 0.7,
+          "count": 18,
+          "mean_confidence": 0.6630992777669191,
+          "accuracy": 0.3333333333333333
+        },
+        {
+          "bin_lower": 0.7,
+          "bin_upper": 0.8,
+          "count": 31,
+          "mean_confidence": 0.7674622537350512,
+          "accuracy": 0.25806451612903225
+        },
+        {
+          "bin_lower": 0.8,
+          "bin_upper": 0.9,
+          "count": 3,
+          "mean_confidence": 0.8124648066901462,
+          "accuracy": 0.0
+        },
+        {
+          "bin_lower": 0.9,
+          "bin_upper": 1.0,
+          "count": 15,
+          "mean_confidence": 1.0,
+          "accuracy": 0.26666666666666666
+        }
+      ]
+    },
+    "contradiction_geometry": {
+      "runner": "contradiction_geometry",
+      "status": "ok",
+      "error": null,
+      "n_completed": 1936,
+      "n_expected": 1936,
+      "n_of_N": "1936 of 1936",
+      "seed": 0,
+      "metrics": {
+        "n": 1936,
+        "accuracy": 0.28770661157024796,
+        "auroc_contradicting_vs_coherent": 0.5857525953026863,
+        "ece_contradicting": 0.275205539306266,
+        "by_domain": {
+          "economics": {
+            "n": 574,
+            "accuracy": 0.259581881533101,
+            "auroc_contradicting_vs_coherent": 0.5773620544146606
+          },
+          "ethics": {
+            "n": 344,
+            "accuracy": 0.32848837209302323,
+            "auroc_contradicting_vs_coherent": 0.46666467352308055
+          },
+          "physics": {
+            "n": 1018,
+            "accuracy": 0.28978388998035365,
+            "auroc_contradicting_vs_coherent": 0.6232081185909357
+          }
+        },
+        "confusion": {
+          "coherent": {
+            "contradicting": 634
+          },
+          "contradicting": {
+            "contradicting": 557
+          },
+          "orthogonal": {
+            "contradicting": 745
+          }
+        },
+        "latency_ms_p50": 0.0065409112721681595,
+        "latency_ms_p95": 0.006749993190169334,
+        "label_distribution": {
+          "coherent": 634,
+          "contradicting": 557,
+          "orthogonal": 745
+        },
+        "predicted_distribution": {
+          "contradicting": 1936
+        }
+      },
+      "calibration": [
+        {
+          "bin_lower": 0.0,
+          "bin_upper": 0.1,
+          "count": 0,
+          "mean_confidence": NaN,
+          "accuracy": NaN
+        },
+        {
+          "bin_lower": 0.1,
+          "bin_upper": 0.2,
+          "count": 0,
+          "mean_confidence": NaN,
+          "accuracy": NaN
+        },
+        {
+          "bin_lower": 0.2,
+          "bin_upper": 0.3,
+          "count": 0,
+          "mean_confidence": NaN,
+          "accuracy": NaN
+        },
+        {
+          "bin_lower": 0.3,
+          "bin_upper": 0.4,
+          "count": 0,
+          "mean_confidence": NaN,
+          "accuracy": NaN
+        },
+        {
+          "bin_lower": 0.4,
+          "bin_upper": 0.5,
+          "count": 0,
+          "mean_confidence": NaN,
+          "accuracy": NaN
+        },
+        {
+          "bin_lower": 0.5,
+          "bin_upper": 0.6,
+          "count": 0,
+          "mean_confidence": NaN,
+          "accuracy": NaN
+        },
+        {
+          "bin_lower": 0.6,
+          "bin_upper": 0.7,
+          "count": 186,
+          "mean_confidence": 0.6863338719097407,
+          "accuracy": 0.478494623655914
+        },
+        {
+          "bin_lower": 0.7,
+          "bin_upper": 0.8,
+          "count": 981,
+          "mean_confidence": 0.7520819444573615,
+          "accuracy": 0.4597349643221203
+        },
+        {
+          "bin_lower": 0.8,
+          "bin_upper": 0.9,
+          "count": 24,
+          "mean_confidence": 0.8049712344116419,
+          "accuracy": 0.7083333333333334
+        },
+        {
+          "bin_lower": 0.9,
+          "bin_upper": 1.0,
+          "count": 0,
+          "mean_confidence": NaN,
+          "accuracy": NaN
+        }
+      ]
+    }
+  },
+  "analysis": {
+    "comparison": "contradiction_geometry vs cosine",
+    "n_items_compared": 1936,
+    "accuracy": {
+      "statistic": "accuracy_diff(firm - cosine)",
+      "theta_hat": -0.07954545454545453,
+      "n_pairs": 1936,
+      "bootstrap": {
+        "method": "bca-bootstrap",
+        "ci_low": -0.11518595041322316,
+        "ci_high": -0.04287190082644626,
+        "alpha": 0.05,
+        "n_resamples": 10000,
+        "z0": 0.00150397753176512,
+        "acceleration": 0.0005472991953004708,
+        "excludes_zero": true
+      },
+      "effect_size": {
+        "name": "cohens_h",
+        "value": -0.16978722005802438,
+        "magnitude": "negligible"
+      },
+      "p_two_sided": 9.999000099990002e-05
+    },
+    "mcnemar": {
+      "method": "mcnemar-chi2-continuity",
+      "b_firm_right_cosine_wrong": 553,
+      "c_firm_wrong_cosine_right": 707,
+      "n_discordant": 1260,
+      "statistic": 18.57857142857143,
+      "p_value": 1.6304302712056876e-05,
+      "odds_ratio": 0.7821782178217822,
+      "effect_size": {
+        "name": "mcnemar_odds_ratio",
+        "value": 0.7821782178217822,
+        "interpretation": ">1 favours the firm probe, <1 favours cosine, 1 means the discordant pairs are balanced."
+      }
+    },
+    "auroc": {
+      "statistic": "auroc_diff(firm - cosine)",
+      "theta_hat": 0.1870699273371883,
+      "n_pairs": 1191,
+      "auroc_firm": 0.5857525953026862,
+      "auroc_cosine": 0.3986826679654979,
+      "bootstrap": {
+        "method": "bca-bootstrap",
+        "ci_low": 0.13157460397171253,
+        "ci_high": 0.2424493231586938,
+        "alpha": 0.05,
+        "n_resamples": 10000,
+        "z0": 0.004762611726370971,
+        "acceleration": -0.0018330708354923806,
+        "excludes_zero": true
+      },
+      "effect_size": {
+        "name": "auroc_difference",
+        "value": 0.1870699273371883,
+        "interpretation": "AUROC differences are already on an interpretable scale."
+      },
+      "p_two_sided": 9.999000099990002e-05
+    },
+    "per_domain_accuracy": {
+      "economics": {
+        "statistic": "accuracy_diff(firm - cosine)",
+        "theta_hat": -0.14982578397212548,
+        "n_pairs": 574,
+        "bootstrap": {
+          "method": "bca-bootstrap",
+          "ci_low": -0.2160278745644599,
+          "ci_high": -0.0853658536585366,
+          "alpha": 0.05,
+          "n_resamples": 10000,
+          "z0": -0.028579452399323923,
+          "acceleration": 0.0019288237511072767,
+          "excludes_zero": true
+        },
+        "effect_size": {
+          "name": "cohens_h",
+          "value": -0.3194172650995053,
+          "magnitude": "small"
+        },
+        "p_two_sided": 9.999000099990002e-05
+      },
+      "ethics": {
+        "statistic": "accuracy_diff(firm - cosine)",
+        "theta_hat": 0.1395348837209302,
+        "n_pairs": 344,
+        "bootstrap": {
+          "method": "bca-bootstrap",
+          "ci_low": 0.06395348837209305,
+          "ci_high": 0.20930232558139533,
+          "alpha": 0.05,
+          "n_resamples": 10000,
+          "z0": -0.04488371162510891,
+          "acceleration": -0.0017006336205038926,
+          "excludes_zero": true
+        },
+        "effect_size": {
+          "name": "cohens_h",
+          "value": 0.3212796007163242,
+          "magnitude": "small"
+        },
+        "p_two_sided": 0.00019998000199980003
+      },
+      "physics": {
+        "statistic": "accuracy_diff(firm - cosine)",
+        "theta_hat": -0.11394891944990176,
+        "n_pairs": 1018,
+        "bootstrap": {
+          "method": "bca-bootstrap",
+          "ci_low": -0.16601178781925346,
+          "ci_high": -0.06581532416502944,
+          "alpha": 0.05,
+          "n_resamples": 10000,
+          "z0": -0.03434755978425272,
+          "acceleration": 0.001118129272997013,
+          "excludes_zero": true
+        },
+        "effect_size": {
+          "name": "cohens_h",
+          "value": -0.2401774371895522,
+          "magnitude": "small"
+        },
+        "p_two_sided": 9.999000099990002e-05
+      }
+    }
+  },
+  "mqs_firm_probe": {
+    "composite": 0.47407491282477665,
+    "components": {
+      "accuracy_lift": 0.0,
+      "auroc_lift": 0.17150519060537261,
+      "calibration": 0.724794460693734,
+      "beats_cosine": 1.0
+    },
+    "weights": {
+      "accuracy_lift": 0.25,
+      "auroc_lift": 0.25,
+      "calibration": 0.25,
+      "beats_cosine": 0.25
+    },
+    "threshold": 0.5,
+    "clears_threshold": false,
+    "note": "Benchmark-local quality gate for the firm probe. Not the methodology MQS; same intent \u2014 do not promote a weak result."
+  },
+  "honest_findings": [
+    "Overall 3-way accuracy: the cosine baseline (0.3673) beats the firm's contradiction-geometry probe (0.2877).",
+    "Overall 3-way accuracy: even the random runner (0.3352) beats the firm probe (0.2877) \u2014 the probe is below chance on accuracy.",
+    "Domain 'economics' accuracy: cosine (0.4094) beats the firm probe (0.2596).",
+    "Domain 'ethics' AUROC: cosine (0.5124) beats the firm probe (0.4667).",
+    "Domain 'physics' accuracy: cosine (0.4037) beats the firm probe (0.2898).",
+    "The firm probe is degenerate on this run: it predicts 'contradicting' for every item. Its AUROC is not meaningless, but its accuracy reflects only the base rate of that label."
+  ],
+  "leaderboard": [
+    {
+      "runner": "contradiction_geometry",
+      "status": "ok",
+      "n_of_N": "1936 of 1936",
+      "accuracy": 0.28770661157024796,
+      "auroc": 0.5857525953026863,
+      "ece": 0.275205539306266,
+      "latency_ms_p50": 0.0065409112721681595
+    },
+    {
+      "runner": "random",
+      "status": "ok",
+      "n_of_N": "1936 of 1936",
+      "accuracy": 0.3352272727272727,
+      "auroc": 0.49637818643136683,
+      "ece": 0.25367729747907375,
+      "latency_ms_p50": 0.0022080494090914726
+    },
+    {
+      "runner": "cosine",
+      "status": "ok",
+      "n_of_N": "1936 of 1936",
+      "accuracy": 0.3672520661157025,
+      "auroc": 0.3986826679654979,
+      "ece": 0.3964024388440697,
+      "latency_ms_p50": 0.0034580007195472717
+    }
+  ]
+}

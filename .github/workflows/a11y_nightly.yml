@@ -1,0 +1,149 @@
+name: Accessibility — nightly + on-demand
+
+# WCAG 2.1 AA regression sweep over every public surface.
+#
+# Runs:
+#   - nightly at 06:30 UTC (just after the dataset replication job),
+#   - on every push to `main` so a fresh deploy can be gated,
+#   - on PRs that touch the codex frontend so a regression is caught
+#     before review, and
+#   - via `workflow_dispatch` for ad-hoc operator runs.
+#
+# Failures regenerate `docs/architecture/Accessibility_Survey.md` and
+# upload the axe-core report as a workflow artifact. The job is marked
+# required for `main`, so a failure blocks the next deploy.
+
+on:
+  schedule:
+    - cron: "30 6 * * *"
+  push:
+    branches:
+      - main
+    paths:
+      - "theseus-codex/**"
+      - ".github/workflows/a11y_nightly.yml"
+  pull_request:
+    paths:
+      - "theseus-codex/**"
+      - ".github/workflows/a11y_nightly.yml"
+  workflow_dispatch: {}
+
+concurrency:
+  group: a11y-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  axe-sweep:
+    name: axe-core sweep
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    defaults:
+      run:
+        working-directory: theseus-codex
+    env:
+      # The seed DB is sufficient for public-surface routes — no
+      # founder-portal interaction is required.
+      DATABASE_URL: "file:./dev.db"
+      DIRECT_URL: "file:./dev.db"
+      NODE_ENV: test
+      NEXT_TELEMETRY_DISABLED: "1"
+      PLAYWRIGHT_BASE_URL: "http://127.0.0.1:3000"
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: theseus-codex/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install axe-core for Playwright
+        run: npm install --no-save --no-audit --no-fund @axe-core/playwright@^4.10.0
+
+      - name: Install Playwright browsers
+        run: npx playwright install --with-deps chromium
+
+      - name: Seed local database
+        run: |
+          npx prisma db push --skip-generate
+          npm run db:seed || true
+
+      - name: Build app
+        run: npm run build
+
+      - name: Start Next.js (background)
+        run: |
+          npm run start -- -H 127.0.0.1 -p 3000 &
+          echo $! > .next-server.pid
+        env:
+          PORT: "3000"
+
+      - name: Wait for server
+        run: |
+          for i in $(seq 1 60); do
+            if curl -sf "$PLAYWRIGHT_BASE_URL/" >/dev/null; then
+              echo "server is up";
+              exit 0;
+            fi
+            sleep 2
+          done
+          echo "server failed to start"
+          exit 1
+
+      - name: Run axe sweep
+        id: axe
+        run: npx playwright test playwright/a11y.spec.ts --reporter=list,html
+
+      - name: Stop server
+        if: always()
+        run: |
+          if [ -f .next-server.pid ]; then
+            kill "$(cat .next-server.pid)" || true
+          fi
+
+      - name: Upload Playwright report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: a11y-playwright-report
+          path: theseus-codex/playwright-report
+          retention-days: 14
+
+      - name: Comment on PR with summary
+        if: failure() && github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const body = [
+              "### ❗️ Accessibility regression",
+              "",
+              "The nightly axe-core sweep failed against this branch.",
+              "Download the **a11y-playwright-report** artifact from this run",
+              "to inspect the failing rules, pages, and node selectors.",
+              "",
+              "Fix locally with:",
+              "```",
+              "cd theseus-codex",
+              "npm install --save-dev @axe-core/playwright",
+              "npx playwright test playwright/a11y.spec.ts",
+              "```",
+              "",
+              "Then refer to `docs/architecture/Accessibility_Survey.md`",
+              "for the standards this gate enforces.",
+            ].join("\n");
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              body,
+            });

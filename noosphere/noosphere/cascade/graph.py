@@ -194,6 +194,45 @@ class CascadeGraph:
             src=src, dst=dst, relation=relation, include_retracted=include_retracted
         )
 
+    # ── Bayesian-belief projection ───────────────────────────────────────
+    #
+    # The cascade is the primary representation. The Bayesian-belief layer
+    # (``noosphere.inquiry.bayesian_network``) is a *derived view*: it
+    # needs an acyclic skeleton of truth-valued nodes plus the evidence
+    # edges between them. We expose that projection here — as plain Python
+    # data, never BN types — because the cascade package must not import
+    # ``noosphere.inquiry`` (that would invert the dependency direction
+    # the Bayesian layer relies on).
+    #
+    # Two cascade facts make the projection well-defined:
+    #   * ``depends_on`` edges are already cycle-free (enforced on insert).
+    #   * ``supports`` / ``refutes`` / … are NOT individually cycle-checked,
+    #     so the union edge set can contain a cycle. We break cycles
+    #     deterministically by dropping the lexicographically-last back
+    #     edge and reporting the dropped edge ids, so a founder can see
+    #     exactly which evidence link was excluded from the BN.
+
+    def bayesian_skeleton(
+        self,
+        *,
+        truth_kinds: Optional[frozenset[CascadeNodeKind]] = None,
+    ) -> dict:
+        """Project the cascade onto an acyclic skeleton for the BN layer.
+
+        Returns a plain ``dict`` with three keys:
+          * ``nodes`` — sorted ``[(node_id, ref, kind_value), …]`` for
+            every truth-valued node that participates in ≥1 projected
+            edge;
+          * ``edges`` — ``[(edge_id, src, dst, relation_value,
+            confidence), …]`` in stable order, guaranteed acyclic;
+          * ``dropped_edge_ids`` — sorted edge ids excluded to break
+            cycles (or self-loops).
+
+        Consumed by ``noosphere.inquiry.bayesian_network.build_bn_dag``.
+        """
+        kinds = truth_kinds if truth_kinds is not None else BN_TRUTH_NODE_KINDS
+        return build_bayesian_skeleton(self._store, truth_kinds=kinds)
+
     # ── cycle detection ─────────────────────────────────────────────────
 
     def _check_cycle(self, src: str, dst: str) -> None:
@@ -215,3 +254,118 @@ class CascadeGraph:
                 include_retracted=False,
             ):
                 queue.append(edge.dst)
+
+
+# ── Bayesian-belief projection (module-level helpers) ───────────────────
+#
+# Free-function form so callers holding only a ``store`` (no graph
+# wrapper) — e.g. the inquiry-layer BN builder — can build the
+# projection without constructing a ``CascadeGraph``.
+
+# Node kinds that carry a binary truth value in the Bayesian layer. A
+# chunk or raw artifact is *evidence*, not a proposition that is true or
+# false, so it is not projected as a BN node; its influence reaches the
+# BN only through the confidence of the edges it feeds.
+BN_TRUTH_NODE_KINDS: frozenset[CascadeNodeKind] = frozenset(
+    {
+        CascadeNodeKind.CLAIM,
+        CascadeNodeKind.CONCLUSION,
+        CascadeNodeKind.PRINCIPLE,
+    }
+)
+
+# Cascade relations that carry truth-flow into the Bayesian DAG. These
+# mirror the revision engine's ``_PROPAGATING_RELATIONS`` plus the
+# weaker coherence/generalisation links, since for *inference* (unlike
+# minimal-distance revision) every dependency is informative.
+BN_PROJECTED_RELATIONS: frozenset[CascadeEdgeRelation] = frozenset(
+    {
+        CascadeEdgeRelation.SUPPORTS,
+        CascadeEdgeRelation.REFUTES,
+        CascadeEdgeRelation.CONTRADICTS,
+        CascadeEdgeRelation.DEPENDS_ON,
+        CascadeEdgeRelation.REFORMULATES,
+        CascadeEdgeRelation.SPECIALIZES,
+        CascadeEdgeRelation.GENERALIZES,
+        CascadeEdgeRelation.COHERES_WITH,
+        CascadeEdgeRelation.PREDICTS,
+        CascadeEdgeRelation.EXTRACTED_FROM,
+        CascadeEdgeRelation.AGGREGATES,
+    }
+)
+
+
+def _bn_reaches(children: dict[str, set[str]], start: str, target: str) -> bool:
+    """True if ``target`` is reachable from ``start`` in the current DAG."""
+    if start == target:
+        return True
+    seen: set[str] = set()
+    stack = [start]
+    while stack:
+        cur = stack.pop()
+        if cur == target:
+            return True
+        if cur in seen:
+            continue
+        seen.add(cur)
+        stack.extend(children.get(cur, ()))
+    return False
+
+
+def build_bayesian_skeleton(
+    store,  # noqa: ANN001
+    *,
+    truth_kinds: frozenset[CascadeNodeKind] = BN_TRUTH_NODE_KINDS,
+) -> dict:
+    """See ``CascadeGraph.bayesian_skeleton``.
+
+    The cycle-break is deterministic: candidate edges are sorted by
+    ``(relation, src, dst, edge_id)`` and added one at a time; an edge
+    that would close a cycle (its ``dst`` already reaches its ``src``)
+    is dropped. Same graph snapshot → same skeleton, every time.
+    """
+    raw_edges = [
+        e
+        for e in store.iter_cascade_edges(include_retracted=False)
+        if e.relation in BN_PROJECTED_RELATIONS
+    ]
+
+    touched: set[str] = set()
+    for e in raw_edges:
+        touched.add(e.src)
+        touched.add(e.dst)
+
+    kept: dict[str, tuple[str, str]] = {}
+    for nid in touched:
+        node = store.get_cascade_node(nid)
+        if node is not None and node.kind in truth_kinds:
+            kept[nid] = (node.ref, node.kind.value)
+
+    candidates = [e for e in raw_edges if e.src in kept and e.dst in kept]
+    candidates.sort(key=lambda e: (e.relation.value, e.src, e.dst, e.edge_id))
+
+    children: dict[str, set[str]] = {nid: set() for nid in kept}
+    accepted: list[CascadeEdge] = []
+    dropped: list[str] = []
+    for e in candidates:
+        if e.src == e.dst:
+            # A self-loop is never a BN edge — a claim does not condition
+            # its own truth value.
+            dropped.append(e.edge_id)
+            continue
+        if _bn_reaches(children, e.dst, e.src):
+            dropped.append(e.edge_id)
+            continue
+        children[e.src].add(e.dst)
+        accepted.append(e)
+
+    nodes = sorted((nid, ref, kind) for nid, (ref, kind) in kept.items())
+    edges = [
+        (e.edge_id, e.src, e.dst, e.relation.value, e.confidence)
+        for e in accepted
+    ]
+    return {
+        "nodes": nodes,
+        "edges": edges,
+        "dropped_edge_ids": sorted(dropped),
+    }

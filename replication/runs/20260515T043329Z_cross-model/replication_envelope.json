@@ -1,0 +1,33 @@
+{
+  "benchmark_version": "qh-v1",
+  "dataset_path": "/Users/michaelquintin/Desktop/Theseus/benchmarks/quintin_hypothesis/v1/dataset.jsonl",
+  "dataset_sha256": "sha256:b25ab62102389fbbbf2cdad08cc5a056e4946631835a89672fe88aa0a8fbe7c4",
+  "deterministic": true,
+  "envelope_version": "envelope-v1",
+  "extra": {
+    "available_models": [
+      "hash-det"
+    ],
+    "deterministic_env": {
+      "CUBLAS_WORKSPACE_CONFIG": ":4096:8",
+      "MKL_NUM_THREADS": "1",
+      "OMP_NUM_THREADS": "1",
+      "OPENBLAS_NUM_THREADS": "1",
+      "PYTHONHASHSEED": "0",
+      "TF_DETERMINISTIC_OPS": "1"
+    },
+    "skipped_models": []
+  },
+  "finished_at_utc": "2026-05-15T04:33:30Z",
+  "git_dirty": true,
+  "git_sha": "0034929158a42e4e536d85efd41ab22721c7ca50",
+  "models": [
+    "hash-det"
+  ],
+  "os_release": "25.2.0",
+  "platform": "macOS-26.2-arm64-arm-64bit-Mach-O",
+  "python_version": "3.13.7",
+  "runner": "cross_model",
+  "seed": 0,
+  "started_at_utc": "2026-05-15T04:33:29Z"
+}

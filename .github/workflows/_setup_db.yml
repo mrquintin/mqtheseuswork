@@ -1,0 +1,115 @@
+name: _setup_db
+
+# Reusable Postgres-backed job. Spins up Postgres 16 as a service
+# container, exports DATABASE_URL, and then runs the caller's script.
+# Centralizes the Postgres version pin and the connection-string shape
+# so individual workflows don't drift.
+#
+# Not currently invoked by any of the Round 17 workflows being
+# consolidated (none of qh_benchmark / redteam_tournament / type-contracts
+# / nightly_replication / load_test_* / dead-code-survey need a DB), but
+# committed here so future migrations or Prisma-touching workflows have
+# a canonical entry point instead of redefining the service block.
+#
+# Non-runnable on its own — invoke via
+#   jobs.X.uses: ./.github/workflows/_setup_db.yml
+
+on:
+  workflow_call:
+    inputs:
+      postgres-version:
+        type: string
+        default: '16'
+      postgres-user:
+        type: string
+        default: 'theseus'
+      postgres-password:
+        type: string
+        default: 'theseus'
+      postgres-db:
+        type: string
+        default: 'theseus_test'
+      node-version:
+        type: string
+        default: '20'
+      python-version:
+        type: string
+        default: '3.11'
+      install-prisma:
+        type: boolean
+        default: false
+        description: 'If true, runs `npx prisma migrate deploy` after install using the theseus-codex schema.'
+      install-node:
+        type: boolean
+        default: true
+      install-python:
+        type: boolean
+        default: false
+      working-directory:
+        type: string
+        default: 'theseus-codex'
+      script:
+        type: string
+        required: true
+      timeout-minutes:
+        type: number
+        default: 30
+
+permissions:
+  contents: read
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    timeout-minutes: ${{ inputs.timeout-minutes }}
+
+    services:
+      postgres:
+        image: postgres:${{ inputs.postgres-version }}
+        env:
+          POSTGRES_USER: ${{ inputs.postgres-user }}
+          POSTGRES_PASSWORD: ${{ inputs.postgres-password }}
+          POSTGRES_DB: ${{ inputs.postgres-db }}
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U ${{ inputs.postgres-user }}"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      DATABASE_URL: postgres://${{ inputs.postgres-user }}:${{ inputs.postgres-password }}@localhost:5432/${{ inputs.postgres-db }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        if: ${{ inputs.install-node }}
+        with:
+          node-version: ${{ inputs.node-version }}
+          cache: 'npm'
+          cache-dependency-path: theseus-codex/package-lock.json
+
+      - uses: actions/setup-python@v5
+        if: ${{ inputs.install-python }}
+        with:
+          python-version: ${{ inputs.python-version }}
+          cache: 'pip'
+          cache-dependency-path: pyproject.toml
+
+      - name: npm install
+        if: ${{ inputs.install-node }}
+        working-directory: theseus-codex
+        run: npm ci --no-audit --no-fund
+
+      - name: Apply Prisma migrations
+        if: ${{ inputs.install-prisma }}
+        working-directory: theseus-codex
+        run: npx prisma migrate deploy
+
+      - name: Run script
+        working-directory: ${{ inputs.working-directory }}
+        run: |
+          set -euo pipefail
+          ${{ inputs.script }}

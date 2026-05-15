@@ -43,6 +43,8 @@ from datetime import datetime, timezone
 from enum import Enum
 from typing import Callable, Iterable, Optional, Protocol, Sequence
 
+from noosphere.observability import traced
+
 
 # Default load-bearing threshold: a cascade weight at or above this
 # means the cite is doing real work for the conclusion (the standard
@@ -211,6 +213,10 @@ def _label_from_judgment(judgment: NLIJudgment) -> tuple[VerdictLabel, float]:
     return VerdictLabel.AMBIGUOUS, max(e, n, c)
 
 
+# Hot path: one call per citation, and a single source-text update fans
+# this out across every cite against that source. Sample at 5% so the
+# excerpt-windowing cost stays observable without flooding the store.
+@traced("citation_chain.extract_excerpt", sample_rate=0.05)
 def extract_excerpt(
     source_text: str,
     *,
@@ -275,6 +281,10 @@ def now_utc() -> datetime:
     return datetime.now(timezone.utc)
 
 
+# Hot path: one call per citation in every validation batch. Sample at
+# 10% — enough to keep the NLI-judge latency distribution visible while
+# leaving headroom in the span store during a publish-day revalidation.
+@traced("citation_chain.judge_citation", sample_rate=0.1)
 def judge_citation(
     candidate: CitationCandidate,
     judge: NLIJudge,
@@ -400,6 +410,7 @@ class InMemoryCitationVerdictLedger:
 # ── Validator orchestration ────────────────────────────────────────────
 
 
+@traced("citation_chain.validate_citations")
 def validate_citations(
     candidates: Sequence[CitationCandidate],
     judge: NLIJudge,
@@ -521,6 +532,7 @@ def _reason_for(verdict: CitationVerdict) -> str:
     )
 
 
+@traced("citation_chain.triage_payloads")
 def triage_payloads(
     verdicts: Iterable[CitationVerdict],
     *,
@@ -560,6 +572,7 @@ def publication_blockers(
     return [v for v in verdicts if blocks_publication(v)]
 
 
+@traced("citation_chain.apply_override")
 def apply_override(
     verdict: CitationVerdict,
     *,
@@ -606,6 +619,7 @@ backed lambda.
 """
 
 
+@traced("citation_chain.revalidate_for_source")
 def revalidate_for_source(
     source_id: str,
     candidates: Sequence[CitationCandidate],
@@ -635,6 +649,7 @@ def revalidate_for_source(
     )
 
 
+@traced("citation_chain.revalidate_on_standing_change")
 def revalidate_on_standing_change(
     source_ids: Iterable[str],
     candidate_lookup: CandidateLookup,

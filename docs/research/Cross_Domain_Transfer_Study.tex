@@ -1,0 +1,140 @@
+\documentclass[11pt]{article}
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage[margin=1in]{geometry}
+\usepackage{booktabs}
+\usepackage{array}
+\usepackage{longtable}
+\usepackage{hyperref}
+\usepackage{xcolor}
+\title{Cross-Domain Method Transfer Study v1 \\ \large Does a method's
+in-domain track record carry to a neighboring domain?}
+\author{Theseus / Noosphere Research}
+\date{2026-05-14}
+\begin{document}
+\maketitle
+
+
+\begin{abstract}
+We ask whether a method with a strong, large-$n$ in-domain track record transfers to a neighboring domain it has no track record in. The method under study is a domain-specialist coherence classifier --- a multinomial logistic regression over nine geometry features of a (premise, continuation) embedding pair --- trained on the frozen Quintin Hypothesis v1 dataset. We evaluate 3 method/domain pairs against frozen, hash-pinned held-out eval sets in the neighboring domains chemistry, finance, and law. For each pair we report in-domain cross-validated accuracy, transfer accuracy, a domain-naive baseline trained directly on the target domain, an unpaired bootstrap confidence interval on the in-domain-minus-transfer accuracy gap, a two-proportion $z$-test, and Cohen's $h$. Across 3 method/domain pair(s): 1 partial transfer; 2 no transfer. The firm publishes whichever it finds --- partial-transfer cases are reported with the specific sub-capability that survives the domain boundary, losses included.
+\end{abstract}
+
+\section{Setup}
+
+The source domain $D$ supplies the method's track record: the method is trained on the frozen QH v1 slice for $D$, and its in-domain accuracy is the 5-fold cross-validated, out-of-fold accuracy on that slice. The target domain $D'$ is a neighboring domain the method has no resolved items in. Transfer accuracy is the $D$-trained weights applied to the frozen $D'$ eval set, with the feature scaler re-fit on $D'$ (unsupervised --- no $D'$ labels are used); the strict zero-adaptation variant is reported alongside. The domain-naive baseline is the same architecture trained directly on $D'$ by cross-validation. Every dataset is hash-pinned in the pairs manifest (\texttt{benchmarks/transfer/v1/pairs.yaml}) and re-verified on each run; the held-out sets are frozen and not re-curated to chase a result. Run envelope: git SHA \texttt{0034929158a42e4e536d85efd41ab22721c7ca50}, embedder \texttt{hash-det-v1}, bootstrap 10000 resamples, seed 17.
+
+\section{Results}
+
+\begin{longtable}{l r r r l r l}
+
+\toprule
+
+Pair & In-dom.\ & Transfer & Baseline & $\Delta$ 95\% CI & Cohen's $h$ & Verdict \\
+
+\midrule\endhead
+
+\texttt{physics-to-chemistry} & 0.688 & 0.227 & 0.744 & [0.393, 0.528] & 0.963 & No transfer \\
+
+\texttt{economics-to-finance} & 0.695 & 0.494 & 0.463 & [0.116, 0.286] & 0.413 & Partial transfer \\
+
+\texttt{ethics-to-law} & 0.427 & 0.351 & 0.491 & [-0.026, 0.176] & 0.157 & No transfer \\
+
+\bottomrule
+
+\end{longtable}
+
+\subsection{physics-to-chemistry: physics -> chemistry}
+
+Chemistry is the natural-science neighbor of physics: same template construction (parameterized premise, near-identical coherent / contradicting continuations, off-topic orthogonal), different domain vocabulary. The method has no QH track record in chemistry and declares no DomainBound naming it.
+
+\begin{itemize}
+
+\item In-domain track record: accuracy 0.6876 ($n=1018$), Brier 0.2159, ECE 0.1558.
+
+\item Transfer to chemistry: accuracy 0.2267 ($n=172$), Brier 0.4210, ECE 0.4600. Strict zero-adaptation variant: 0.2849.
+
+\item Sub-capability split: orthogonal-vs-rest 0.5174, coherent-vs-contradicting 0.1262.
+
+\item Domain-naive baseline trained on chemistry: accuracy 0.7442.
+
+\item In-domain minus transfer gap 0.4609, 95\% bootstrap CI [0.3927, 0.5277], bootstrap $p=0.0000$; two-proportion $z=11.5236$, $p=0.0000$; Cohen's $h=0.9629$ (large).
+
+\item Transfer vs.\ chance (0.333): one-sided $z=-2.9654$, $p=0.9985$.
+
+\end{itemize}
+
+\noindent\textbf{Verdict --- No transfer.} transfer accuracy is not significantly above random chance (0.333) --- the method's specialization does not carry into this domain.
+
+\subsection{economics-to-finance: economics -> finance}
+
+Finance is the quantitative-reasoning neighbor of economics: shared structural intuitions (prices, rates, risk) over a distinct vocabulary. No QH track record in finance; no DomainBound naming it.
+
+\begin{itemize}
+
+\item In-domain track record: accuracy 0.6951 ($n=574$), Brier 0.2389, ECE 0.0693.
+
+\item Transfer to finance: accuracy 0.4938 ($n=160$), Brier 0.2421, ECE 0.1076. Strict zero-adaptation variant: 0.3688.
+
+\item Sub-capability split: orthogonal-vs-rest 0.6750, coherent-vs-contradicting 0.4405.
+
+\item Domain-naive baseline trained on finance: accuracy 0.4625.
+
+\item In-domain minus transfer gap 0.2014, 95\% bootstrap CI [0.1155, 0.2861], bootstrap $p=0.0000$; two-proportion $z=4.7264$, $p=0.0000$; Cohen's $h=0.4134$ (small).
+
+\item Transfer vs.\ chance (0.333): one-sided $z=4.3044$, $p=0.0000$.
+
+\end{itemize}
+
+\noindent\textbf{Verdict --- Partial transfer.} transfer accuracy is significantly above chance but also significantly worse than in-domain --- the capability carries over only partially.
+
+\subsection{ethics-to-law: ethics -> law}
+
+Law is the normative-reasoning neighbor of ethics: both reason over rules, agents, and permissibility, with a distinct vocabulary. No QH track record in law; no DomainBound naming it.
+
+\begin{itemize}
+
+\item In-domain track record: accuracy 0.4273 ($n=344$), Brier 0.2386, ECE 0.1065.
+
+\item Transfer to law: accuracy 0.3509 ($n=114$), Brier 0.2857, ECE 0.1975. Strict zero-adaptation variant: 0.2807.
+
+\item Sub-capability split: orthogonal-vs-rest 0.5702, coherent-vs-contradicting 0.3846.
+
+\item Domain-naive baseline trained on law: accuracy 0.4912.
+
+\item In-domain minus transfer gap 0.0764, 95\% bootstrap CI [-0.0258, 0.1758], bootstrap $p=0.1298$; two-proportion $z=1.4392$, $p=0.1501$; Cohen's $h=0.1570$ (negligible).
+
+\item Transfer vs.\ chance (0.333): one-sided $z=0.3974$, $p=0.3456$.
+
+\end{itemize}
+
+\noindent\textbf{Verdict --- No transfer.} transfer accuracy is not significantly above random chance (0.333) --- the method's specialization does not carry into this domain.
+
+\section{Honest findings}
+
+The study exists so the firm can publish a method that does not generalize. The losses, stated plainly:
+
+\begin{itemize}
+
+\item physics-to-chemistry: NO TRANSFER. In-domain accuracy 0.6876 collapses to 0.2267 on chemistry --- a significant drop, and not significantly above the 0.333 chance floor. The method's specialization in physics does not carry into the neighboring domain.
+
+\item physics-to-chemistry: a domain-naive baseline *trained on chemistry* (0.7442) beats the transferred method (0.2267) --- fitting the new domain directly would have done better than carrying the specialist over.
+
+\item physics-to-chemistry: covariate shift is load-bearing --- the strict zero-adaptation transfer scores 0.2849 vs 0.2267 once the feature scaler is re-fit on chemistry (unsupervised).
+
+\item economics-to-finance: PARTIAL TRANSFER. In-domain accuracy 0.6951 degrades to 0.4938 on finance --- a significant loss, but still above chance. Sub-capability split: orthogonal-vs-rest 0.6750, coherent-vs-contradicting 0.4405.
+
+\item economics-to-finance: covariate shift is load-bearing --- the strict zero-adaptation transfer scores 0.3688 vs 0.4938 once the feature scaler is re-fit on finance (unsupervised).
+
+\item ethics-to-law: NO TRANSFER. In-domain accuracy is already a modest 0.4273, and transfer accuracy 0.3509 on law is not significantly above the 0.333 chance floor. The method's specialization in ethics does not carry into the neighboring domain.
+
+\item ethics-to-law: a domain-naive baseline *trained on law* (0.4912) beats the transferred method (0.3509) --- fitting the new domain directly would have done better than carrying the specialist over.
+
+\item ethics-to-law: covariate shift is load-bearing --- the strict zero-adaptation transfer scores 0.2807 vs 0.3509 once the feature scaler is re-fit on law (unsupervised).
+
+\end{itemize}
+
+\section{What this study does not do}
+
+Per the study constraints, this experiment does not modify any method's declared domain bound (\texttt{noosphere/methods/domain\_bounds.py}). Widening or narrowing a method's declared domain is a founder decision that follows the published evidence; it is not a side effect of the experiment. Every number above is produced by \texttt{noosphere.transfer.study} from the frozen, hash-pinned inputs --- no value is hand-edited.
+
+\end{document}

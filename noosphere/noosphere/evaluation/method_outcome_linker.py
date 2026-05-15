@@ -33,6 +33,7 @@ from typing import Any, Iterable, Optional, Protocol
 from pydantic import BaseModel, Field, field_validator
 
 from noosphere.evaluation.mqs import MethodologyProfileSummary
+from noosphere.observability import traced
 
 
 LINKER_SCHEMA = "theseus.method_outcome_linker.v1"
@@ -144,6 +145,7 @@ class StubMethodLinkerJudge:
         return out
 
 
+@traced("method_outcome_linker.infer_links")
 def infer_links(
     *,
     conclusion_id: str,
@@ -195,6 +197,7 @@ def infer_links(
     return out
 
 
+@traced("method_outcome_linker.registry_view")
 def registry_view() -> list[RegistryMethodView]:
     """Project the in-process method registry into the closed vocabulary
     the judge sees."""
@@ -217,6 +220,7 @@ def registry_view() -> list[RegistryMethodView]:
 # ── Persistence helpers (psycopg2-style cursor) ─────────────────────────────
 
 
+@traced("method_outcome_linker.upsert_links")
 def upsert_links(
     cur,
     *,

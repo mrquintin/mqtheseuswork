@@ -123,7 +123,6 @@ export default function MobileNavDrawer({ authed }: { authed: boolean }) {
 
       {open ? (
         <div
-          aria-hidden={!open}
           className="public-nav-scrim"
           data-testid="public-nav-scrim"
           onClick={(event) => {
@@ -153,7 +152,7 @@ export default function MobileNavDrawer({ authed }: { authed: boolean }) {
               </button>
             </div>
 
-            <nav aria-label="Public navigation" className="public-nav-drawer-list">
+            <nav aria-label="Site sections" className="public-nav-drawer-list">
               <Link className="public-nav-drawer-link mono" href="/">
                 Home
               </Link>

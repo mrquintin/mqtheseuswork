@@ -22,6 +22,8 @@ from __future__ import annotations
 
 import contextvars
 import dataclasses
+import functools
+import inspect
 import json
 import os
 import re
@@ -31,7 +33,7 @@ from contextlib import contextmanager
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Callable, Iterable, Iterator
+from typing import Any, Callable, Iterable, Iterator, TypeVar
 
 
 # ── Status ───────────────────────────────────────────────────────────────────
@@ -333,3 +335,120 @@ def start_trace(
     finally:
         _TRACE_ID.reset(trace_token)
         _SPAN_ID.reset(parent_token)
+
+
+# ── traced decorator ────────────────────────────────────────────────────────
+
+_F = TypeVar("_F", bound=Callable[..., Any])
+
+# Span store would bloat if a function called thousands of times a minute
+# emitted a span per call. Hot-path functions pass ``sample_rate < 1.0``;
+# sampling is deterministic (every Nth call) so coverage tests can assert
+# the rate is honoured exactly rather than probabilistically.
+
+
+def _stride_for(sample_rate: float) -> int:
+    """Calls-between-samples for a given rate. 0 means "never sample"."""
+    rate = max(0.0, min(1.0, float(sample_rate)))
+    if rate >= 1.0:
+        return 1
+    if rate <= 0.0:
+        return 0
+    return max(1, round(1.0 / rate))
+
+
+def _code_attrs(fn: Callable[..., Any]) -> dict[str, Any]:
+    """Best-effort source location so the trace UI can link a span back
+    to the line that emitted it. No PII — just module path + line."""
+    try:
+        code = fn.__code__  # type: ignore[attr-defined]
+        filepath = code.co_filename
+        marker = f"{os.sep}noosphere{os.sep}"
+        idx = filepath.rfind(marker)
+        if idx != -1:
+            filepath = filepath[idx + 1 :]
+        return {
+            "code.function": getattr(fn, "__qualname__", getattr(fn, "__name__", "")),
+            "code.filepath": filepath,
+            "code.lineno": code.co_firstlineno,
+        }
+    except Exception:
+        return {}
+
+
+def traced(
+    name: str | Callable[..., Any] | None = None,
+    *,
+    sample_rate: float = 1.0,
+    attrs: dict[str, Any] | None = None,
+    recorder: SpanRecorder | None = None,
+) -> Any:
+    """Wrap a function so each invocation opens a span under the current trace.
+
+    Usable bare (``@traced``) or parameterised
+    (``@traced("mqs.score_conclusion", sample_rate=0.1)``). When no
+    ``name`` is given the span is named ``{module}.{qualname}``.
+
+    ``sample_rate`` in [0, 1] throttles hot-path functions: ``0.1`` emits
+    a span for every 10th call. The decision is deterministic per wrapper
+    (a call counter, not a coin flip) so callers and tests get a stable,
+    assertable rate. Sampled-out calls still run — only the span is skipped.
+
+    Async functions are supported transparently; the span spans the await.
+
+    The wrapper carries ``__traced__``/``__traced_span_name__``/
+    ``__traced_sample_rate__`` markers so ``scripts/survey_trace_coverage.py``
+    can tell instrumented functions from bare ones.
+    """
+    bare_fn: Callable[..., Any] | None = None
+    if callable(name):
+        bare_fn = name
+        name = None
+
+    def decorate(fn: _F) -> _F:
+        span_name = name if isinstance(name, str) and name else (
+            f"{getattr(fn, '__module__', '?')}.{getattr(fn, '__qualname__', fn.__name__)}"
+        )
+        stride = _stride_for(sample_rate)
+        base_attrs = _code_attrs(fn)
+        if attrs:
+            base_attrs.update(attrs)
+        state = {"calls": 0}
+
+        def _sampled() -> bool:
+            state["calls"] += 1
+            if stride == 0:
+                return False
+            return (state["calls"] - 1) % stride == 0
+
+        if inspect.iscoroutinefunction(fn):
+
+            @functools.wraps(fn)
+            async def async_wrapper(*args: Any, **kwargs: Any) -> Any:
+                if not _sampled():
+                    return await fn(*args, **kwargs)
+                with start_span(span_name, attrs=dict(base_attrs), recorder=recorder):
+                    return await fn(*args, **kwargs)
+
+            wrapper: Callable[..., Any] = async_wrapper
+        else:
+
+            @functools.wraps(fn)
+            def sync_wrapper(*args: Any, **kwargs: Any) -> Any:
+                if not _sampled():
+                    return fn(*args, **kwargs)
+                with start_span(span_name, attrs=dict(base_attrs), recorder=recorder):
+                    return fn(*args, **kwargs)
+
+            wrapper = sync_wrapper
+
+        wrapper.__traced__ = True  # type: ignore[attr-defined]
+        wrapper.__traced_span_name__ = span_name  # type: ignore[attr-defined]
+        wrapper.__traced_sample_rate__ = max(  # type: ignore[attr-defined]
+            0.0, min(1.0, float(sample_rate))
+        )
+        return wrapper  # type: ignore[return-value]
+
+    if bare_fn is not None:
+        return decorate(bare_fn)
+    return decorate

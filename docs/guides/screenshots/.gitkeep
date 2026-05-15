@@ -1,0 +1,10 @@
+# Theseus user-guide screenshots
+
+This directory holds PNG screenshots referenced by the LaTeX guides under
+`docs/guides/`. Screenshots are produced by the Playwright capture pass
+that prompt 65 wired up. Until a screenshot exists, the guide either
+references it inside a `\IfFileExists{...}` block (so the build does not
+fail) or omits the figure entirely.
+
+Naming convention: `<guide-number>_<short-slug>.png`, e.g.
+`01_quick_start_upload.png`.

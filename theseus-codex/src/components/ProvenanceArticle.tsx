@@ -16,6 +16,11 @@ import ProvenanceGutter from "./ProvenanceGutter";
 interface ProvenanceArticleProps {
   bodyMarkdown: string;
   report: SentenceProvenanceReport;
+  /**
+   * Firm's publish-worthy provenance bar, resolved server-side in
+   * `ConclusionView`. Sentences below it get a "weak evidence" pill.
+   */
+  publishThreshold?: number;
 }
 
 const layoutStyle: CSSProperties = {
@@ -44,10 +49,12 @@ const toggleButtonStyle: CSSProperties = {
 };
 
 const tipStyle: CSSProperties = {
+  alignItems: "flex-start",
   background: "var(--currents-bg-elevated, #1d1a16)",
   border: "1px solid var(--currents-amber-deep, #6b4f23)",
   borderRadius: "4px",
   color: "var(--currents-parchment-dim, #d8c9ad)",
+  display: "flex",
   fontSize: "0.78rem",
   lineHeight: 1.45,
   marginBottom: "0.6rem",
@@ -62,8 +69,12 @@ const tipStyle: CSSProperties = {
 export default function ProvenanceArticle({
   bodyMarkdown,
   report,
+  publishThreshold,
 }: ProvenanceArticleProps) {
-  const [visible, setVisible] = useState<boolean>(false);
+  // The provenance bar shows by default on article-detail pages; the
+  // initial state is `true` so it renders without a flash, and the
+  // mount effect then honours an explicit reader choice to hide it.
+  const [visible, setVisible] = useState<boolean>(true);
   const [showTip, setShowTip] = useState<boolean>(false);
 
   useEffect(() => {
@@ -75,12 +86,13 @@ export default function ProvenanceArticle({
     setVisible((prev) => {
       const next = !prev;
       writeToggle(next);
-      if (next && showTip) {
-        markFirstUseTipShown();
-        setShowTip(false);
-      }
       return next;
     });
+  };
+
+  const dismissTip = () => {
+    markFirstUseTipShown();
+    setShowTip(false);
   };
 
   return (
@@ -108,20 +120,43 @@ export default function ProvenanceArticle({
             fontSize: "0.72rem",
           }}
         >
-          gutter shades sentences by evidence weight
+          left-margin bar marks each sentence by evidence weight
         </span>
       </div>
 
       {visible && showTip ? (
         <div data-testid="provenance-tip" role="note" style={tipStyle}>
-          The gutter shades each sentence by the strength of its supporting evidence.
-          Click a faintly-shaded cell to see which sources carry that sentence.
+          <span style={{ flex: 1 }}>
+            The thin bar in the left margin ramps toward amber as a sentence&apos;s
+            evidence weakens. An amber pill flags sentences below the firm&apos;s
+            publish-worthy bar. Click any bar for the sources behind that sentence.
+          </span>
+          <button
+            aria-label="Dismiss provenance explainer"
+            data-testid="provenance-tip-dismiss"
+            onClick={dismissTip}
+            style={{
+              background: "transparent",
+              border: "1px solid var(--currents-amber-deep, #6b4f23)",
+              borderRadius: "4px",
+              color: "var(--currents-parchment-dim, #d8c9ad)",
+              cursor: "pointer",
+              fontSize: "0.7rem",
+              flex: "none",
+              marginLeft: "0.6rem",
+              padding: "0.2rem 0.5rem",
+            }}
+            type="button"
+          >
+            Got it
+          </button>
         </div>
       ) : null}
 
       <div style={layoutStyle}>
         <ProvenanceGutter
           bodyMarkdown={bodyMarkdown}
+          publishThreshold={publishThreshold}
           report={report}
           visible={visible}
         />

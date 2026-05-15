@@ -1,16 +1,19 @@
 "use client";
 
 import type { Reducer } from "@/lib/dimReduce";
-import type { ExplorerState, SavedView } from "@/lib/explorerState";
+import {
+  DEFAULT_VIEWPORT,
+  ZOOM_MAX,
+  ZOOM_MIN,
+  clampViewport,
+  viewportsEqual,
+  type ExplorerState,
+} from "@/lib/explorerState";
 
 interface ExplorerToolbarProps {
   state: ExplorerState;
   onChange: (next: ExplorerState) => void;
-  onSaveView: (label: string) => void;
   onClearSelection: () => void;
-  savedViews: SavedView[];
-  onSelectSavedView: (view: SavedView) => void;
-  onDeleteSavedView: (id: string) => void;
   selectionCount: number;
   totalCount: number;
 }
@@ -19,6 +22,8 @@ const REDUCER_OPTIONS: Array<{ value: Reducer; label: string; hint: string }> = 
   { value: "pca", label: "PCA", hint: "principal components" },
   { value: "umap", label: "UMAP", hint: "neighbour preserving" },
 ];
+
+const ZOOM_STEP = 1.4;
 
 const buttonStyle = (active: boolean): React.CSSProperties => ({
   fontFamily: "'Cinzel', serif",
@@ -33,17 +38,35 @@ const buttonStyle = (active: boolean): React.CSSProperties => ({
   cursor: "pointer",
 });
 
+const groupLabelStyle: React.CSSProperties = {
+  fontSize: "0.65rem",
+  color: "var(--parchment-dim)",
+  textTransform: "uppercase",
+  letterSpacing: "0.1em",
+};
+
 export default function ExplorerToolbar({
   state,
   onChange,
-  onSaveView,
   onClearSelection,
-  savedViews,
-  onSelectSavedView,
-  onDeleteSavedView,
   selectionCount,
   totalCount,
 }: ExplorerToolbarProps) {
+  const { viewport } = state;
+
+  const zoomTo = (scale: number) => {
+    onChange({
+      ...state,
+      viewport: clampViewport({ ...viewport, scale }),
+    });
+  };
+
+  const resetView = () => {
+    onChange({ ...state, viewport: { ...DEFAULT_VIEWPORT } });
+  };
+
+  const atDefaultView = viewportsEqual(viewport, DEFAULT_VIEWPORT);
+
   return (
     <div
       style={{
@@ -59,15 +82,7 @@ export default function ExplorerToolbar({
       }}
     >
       <div style={{ display: "flex", gap: "0.4rem", alignItems: "center" }}>
-        <span
-          className="mono"
-          style={{
-            fontSize: "0.65rem",
-            color: "var(--parchment-dim)",
-            textTransform: "uppercase",
-            letterSpacing: "0.1em",
-          }}
-        >
+        <span className="mono" style={groupLabelStyle}>
           Reducer
         </span>
         {REDUCER_OPTIONS.map((opt) => (
@@ -84,15 +99,7 @@ export default function ExplorerToolbar({
       </div>
 
       <div style={{ display: "flex", gap: "0.4rem", alignItems: "center" }}>
-        <span
-          className="mono"
-          style={{
-            fontSize: "0.65rem",
-            color: "var(--parchment-dim)",
-            textTransform: "uppercase",
-            letterSpacing: "0.1em",
-          }}
-        >
+        <span className="mono" style={groupLabelStyle}>
           Overlays
         </span>
         <button
@@ -121,6 +128,53 @@ export default function ExplorerToolbar({
         </button>
       </div>
 
+      <div style={{ display: "flex", gap: "0.4rem", alignItems: "center" }}>
+        <span className="mono" style={groupLabelStyle}>
+          Zoom
+        </span>
+        <button
+          type="button"
+          aria-label="Zoom out"
+          title="Zoom out"
+          disabled={viewport.scale <= ZOOM_MIN + 1e-6}
+          style={buttonStyle(false)}
+          onClick={() => zoomTo(viewport.scale / ZOOM_STEP)}
+        >
+          −
+        </button>
+        <span
+          className="mono"
+          aria-hidden="true"
+          style={{
+            fontSize: "0.68rem",
+            color: "var(--parchment)",
+            minWidth: "3.2rem",
+            textAlign: "center",
+          }}
+        >
+          {viewport.scale.toFixed(2)}×
+        </span>
+        <button
+          type="button"
+          aria-label="Zoom in"
+          title="Zoom in"
+          disabled={viewport.scale >= ZOOM_MAX - 1e-6}
+          style={buttonStyle(false)}
+          onClick={() => zoomTo(viewport.scale * ZOOM_STEP)}
+        >
+          +
+        </button>
+        <button
+          type="button"
+          style={buttonStyle(false)}
+          disabled={atDefaultView}
+          onClick={resetView}
+          title="Reset zoom and pan"
+        >
+          Reset view
+        </button>
+      </div>
+
       <div
         className="mono"
         style={{
@@ -135,100 +189,9 @@ export default function ExplorerToolbar({
       </div>
 
       {selectionCount > 0 && (
-        <button
-          type="button"
-          style={buttonStyle(false)}
-          onClick={onClearSelection}
-        >
+        <button type="button" style={buttonStyle(false)} onClick={onClearSelection}>
           Clear
         </button>
-      )}
-
-      <button
-        type="button"
-        style={buttonStyle(false)}
-        onClick={() => {
-          const label =
-            (typeof window !== "undefined"
-              ? window.prompt("Name this view")
-              : null) || "";
-          if (label.trim()) onSaveView(label.trim());
-        }}
-      >
-        Save view
-      </button>
-
-      {savedViews.length > 0 && (
-        <details style={{ position: "relative" }}>
-          <summary
-            style={{
-              ...buttonStyle(false),
-              listStyle: "none",
-              userSelect: "none",
-            }}
-          >
-            Views ({savedViews.length})
-          </summary>
-          <div
-            style={{
-              position: "absolute",
-              right: 0,
-              top: "calc(100% + 4px)",
-              minWidth: 240,
-              background: "var(--stone)",
-              border: "1px solid var(--border)",
-              borderRadius: 2,
-              padding: "0.4rem",
-              zIndex: 50,
-              maxHeight: 280,
-              overflowY: "auto",
-            }}
-          >
-            {savedViews.map((view) => (
-              <div
-                key={view.id}
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "space-between",
-                  gap: "0.4rem",
-                  padding: "0.3rem 0.4rem",
-                  borderBottom: "1px solid var(--border)",
-                }}
-              >
-                <button
-                  type="button"
-                  onClick={() => onSelectSavedView(view)}
-                  style={{
-                    background: "transparent",
-                    border: "none",
-                    color: "var(--parchment)",
-                    cursor: "pointer",
-                    fontSize: "0.78rem",
-                    textAlign: "left",
-                    flex: 1,
-                  }}
-                >
-                  {view.label}
-                </button>
-                <button
-                  type="button"
-                  aria-label={`Delete view ${view.label}`}
-                  onClick={() => onDeleteSavedView(view.id)}
-                  style={{
-                    background: "transparent",
-                    border: "none",
-                    color: "var(--parchment-dim)",
-                    cursor: "pointer",
-                    fontSize: "0.7rem",
-                  }}
-                >
-                  ×
-                </button>
-              </div>
-            ))}
-          </div>
-        </details>
       )}
     </div>
   );

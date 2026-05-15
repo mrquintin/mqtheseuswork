@@ -1,0 +1,33 @@
+-- Round-18 schema consolidation migration.
+--
+-- This migration is the surgical SQL output of the Round-18 audit
+-- documented in `docs/architecture/Schema_Audit_Round18.md`.
+--
+-- Forward-only and idempotent by construction:
+--   * No data is moved.
+--   * No column types are altered.
+--   * The single index drop uses `IF EXISTS`, so re-running the
+--     migration on a database that has already received it is a no-op.
+--
+-- The Round-18 audit found no model pair that warranted a destructive
+-- merge (see §4 of the audit document). The only schema-level repair
+-- is dropping a single redundant single-column index on Founder whose
+-- coverage was already provided by the leading column of the
+-- `(organizationId, email)` unique constraint.
+--
+-- Adding/changing FK ON DELETE policies is intentionally NOT part of
+-- this migration: the audit added in-schema comments above each
+-- relation whose policy was previously implicit, but the underlying
+-- SQL `ON DELETE RESTRICT` (Prisma's existing default for required
+-- relations) and `ON DELETE SET NULL` (default for optional relations)
+-- are already what the firm wants. The comments are documentation
+-- only — they do not change the generated SQL.
+
+-- ── 1. Drop redundant single-column index on Founder.organizationId ───
+-- Justification: `Founder_organizationId_email_key` (the unique
+-- constraint backing `@@unique([organizationId, email])`) is itself a
+-- btree whose leading column is `organizationId`, so any equality query
+-- on `organizationId` alone is served by it. The standalone single-
+-- column index `Founder_organizationId_idx` was redundant disk +
+-- maintenance cost on every INSERT/UPDATE.
+DROP INDEX IF EXISTS "Founder_organizationId_idx";

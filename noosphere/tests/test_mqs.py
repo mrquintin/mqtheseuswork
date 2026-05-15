@@ -218,30 +218,44 @@ def test_evidence_blob_round_trips_through_json_without_loss() -> None:
         assert isinstance(decoded[key], dict)
 
 
-def test_composite_formula_is_multiplicative_gate_not_mean() -> None:
-    """The composite is the product of domain sensitivity and the mean of the
-    other four sub-scores. Verify the formula directly so a future regression
-    that switches to `mean(all_five)` would fail this assertion."""
-    # Mean of (1, 1, 1, 1) = 1.0; gate at 0.5 -> composite = 0.5.
+def test_composite_is_piecewise_gate_then_weighted_geometric_mean() -> None:
+    """MQS Specification v1.0.0 §Composite: the composite is piecewise — a
+    hard Domain-Sensitivity gate at DS_GATE_THRESHOLD, then the weighted
+    geometric mean of the other four. Verify the formal claims directly so a
+    regression to the old soft multiplicative gate would fail here. The
+    exhaustive property sweep lives in test_mqs_spec.py."""
+    from noosphere.evaluation.mqs import DS_GATE_THRESHOLD
+
+    # Gate open (domain_sensitivity >= threshold): the composite is the WGM of
+    # the other four and domain sensitivity no longer scales it — WGM(1,1,1,1)
+    # is 1.0 even though domain_sensitivity is only 0.5.
     assert composite_score(
         progressivity=1.0,
         severity=1.0,
         aim_method_fit=1.0,
         compressibility=1.0,
         domain_sensitivity=0.5,
-    ) == 0.5
+    ) == 1.0
 
-    # Gate at 0.0 -> composite = 0 regardless of the others.
+    # Gate closed (below threshold) -> composite = 0 regardless of the others.
     assert composite_score(
         progressivity=1.0,
         severity=1.0,
         aim_method_fit=1.0,
         compressibility=1.0,
-        domain_sensitivity=0.0,
+        domain_sensitivity=DS_GATE_THRESHOLD - 1e-6,
     ) == 0.0
 
-    # A simple-mean baseline would be 0.6 for this input — composite should
-    # NOT match that, because domain sensitivity is the gate.
+    # The threshold itself is on the passing side (the gate uses strict `<`).
+    assert composite_score(
+        progressivity=1.0,
+        severity=1.0,
+        aim_method_fit=1.0,
+        compressibility=1.0,
+        domain_sensitivity=DS_GATE_THRESHOLD,
+    ) == 1.0
+
+    # WGM of four equal sub-scores is that value (weights sum to 1).
     composite = composite_score(
         progressivity=0.5,
         severity=0.5,
@@ -250,3 +264,13 @@ def test_composite_formula_is_multiplicative_gate_not_mean() -> None:
         domain_sensitivity=1.0,
     )
     assert abs(composite - 0.5) < 1e-9
+
+    # Weakest link: a single zeroed non-gate sub-score zeroes the composite
+    # even with the gate wide open — a strong axis cannot redeem a failed one.
+    assert composite_score(
+        progressivity=0.0,
+        severity=1.0,
+        aim_method_fit=1.0,
+        compressibility=1.0,
+        domain_sensitivity=1.0,
+    ) == 0.0

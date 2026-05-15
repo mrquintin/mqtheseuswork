@@ -11,6 +11,7 @@ import {
 
 type SortKey =
   | "name"
+  | "status"
   | "domain"
   | "conclusions"
   | "slope"
@@ -69,6 +70,9 @@ export default function MethodologyIndexTable({ methods }: Props) {
       switch (sort.key) {
         case "name":
           return a.name.localeCompare(b.name) * dir;
+        case "status":
+          if (a.status === b.status) return a.name.localeCompare(b.name);
+          return a.status.localeCompare(b.status) * dir;
         case "domain":
           return (a.domain ?? "").localeCompare(b.domain ?? "") * dir;
         case "conclusions":
@@ -200,6 +204,9 @@ export default function MethodologyIndexTable({ methods }: Props) {
               Method{arrow("name")}
             </Th>
             <th style={thBaseStyle()}>Description</th>
+            <Th onClick={() => onHeaderClick("status")}>
+              Status{arrow("status")}
+            </Th>
             <Th onClick={() => onHeaderClick("domain")}>
               Domain{arrow("domain")}
             </Th>
@@ -221,7 +228,7 @@ export default function MethodologyIndexTable({ methods }: Props) {
           {visible.length === 0 ? (
             <tr>
               <td
-                colSpan={7}
+                colSpan={8}
                 className="public-muted"
                 style={{ padding: "1rem 0.75rem", fontStyle: "italic" }}
               >
@@ -232,9 +239,11 @@ export default function MethodologyIndexTable({ methods }: Props) {
             visible.map((m) => (
               <tr
                 key={m.name}
+                className="public-table-row"
                 style={{ borderTop: "1px solid var(--public-rule, #ddd)" }}
               >
                 <td
+                  data-label="Method"
                   style={{
                     padding: "0.55rem 0.75rem 0.55rem 0",
                     fontFamily: "monospace",
@@ -254,10 +263,17 @@ export default function MethodologyIndexTable({ methods }: Props) {
                     v{m.version}
                   </div>
                 </td>
-                <td style={{ padding: "0.55rem 0.75rem", maxWidth: 360 }}>
+                <td
+                  data-label="Description"
+                  style={{ padding: "0.55rem 0.75rem", maxWidth: 360 }}
+                >
                   {m.description}
                 </td>
+                <td data-label="Status" style={{ padding: "0.55rem 0.75rem" }}>
+                  <StatusPill status={m.status} />
+                </td>
                 <td
+                  data-label="Domain"
                   style={{
                     padding: "0.55rem 0.75rem",
                     color: m.domain ? undefined : "var(--public-muted, #888)",
@@ -265,16 +281,23 @@ export default function MethodologyIndexTable({ methods }: Props) {
                 >
                   {m.domain || "—"}
                 </td>
-                <td style={{ padding: "0.55rem 0.75rem" }}>
+                <td
+                  data-label="Conclusions"
+                  style={{ padding: "0.55rem 0.75rem" }}
+                >
                   {m.conclusionsProduced}
                 </td>
-                <td style={{ padding: "0.55rem 0.75rem" }}>
+                <td
+                  data-label="Cal. slope"
+                  style={{ padding: "0.55rem 0.75rem" }}
+                >
                   {renderSlope(m)}
                 </td>
-                <td style={{ padding: "0.55rem 0.75rem" }}>
+                <td data-label="Drift" style={{ padding: "0.55rem 0.75rem" }}>
                   <DriftPill state={m.drift.state} />
                 </td>
                 <td
+                  data-label="Last review"
                   style={{
                     padding: "0.55rem 0.75rem",
                     color: "var(--public-muted, #888)",
@@ -328,6 +351,12 @@ function Th({
   );
 }
 
+/**
+ * Slope cell. Precision audit (Explorer v2): a calibration slope is a
+ * regression coefficient near 1.0 — two decimals is the precision the
+ * bootstrap actually supports, and the CI bounds are held to the same
+ * two places. Nothing in this table is rendered at raw float width.
+ */
 function renderSlope(m: ManifestMethod): React.ReactNode {
   const cal = m.calibration;
   if (!cal) {
@@ -348,6 +377,33 @@ function renderSlope(m: ManifestMethod): React.ReactNode {
           [{cal.ciLow.toFixed(2)}, {cal.ciHigh.toFixed(2)}]
         </span>
       ) : null}
+    </span>
+  );
+}
+
+const STATUS_COLOR: Record<string, string> = {
+  active: "var(--public-muted, #888)",
+  deprecated: "var(--ember, #c0392b)",
+  experimental: "var(--amber, #d4a017)",
+};
+
+function StatusPill({ status }: { status: string }) {
+  const color = STATUS_COLOR[status] ?? "var(--public-muted, #888)";
+  return (
+    <span
+      style={{
+        display: "inline-block",
+        padding: "0.12rem 0.45rem",
+        border: `1px solid ${color}`,
+        color,
+        fontFamily: "monospace",
+        fontSize: "0.62rem",
+        letterSpacing: "0.14em",
+        textTransform: "uppercase",
+        whiteSpace: "nowrap",
+      }}
+    >
+      {status || "—"}
     </span>
   );
 }

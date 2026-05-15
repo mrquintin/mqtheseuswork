@@ -1,0 +1,61 @@
+You are operating in /Users/michaelquintin/Desktop/Theseus.
+
+Status: PROPOSED. Filed by the RATIONALE documentation-rot repair pass
+(Round 17 follow-up). Method-side gap surfaced while aligning
+`external_claim_match.RATIONALE.md` to the code.
+
+Goal: make `external_claim_match` actually match — or rename it so it
+stops implying a comparison it does not perform.
+
+The gap: the method name, the `internal_claim_text` input, and the
+`matched` output all imply the method checks an external work against a
+firm position. It does not. In
+`noosphere/noosphere/methods/external_claim_match.py`:
+- `internal_claim_text` is accepted but never used;
+- `matched` is computed as `claims_extracted > 0` — i.e. "did ingestion
+  write any claims", not "does the external work support/contradict the
+  internal claim";
+- on any ingestion exception the method returns a hashed-id
+  `matched=False` result, so a caller cannot tell "ingested, no match"
+  apart from "ingestion never ran".
+
+Why it matters: a JUDGMENT-typed method named `external_claim_match`
+that emits `COHERES_WITH` / `CONTRADICTS` cascade edges but performs no
+coherence judgment is a misleading edge source. Downstream consumers may
+trust an edge that was never actually evaluated.
+
+Before you start — read:
+1. `noosphere/noosphere/methods/external_claim_match.py` (the wrapper).
+2. `ingest_literature_text` in
+   `noosphere/noosphere/methods/_legacy/literature.py`.
+3. The registered `citation_entailment` and `six_layer_coherence`
+   methods — the firm already has real internal/external coherence
+   judges; this method should compose one, not fake the verdict.
+4. `noosphere/noosphere/methods/external_claim_match.RATIONALE.md` — the
+   "Drift correction (2026-05-14)" note that points here.
+
+Implement ONE of:
+
+A. Make it a real match. After ingestion, run the extracted external
+   claims against `internal_claim_text` through `citation_entailment`
+   or `six_layer_coherence`, and set `matched` / the emitted cascade
+   edge from that verdict. Add the voice id to the output schema if
+   downstream coherence needs it.
+
+B. Split the responsibilities. Rename this method to something honest
+   about being an ingestion step (e.g. `ingest_external_literature`),
+   drop `internal_claim_text` and `matched`, stop emitting coherence
+   edges, and let a separate method do the actual matching.
+
+C. At minimum, distinguish ingestion failure from "no match" in the
+   output so the silent-fallback failure mode is no longer silent.
+
+Update `external_claim_match.RATIONALE.md` to match the landed contract
+and remove the drift-correction note.
+
+Constraints:
+- Do not change `ingest_literature_text` behavior in this prompt unless
+  option C requires a new return field.
+- Add a test under `noosphere/tests/` that a known contradicting
+  external work yields a `CONTRADICTS` edge (option A) or that the
+  method no longer emits coherence edges (option B).

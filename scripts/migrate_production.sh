@@ -27,14 +27,19 @@ REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 
 ALLOW_LOCALHOST=0
 DRY_RUN=0
+SKIP_SNAPSHOT=0
+SNAPSHOT_PATH=""
 
 usage() {
   cat <<'USAGE'
-Usage: scripts/migrate_production.sh [--allow-localhost] [--dry-run]
+Usage: scripts/migrate_production.sh [--allow-localhost] [--dry-run] [--skip-snapshot]
 
 Applies pending Prisma and Alembic migrations after an explicit host
-confirmation. --dry-run performs the same pre-flight and plan checks but never
-runs prisma migrate deploy or alembic upgrade head.
+confirmation. A structure-only snapshot of the target database is written to
+docs/architecture/snapshots/ before any migration runs unless --skip-snapshot
+is passed (intended only for local rehearsals). --dry-run performs the same
+pre-flight and plan checks but never runs prisma migrate deploy or alembic
+upgrade head.
 USAGE
 }
 
@@ -50,6 +55,9 @@ for arg in "$@"; do
       ;;
     --dry-run)
       DRY_RUN=1
+      ;;
+    --skip-snapshot)
+      SKIP_SNAPSHOT=1
       ;;
     -h|--help)
       usage
@@ -293,6 +301,76 @@ collect_alembic_plan() {
   printf 'Alembic pending migrations: %s\n' "$ALEMBIC_PENDING"
 }
 
+take_snapshot() {
+  if [[ "$SKIP_SNAPSHOT" -eq 1 ]]; then
+    echo
+    echo "WARNING: --skip-snapshot was passed; no schema snapshot will be taken."
+    return
+  fi
+
+  local snapshot_args=()
+  if [[ "$ALLOW_LOCALHOST" -eq 1 ]]; then
+    snapshot_args+=(--allow-localhost)
+  fi
+
+  local timestamp
+  timestamp="$(date -u +%Y%m%dT%H%M%SZ)"
+  SNAPSHOT_PATH="${REPO_ROOT}/docs/architecture/snapshots/${timestamp}.pre-migrate.sql"
+  snapshot_args+=(--out="$SNAPSHOT_PATH")
+
+  echo
+  echo "Taking pre-migration schema snapshot via scripts/snapshot_production_schema.sh"
+  if ! "${SCRIPT_DIR}/snapshot_production_schema.sh" "${snapshot_args[@]}"; then
+    fail "pre-migration snapshot failed; refusing to apply migrations"
+  fi
+  echo "Pre-migration snapshot: ${SNAPSHOT_PATH}"
+}
+
+print_rollback_sql() {
+  local stage="$1"
+  cat >&2 <<ROLLBACK
+
+============================================================
+ROLLBACK REQUIRED (stage: ${stage})
+============================================================
+
+The migrator failed after partially advancing the schema. To return
+production to the pre-migration state, restore the structure from the
+snapshot captured at the start of this run:
+
+  Snapshot: ${SNAPSHOT_PATH:-<none; --skip-snapshot was used>}
+
+Recommended operator steps (run from a host with psql + the same
+DATABASE_URL exported):
+
+  # 1. Open a session and start a transaction so a typo can be undone.
+  psql "\$DATABASE_URL" <<'SQL'
+  BEGIN;
+
+  -- 2. Roll the failed Alembic step back to the prior head, if any.
+  --    (Only needed when failure stage = alembic.)
+  -- \\! cd noosphere && THESEUS_DATABASE_URL="\$DATABASE_URL" alembic downgrade -1
+
+  -- 3. Mark Prisma's _prisma_migrations row for the failed migration as
+  --    rolled_back_at = NOW(); the failing migration name is in the
+  --    Prisma output above.
+  -- UPDATE "_prisma_migrations" SET rolled_back_at = NOW()
+  --  WHERE finished_at IS NULL AND rolled_back_at IS NULL;
+
+  COMMIT;
+  SQL
+
+  # 4. If the failure was structural (DDL partially applied), restore the
+  #    schema from the snapshot. This drops and recreates objects, so it
+  #    must be run with explicit operator confirmation and a fresh backup.
+  # psql "\$DATABASE_URL" -v ON_ERROR_STOP=1 -f "${SNAPSHOT_PATH:-<snapshot>}"
+
+After rollback, re-run scripts/migrate_production_dry_run.sh to confirm the
+database matches the expected schema before retrying.
+============================================================
+ROLLBACK
+}
+
 run_prisma_deploy() {
   local output=""
   local status=0
@@ -307,6 +385,7 @@ run_prisma_deploy() {
 
   if [[ "$status" -ne 0 ]]; then
     echo "ERROR: Prisma migrate deploy failed; Alembic was not attempted." >&2
+    print_rollback_sql "prisma"
     exit 2
   fi
 }
@@ -328,6 +407,7 @@ run_alembic_upgrade() {
 
   if [[ "$status" -ne 0 ]]; then
     echo "ERROR: Alembic upgrade head failed after Prisma already applied." >&2
+    print_rollback_sql "alembic"
     exit 3
   fi
 }
@@ -390,6 +470,9 @@ main() {
   require_command psql
   require_command npx
   require_command alembic
+  if [[ "$SKIP_SNAPSHOT" -ne 1 && "$DRY_RUN" -ne 1 ]]; then
+    require_command pg_dump
+  fi
 
   print_target
   confirm_host
@@ -408,6 +491,7 @@ main() {
   fi
 
   confirm_apply "$total_pending"
+  take_snapshot
   run_prisma_deploy
   run_alembic_upgrade
   verify_clean_after_apply

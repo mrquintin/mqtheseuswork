@@ -1,0 +1,41 @@
+{
+  "cluster_id": "adversarial-audit-2a74eb9b",
+  "lead_conclusion_id": "conclusion-adversarial-audit-1",
+  "conclusion_ids": [
+    "conclusion-adversarial-audit-1",
+    "conclusion-adversarial-audit-2"
+  ],
+  "methodology_profile_id": "profile-adversarial-audit-1",
+  "resolved_forecast_prediction_ids": [
+    "prediction-adversarial-audit-1"
+  ],
+  "disclosure": "machine-drafted, founder-reviewed",
+  "review_state": "pending",
+  "generated_at": "2026-05-14T18:01:25.936108+00:00Z",
+  "review": {
+    "slug": "adversarial-audit-2a74eb9b-adversarial-probing-of-hidden-assumptions-a-firm-cluster",
+    "cluster_id": "adversarial-audit-2a74eb9b",
+    "mqs_composite": 0.4411,
+    "mqs_threshold": 0.55,
+    "severity_weighted": 0.0,
+    "blocker_count": 0,
+    "major_count": 0,
+    "minor_count": 0,
+    "info_count": 0,
+    "todo_count": 0,
+    "reference_count": 1,
+    "publish_ready": false,
+    "recommended_action": "revise",
+    "strengths": [
+      "1 resolved forecast(s) settle the cluster's claims against reality",
+      "Shared methodology root \"Adversarial probing of hidden assumptions\" across all 2 conclusions",
+      "2 registered failure mode(s) \u2014 the limits section is sourced, not invented",
+      "2 supporting-principle reference(s) anchor the cluster",
+      "Every numeric claim resolves to a database row (5 \\rowref markers, 0 TODO)"
+    ],
+    "weaknesses": [
+      "MQS composite 0.44 is below the 0.55 publish bar"
+    ]
+  },
+  "review_updated_at": "2026-05-14T18:01:27.229834+00:00Z"
+}

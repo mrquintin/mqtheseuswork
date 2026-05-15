@@ -1810,10 +1810,292 @@ def research(episode, generate, list_briefs, json_out, data_dir):
         raise SystemExit(1)
 
 
+# ── Command: equities ──────────────────────────────────────────────────────
+
+
+@click.group("equities")
+def equities_cli() -> None:
+    """Equity-track ingestion and paper trading."""
+
+
+@equities_cli.group("ingest")
+def equities_ingest_cli() -> None:
+    """Run equity ingestors."""
+
+
+@equities_cli.group("paper")
+def equities_paper_cli() -> None:
+    """Paper-trading commands (Alpaca paper environment)."""
+
+
+@equities_ingest_cli.command("alpaca")
+@click.option(
+    "--dry-run",
+    is_flag=True,
+    default=False,
+    help="Run against an in-memory store; no durable rows are written.",
+)
+def equities_ingest_alpaca(dry_run: bool) -> None:
+    """Ingest tradeable US equities + ETFs from Alpaca."""
+    from dataclasses import asdict
+
+    from noosphere.equities.alpaca_ingestor import ingest_once
+    from noosphere.equities.config import AlpacaConfig
+    from noosphere.store import Store
+
+    cfg = AlpacaConfig.from_env()
+    store = (
+        Store.from_database_url("sqlite:///:memory:")
+        if dry_run
+        else _store_from_settings()
+    )
+    result = asyncio.run(ingest_once(store, config=cfg))
+    click.echo(
+        json.dumps(
+            {
+                "ok": not result.errors,
+                "dry_run": dry_run,
+                "configured": cfg.is_configured,
+                "accepted_symbols": cfg.accepted_symbols or ["*"],
+                "result": asdict(result),
+            },
+            indent=2,
+            default=str,
+        )
+    )
+
+
+@equities_paper_cli.command("status")
+def equities_paper_status() -> None:
+    """Print Alpaca paper account + currently-open paper positions."""
+    from noosphere.equities._alpaca_client import AlpacaClient
+    from noosphere.equities.config import AlpacaConfig
+    from noosphere.models import EquityPosition, EquityPositionMode, EquityPositionStatus
+
+    cfg = AlpacaConfig.from_env()
+    if not cfg.is_configured:
+        click.echo(
+            json.dumps({"ok": False, "error": "ALPACA_NOT_CONFIGURED"}, indent=2),
+            err=True,
+        )
+        raise SystemExit(2)
+
+    store = _store_from_settings()
+
+    async def _run() -> dict[str, object]:
+        client = AlpacaClient(
+            api_base=cfg.api_base,
+            data_base=cfg.data_base,
+            api_key_id=cfg.api_key_id,
+            api_secret_key=cfg.api_secret_key,
+            timeout_s=cfg.request_timeout_s,
+        )
+        try:
+            account = await client.get_account()
+            broker_positions = await client.list_positions()
+        finally:
+            await client.aclose()
+        return {"account": account, "broker_positions": broker_positions}
+
+    payload = asyncio.run(_run())
+
+    from sqlmodel import select as _select
+
+    with store.session() as session:
+        open_paper = list(
+            session.exec(
+                _select(EquityPosition)
+                .where(EquityPosition.mode == EquityPositionMode.PAPER.value)
+                .where(EquityPosition.status == EquityPositionStatus.OPEN.value)
+            ).all()
+        )
+    local_view = [
+        {
+            "id": pos.id,
+            "signal_id": pos.signal_id,
+            "instrument_id": pos.instrument_id,
+            "side": _enum_value(pos.side),
+            "qty": str(pos.qty),
+            "entry_price": str(pos.entry_price),
+        }
+        for pos in open_paper
+    ]
+
+    click.echo(
+        json.dumps(
+            {"ok": True, "open_paper_positions": local_view, **payload},
+            indent=2,
+            default=str,
+        )
+    )
+
+
+@equities_paper_cli.command("close")
+@click.argument("position_id")
+def equities_paper_close(position_id: str) -> None:
+    """Close a paper position by submitting the offsetting market order."""
+    from noosphere.equities._alpaca_client import AlpacaClient
+    from noosphere.equities.config import AlpacaConfig
+    from noosphere.equities.paper_trader import close_paper_position
+
+    cfg = AlpacaConfig.from_env()
+    if not cfg.is_configured:
+        click.echo(
+            json.dumps({"ok": False, "error": "ALPACA_NOT_CONFIGURED"}, indent=2),
+            err=True,
+        )
+        raise SystemExit(2)
+
+    store = _store_from_settings()
+
+    async def _run():
+        client = AlpacaClient(
+            api_base=cfg.api_base,
+            data_base=cfg.data_base,
+            api_key_id=cfg.api_key_id,
+            api_secret_key=cfg.api_secret_key,
+            timeout_s=cfg.request_timeout_s,
+        )
+        try:
+            return await close_paper_position(store, position_id, client=client)
+        finally:
+            await client.aclose()
+
+    pos = asyncio.run(_run())
+    click.echo(
+        json.dumps(
+            {
+                "ok": True,
+                "position_id": pos.id,
+                "status": _enum_value(pos.status),
+                "exit_price": str(pos.exit_price) if pos.exit_price is not None else None,
+                "realized_pnl_usd": (
+                    str(pos.realized_pnl_usd)
+                    if pos.realized_pnl_usd is not None
+                    else None
+                ),
+            },
+            indent=2,
+            default=str,
+        )
+    )
+
+
+def _enum_value(value: object) -> str:
+    return str(value.value if hasattr(value, "value") else value)
+
+
+# ── Command: quantitative ──────────────────────────────────────────────────
+
+
+@click.group("quantitative")
+def quantitative_cli() -> None:
+    """Quantitative-formalisation runner (prompt 63).
+
+    Pulls APPROVED ``QuantitativeFormalisation`` specs from the store,
+    runs the numerical tests they describe, and writes one
+    ``QuantitativeTestResult`` per pass plus plots under
+    ``benchmarks/quantitative/<formalisation_id>/<run_stamp>/``.
+    """
+
+
+@quantitative_cli.command("run")
+@click.option(
+    "--formalisation",
+    "formalisation_id",
+    type=str,
+    default=None,
+    help="Run a single APPROVED formalisation by id.",
+)
+@click.option(
+    "--all",
+    "run_all",
+    is_flag=True,
+    default=False,
+    help="Run every APPROVED formalisation in the store.",
+)
+@click.option(
+    "--data-dir",
+    "data_dir",
+    type=click.Path(path_type=Path),
+    default=None,
+    help="Override the file:// data root (defaults to noosphere/data/quantitative/).",
+)
+def quantitative_run(
+    formalisation_id: Optional[str],
+    run_all: bool,
+    data_dir: Optional[Path],
+) -> None:
+    """Run one or every APPROVED quantitative formalisation."""
+    from noosphere.forecasts.scheduler import database_url_from_env
+    from noosphere.quantitative.runner import QuantitativeRunner
+    from noosphere.store import Store
+
+    if not formalisation_id and not run_all:
+        raise click.UsageError("pass --formalisation <id> or --all")
+    store = Store.from_database_url(database_url_from_env())
+    runner = QuantitativeRunner(store, data_dir=data_dir)
+    results = []
+    if run_all:
+        approved = store.list_quantitative_formalisations(status="APPROVED")
+        for f in approved:
+            results.append(asyncio.run(runner.run(f.id)))
+    else:
+        results.append(asyncio.run(runner.run(formalisation_id)))
+    click.echo(
+        json.dumps(
+            [
+                {
+                    "formalisation_id": r.formalisation_id,
+                    "run_stamp": r.run_stamp,
+                    "status": r.status.value if hasattr(r.status, "value") else r.status,
+                    "test_count": len(r.test_outputs),
+                    "artifacts_path": r.artifacts_path,
+                    "threshold_crossings": r.threshold_crossings,
+                    "error": r.error,
+                }
+                for r in results
+            ],
+            indent=2,
+            default=str,
+        )
+    )
+
+
+@quantitative_cli.command("status")
+def quantitative_status() -> None:
+    """Print the last-run summary for every APPROVED formalisation."""
+    from noosphere.forecasts.scheduler import database_url_from_env
+    from noosphere.store import Store
+
+    store = Store.from_database_url(database_url_from_env())
+    rows = []
+    for f in store.list_quantitative_formalisations(status="APPROVED"):
+        latest = store.get_latest_quantitative_test_result(f.id)
+        rows.append(
+            {
+                "formalisation_id": f.id,
+                "principle_id": f.principle_id,
+                "latest_run_stamp": latest.run_stamp if latest else None,
+                "status": (
+                    (latest.status.value if hasattr(latest.status, "value") else latest.status)
+                    if latest
+                    else None
+                ),
+                "headline_summary": latest.decision_summary if latest else None,
+                "artifacts_path": latest.artifacts_path if latest else None,
+                "threshold_crossings": latest.threshold_crossings if latest else [],
+            }
+        )
+    click.echo(json.dumps(rows, indent=2, default=str))
+
+
 # ── Plugin discovery ────────────────────────────────────────────────────────
 from noosphere.cli_commands import register_commands
 
 cli.add_command(forecasts_cli)
+cli.add_command(equities_cli)
+cli.add_command(quantitative_cli)
 register_commands(cli)
 
 

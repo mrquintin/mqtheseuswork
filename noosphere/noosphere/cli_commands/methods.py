@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 import json
-from datetime import datetime, timezone
+import os
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 import click
@@ -11,6 +12,11 @@ from rich.console import Console
 from rich.table import Table
 
 console = Console()
+
+
+def _actor_default() -> str:
+    """Best-effort actor name for retirement-ledger entries."""
+    return os.environ.get("USER") or os.environ.get("LOGNAME") or "founder"
 
 
 def _get_store():
@@ -869,3 +875,535 @@ def track_record(
         raise
     finally:
         conn.close()
+
+
+# ── Method retirement workflow ─────────────────────────────────────────────
+#
+# The retirement state machine, criteria, memo rendering, and migration
+# planning all live in `noosphere.methods.retirement`. These commands are
+# the operator surface: they read and write the memo files under
+# `docs/methods/retirement/`, whose YAML frontmatter is the durable
+# retirement state. No DB round-trip — the Codex web app mirrors the
+# state into `MethodRetirement` for its UI separately.
+
+
+@cli.group("retirement")
+def retirement_cli() -> None:
+    """Open, advance, and inspect method-retirement reviews."""
+
+
+def _retirement_state_style(state: str) -> str:
+    return {
+        "active": "green",
+        "under_review": "yellow",
+        "deprecated": "magenta",
+        "retired": "red",
+    }.get(state, "white")
+
+
+@retirement_cli.command("status")
+@click.option("--json", "as_json", is_flag=True, help="Output as JSON")
+def retirement_status(as_json: bool) -> None:
+    """List every method with a retirement memo and its current state."""
+    from noosphere.methods.retirement import load_retirement_records
+
+    records = load_retirement_records()
+    rows = sorted(records.values(), key=lambda r: r.method)
+    if as_json:
+        _render(
+            [
+                {
+                    "method": r.method,
+                    "state": r.state.value,
+                    "replacement": r.replacement or "",
+                    "review_opened_at": r.review_opened_at.isoformat()
+                    if r.review_opened_at
+                    else None,
+                    "sunset_at": r.sunset_at.isoformat() if r.sunset_at else None,
+                    "transitions": len(r.transitions),
+                }
+                for r in rows
+            ],
+            True,
+        )
+        return
+    if not rows:
+        console.print(
+            "[green]No methods are under retirement review.[/green]"
+        )
+        return
+    table = Table(title="Method retirement", show_header=True)
+    table.add_column("Method", style="cyan")
+    table.add_column("State")
+    table.add_column("Replacement")
+    table.add_column("Sunset")
+    table.add_column("Transitions")
+    for r in rows:
+        table.add_row(
+            r.method,
+            f"[{_retirement_state_style(r.state.value)}]"
+            f"{r.state.value.upper()}[/]",
+            r.replacement or "—",
+            r.sunset_at.date().isoformat() if r.sunset_at else "—",
+            str(len(r.transitions)),
+        )
+    console.print(table)
+
+
+@retirement_cli.command("review")
+@click.argument("method_name")
+@click.option(
+    "--drift-active-since",
+    type=str,
+    default=None,
+    help="ISO date the method's drift alert first went non-OK and has "
+    "stayed non-OK since.",
+)
+@click.option(
+    "--ablation",
+    "ablation_recommendation",
+    type=click.Choice(["KEEP", "REMOVE", "KEEP-WITH-FURTHER-WORK"]),
+    default=None,
+    help="Recommendation from the method's most recent ablation study.",
+)
+@click.option(
+    "--invocations-90d",
+    type=int,
+    default=None,
+    help="Invocation count over the last 90 days. 0 trips the dormancy "
+    "criterion; omitting it leaves dormancy unevaluated.",
+)
+@click.option(
+    "--conclusions-total",
+    type=int,
+    default=0,
+    help="How many conclusions this method produced.",
+)
+@click.option(
+    "--conclusions-revised",
+    type=int,
+    default=0,
+    help="How many of those conclusions have been revised away.",
+)
+@click.option("--json", "as_json", is_flag=True, help="Output as JSON")
+def retirement_review(
+    method_name: str,
+    drift_active_since: Optional[str],
+    ablation_recommendation: Optional[str],
+    invocations_90d: Optional[int],
+    conclusions_total: int,
+    conclusions_revised: int,
+    as_json: bool,
+) -> None:
+    """Check METHOD_NAME against the retirement criteria.
+
+    This is an advisory verdict — it does not change any state. See
+    docs/methods/Method_Retirement_Criteria.md for the four criteria.
+    """
+    from noosphere.methods.retirement import (
+        RetirementSignals,
+        qualifies_for_review,
+    )
+
+    drift_since = None
+    if drift_active_since:
+        try:
+            drift_since = datetime.fromisoformat(drift_active_since)
+        except ValueError as exc:
+            raise click.ClickException(
+                f"--drift-active-since must be an ISO date: {exc}"
+            )
+
+    signals = RetirementSignals(
+        drift_alert_active_since=drift_since,
+        ablation_recommendation=ablation_recommendation,
+        invocations_last_90d=invocations_90d,
+        conclusions_total=conclusions_total,
+        conclusions_revised_away=conclusions_revised,
+    )
+    verdict = qualifies_for_review(signals, method=method_name)
+
+    if as_json:
+        _render(
+            {
+                "method": method_name,
+                "qualifies": verdict.qualifies,
+                "triggered": [c.value for c in verdict.triggered],
+                "rationale": {
+                    c.value: verdict.rationale[c] for c in verdict.triggered
+                },
+            },
+            True,
+        )
+        return
+
+    if not verdict.qualifies:
+        console.print(
+            f"[green]{method_name}: no retirement criteria met.[/green]"
+        )
+        return
+    console.print(
+        f"[yellow]{method_name} qualifies for retirement review.[/yellow]"
+    )
+    for c in verdict.triggered:
+        console.print(f"  • [bold]{c.value}[/bold] — {verdict.rationale[c]}")
+    console.print(
+        "\nTo open a review: [cyan]noosphere methods retirement open "
+        f"{method_name} --replacement <method> --reason \"...\"[/cyan]"
+    )
+
+
+@retirement_cli.command("open")
+@click.argument("method_name")
+@click.option(
+    "--replacement",
+    type=str,
+    default=None,
+    help="The method that takes over this one's responsibility.",
+)
+@click.option(
+    "--reason",
+    type=str,
+    required=True,
+    help="Why the review is being opened (the rationale, recorded in the "
+    "memo and the transition ledger).",
+)
+@click.option(
+    "--sunset-days",
+    type=int,
+    default=30,
+    show_default=True,
+    help="Days from now to the sunset deadline (reanalysis-complete date).",
+)
+@click.option(
+    "--conclusion",
+    "conclusion_ids",
+    multiple=True,
+    help="A conclusion id this method produced (repeatable) — listed in "
+    "the memo's 'conclusions affected' section.",
+)
+@click.option("--actor", type=str, default=None, help="Who opened the review.")
+def retirement_open(
+    method_name: str,
+    replacement: Optional[str],
+    reason: str,
+    sunset_days: int,
+    conclusion_ids: tuple[str, ...],
+    actor: Optional[str],
+) -> None:
+    """Move METHOD_NAME ACTIVE → UNDER_REVIEW and scaffold its founder memo.
+
+    The UNDER_REVIEW step is mandatory: a method cannot be deprecated or
+    retired without first passing through a review that produces this
+    permanent memo.
+    """
+    from noosphere.methods.retirement import (
+        RetirementRecord,
+        RetirementState,
+        RetirementTransitionError,
+        memo_path,
+        write_memo,
+    )
+
+    path = memo_path(method_name)
+    if path.exists():
+        raise click.ClickException(
+            f"a retirement memo already exists at {path}. Use "
+            f"`retirement show {method_name}` to inspect it."
+        )
+
+    now = datetime.now(timezone.utc)
+    record = RetirementRecord(method=method_name, state=RetirementState.ACTIVE)
+    try:
+        record.open_review(
+            replacement=replacement,
+            rationale=reason,
+            actor=actor or _actor_default(),
+            at=now,
+            sunset_at=now + timedelta(days=sunset_days),
+        )
+    except RetirementTransitionError as exc:
+        raise click.ClickException(str(exc))
+
+    written = write_memo(
+        record,
+        rationale=reason,
+        conclusions_affected=conclusion_ids,
+    )
+    console.print(
+        f"[yellow]{method_name}[/yellow] → UNDER_REVIEW. "
+        f"Founder review memo scaffolded at [cyan]{written}[/cyan].\n"
+        f"Edit it, then run [cyan]retirement accept {method_name}[/cyan] or "
+        f"[cyan]retirement reject {method_name}[/cyan]."
+    )
+
+
+def _load_record_or_fail(method_name: str):
+    from noosphere.methods.retirement import memo_path, parse_memo
+
+    path = memo_path(method_name)
+    if not path.exists():
+        raise click.ClickException(
+            f"no retirement memo for {method_name!r} at {path}. Open a "
+            f"review first: `noosphere methods retirement open {method_name} "
+            f"--reason \"...\"`."
+        )
+    return parse_memo(path), path
+
+
+@retirement_cli.command("accept")
+@click.argument("method_name")
+@click.option(
+    "--sunset-days",
+    type=int,
+    default=None,
+    help="Optionally reset the sunset deadline to this many days from now.",
+)
+@click.option(
+    "--reason",
+    type=str,
+    default="founder accepted the retirement review",
+    help="Founder decision note, recorded in the transition ledger.",
+)
+@click.option("--actor", type=str, default=None, help="Who accepted the review.")
+def retirement_accept(
+    method_name: str,
+    sunset_days: Optional[int],
+    reason: str,
+    actor: Optional[str],
+) -> None:
+    """Founder accepts: METHOD_NAME UNDER_REVIEW → DEPRECATED.
+
+    From here the method's conclusions get sunset banners and reanalysis
+    under the replacement is scheduled — run `retirement migrate` to
+    materialize that plan.
+    """
+    from noosphere.methods.retirement import (
+        RetirementTransitionError,
+        update_memo,
+    )
+
+    record, _path = _load_record_or_fail(method_name)
+    now = datetime.now(timezone.utc)
+    sunset = now + timedelta(days=sunset_days) if sunset_days is not None else None
+    try:
+        record.accept(
+            actor=actor or _actor_default(),
+            at=now,
+            reason=reason,
+            sunset_at=sunset,
+        )
+    except RetirementTransitionError as exc:
+        raise click.ClickException(str(exc))
+    written = update_memo(record)
+    console.print(
+        f"[magenta]{method_name}[/magenta] → DEPRECATED (memo: {written}). "
+        f"Run [cyan]retirement migrate {method_name} --conclusion <id> ...[/cyan] "
+        f"to flag its conclusions and schedule reanalysis."
+    )
+
+
+@retirement_cli.command("reject")
+@click.argument("method_name")
+@click.option(
+    "--reason",
+    type=str,
+    default="founder rejected the retirement review",
+    help="Founder decision note, recorded in the transition ledger.",
+)
+@click.option("--actor", type=str, default=None, help="Who rejected the review.")
+def retirement_reject(
+    method_name: str, reason: str, actor: Optional[str]
+) -> None:
+    """Founder rejects: METHOD_NAME UNDER_REVIEW → ACTIVE.
+
+    The memo is kept — it is the permanent record that the review
+    happened and what it concluded.
+    """
+    from noosphere.methods.retirement import (
+        RetirementTransitionError,
+        update_memo,
+    )
+
+    record, _path = _load_record_or_fail(method_name)
+    try:
+        record.reject(
+            actor=actor or _actor_default(),
+            at=datetime.now(timezone.utc),
+            reason=reason,
+        )
+    except RetirementTransitionError as exc:
+        raise click.ClickException(str(exc))
+    written = update_memo(record)
+    console.print(
+        f"[green]{method_name}[/green] → ACTIVE. Review rejected; the memo "
+        f"is kept as the record ({written})."
+    )
+
+
+@retirement_cli.command("retire")
+@click.argument("method_name")
+@click.option(
+    "--reason",
+    type=str,
+    default="sunset timeline elapsed; method retired",
+    help="Note recorded in the transition ledger.",
+)
+@click.option("--actor", type=str, default=None, help="Who retired the method.")
+def retirement_retire(
+    method_name: str, reason: str, actor: Optional[str]
+) -> None:
+    """Move METHOD_NAME DEPRECATED → RETIRED — calls are refused from here.
+
+    The method's source is not deleted: it stays importable for
+    historical re-analysis. The registry just refuses ordinary calls
+    with a typed error pointing at the replacement.
+    """
+    from noosphere.methods.retirement import (
+        RetirementTransitionError,
+        update_memo,
+    )
+
+    record, _path = _load_record_or_fail(method_name)
+    try:
+        record.retire(
+            actor=actor or _actor_default(),
+            at=datetime.now(timezone.utc),
+            reason=reason,
+        )
+    except RetirementTransitionError as exc:
+        raise click.ClickException(str(exc))
+    written = update_memo(record)
+    console.print(
+        f"[red]{method_name}[/red] → RETIRED. The registry will now refuse "
+        f"calls to it (memo: {written})."
+    )
+
+
+@retirement_cli.command("migrate")
+@click.argument("method_name")
+@click.option(
+    "--conclusion",
+    "conclusion_ids",
+    multiple=True,
+    required=True,
+    help="A conclusion id produced by this method (repeatable).",
+)
+@click.option("--json", "as_json", is_flag=True, help="Output as JSON")
+def retirement_migrate(
+    method_name: str, conclusion_ids: tuple[str, ...], as_json: bool
+) -> None:
+    """Build the migration plan for a DEPRECATED/RETIRED method.
+
+    Emits a sunset banner for every conclusion the method produced and,
+    when a replacement is named, a reanalysis task pointing at it. The
+    plan is printed for an operator/sync job to apply — this command
+    does not itself write to the Codex DB.
+    """
+    from noosphere.methods.retirement import (
+        RetirementTransitionError,
+        plan_migration,
+    )
+
+    record, _path = _load_record_or_fail(method_name)
+    try:
+        plan = plan_migration(record, conclusion_ids=conclusion_ids)
+    except RetirementTransitionError as exc:
+        raise click.ClickException(str(exc))
+
+    if as_json:
+        _render(
+            {
+                "method": plan.method,
+                "replacement": plan.replacement,
+                "state": plan.state.value,
+                "banners": [
+                    {
+                        "conclusion_id": b.conclusion_id,
+                        "headline": b.headline,
+                        "detail": b.detail,
+                        "sunset_at": b.sunset_at.isoformat()
+                        if b.sunset_at
+                        else None,
+                    }
+                    for b in plan.banners
+                ],
+                "reanalysis_tasks": [
+                    {
+                        "conclusion_id": t.conclusion_id,
+                        "retired_method": t.retired_method,
+                        "replacement_method": t.replacement_method,
+                        "scheduled_at": t.scheduled_at.isoformat(),
+                        "reason": t.reason,
+                    }
+                    for t in plan.reanalysis_tasks
+                ],
+            },
+            True,
+        )
+        return
+
+    console.print(
+        f"[bold]{plan.method}[/bold] · {plan.state.value.upper()} · "
+        f"replacement: {plan.replacement or '—'}"
+    )
+    console.print(
+        f"  {plan.conclusion_count} conclusion(s) flagged with a sunset banner."
+    )
+    if plan.schedules_reanalysis:
+        console.print(
+            f"  {len(plan.reanalysis_tasks)} reanalysis task(s) scheduled "
+            f"under [cyan]{plan.replacement}[/cyan]."
+        )
+    else:
+        console.print(
+            "  [yellow]No replacement named — no reanalysis scheduled. "
+            "Affected conclusions are under review for revision or "
+            "retraction.[/yellow]"
+        )
+
+
+@retirement_cli.command("show")
+@click.argument("method_name")
+@click.option("--json", "as_json", is_flag=True, help="Output as JSON")
+def retirement_show(method_name: str, as_json: bool) -> None:
+    """Show METHOD_NAME's retirement record and transition ledger."""
+    record, path = _load_record_or_fail(method_name)
+    if as_json:
+        _render(record.to_frontmatter(), True)
+        return
+    table = Table(
+        title=f"Retirement · {record.method}", show_header=False
+    )
+    table.add_row("state", record.state.value.upper())
+    table.add_row("replacement", record.replacement or "—")
+    table.add_row(
+        "review opened",
+        record.review_opened_at.isoformat() if record.review_opened_at else "—",
+    )
+    table.add_row(
+        "deprecated",
+        record.deprecated_at.isoformat() if record.deprecated_at else "—",
+    )
+    table.add_row(
+        "retired", record.retired_at.isoformat() if record.retired_at else "—"
+    )
+    table.add_row(
+        "sunset", record.sunset_at.isoformat() if record.sunset_at else "—"
+    )
+    table.add_row("memo", str(path))
+    console.print(table)
+    if record.transitions:
+        ledger = Table(title="Transition ledger", show_header=True)
+        ledger.add_column("When")
+        ledger.add_column("From → To")
+        ledger.add_column("Actor")
+        ledger.add_column("Reason", max_width=48)
+        for t in record.transitions:
+            ledger.add_row(
+                t.at.isoformat(),
+                f"{t.from_state.value.upper()} → {t.to_state.value.upper()}",
+                t.actor,
+                t.reason,
+            )
+        console.print(ledger)

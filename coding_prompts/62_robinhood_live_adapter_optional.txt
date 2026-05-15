@@ -1,0 +1,122 @@
+You are operating in /Users/michaelquintin/Desktop/Theseus.
+
+Goal: optional Robinhood adapter for live equity trading. The
+founder named Robinhood explicitly. Alpaca (prompt 60) is the
+recommended live broker; Robinhood is offered as an alternative
+behind explicit flags, with the caveats documented prominently.
+
+Reality check the operator must read before flipping the flag:
+ - Robinhood does NOT publish a supported public retail trading
+   API. Any integration depends on unofficial reverse-engineered
+   libraries (e.g. `robin_stocks`) which Robinhood periodically
+   breaks with app releases.
+ - Robinhood may detect, throttle, or close accounts that
+   automate trading.
+ - The eight-gate safety contract still applies; this is not a
+   bypass.
+
+For these reasons the Robinhood adapter is OFF by default, behind
+its own enable flag separate from the global live-trading flag,
+and the operator-console UI shows a yellow banner naming the
+risks whenever it is enabled.
+
+Before you start — read:
+1. `noosphere/noosphere/forecasts/_polymarket_live_client.py`
+   and `_kalshi_live_client.py` — same architectural shape
+   (typed client, retries, signed requests).
+2. `noosphere/noosphere/equities/_alpaca_client.py` from
+   prompt 60 — the live Alpaca adapter (also gated under the
+   same eight-gate contract).
+3. `noosphere/noosphere/forecasts/safety.py` — the eight-gate
+   check. Reused unchanged.
+
+Implement:
+
+A. Config dataclass `RobinhoodConfig` in
+   `noosphere/noosphere/equities/config.py`:
+   - `username` (email or login), `password`, `mfa_seed` (TOTP
+     secret), `device_token` (Robinhood's per-device id),
+     `organization_id`, `request_timeout_s` (default 20.0),
+     `pip_choice` (the `robin_stocks` library version,
+     defaults to a recent pinned version).
+   - `from_env()` classmethod.
+   - `is_configured` property requires every field non-empty.
+
+B. `noosphere/noosphere/equities/_robinhood_live_client.py`:
+   - Thin wrapper around `robin_stocks` (added to
+     `noosphere/pyproject.toml` as an optional dep, NOT a
+     required dep). The wrapper:
+     - Authenticates on construction.
+     - Exposes the same method names as the Alpaca live client:
+       `get_account()`, `place_order()`, `cancel_order()`,
+       `get_order()`, `list_positions()`.
+     - Translates Robinhood's response shapes to the same
+       Pydantic models the Alpaca client returns. Downstream
+       code is broker-agnostic.
+   - Failure handling: any `robin_stocks` exception is wrapped
+     into a typed `LiveBrokerError(broker="ROBINHOOD",
+     code="...")`. Three consecutive errors trigger the
+     auto-kill-switch from prompt 09's safety layer.
+
+C. Live equity engine
+   `noosphere/noosphere/equities/live_trader.py`:
+   - `async submit_live_equity_order(store, position_id, *,
+                                      operator_id,
+                                      broker_client)`:
+     1. Load `EquityPosition` + linked `EquitySignal` +
+        `EquityInstrument`.
+     2. Build `GateContext` from env + portfolio state.
+     3. `check_all_gates(prediction=signal, bet=position,
+                          ctx=ctx)`. Raises `GateFailure` on
+        first failing gate.
+     4. Submit order via the matching live client (Alpaca
+        live OR Robinhood, dispatched on `position.broker`).
+     5. Poll for fill (timeout 30s). Update row.
+     6. On FILLED: decrement `liveBalanceUsd` by qty * fill.
+     7. On error: status=FAILED, increment streak counter,
+        auto-engage kill switch on 3 streak.
+   - `async close_live_equity_position(...)` mirror.
+
+D. Operator console addition. The existing operator console
+   (Round 10 prompt 16) gains an "Equity bets" panel
+   mirroring the prediction-market panels. When the
+   Robinhood adapter is enabled, the panel renders a yellow
+   banner: "Robinhood adapter is unofficial. Automation may
+   violate Robinhood ToS. Use at your own risk."
+
+E. Env-var additions to `.env.live.template`:
+   `EQUITIES_LIVE_TRADING_ENABLED=false` (separate from the
+   prediction-market `FORECASTS_LIVE_TRADING_ENABLED`),
+   `EQUITIES_PRIMARY_BROKER=ALPACA` (or `ROBINHOOD`),
+   `ROBINHOOD_USERNAME=`, `ROBINHOOD_PASSWORD=`,
+   `ROBINHOOD_MFA_SEED=`, `ROBINHOOD_DEVICE_TOKEN=`,
+   `EQUITIES_MAX_STAKE_USD`, `EQUITIES_MAX_DAILY_LOSS_USD`.
+
+F. Tests:
+   - All eight gates tested with `EquityPosition` and a fake
+     broker client.
+   - Robinhood adapter not present in CI when the optional
+     dep is not installed — the import is lazy and the
+     module's `is_configured` returns False.
+   - `test_no_real_broker_called` asserts that the full
+     live-bet engine, with both adapters mocked, makes zero
+     network calls during the test suite.
+
+Constraints
+- Live trading is OFF by default. Flag is OFF in
+  `.env.live.template`.
+- The Robinhood adapter does not bypass the gate check.
+  Submitting via Robinhood requires the eight gates to pass.
+- Operator confirmation per live order is preserved.
+  Automation across many orders requires re-confirming each.
+
+SCOPE
+- `noosphere/noosphere/equities/config.py` MODIFY
+- `noosphere/noosphere/equities/_robinhood_live_client.py` CREATE
+- `noosphere/noosphere/equities/live_trader.py` CREATE
+- `noosphere/noosphere/forecasts/safety.py` MODIFY
+- `theseus-codex/src/app/(authed)/forecasts/operator/page.tsx` MODIFY
+- `theseus-codex/src/components/operator/EquityBetsPanel.tsx` CREATE
+- `.env.live.template` MODIFY
+- `noosphere/pyproject.toml` MODIFY
+- `noosphere/tests/test_live_equity_engine.py` CREATE

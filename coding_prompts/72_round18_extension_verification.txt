@@ -1,0 +1,86 @@
+You are operating in /Users/michaelquintin/Desktop/Theseus.
+
+Goal: final verification pass for the Round 18 extension prompts
+51-71. Confirms the bug fixes hold, the new surfaces compose
+correctly, and no earlier-round invariant has regressed.
+
+This is the analog of Round 18's prompt 50, scoped to the
+extension. Should be the LAST prompt run.
+
+Before you start — read:
+1. Every prompt 51-71's SCOPE block. Build a checklist.
+2. Round 9 prompt 22's invariants. Round 10 prompt 18's
+   eight invariants. Both still hold; verify.
+
+Implement:
+
+A. Deliverable presence. Every SCOPE entry across 51-71 is
+   inspected on disk. CREATE targets exist; MODIFY targets
+   exist and contain non-trivial edits since their pre-51
+   git revision. Output `docs/verification/round18_ext_2026_05_13/manifest.md`.
+
+B. Test-suite roll-up. Run:
+   - `pytest noosphere current_events_api -m 'not slow'`
+   - `cd theseus-codex && npm run test`
+   - `cd theseus-codex && DATABASE_URL=postgresql://stub:stub@db.invalid:1/stub npx prisma format`
+   - `cd theseus-codex && DATABASE_URL=postgresql://stub:stub@db.invalid:1/stub npx prisma validate`
+   - `cd theseus-codex && DATABASE_URL=postgresql://stub:stub@db.invalid:1/stub npm run build`
+   - `cd theseus-codex && npx playwright test --grep '@smoke'`
+   Save each output to
+   `docs/verification/round18_ext_2026_05_13/<step>.log`.
+   A failing roll-up step halts the prompt with a structured
+   summary; the founder fixes and re-runs.
+
+C. Invariant re-check:
+   - Article rendering: the "Real cost of growth" article
+     renders without the broken-formatting symptom. Verified
+     by Playwright screenshot diff vs. prompt 51's post-fix
+     baseline.
+   - Public-homepage article surfacing: publish a fixture
+     article in a test DB, hit `/`, find the title in the
+     response.
+   - Scheduler: continuous-run integration test from
+     prompt 53 passes.
+   - Dashboard: Playwright snapshot from prompt 54 still
+     matches; no "Attention" string on the dashboard; nav
+     fonts consistent.
+   - Live-trading default: from any default env,
+     `safety.check_all_gates(...)` for both ForecastBet AND
+     EquityPosition raises `GateFailure(code="DISABLED")`.
+   - Verbatim citations: any new generator (equity signal
+     from prompt 61) refuses to emit a citation whose
+     `quoted_span` is not a substring of the cited source.
+   - Audio capture: a test recording round-trips through
+     the queue to a queued (NOT auto-accepted) principle row.
+
+D. Round 18 extension report. A founder-facing summary at
+   `docs/verification/round18_ext_2026_05_13/SUMMARY.md`:
+   - One paragraph per prompt 51-71 stating: shipped /
+     partial / not-shipped, with one-line evidence pointer
+     (the manifest entry).
+   - The five biggest open questions (the founder triages
+     these in the next round's plan).
+   - The cost of running the extension (total Codex CLI
+     minutes from `.codex_runs/` or `.claude_code_runs/`
+     timestamps).
+
+E. README update. `coding_prompts/README.md` gains an
+   "Extension 51-72" section linking each prompt and its
+   verification result.
+
+Constraints
+- This prompt does not implement features. It verifies and
+  reports. Any new feature work discovered as missing is
+  filed for the next round, not patched here.
+- A failed roll-up step is a failure, not a "skip and
+  continue". The verification's job is to be the last line
+  of defense.
+
+SCOPE
+- `docs/verification/round18_ext_2026_05_13/manifest.md` CREATE
+- `docs/verification/round18_ext_2026_05_13/SUMMARY.md` CREATE
+- `docs/verification/round18_ext_2026_05_13/pytest.log` CREATE
+- `docs/verification/round18_ext_2026_05_13/npm_test.log` CREATE
+- `docs/verification/round18_ext_2026_05_13/npm_build.log` CREATE
+- `docs/verification/round18_ext_2026_05_13/playwright_smoke.log` CREATE
+- `coding_prompts/README.md` MODIFY

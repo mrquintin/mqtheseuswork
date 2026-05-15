@@ -156,6 +156,7 @@ def _parse_subscriber(row: dict) -> Subscriber:
         cadence=cadence,
         unsubscribe_token=str(row["unsubscribe_token"]),
         last_sent_at=_parse_iso(row.get("last_sent_at")),
+        ack_token=str(row.get("ack_token", "") or ""),
     )
 
 
@@ -198,6 +199,7 @@ def _digest_to_jsonable(digest: Digest) -> dict:
         "text": digest.text,
         "html": digest.html,
         "unsubscribe_url": digest.unsubscribe_url,
+        "ack_url": digest.ack_url,
         "headers": dict(digest.headers),
         "items": [asdict(item) | {"occurred_at": item.occurred_at.isoformat()} for item in digest.items],
     }

@@ -1,71 +1,99 @@
 # Citation Entailment — Rationale
 
-## What the method is trying to do
+## Purpose
 
 Most "did this source actually support the claim?" failures in the firm's
 publication path are not retraction events. They are paraphrasing drift: the
-firm cites paper P for claim X, paper P is actually about Y, and a chain of
+firm cites paper P for claim X, P is actually about Y, and a chain of
 intermediate citations has slowly turned X into something the original author
-would not endorse. Source-standing (prompt 18) catches the *first* failure mode
-— the cited paper got retracted, corrected, or expired. Source credibility
-(prompt 19) catches the second — a source's track record can be weighed and
-discounted. Citation entailment is the third leg: the cited *text* must
-actually support the firm's stated claim.
+would not endorse. Source-standing catches the *first* failure mode (the cited
+paper got retracted, corrected, or expired); source credibility catches the
+second (a source's track record can be discounted). `citation_entailment` is the
+third leg: the cited *text* must actually support the firm's stated claim.
 
-This method is the per-citation NLI judge. Premise = a text excerpt drawn from
-the underlying source; hypothesis = the firm's stated claim. It returns a
-discrete verdict label (`entails`, `contradicts`, `neutral`, `ambiguous`)
-plus the raw NLI probabilities. The `excerpt_used` and `stated_claim` fields
-travel with the verdict so an auditor can re-derive the call from the recorded
-inputs without depending on the live source text (which may have changed by
-the time the audit runs).
+This method is the per-citation NLI judge. It returns a discrete verdict label
+plus the raw NLI probabilities, and travels the inputs alongside the verdict so
+an auditor can re-derive the call from the recorded excerpt without depending on
+the live source text.
 
-The thresholds (0.55, beats-its-rival) match the legacy NLI scorer used by the
-S1 coherence layer. They are duplicated rather than imported so a future
-re-tuning of S1 doesn't silently move citation verdicts under the firm's feet.
+## Inputs
 
-## Epistemic assumptions
+`CitationEntailmentInput`:
 
-We assume the same things the legacy NLI head assumes — entailment, neutral,
-and contradiction are exhaustive; the cross-encoder is reasonably calibrated;
-domain transfer from SNLI/MultiNLI to firm-style claims is not catastrophic.
-On top of that:
+- `excerpt` (str) — the source text excerpt; the **premise** side of NLI. The
+  caller is responsible for windowing it — this method does not re-trim.
+- `stated_claim` (str) — the firm's claim about the source; the **hypothesis**
+  side.
+- `relation` (str, default `"supports"`) — the firm-declared relation type.
+  `mentions` is treated as non-load-bearing (see Algorithm).
 
-* The cited *excerpt* fairly represents what the source says about the firm's
-  claim. The validator is responsible for windowing the excerpt around the
-  cited region; this method does not re-window. Garbage-in still produces
-  garbage-out — but it produces it on a recorded excerpt, so the failure is
-  diagnosable.
-* The firm's `relation` declaration is taken at face value. A cite declared
-  `mentions` is treated as non-load-bearing: even if NLI says the excerpt
-  entails the claim, we clamp the verdict to `ambiguous` to refuse the silent
-  promotion of a passing reference into supporting evidence. Demoting in the
-  other direction (a cite declared `supports` that NLI says is `neutral`) is
-  *not* clamped — that is a finding worth surfacing.
-* The model only sees the excerpt and the claim, not the surrounding
-  conclusion. Implicit context (the firm has prior beliefs that change how the
-  cite reads) is intentionally not given to the judge: if the cite cannot
-  stand on its excerpt alone, the verdict should reflect that.
+## Outputs
 
-## Known failure modes
+`CitationEntailmentOutput` with `relation_holds`
+(`entails` / `contradicts` / `neutral` / `ambiguous`), `confidence` (the chosen
+class probability, bounded to `[0, 1]`), `excerpt_used` and `stated_claim`
+echoed back for the verdict row, the declared `relation`, the `model_version` of
+the NLI head, and the three raw probabilities.
 
-* **Out-of-domain claims.** Long technical or quantitative claims —
-  econometrics, climate physics, regulatory law — produce poorly calibrated
-  NLI probabilities. The verdict will tend to land on `ambiguous` for these.
-  That is the right behavior for the publication gate (don't auto-fail), but
-  ambiguous on a load-bearing cite escalates to founder triage downstream.
-* **Negation scope errors.** "X is not robust" vs. "X is robust" — the legacy
-  scorer is known to flip these in long sentences. A `contradicts` verdict on
-  a `supports` cite must be reviewed in triage rather than auto-failed.
-* **Length asymmetry.** A 200-word excerpt against a one-sentence claim biases
-  toward `neutral` because most of the excerpt is unrelated to the claim.
-  Callers should prefer a tight window around the cited region; the
-  recommended default in the validator is ~150 words centered on the
-  reported span.
-* **Quotation detection.** If the firm's stated claim is a verbatim quotation
-  from the source, the NLI head will (correctly) label it `entails` even when
-  the surrounding context contradicts the quote. Quotation accuracy is a
-  separate check; this method does not perform it.
-* **Mentions-clamp asymmetry.** We clamp `mentions` + `entails` to
-  `ambiguous`, but we do not clamp `mentions` + `contradicts` — a contradicting
-  excerpt for what the firm called a passing reference is itself a finding.
+The method emits `COHERES_WITH` and `CONTRADICTS` cascade edges and is
+registered `nondeterministic=False`. It declares no `depends_on` methods: it
+duplicates the `0.55` / beats-its-rival thresholds of the legacy NLI scorer
+rather than importing them, so a future re-tuning of the S1 coherence layer does
+not silently move citation verdicts.
+
+## Algorithm
+
+1. Instantiate the legacy `NLIScorer` (lazy import) and `score_pair(excerpt,
+   stated_claim)`.
+2. `_label_from_probs`: a class must clear `0.55` **and** beat its rival to be
+   picked; `entails` requires `entailment > contradiction`, `contradicts`
+   requires `contradiction > entailment`, `neutral` requires it beat both.
+   Otherwise the verdict is `ambiguous`, with confidence set to the max class
+   probability.
+3. **Mentions clamp:** if the firm declared the cite as `mentions` and NLI says
+   `entails`, the verdict is clamped to `ambiguous` — a passing reference must
+   not be silently promoted to supporting evidence. Demoting in the other
+   direction (a `supports` cite that NLI reads as `neutral`) is **not** clamped:
+   that is a finding worth surfacing.
+
+## Domain
+
+A per-citation adjudication step over a source excerpt and a firm claim. We
+assume the same things the legacy NLI head assumes — entailment / neutral /
+contradiction are exhaustive, the cross-encoder is reasonably calibrated, and
+domain transfer from SNLI/MultiNLI to firm-style claims is not catastrophic. On
+top of that: the cited excerpt must fairly represent what the source says (the
+validator windows it; this method does not re-window); the firm's `relation`
+declaration is taken at face value; and the judge sees only the excerpt and the
+claim, not the firm's surrounding conclusion — if the cite cannot stand on its
+excerpt alone, the verdict should reflect that. No machine-checkable
+`DomainBound` is declared.
+
+## Failure Modes
+
+This method has no `FAILURES.yaml` catalog; its limits are documented inline.
+
+- **Out-of-domain claims** — long technical or quantitative claims
+  (econometrics, climate physics, regulatory law) produce poorly calibrated NLI
+  probabilities and tend to land on `ambiguous`. That is the right behaviour for
+  the publication gate, but an `ambiguous` on a load-bearing cite escalates to
+  founder triage.
+- **Negation scope errors** — "X is not robust" vs. "X is robust": the legacy
+  scorer is known to flip these in long sentences. A `contradicts` verdict on a
+  `supports` cite must be reviewed in triage rather than auto-failed.
+- **Length asymmetry** — a 200-word excerpt against a one-sentence claim biases
+  toward `neutral` because most of the excerpt is unrelated; callers should pass
+  a tight window (~150 words centred on the cited span).
+- **Quotation detection** — if the stated claim is a verbatim quotation, the NLI
+  head will (correctly) label it `entails` even when the surrounding context
+  contradicts the quote. Quotation accuracy is a separate check.
+- **Mentions-clamp asymmetry** — `mentions` + `entails` is clamped to
+  `ambiguous`, but `mentions` + `contradicts` is **not** clamped: a contradicting
+  excerpt for a declared passing reference is itself a finding.
+
+## References
+
+- DeBERTa / DeBERTaV3, the NLI cross-encoder behind the verdict — [@he2021deberta],
+  [@he2023debertav3].
+- SNLI, a training corpus for the NLI head — [@bowman2015snli].
+- MultiNLI, a training corpus for the NLI head — [@williams2018multinli].

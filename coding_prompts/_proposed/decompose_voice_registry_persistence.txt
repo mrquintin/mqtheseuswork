@@ -1,0 +1,59 @@
+You are operating in /Users/michaelquintin/Desktop/Theseus.
+
+Status: PROPOSED. Filed by the RATIONALE documentation-rot repair pass
+(Round 17 follow-up). Method-side gap surfaced while aligning
+`decompose_voice.RATIONALE.md` to the code.
+
+Goal: reconcile the registered `decompose_voice` method with the
+intellectual-profile behavior its rationale and method type promise.
+
+The gap: `decompose_voice` is registered as a TRANSFORMATION method that
+"resolves OR registers a founder". In practice
+`noosphere/noosphere/methods/decompose_voice.py`:
+- reads `founders_registry.json` and, for a KNOWN founder, returns the
+  stored profile — fine;
+- for an UNKNOWN founder, generates a fresh UUID and returns an
+  ephemeral profile with `claim_count=0` but DOES NOT persist anything.
+  Repeated calls for the same new name therefore return different
+  `founder_id`s.
+- never computes the embedding centroid or the "principles shaped"
+  field the old rationale described — those live only on the legacy
+  `FounderRegistry` and were not carried into the registered method.
+
+Why it matters: a TRANSFORMATION that claims to register founders but
+does not is a silent no-op for every new speaker, and the
+non-determinism (fresh UUID per call) breaks attribution stability —
+the exact thing the method exists to provide.
+
+Before you start — read:
+1. `noosphere/noosphere/methods/decompose_voice.py` (registered wrapper).
+2. The legacy `FounderRegistry` — confirm it has a real
+   register/persist path and an embedding-centroid update.
+3. `noosphere/noosphere/methods/decompose_voice.RATIONALE.md` — the
+   "Drift correction (2026-05-14)" note that points here.
+
+Implement:
+
+A. Decide the registered method's contract. Either:
+   - wire `decompose_voice` to the legacy `FounderRegistry` so an
+     unknown founder is actually persisted (stable id, written back to
+     `founders_registry.json` or the store), OR
+   - keep it read-only and rename/re-describe it so "registers a
+     founder" is no longer claimed, and route founder creation to an
+     explicit method.
+
+B. If the method stays a creator, address the JSON-file concurrency
+   hazard (no file locking) — it is called from ingestion paths that
+   can run concurrently. An OS file lock or a store-backed registry.
+
+C. Either restore the embedding-centroid / principles-shaped fields to
+   the output schema, or remove the claim from the rationale for good.
+
+D. Update `decompose_voice.RATIONALE.md` to match whatever contract you
+   land, and remove the drift-correction note.
+
+Constraints:
+- Add a test under `noosphere/tests/` that two calls for the same new
+  founder name return the SAME `founder_id`.
+- Do not change the `FounderVoiceProfile` consumers' expectations
+  without checking callers first.

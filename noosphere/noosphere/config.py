@@ -1,5 +1,19 @@
-"""
-Central configuration: environment variables and optional `theseus.toml` at repo root.
+"""Legacy configuration module — kept for backward compatibility.
+
+The canonical configuration module is now :mod:`noosphere.core.config`,
+which adds YAML overlay layering, the :class:`Thresholds` magic-number
+registry, and a richer set of fields. New code MUST import from there::
+
+    from noosphere.core.config import Settings, get_settings
+
+This module preserves the prior, self-contained implementation so that
+existing callers (``noosphere.orchestrator``, ``noosphere.store``,
+``noosphere.coherence``, …) keep importing without triggering a
+circular dependency on the ``noosphere.core`` package's eager
+re-exports. It is on the CI gate allowlist (see
+``scripts/check_no_inline_env_reads.py``) only as the legacy shim
+entry point; once callers are migrated to the new path, this file can
+be removed.
 """
 
 from __future__ import annotations
@@ -76,19 +90,7 @@ class NoosphereSettings(BaseSettings):
         return {**base}
 
     def effective_llm_provider(self) -> Literal["anthropic", "openai"]:
-        """Pick the provider that actually has credentials.
-
-        We honour ``llm_provider`` as a *preference*, but if the preferred
-        provider has no key configured AND the other one does, fall
-        through to it. This lets deploys that have only one of the two
-        API keys set (a very common case — the GitHub Actions workflow
-        ships with just ``OPENAI_API_KEY``, for example) work without
-        any config tweaks. If *neither* key is set, we keep the
-        preference so downstream errors still point to the preferred
-        provider.
-        """
         if self.llm_api_key:
-            # Explicit override wins — trust whatever the operator chose.
             return self.llm_provider
         anthropic_key = os.environ.get("ANTHROPIC_API_KEY", "")
         openai_key = os.environ.get("OPENAI_API_KEY", "")
@@ -98,7 +100,6 @@ class NoosphereSettings(BaseSettings):
             if openai_key:
                 return "openai"
             return "anthropic"
-        # preference = openai
         if openai_key:
             return "openai"
         if anthropic_key:
@@ -106,7 +107,6 @@ class NoosphereSettings(BaseSettings):
         return "openai"
 
     def effective_llm_api_key(self) -> str:
-        """API key for the *effective* provider (respects auto-fallback)."""
         if self.llm_api_key:
             return self.llm_api_key
         provider = self.effective_llm_provider()
@@ -115,16 +115,6 @@ class NoosphereSettings(BaseSettings):
         return os.environ.get("OPENAI_API_KEY", "")
 
     def effective_llm_model(self) -> str:
-        """Model identifier matching the effective provider.
-
-        If the configured ``llm_model`` is sensible for the effective
-        provider (e.g. a ``claude-*`` slug while we're on Anthropic, or
-        a ``gpt-*`` slug while we're on OpenAI), keep it. Otherwise we
-        pick a known-good default for the provider — otherwise we'd
-        try to feed ``claude-3-5-sonnet`` into the OpenAI SDK and get
-        an unhelpful "model not found" error when the auto-fallback
-        kicks in.
-        """
         provider = self.effective_llm_provider()
         model = self.llm_model or ""
         lower = model.lower()
@@ -141,5 +131,11 @@ class NoosphereSettings(BaseSettings):
 
 @lru_cache
 def get_settings() -> NoosphereSettings:
-    """Process-wide settings (call `get_settings.cache_clear()` in tests)."""
+    """Process-wide settings (call ``get_settings.cache_clear()`` in tests).
+
+    For new code, prefer :func:`noosphere.core.config.get_settings`,
+    which loads YAML overlays and exposes the :class:`Thresholds`
+    magic-number registry.
+    """
+
     return NoosphereSettings()

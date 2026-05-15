@@ -1,0 +1,60 @@
+name: Dead-code survey
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    paths:
+      - "theseus-codex/src/**"
+      - "noosphere/noosphere/**"
+      - "docs/architecture/Dead_Code_Survey.md"
+      - "scripts/run_dead_code_survey.sh"
+      - "scripts/check_dead_code_no_regression.py"
+      - ".github/workflows/dead-code-survey.yml"
+
+jobs:
+  scan:
+    name: Scan and ratchet
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: theseus-codex/package-lock.json
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+
+      - name: Install node deps (theseus-codex)
+        working-directory: theseus-codex
+        run: npm ci --no-audit --no-fund
+
+      - name: Install vulture
+        run: python -m pip install --upgrade pip vulture==2.16
+
+      - name: Run survey (writes docs/architecture/Dead_Code_Survey.md)
+        run: ./scripts/run_dead_code_survey.sh
+
+      - name: Upload survey artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: dead-code-survey
+          path: docs/architecture/Dead_Code_Survey.md
+          if-no-files-found: error
+
+      - name: Enforce no-regression ratchet
+        run: python3 scripts/check_dead_code_no_regression.py
+
+      - name: Fail if committed survey is stale
+        run: |
+          if ! git diff --quiet -- docs/architecture/Dead_Code_Survey.md; then
+            echo "::error::docs/architecture/Dead_Code_Survey.md is stale."
+            echo "::error::Run scripts/run_dead_code_survey.sh locally, triage new rows, and commit."
+            git --no-pager diff -- docs/architecture/Dead_Code_Survey.md | head -200
+            exit 1
+          fi

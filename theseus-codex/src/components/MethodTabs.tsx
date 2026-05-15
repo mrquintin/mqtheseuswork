@@ -37,12 +37,21 @@ const TABS: TabSpec[] = [
 ];
 
 /**
- * URL-driven tab strip for `/methodology/[method]/...`. Per-method tabs
- * (Overview / Track record / Domain / Failure modes) live at distinct
- * sub-routes so they are independently shareable and indexable.
+ * URL-driven section nav for `/methodology/[method]/...`. Per-method
+ * sections (Overview / Track record / Domain / Failure modes) live at
+ * distinct sub-routes so they are independently shareable and indexable.
  * Composition links into the global composition map, anchored on the
  * method; Conclusions links into the conclusions index filtered by
  * method. Both stay shareable.
+ *
+ * Explorer v2: this strip is now *secondary*. The method page front-
+ * loads the description, the essentials pills, and the cross-links;
+ * this nav sits below them under a "Detailed sections" heading. Because
+ * every entry navigates to a different document, it is a plain
+ * navigation landmark with `aria-current="page"` on the active entry —
+ * not an ARIA `tablist`, whose `tab`/`tabpanel` contract assumes the
+ * panels live in the same document. Correct semantics here also keep
+ * the focus order through the new hierarchy honest.
  */
 export default function MethodTabs({
   method,
@@ -54,8 +63,7 @@ export default function MethodTabs({
   const enc = encodeURIComponent(method);
   return (
     <nav
-      role="tablist"
-      aria-label={`Sections for method ${method}`}
+      aria-label={`Detailed sections for method ${method}`}
       style={{
         display: "flex",
         flexWrap: "wrap",
@@ -73,8 +81,6 @@ export default function MethodTabs({
           <Link
             key={t.key}
             href={href}
-            role="tab"
-            aria-selected={isActive}
             aria-current={isActive ? "page" : undefined}
             style={{
               padding: "0.55rem 0.95rem",

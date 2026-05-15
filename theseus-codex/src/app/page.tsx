@@ -1,6 +1,8 @@
 import Link from "next/link";
 
 import TransparencyFooter from "@/app/(home)/TransparencyFooter";
+import ArticlesRail from "@/components/home/ArticlesRail";
+import ConclusionsRail from "@/components/home/ConclusionsRail";
 import PublicAskBox from "@/components/PublicAskBox";
 import PublicHeader from "@/components/PublicHeader";
 import SubscribeForm from "@/components/SubscribeForm";
@@ -8,17 +10,44 @@ import {
   getTheseusContactEmail,
   theseusIdentity,
 } from "@/content/theseusIdentity";
-import {
-  listPublishedArticles,
-  type PublishedConclusion,
-} from "@/lib/conclusionsRead";
 import { getCurrentsHealth, listCurrents } from "@/lib/currentsApi";
 import type { PublicOpinion } from "@/lib/currentsTypes";
 import { firmVoice } from "@/lib/firmVoice";
+import {
+  CURRENTS_EMPTY_COPY,
+  listHomepageArticles,
+  listHomepageConclusions,
+  type HomeArticleCard,
+  type HomeConclusionCard,
+} from "@/lib/publicSurface";
 
+// SSR contract: every request rebuilds from the database so a publish
+// shows up within one render cycle (well inside the 60-second SLO).
+// We do not use a long static cache. Cache invalidation on publish is
+// documented in `docs/operator/public_surfacing.md`.
 export const dynamic = "force-dynamic";
 
 const editorialTitleFont = "'EB Garamond', 'Iowan Old Style', Georgia, serif";
+const HOME_PREVIEW_TIMEOUT_MS = 2_000;
+const HOME_SURFACE_TIMEOUT_MS = 1_500;
+
+async function softTimeout<T>(
+  promise: Promise<T>,
+  timeoutMs: number,
+  fallback: T,
+): Promise<T> {
+  let timeoutId: ReturnType<typeof setTimeout> | null = null;
+  try {
+    return await Promise.race([
+      promise,
+      new Promise<T>((resolve) => {
+        timeoutId = setTimeout(() => resolve(fallback), timeoutMs);
+      }),
+    ]);
+  } finally {
+    if (timeoutId !== null) clearTimeout(timeoutId);
+  }
+}
 
 async function latestCurrents(): Promise<PublicOpinion[]> {
   try {
@@ -26,7 +55,7 @@ async function latestCurrents(): Promise<PublicOpinion[]> {
       { limit: 3 },
       {
         next: { revalidate: 60, tags: ["public-home-currents"] },
-        timeoutMs: 4_000,
+        timeoutMs: HOME_PREVIEW_TIMEOUT_MS,
       },
     );
     return Array.isArray(response.items) ? response.items.slice(0, 3) : [];
@@ -36,11 +65,20 @@ async function latestCurrents(): Promise<PublicOpinion[]> {
   }
 }
 
-async function latestArticles(): Promise<PublishedConclusion[]> {
+async function latestArticles(): Promise<HomeArticleCard[]> {
   try {
-    return await listPublishedArticles(4);
+    return await softTimeout(listHomepageArticles(5), HOME_SURFACE_TIMEOUT_MS, []);
   } catch (error) {
-    console.error("homepage_publications_preview_failed", error);
+    console.error("homepage_articles_preview_failed", error);
+    return [];
+  }
+}
+
+async function latestConclusions(): Promise<HomeConclusionCard[]> {
+  try {
+    return await softTimeout(listHomepageConclusions(8), HOME_SURFACE_TIMEOUT_MS, []);
+  } catch (error) {
+    console.error("homepage_conclusions_preview_failed", error);
     return [];
   }
 }
@@ -54,7 +92,7 @@ async function publicSurfaceStatus(): Promise<PublicSurfaceStatus> {
   try {
     const health = await getCurrentsHealth({
       next: { revalidate: 60, tags: ["public-home-currents"] },
-      timeoutMs: 4_000,
+      timeoutMs: HOME_PREVIEW_TIMEOUT_MS,
     });
     return {
       reachable: true,
@@ -67,13 +105,15 @@ async function publicSurfaceStatus(): Promise<PublicSurfaceStatus> {
 }
 
 export default async function PublicHomePage() {
-  const [currents, articles, surfaceStatus] = await Promise.all([
+  const [currents, articles, conclusions, surfaceStatus] = await Promise.all([
     latestCurrents(),
     latestArticles(),
+    latestConclusions(),
     publicSurfaceStatus(),
   ]);
   const email = getTheseusContactEmail();
-  const hasPublicOutput = currents.length > 0 || articles.length > 0;
+  const hasPublicOutput =
+    currents.length > 0 || articles.length > 0 || conclusions.length > 0;
 
   return (
     <main
@@ -110,8 +150,9 @@ export default async function PublicHomePage() {
           <EmptyPublicOutput email={email} status={surfaceStatus} />
         ) : null}
 
+        <ArticlesRail articles={articles} />
+        <ConclusionsRail conclusions={conclusions} />
         <CurrentsPreviewRail currents={currents} status={surfaceStatus} />
-        <PublicationsRail articles={articles} />
 
         <PublicSignalSurface status={surfaceStatus} />
 
@@ -257,6 +298,7 @@ function CurrentsPreviewRail({
   return (
     <section
       aria-labelledby="home-currents-title"
+      data-testid="homepage-currents-rail"
       style={{
         borderBottom: "1px solid var(--stroke)",
         marginBottom: "2rem",
@@ -295,33 +337,37 @@ function CurrentsPreviewRail({
                 textDecoration: "none",
               }}
             >
-              <time
-                className="mono"
-                dateTime={opinion.generated_at}
-                style={{
-                  color: "var(--amber-dim)",
-                  display: "block",
-                  fontSize: "0.58rem",
-                  letterSpacing: "0.16em",
-                  marginBottom: "0.55rem",
-                  textTransform: "uppercase",
-                }}
-              >
-                {formatTimestamp(opinion.generated_at)}
-              </time>
+              {/* R-008: title leads the card; meta strip lives beneath
+                  in small caps separated by `·` middots. No pill fills. */}
               <h3
                 style={{
                   color: "var(--amber)",
                   fontFamily: editorialTitleFont,
-                  fontSize: "1.18rem",
+                  fontSize: "1.35rem",
                   fontWeight: 500,
                   letterSpacing: 0,
                   lineHeight: 1.22,
                   margin: 0,
                 }}
+                data-h3-glyph="off"
               >
                 {opinion.headline}
               </h3>
+              <p
+                className="mono"
+                style={{
+                  color: "var(--amber-dim)",
+                  fontSize: "0.6rem",
+                  letterSpacing: "0.16em",
+                  margin: "0.4rem 0 0",
+                  textTransform: "uppercase",
+                }}
+              >
+                <time dateTime={opinion.generated_at}>
+                  {formatTimestamp(opinion.generated_at)}
+                </time>
+                {opinion.topic_hint ? ` · ${opinion.topic_hint}` : ""}
+              </p>
               <p
                 style={{
                   color: "var(--parchment-dim)",
@@ -340,7 +386,20 @@ function CurrentsPreviewRail({
           ))}
         </div>
       ) : (
-        <RailEmpty>{currentsEmptyCopy(status)}</RailEmpty>
+        <p
+          data-testid="homepage-currents-empty"
+          style={{
+            background: "rgba(232, 225, 211, 0.035)",
+            border: "1px solid rgba(232, 225, 211, 0.12)",
+            color: "var(--parchment-dim)",
+            fontSize: "0.95rem",
+            lineHeight: 1.55,
+            margin: 0,
+            padding: "1rem",
+          }}
+        >
+          {currentsEmptyCopy(status)}
+        </p>
       )}
     </section>
   );
@@ -353,97 +412,7 @@ function currentsEmptyCopy(status: PublicSurfaceStatus): string {
   if (status.workersIdle) {
     return "Live publishing is paused — the firm's ingestion workers are not running. Nothing new will appear here until they resume.";
   }
-  return "The firm is reading public signals. No opinion has cleared the significance and relevance floors yet.";
-}
-
-function PublicationsRail({ articles }: { articles: PublishedConclusion[] }) {
-  return (
-    <section
-      aria-labelledby="home-publications-title"
-      style={{
-        borderBottom: "1px solid var(--stroke)",
-        marginBottom: "2rem",
-        paddingBottom: "1.75rem",
-      }}
-    >
-      <RailHeader
-        title="Publications"
-        titleId="home-publications-title"
-      />
-
-      {articles.length ? (
-        <div
-          style={{
-            display: "grid",
-            gap: "0.75rem",
-            gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))",
-          }}
-        >
-          {articles.map((article) => (
-            <Link
-              href={`/c/${encodeURIComponent(article.slug)}`}
-              key={article.id}
-              style={{
-                border: "1px solid rgba(205, 151, 67, 0.22)",
-                color: "inherit",
-                display: "block",
-                padding: "0.85rem",
-                textDecoration: "none",
-              }}
-            >
-              <span
-                className="mono"
-                style={{
-                  color: "var(--parchment-dim)",
-                  display: "block",
-                  fontSize: "0.58rem",
-                  letterSpacing: "0.16em",
-                  marginBottom: "0.35rem",
-                  textTransform: "uppercase",
-                }}
-              >
-                {article.publishedAt.slice(0, 10)}
-              </span>
-              <strong
-                style={{
-                  color: "var(--amber)",
-                  display: "block",
-                  fontFamily: editorialTitleFont,
-                  fontSize: "1.08rem",
-                  fontWeight: 500,
-                  letterSpacing: 0,
-                  lineHeight: 1.3,
-                }}
-              >
-                {article.payload.conclusionText}
-              </strong>
-              <span
-                style={{
-                  color: "var(--parchment-dim)",
-                  display: "block",
-                  fontSize: "0.9rem",
-                  lineHeight: 1.45,
-                  marginTop: "0.45rem",
-                }}
-              >
-                {deriveExcerpt(
-                  article.payload.article?.bodyMarkdown ||
-                    article.payload.evidenceSummary ||
-                    article.payload.rationale,
-                  160,
-                )}
-              </span>
-            </Link>
-          ))}
-        </div>
-      ) : (
-        <RailEmpty>
-          No essays are published yet. New publications appear here when the
-          firm releases them.
-        </RailEmpty>
-      )}
-    </section>
-  );
+  return CURRENTS_EMPTY_COPY;
 }
 
 function PublicSignalSurface({ status }: { status: PublicSurfaceStatus }) {
@@ -637,7 +606,6 @@ function EmptyPublicOutput({
     : status.workersIdle
       ? "The firm's ingestion workers are not running. Nothing new will appear here until they resume."
       : "Currents will appear here when a real-world post crosses the firm's significance and relevance floors. Essays appear here when the firm releases them.";
-
   return (
     <section
       aria-label="No public publications yet"
@@ -745,24 +713,6 @@ function RailHeader({
         </Link>
       ) : null}
     </div>
-  );
-}
-
-function RailEmpty({ children }: { children: string }) {
-  return (
-    <p
-      style={{
-        background: "rgba(232, 225, 211, 0.035)",
-        border: "1px solid rgba(232, 225, 211, 0.12)",
-        color: "var(--parchment-dim)",
-        fontSize: "0.95rem",
-        lineHeight: 1.55,
-        margin: 0,
-        padding: "1rem",
-      }}
-    >
-      {children}
-    </p>
   );
 }
 

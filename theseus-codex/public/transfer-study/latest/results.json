@@ -1,0 +1,1144 @@
+{
+  "schema": "theseus.transfer.study.v1",
+  "run_stamp": "20260514T233129Z",
+  "envelope": {
+    "schema": "theseus.transfer.envelope.v1",
+    "study_version": "transfer-v1",
+    "run_stamp": "20260514T233129Z",
+    "git_sha": "0034929158a42e4e536d85efd41ab22721c7ca50",
+    "git_branch": "main",
+    "git_dirty": true,
+    "pairs_manifest": {
+      "path": "benchmarks/transfer/v1/pairs.yaml",
+      "sha256": "906c3d00a3dbc17a9f4a9ca5b34dbf836c728023198a608ebb0f8a182c1b7ab7",
+      "frozen_at": "2026-05-14",
+      "n_pairs": 3
+    },
+    "source_dataset": {
+      "path": "benchmarks/quintin_hypothesis/v1/dataset.jsonl",
+      "sha256": "b25ab62102389fbbbf2cdad08cc5a056e4946631835a89672fe88aa0a8fbe7c4",
+      "sha256_declared": "b25ab62102389fbbbf2cdad08cc5a056e4946631835a89672fe88aa0a8fbe7c4",
+      "sha256_verified": true
+    },
+    "embedder": {
+      "id": "hash-det-v1",
+      "dim": 192
+    },
+    "seed": 17,
+    "bootstrap": {
+      "n_resamples": 10000,
+      "method": "unpaired-percentile-bootstrap",
+      "alpha": 0.05
+    },
+    "model": {
+      "kind": "multinomial-logistic-regression",
+      "features": [
+        "cosine",
+        "hoyer_diff",
+        "norm_diff",
+        "mean_abs_diff",
+        "max_abs_diff",
+        "std_diff",
+        "l1_diff",
+        "hoyer_premise",
+        "hoyer_cont"
+      ],
+      "l2_penalty": 1.0,
+      "k_folds": 5
+    },
+    "min_n_for_conclusion": 20,
+    "python_version": "3.13.7",
+    "platform": "macOS-26.2-arm64-arm-64bit-Mach-O"
+  },
+  "method": {
+    "name": "geometry_coherence_classifier",
+    "kind": "multinomial-logistic-regression",
+    "feature_space": "geometry-of-embedding-pair",
+    "embedder": "hash-det-v1",
+    "note": "Trained per source domain D on the frozen QH v1 dataset slice. Deterministic given the dataset and the L-BFGS solver, so every number in the study re-runs bit-for-bit."
+  },
+  "summary": {
+    "n_pairs": 3,
+    "outcome_counts": {
+      "clean_transfer": 0,
+      "partial_transfer": 1,
+      "no_transfer": 2,
+      "preliminary": 0
+    },
+    "headline": "Across 3 method/domain pair(s): 1 partial transfer; 2 no transfer. The firm publishes whichever it finds \u2014 partial-transfer cases are reported with the specific sub-capability that survives the domain boundary, losses included.",
+    "n_conclusive": 3
+  },
+  "pairs": [
+    {
+      "pair_id": "physics-to-chemistry",
+      "method": "geometry_coherence_classifier",
+      "source_domain": "physics",
+      "target_domain": "chemistry",
+      "neighbor_rationale": "Chemistry is the natural-science neighbor of physics: same template construction (parameterized premise, near-identical coherent / contradicting continuations, off-topic orthogonal), different domain vocabulary. The method has no QH track record in chemistry and declares no DomainBound naming it.",
+      "track_record_note": "n=1018 frozen QH v1 physics items \u2014 the method's largest and strongest in-domain track record.",
+      "target_eval_set": "benchmarks/transfer/v1/eval_sets/chemistry.jsonl",
+      "target_sha256": "0cc2ce01e59665397874541de57377db966d40e2e64f542edca9e3743d9c7d62",
+      "target_sha256_expected": "0cc2ce01e59665397874541de57377db966d40e2e64f542edca9e3743d9c7d62",
+      "target_sha256_verified": true,
+      "in_domain": {
+        "n": 1018,
+        "accuracy": 0.68762278978389,
+        "brier_contradicting": 0.21586885024244917,
+        "ece_contradicting": 0.15579368873456342,
+        "orthogonal_vs_rest_accuracy": 0.9135559921414538,
+        "coherent_vs_contradicting_accuracy": 0.5276872964169381,
+        "coherent_vs_contradicting_n": 614,
+        "reliability_bins": [
+          {
+            "bin": 0,
+            "bin_lower": 0.0,
+            "bin_upper": 0.1,
+            "count": 82,
+            "mean_confidence": 0.039965,
+            "accuracy": 0.0
+          },
+          {
+            "bin": 1,
+            "bin_lower": 0.1,
+            "bin_upper": 0.2,
+            "count": 23,
+            "mean_confidence": 0.168139,
+            "accuracy": 0.478261
+          },
+          {
+            "bin": 2,
+            "bin_lower": 0.2,
+            "bin_upper": 0.3,
+            "count": 23,
+            "mean_confidence": 0.239529,
+            "accuracy": 0.478261
+          },
+          {
+            "bin": 3,
+            "bin_lower": 0.3,
+            "bin_upper": 0.4,
+            "count": 93,
+            "mean_confidence": 0.358622,
+            "accuracy": 0.677419
+          },
+          {
+            "bin": 4,
+            "bin_lower": 0.4,
+            "bin_upper": 0.5,
+            "count": 100,
+            "mean_confidence": 0.432088,
+            "accuracy": 0.4
+          },
+          {
+            "bin": 5,
+            "bin_lower": 0.5,
+            "bin_upper": 0.6,
+            "count": 77,
+            "mean_confidence": 0.559234,
+            "accuracy": 0.194805
+          },
+          {
+            "bin": 6,
+            "bin_lower": 0.6,
+            "bin_upper": 0.7,
+            "count": 88,
+            "mean_confidence": 0.636946,
+            "accuracy": 0.625
+          },
+          {
+            "bin": 7,
+            "bin_lower": 0.7,
+            "bin_upper": 0.8,
+            "count": 48,
+            "mean_confidence": 0.743579,
+            "accuracy": 0.5
+          },
+          {
+            "bin": 8,
+            "bin_lower": 0.8,
+            "bin_upper": 0.9,
+            "count": 60,
+            "mean_confidence": 0.852851,
+            "accuracy": 0.95
+          },
+          {
+            "bin": 9,
+            "bin_lower": 0.9,
+            "bin_upper": 1.0,
+            "count": 20,
+            "mean_confidence": 0.936671,
+            "accuracy": 0.95
+          }
+        ],
+        "label_distribution": {
+          "coherent": 319,
+          "contradicting": 295,
+          "orthogonal": 404
+        },
+        "predicted_distribution": {
+          "coherent": 287,
+          "contradicting": 295,
+          "orthogonal": 436
+        },
+        "cv_note": "5-fold cross-validated, out-of-fold"
+      },
+      "transfer": {
+        "n": 172,
+        "accuracy": 0.22674418604651161,
+        "brier_contradicting": 0.42104500860115823,
+        "ece_contradicting": 0.4599725789234458,
+        "orthogonal_vs_rest_accuracy": 0.5174418604651163,
+        "coherent_vs_contradicting_accuracy": 0.1262135922330097,
+        "coherent_vs_contradicting_n": 103,
+        "reliability_bins": [
+          {
+            "bin": 3,
+            "bin_lower": 0.3,
+            "bin_upper": 0.4,
+            "count": 19,
+            "mean_confidence": 0.334425,
+            "accuracy": 1.0
+          },
+          {
+            "bin": 4,
+            "bin_lower": 0.4,
+            "bin_upper": 0.5,
+            "count": 1,
+            "mean_confidence": 0.484739,
+            "accuracy": 0.0
+          },
+          {
+            "bin": 5,
+            "bin_lower": 0.5,
+            "bin_upper": 0.6,
+            "count": 21,
+            "mean_confidence": 0.563368,
+            "accuracy": 0.428571
+          },
+          {
+            "bin": 7,
+            "bin_lower": 0.7,
+            "bin_upper": 0.8,
+            "count": 19,
+            "mean_confidence": 0.72582,
+            "accuracy": 0.210526
+          },
+          {
+            "bin": 8,
+            "bin_lower": 0.8,
+            "bin_upper": 0.9,
+            "count": 31,
+            "mean_confidence": 0.88257,
+            "accuracy": 0.419355
+          },
+          {
+            "bin": 9,
+            "bin_lower": 0.9,
+            "bin_upper": 1.0,
+            "count": 12,
+            "mean_confidence": 0.938793,
+            "accuracy": 0.333333
+          }
+        ],
+        "label_distribution": {
+          "coherent": 54,
+          "contradicting": 49,
+          "orthogonal": 69
+        },
+        "predicted_distribution": {
+          "coherent": 52,
+          "contradicting": 54,
+          "orthogonal": 66
+        }
+      },
+      "transfer_frozen_scaler": {
+        "n": 172,
+        "accuracy": 0.28488372093023256,
+        "brier_contradicting": 0.46978432515956575,
+        "ece_contradicting": 0.5298948346837012,
+        "orthogonal_vs_rest_accuracy": 0.5988372093023255,
+        "coherent_vs_contradicting_accuracy": 0.47572815533980584,
+        "coherent_vs_contradicting_n": 103,
+        "reliability_bins": [
+          {
+            "bin": 6,
+            "bin_lower": 0.6,
+            "bin_upper": 0.7,
+            "count": 15,
+            "mean_confidence": 0.614034,
+            "accuracy": 1.0
+          },
+          {
+            "bin": 7,
+            "bin_lower": 0.7,
+            "bin_upper": 0.8,
+            "count": 4,
+            "mean_confidence": 0.719945,
+            "accuracy": 1.0
+          },
+          {
+            "bin": 8,
+            "bin_lower": 0.8,
+            "bin_upper": 0.9,
+            "count": 37,
+            "mean_confidence": 0.860141,
+            "accuracy": 0.243243
+          },
+          {
+            "bin": 9,
+            "bin_lower": 0.9,
+            "bin_upper": 1.0,
+            "count": 47,
+            "mean_confidence": 0.975409,
+            "accuracy": 0.446809
+          }
+        ],
+        "label_distribution": {
+          "coherent": 54,
+          "contradicting": 49,
+          "orthogonal": 69
+        },
+        "predicted_distribution": {
+          "coherent": 52,
+          "contradicting": 120,
+          "orthogonal": 0
+        }
+      },
+      "baseline_on_target": {
+        "n": 172,
+        "accuracy": 0.7441860465116279,
+        "brier_contradicting": 0.1593797426163955,
+        "ece_contradicting": 0.14872856038085716,
+        "orthogonal_vs_rest_accuracy": 0.9069767441860465,
+        "coherent_vs_contradicting_accuracy": 0.6796116504854369,
+        "coherent_vs_contradicting_n": 103,
+        "reliability_bins": [
+          {
+            "bin": 0,
+            "bin_lower": 0.0,
+            "bin_upper": 0.1,
+            "count": 10,
+            "mean_confidence": 0.056074,
+            "accuracy": 0.1
+          },
+          {
+            "bin": 1,
+            "bin_lower": 0.1,
+            "bin_upper": 0.2,
+            "count": 16,
+            "mean_confidence": 0.129947,
+            "accuracy": 0.0
+          },
+          {
+            "bin": 2,
+            "bin_lower": 0.2,
+            "bin_upper": 0.3,
+            "count": 1,
+            "mean_confidence": 0.272367,
+            "accuracy": 0.0
+          },
+          {
+            "bin": 3,
+            "bin_lower": 0.3,
+            "bin_upper": 0.4,
+            "count": 11,
+            "mean_confidence": 0.350929,
+            "accuracy": 0.727273
+          },
+          {
+            "bin": 4,
+            "bin_lower": 0.4,
+            "bin_upper": 0.5,
+            "count": 16,
+            "mean_confidence": 0.450003,
+            "accuracy": 0.3125
+          },
+          {
+            "bin": 5,
+            "bin_lower": 0.5,
+            "bin_upper": 0.6,
+            "count": 13,
+            "mean_confidence": 0.551569,
+            "accuracy": 0.538462
+          },
+          {
+            "bin": 6,
+            "bin_lower": 0.6,
+            "bin_upper": 0.7,
+            "count": 13,
+            "mean_confidence": 0.640763,
+            "accuracy": 0.384615
+          },
+          {
+            "bin": 7,
+            "bin_lower": 0.7,
+            "bin_upper": 0.8,
+            "count": 2,
+            "mean_confidence": 0.75396,
+            "accuracy": 1.0
+          },
+          {
+            "bin": 8,
+            "bin_lower": 0.8,
+            "bin_upper": 0.9,
+            "count": 10,
+            "mean_confidence": 0.871803,
+            "accuracy": 1.0
+          },
+          {
+            "bin": 9,
+            "bin_lower": 0.9,
+            "bin_upper": 1.0,
+            "count": 11,
+            "mean_confidence": 0.916903,
+            "accuracy": 1.0
+          }
+        ],
+        "label_distribution": {
+          "coherent": 54,
+          "contradicting": 49,
+          "orthogonal": 69
+        },
+        "predicted_distribution": {
+          "coherent": 54,
+          "contradicting": 55,
+          "orthogonal": 63
+        },
+        "cv_note": "5-fold cross-validated, out-of-fold"
+      },
+      "statistics": {
+        "in_domain_minus_transfer_accuracy": {
+          "theta_hat": 0.46087860373737843,
+          "ci_low": 0.39267601772741817,
+          "ci_high": 0.5276990907844838,
+          "alpha": 0.05,
+          "n_resamples": 10000,
+          "excludes_zero": true,
+          "p_two_sided": 0.0
+        },
+        "two_proportion_z_test": {
+          "z": 11.523586058976909,
+          "p_two_sided": 0.0,
+          "diff": 0.46087860373737843
+        },
+        "transfer_vs_chance": {
+          "z": -2.9654012630945563,
+          "p_one_sided": 0.9984885581868816,
+          "floor": 0.3333333333333333
+        },
+        "effect_size": {
+          "name": "cohens_h",
+          "value": 0.9628547874225123,
+          "magnitude": "large"
+        },
+        "transfer_vs_baseline": {
+          "two_proportion_z_test": {
+            "z": -9.601174415347815,
+            "p_two_sided": 0.0,
+            "diff": -0.5174418604651163
+          },
+          "effect_size": {
+            "name": "cohens_h",
+            "value": -1.0884163579280663,
+            "magnitude": "large"
+          }
+        }
+      },
+      "verdict": {
+        "outcome": "no_transfer",
+        "conclusive": true,
+        "note": "transfer accuracy is not significantly above random chance (0.333) \u2014 the method's specialization does not carry into this domain.",
+        "significantly_worse_than_in_domain": true,
+        "significantly_above_chance": false
+      }
+    },
+    {
+      "pair_id": "economics-to-finance",
+      "method": "geometry_coherence_classifier",
+      "source_domain": "economics",
+      "target_domain": "finance",
+      "neighbor_rationale": "Finance is the quantitative-reasoning neighbor of economics: shared structural intuitions (prices, rates, risk) over a distinct vocabulary. No QH track record in finance; no DomainBound naming it.",
+      "track_record_note": "n=574 frozen QH v1 economics items \u2014 a strong, large-n in-domain track record.",
+      "target_eval_set": "benchmarks/transfer/v1/eval_sets/finance.jsonl",
+      "target_sha256": "5e57b5f2c700e1e9c86e071100d2566353aa03389c2566290672192452bb09ac",
+      "target_sha256_expected": "5e57b5f2c700e1e9c86e071100d2566353aa03389c2566290672192452bb09ac",
+      "target_sha256_verified": true,
+      "in_domain": {
+        "n": 574,
+        "accuracy": 0.6951219512195121,
+        "brier_contradicting": 0.2388885595916367,
+        "ece_contradicting": 0.06930083470192813,
+        "orthogonal_vs_rest_accuracy": 0.8292682926829268,
+        "coherent_vs_contradicting_accuracy": 0.5253164556962026,
+        "coherent_vs_contradicting_n": 316,
+        "reliability_bins": [
+          {
+            "bin": 2,
+            "bin_lower": 0.2,
+            "bin_upper": 0.3,
+            "count": 9,
+            "mean_confidence": 0.266489,
+            "accuracy": 0.666667
+          },
+          {
+            "bin": 3,
+            "bin_lower": 0.3,
+            "bin_upper": 0.4,
+            "count": 86,
+            "mean_confidence": 0.36075,
+            "accuracy": 0.313953
+          },
+          {
+            "bin": 4,
+            "bin_lower": 0.4,
+            "bin_upper": 0.5,
+            "count": 111,
+            "mean_confidence": 0.449405,
+            "accuracy": 0.423423
+          },
+          {
+            "bin": 5,
+            "bin_lower": 0.5,
+            "bin_upper": 0.6,
+            "count": 63,
+            "mean_confidence": 0.547491,
+            "accuracy": 0.539683
+          },
+          {
+            "bin": 6,
+            "bin_lower": 0.6,
+            "bin_upper": 0.7,
+            "count": 36,
+            "mean_confidence": 0.629691,
+            "accuracy": 0.833333
+          },
+          {
+            "bin": 7,
+            "bin_lower": 0.7,
+            "bin_upper": 0.8,
+            "count": 6,
+            "mean_confidence": 0.744814,
+            "accuracy": 0.5
+          },
+          {
+            "bin": 8,
+            "bin_lower": 0.8,
+            "bin_upper": 0.9,
+            "count": 5,
+            "mean_confidence": 0.819407,
+            "accuracy": 0.4
+          }
+        ],
+        "label_distribution": {
+          "coherent": 167,
+          "contradicting": 149,
+          "orthogonal": 258
+        },
+        "predicted_distribution": {
+          "coherent": 152,
+          "contradicting": 116,
+          "orthogonal": 306
+        },
+        "cv_note": "5-fold cross-validated, out-of-fold"
+      },
+      "transfer": {
+        "n": 160,
+        "accuracy": 0.49375,
+        "brier_contradicting": 0.24213429130392322,
+        "ece_contradicting": 0.10757882041053768,
+        "orthogonal_vs_rest_accuracy": 0.675,
+        "coherent_vs_contradicting_accuracy": 0.44047619047619047,
+        "coherent_vs_contradicting_n": 84,
+        "reliability_bins": [
+          {
+            "bin": 3,
+            "bin_lower": 0.3,
+            "bin_upper": 0.4,
+            "count": 9,
+            "mean_confidence": 0.388791,
+            "accuracy": 0.0
+          },
+          {
+            "bin": 4,
+            "bin_lower": 0.4,
+            "bin_upper": 0.5,
+            "count": 45,
+            "mean_confidence": 0.425169,
+            "accuracy": 0.466667
+          },
+          {
+            "bin": 5,
+            "bin_lower": 0.5,
+            "bin_upper": 0.6,
+            "count": 30,
+            "mean_confidence": 0.55567,
+            "accuracy": 0.433333
+          }
+        ],
+        "label_distribution": {
+          "coherent": 50,
+          "contradicting": 34,
+          "orthogonal": 76
+        },
+        "predicted_distribution": {
+          "coherent": 66,
+          "contradicting": 34,
+          "orthogonal": 60
+        }
+      },
+      "transfer_frozen_scaler": {
+        "n": 160,
+        "accuracy": 0.36875,
+        "brier_contradicting": 0.3339660502887673,
+        "ece_contradicting": 0.30782911429758075,
+        "orthogonal_vs_rest_accuracy": 0.68125,
+        "coherent_vs_contradicting_accuracy": 0.40476190476190477,
+        "coherent_vs_contradicting_n": 84,
+        "reliability_bins": [
+          {
+            "bin": 4,
+            "bin_lower": 0.4,
+            "bin_upper": 0.5,
+            "count": 18,
+            "mean_confidence": 0.449176,
+            "accuracy": 0.5
+          },
+          {
+            "bin": 5,
+            "bin_lower": 0.5,
+            "bin_upper": 0.6,
+            "count": 9,
+            "mean_confidence": 0.577145,
+            "accuracy": 0.0
+          },
+          {
+            "bin": 6,
+            "bin_lower": 0.6,
+            "bin_upper": 0.7,
+            "count": 3,
+            "mean_confidence": 0.684903,
+            "accuracy": 0.0
+          },
+          {
+            "bin": 7,
+            "bin_lower": 0.7,
+            "bin_upper": 0.8,
+            "count": 28,
+            "mean_confidence": 0.754006,
+            "accuracy": 0.428571
+          },
+          {
+            "bin": 8,
+            "bin_lower": 0.8,
+            "bin_upper": 0.9,
+            "count": 26,
+            "mean_confidence": 0.830063,
+            "accuracy": 0.5
+          }
+        ],
+        "label_distribution": {
+          "coherent": 50,
+          "contradicting": 34,
+          "orthogonal": 76
+        },
+        "predicted_distribution": {
+          "coherent": 18,
+          "contradicting": 117,
+          "orthogonal": 25
+        }
+      },
+      "baseline_on_target": {
+        "n": 160,
+        "accuracy": 0.4625,
+        "brier_contradicting": 0.2581050770773375,
+        "ece_contradicting": 0.18418059783079352,
+        "orthogonal_vs_rest_accuracy": 0.55,
+        "coherent_vs_contradicting_accuracy": 0.23809523809523808,
+        "coherent_vs_contradicting_n": 84,
+        "reliability_bins": [
+          {
+            "bin": 1,
+            "bin_lower": 0.1,
+            "bin_upper": 0.2,
+            "count": 7,
+            "mean_confidence": 0.160591,
+            "accuracy": 0.0
+          },
+          {
+            "bin": 2,
+            "bin_lower": 0.2,
+            "bin_upper": 0.3,
+            "count": 14,
+            "mean_confidence": 0.257836,
+            "accuracy": 0.5
+          },
+          {
+            "bin": 3,
+            "bin_lower": 0.3,
+            "bin_upper": 0.4,
+            "count": 13,
+            "mean_confidence": 0.34103,
+            "accuracy": 0.615385
+          },
+          {
+            "bin": 4,
+            "bin_lower": 0.4,
+            "bin_upper": 0.5,
+            "count": 23,
+            "mean_confidence": 0.435854,
+            "accuracy": 0.347826
+          },
+          {
+            "bin": 5,
+            "bin_lower": 0.5,
+            "bin_upper": 0.6,
+            "count": 17,
+            "mean_confidence": 0.537694,
+            "accuracy": 0.470588
+          },
+          {
+            "bin": 6,
+            "bin_lower": 0.6,
+            "bin_upper": 0.7,
+            "count": 5,
+            "mean_confidence": 0.652257,
+            "accuracy": 0.0
+          },
+          {
+            "bin": 7,
+            "bin_lower": 0.7,
+            "bin_upper": 0.8,
+            "count": 4,
+            "mean_confidence": 0.710402,
+            "accuracy": 0.75
+          },
+          {
+            "bin": 8,
+            "bin_lower": 0.8,
+            "bin_upper": 0.9,
+            "count": 1,
+            "mean_confidence": 0.805024,
+            "accuracy": 0.0
+          }
+        ],
+        "label_distribution": {
+          "coherent": 50,
+          "contradicting": 34,
+          "orthogonal": 76
+        },
+        "predicted_distribution": {
+          "coherent": 49,
+          "contradicting": 7,
+          "orthogonal": 104
+        },
+        "cv_note": "5-fold cross-validated, out-of-fold"
+      },
+      "statistics": {
+        "in_domain_minus_transfer_accuracy": {
+          "theta_hat": 0.20137195121951212,
+          "ci_low": 0.11550522648083617,
+          "ci_high": 0.28610899390243905,
+          "alpha": 0.05,
+          "n_resamples": 10000,
+          "excludes_zero": true,
+          "p_two_sided": 0.0
+        },
+        "two_proportion_z_test": {
+          "z": 4.726384123234763,
+          "p_two_sided": 2.2855311740954676e-06,
+          "diff": 0.20137195121951212
+        },
+        "transfer_vs_chance": {
+          "z": 4.304430856687096,
+          "p_one_sided": 8.370778371569187e-06,
+          "floor": 0.3333333333333333
+        },
+        "effect_size": {
+          "name": "cohens_h",
+          "value": 0.41339680984933325,
+          "magnitude": "small"
+        },
+        "transfer_vs_baseline": {
+          "two_proportion_z_test": {
+            "z": 0.5595527603478091,
+            "p_two_sided": 0.5757845342924277,
+            "diff": 0.03125
+          },
+          "effect_size": {
+            "name": "cohens_h",
+            "value": 0.0625701655329931,
+            "magnitude": "negligible"
+          }
+        }
+      },
+      "verdict": {
+        "outcome": "partial_transfer",
+        "conclusive": true,
+        "note": "transfer accuracy is significantly above chance but also significantly worse than in-domain \u2014 the capability carries over only partially.",
+        "significantly_worse_than_in_domain": true,
+        "significantly_above_chance": true
+      }
+    },
+    {
+      "pair_id": "ethics-to-law",
+      "method": "geometry_coherence_classifier",
+      "source_domain": "ethics",
+      "target_domain": "law",
+      "neighbor_rationale": "Law is the normative-reasoning neighbor of ethics: both reason over rules, agents, and permissibility, with a distinct vocabulary. No QH track record in law; no DomainBound naming it.",
+      "track_record_note": "n=344 frozen QH v1 ethics items. Honest caveat: ethics is the method's weakest in-domain track record \u2014 the coherent / contradicting flip in the ethics templates is a smaller lexical change than in physics, so the geometry signal is thinner. Included because n far exceeds the n>=20 bar and law is its natural neighbor; the study reports its in-domain accuracy plainly alongside the transfer result.",
+      "target_eval_set": "benchmarks/transfer/v1/eval_sets/law.jsonl",
+      "target_sha256": "b31bf744ef566b8fc6ec3cbd73507080ff968012d73e98d543222146c0b99802",
+      "target_sha256_expected": "b31bf744ef566b8fc6ec3cbd73507080ff968012d73e98d543222146c0b99802",
+      "target_sha256_verified": true,
+      "in_domain": {
+        "n": 344,
+        "accuracy": 0.4273255813953488,
+        "brier_contradicting": 0.23855397062566122,
+        "ece_contradicting": 0.10652062073870971,
+        "orthogonal_vs_rest_accuracy": 0.7325581395348837,
+        "coherent_vs_contradicting_accuracy": 0.4789272030651341,
+        "coherent_vs_contradicting_n": 261,
+        "reliability_bins": [
+          {
+            "bin": 1,
+            "bin_lower": 0.1,
+            "bin_upper": 0.2,
+            "count": 5,
+            "mean_confidence": 0.163263,
+            "accuracy": 0.6
+          },
+          {
+            "bin": 2,
+            "bin_lower": 0.2,
+            "bin_upper": 0.3,
+            "count": 28,
+            "mean_confidence": 0.239379,
+            "accuracy": 0.071429
+          },
+          {
+            "bin": 3,
+            "bin_lower": 0.3,
+            "bin_upper": 0.4,
+            "count": 58,
+            "mean_confidence": 0.359382,
+            "accuracy": 0.396552
+          },
+          {
+            "bin": 4,
+            "bin_lower": 0.4,
+            "bin_upper": 0.5,
+            "count": 104,
+            "mean_confidence": 0.457062,
+            "accuracy": 0.548077
+          },
+          {
+            "bin": 5,
+            "bin_lower": 0.5,
+            "bin_upper": 0.6,
+            "count": 50,
+            "mean_confidence": 0.538571,
+            "accuracy": 0.42
+          },
+          {
+            "bin": 6,
+            "bin_lower": 0.6,
+            "bin_upper": 0.7,
+            "count": 13,
+            "mean_confidence": 0.622339,
+            "accuracy": 0.461538
+          },
+          {
+            "bin": 7,
+            "bin_lower": 0.7,
+            "bin_upper": 0.8,
+            "count": 2,
+            "mean_confidence": 0.734536,
+            "accuracy": 0.5
+          },
+          {
+            "bin": 8,
+            "bin_lower": 0.8,
+            "bin_upper": 0.9,
+            "count": 1,
+            "mean_confidence": 0.806206,
+            "accuracy": 0.0
+          }
+        ],
+        "label_distribution": {
+          "coherent": 148,
+          "contradicting": 113,
+          "orthogonal": 83
+        },
+        "predicted_distribution": {
+          "coherent": 214,
+          "contradicting": 77,
+          "orthogonal": 53
+        },
+        "cv_note": "5-fold cross-validated, out-of-fold"
+      },
+      "transfer": {
+        "n": 114,
+        "accuracy": 0.3508771929824561,
+        "brier_contradicting": 0.28570697773895404,
+        "ece_contradicting": 0.1975385160842098,
+        "orthogonal_vs_rest_accuracy": 0.5701754385964912,
+        "coherent_vs_contradicting_accuracy": 0.38461538461538464,
+        "coherent_vs_contradicting_n": 65,
+        "reliability_bins": [
+          {
+            "bin": 1,
+            "bin_lower": 0.1,
+            "bin_upper": 0.2,
+            "count": 4,
+            "mean_confidence": 0.190861,
+            "accuracy": 0.75
+          },
+          {
+            "bin": 2,
+            "bin_lower": 0.2,
+            "bin_upper": 0.3,
+            "count": 5,
+            "mean_confidence": 0.230135,
+            "accuracy": 0.2
+          },
+          {
+            "bin": 3,
+            "bin_lower": 0.3,
+            "bin_upper": 0.4,
+            "count": 18,
+            "mean_confidence": 0.332004,
+            "accuracy": 0.611111
+          },
+          {
+            "bin": 4,
+            "bin_lower": 0.4,
+            "bin_upper": 0.5,
+            "count": 10,
+            "mean_confidence": 0.450474,
+            "accuracy": 0.3
+          },
+          {
+            "bin": 5,
+            "bin_lower": 0.5,
+            "bin_upper": 0.6,
+            "count": 20,
+            "mean_confidence": 0.539525,
+            "accuracy": 0.5
+          },
+          {
+            "bin": 6,
+            "bin_lower": 0.6,
+            "bin_upper": 0.7,
+            "count": 8,
+            "mean_confidence": 0.641699,
+            "accuracy": 0.25
+          }
+        ],
+        "label_distribution": {
+          "coherent": 35,
+          "contradicting": 30,
+          "orthogonal": 49
+        },
+        "predicted_distribution": {
+          "coherent": 68,
+          "contradicting": 16,
+          "orthogonal": 30
+        }
+      },
+      "transfer_frozen_scaler": {
+        "n": 114,
+        "accuracy": 0.2807017543859649,
+        "brier_contradicting": 0.36375773322862326,
+        "ece_contradicting": 0.33907938957010203,
+        "orthogonal_vs_rest_accuracy": 0.543859649122807,
+        "coherent_vs_contradicting_accuracy": 0.49230769230769234,
+        "coherent_vs_contradicting_n": 65,
+        "reliability_bins": [
+          {
+            "bin": 0,
+            "bin_lower": 0.0,
+            "bin_upper": 0.1,
+            "count": 16,
+            "mean_confidence": 0.072224,
+            "accuracy": 0.5
+          },
+          {
+            "bin": 1,
+            "bin_lower": 0.1,
+            "bin_upper": 0.2,
+            "count": 37,
+            "mean_confidence": 0.13286,
+            "accuracy": 0.432432
+          },
+          {
+            "bin": 2,
+            "bin_lower": 0.2,
+            "bin_upper": 0.3,
+            "count": 10,
+            "mean_confidence": 0.253512,
+            "accuracy": 0.6
+          },
+          {
+            "bin": 3,
+            "bin_lower": 0.3,
+            "bin_upper": 0.4,
+            "count": 2,
+            "mean_confidence": 0.323344,
+            "accuracy": 0.0
+          }
+        ],
+        "label_distribution": {
+          "coherent": 35,
+          "contradicting": 30,
+          "orthogonal": 49
+        },
+        "predicted_distribution": {
+          "coherent": 111,
+          "contradicting": 0,
+          "orthogonal": 3
+        }
+      },
+      "baseline_on_target": {
+        "n": 114,
+        "accuracy": 0.49122807017543857,
+        "brier_contradicting": 0.26377451210442654,
+        "ece_contradicting": 0.11846020858096981,
+        "orthogonal_vs_rest_accuracy": 0.6842105263157895,
+        "coherent_vs_contradicting_accuracy": 0.24615384615384617,
+        "coherent_vs_contradicting_n": 65,
+        "reliability_bins": [
+          {
+            "bin": 1,
+            "bin_lower": 0.1,
+            "bin_upper": 0.2,
+            "count": 2,
+            "mean_confidence": 0.167505,
+            "accuracy": 1.0
+          },
+          {
+            "bin": 2,
+            "bin_lower": 0.2,
+            "bin_upper": 0.3,
+            "count": 3,
+            "mean_confidence": 0.28108,
+            "accuracy": 0.333333
+          },
+          {
+            "bin": 3,
+            "bin_lower": 0.3,
+            "bin_upper": 0.4,
+            "count": 17,
+            "mean_confidence": 0.358374,
+            "accuracy": 0.411765
+          },
+          {
+            "bin": 4,
+            "bin_lower": 0.4,
+            "bin_upper": 0.5,
+            "count": 10,
+            "mean_confidence": 0.450642,
+            "accuracy": 0.5
+          },
+          {
+            "bin": 5,
+            "bin_lower": 0.5,
+            "bin_upper": 0.6,
+            "count": 23,
+            "mean_confidence": 0.537203,
+            "accuracy": 0.434783
+          },
+          {
+            "bin": 6,
+            "bin_lower": 0.6,
+            "bin_upper": 0.7,
+            "count": 7,
+            "mean_confidence": 0.640961,
+            "accuracy": 0.428571
+          },
+          {
+            "bin": 7,
+            "bin_lower": 0.7,
+            "bin_upper": 0.8,
+            "count": 2,
+            "mean_confidence": 0.718768,
+            "accuracy": 0.5
+          },
+          {
+            "bin": 8,
+            "bin_lower": 0.8,
+            "bin_upper": 0.9,
+            "count": 1,
+            "mean_confidence": 0.802988,
+            "accuracy": 1.0
+          }
+        ],
+        "label_distribution": {
+          "coherent": 35,
+          "contradicting": 30,
+          "orthogonal": 49
+        },
+        "predicted_distribution": {
+          "coherent": 21,
+          "contradicting": 26,
+          "orthogonal": 67
+        },
+        "cv_note": "5-fold cross-validated, out-of-fold"
+      },
+      "statistics": {
+        "in_domain_minus_transfer_accuracy": {
+          "theta_hat": 0.0764483884128927,
+          "ci_low": -0.025805793553651535,
+          "ci_high": 0.17579559363525094,
+          "alpha": 0.05,
+          "n_resamples": 10000,
+          "excludes_zero": false,
+          "p_two_sided": 0.1298
+        },
+        "two_proportion_z_test": {
+          "z": 1.4392202861193941,
+          "p_two_sided": 0.15008811953112167,
+          "diff": 0.0764483884128927
+        },
+        "transfer_vs_chance": {
+          "z": 0.39735970711951313,
+          "p_one_sided": 0.3455511119224214,
+          "floor": 0.3333333333333333
+        },
+        "effect_size": {
+          "name": "cohens_h",
+          "value": 0.15698854346671687,
+          "magnitude": "negligible"
+        },
+        "transfer_vs_baseline": {
+          "two_proportion_z_test": {
+            "z": -2.1461734799546393,
+            "p_two_sided": 0.031859140583184065,
+            "diff": -0.14035087719298245
+          },
+          "effect_size": {
+            "name": "cohens_h",
+            "value": -0.2853093285701702,
+            "magnitude": "small"
+          }
+        }
+      },
+      "verdict": {
+        "outcome": "no_transfer",
+        "conclusive": true,
+        "note": "transfer accuracy is not significantly above random chance (0.333) \u2014 the method's specialization does not carry into this domain.",
+        "significantly_worse_than_in_domain": false,
+        "significantly_above_chance": false
+      }
+    }
+  ],
+  "honest_findings": [
+    "physics-to-chemistry: NO TRANSFER. In-domain accuracy 0.6876 collapses to 0.2267 on chemistry \u2014 a significant drop, and not significantly above the 0.333 chance floor. The method's specialization in physics does not carry into the neighboring domain.",
+    "physics-to-chemistry: a domain-naive baseline *trained on chemistry* (0.7442) beats the transferred method (0.2267) \u2014 fitting the new domain directly would have done better than carrying the specialist over.",
+    "physics-to-chemistry: covariate shift is load-bearing \u2014 the strict zero-adaptation transfer scores 0.2849 vs 0.2267 once the feature scaler is re-fit on chemistry (unsupervised).",
+    "economics-to-finance: PARTIAL TRANSFER. In-domain accuracy 0.6951 degrades to 0.4938 on finance \u2014 a significant loss, but still above chance. Sub-capability split: orthogonal-vs-rest 0.6750, coherent-vs-contradicting 0.4405.",
+    "economics-to-finance: covariate shift is load-bearing \u2014 the strict zero-adaptation transfer scores 0.3688 vs 0.4938 once the feature scaler is re-fit on finance (unsupervised).",
+    "ethics-to-law: NO TRANSFER. In-domain accuracy is already a modest 0.4273, and transfer accuracy 0.3509 on law is not significantly above the 0.333 chance floor. The method's specialization in ethics does not carry into the neighboring domain.",
+    "ethics-to-law: a domain-naive baseline *trained on law* (0.4912) beats the transferred method (0.3509) \u2014 fitting the new domain directly would have done better than carrying the specialist over.",
+    "ethics-to-law: covariate shift is load-bearing \u2014 the strict zero-adaptation transfer scores 0.2807 vs 0.3509 once the feature scaler is re-fit on law (unsupervised)."
+  ]
+}

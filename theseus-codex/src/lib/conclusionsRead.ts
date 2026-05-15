@@ -627,6 +627,140 @@ export async function listPublishedArticles(limit = 8): Promise<PublishedConclus
   }
 }
 
+/**
+ * Unified shape for the homepage Publications rail. Bridges the two
+ * publication paths: PublishedConclusion (kind=ARTICLE → /c/[slug])
+ * and Upload (publishedAt!=null, visibility='org' → /post/[slug]).
+ * Whatever flips the underlying "is published" bit, the homepage
+ * surfaces it here within one render cycle.
+ */
+export type HomepagePublishedArticle = {
+  id: string;
+  href: string;
+  title: string;
+  excerpt: string;
+  publishedAt: string;
+  source: "upload" | "conclusion";
+};
+
+type PublishedUploadRow = {
+  id: string;
+  slug: string | null;
+  title: string;
+  blogExcerpt: string | null;
+  description: string | null;
+  textContent: string | null;
+  publishedAt: Date | string | null;
+};
+
+function deriveHomepageExcerpt(text: string, limit = 200): string {
+  const cleaned = text.replace(/[#>*_`-]/g, " ").replace(/\s+/g, " ").trim();
+  if (!cleaned) return "";
+  if (cleaned.length <= limit) return cleaned;
+  const cut = cleaned.slice(0, limit);
+  const lastSpace = cut.lastIndexOf(" ");
+  return (lastSpace > limit * 0.65 ? cut.slice(0, lastSpace) : cut) + "…";
+}
+
+async function listHomepageUploadPosts(
+  organizationId: string,
+  limit: number,
+): Promise<HomepagePublishedArticle[]> {
+  try {
+    const rows = (await db.upload.findMany({
+      where: {
+        organizationId,
+        publishedAt: { not: null },
+        deletedAt: null,
+        visibility: "org",
+        slug: { not: null },
+      },
+      orderBy: [{ publishedAt: "desc" }, { id: "asc" }],
+      take: limit,
+      select: {
+        id: true,
+        slug: true,
+        title: true,
+        blogExcerpt: true,
+        description: true,
+        textContent: true,
+        publishedAt: true,
+      },
+    })) as unknown as PublishedUploadRow[];
+
+    return rows.flatMap((row): HomepagePublishedArticle[] => {
+      if (!row.slug || !row.publishedAt) return [];
+      const publishedAt =
+        row.publishedAt instanceof Date
+          ? row.publishedAt.toISOString()
+          : new Date(row.publishedAt).toISOString();
+      const excerptSource =
+        row.blogExcerpt || row.description || row.textContent || "";
+      return [
+        {
+          id: row.id,
+          href: `/post/${encodeURIComponent(row.slug)}`,
+          title: row.title,
+          excerpt: deriveHomepageExcerpt(excerptSource),
+          publishedAt,
+          source: "upload",
+        },
+      ];
+    });
+  } catch (error) {
+    console.error("[public] upload publication query failed:", error);
+    return [];
+  }
+}
+
+function homepageArticleFromConclusion(
+  row: PublishedConclusion,
+): HomepagePublishedArticle {
+  const excerptSource =
+    row.payload.article?.bodyMarkdown ||
+    row.payload.evidenceSummary ||
+    row.payload.rationale ||
+    "";
+  return {
+    id: row.id,
+    href: `/c/${encodeURIComponent(row.slug)}`,
+    title: row.payload.conclusionText,
+    excerpt: deriveHomepageExcerpt(excerptSource),
+    publishedAt: row.publishedAt,
+    source: "conclusion",
+  };
+}
+
+/**
+ * Single source of truth for the homepage Publications rail. Merges
+ * both publish paths, orders by publishedAt desc with a stable id-asc
+ * secondary so two near-simultaneous publishes don't flip on refresh,
+ * then trims to `limit`.
+ */
+export async function listHomepagePublishedArticles(
+  limit = 8,
+): Promise<HomepagePublishedArticle[]> {
+  const organizationId = await resolvePublicOrganizationId();
+  if (!organizationId) return [];
+
+  const [conclusionArticles, uploadPosts] = await Promise.all([
+    listPublishedArticles(limit),
+    listHomepageUploadPosts(organizationId, limit),
+  ]);
+
+  const merged: HomepagePublishedArticle[] = [
+    ...conclusionArticles.map(homepageArticleFromConclusion),
+    ...uploadPosts,
+  ];
+
+  merged.sort((a, b) => {
+    if (a.publishedAt === b.publishedAt) return a.id < b.id ? -1 : 1;
+    return a.publishedAt < b.publishedAt ? 1 : -1;
+  });
+
+  return merged.slice(0, limit);
+}
+
 export async function getConclusionBySlug(slug: string): Promise<PublishedConclusion | null> {
   const organizationId = await resolvePublicOrganizationId();
   if (!organizationId) return null;

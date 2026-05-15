@@ -42,15 +42,24 @@ class _Store:
         self,
         conclusions: list[_Conclusion] | None = None,
         claims: list[_Claim] | None = None,
+        cascade_weights: dict[str, float] | None = None,
     ) -> None:
         self._conclusions = list(conclusions or [])
         self._claims = list(claims or [])
+        # Round 17 prompt 27: the hybrid retrieval gate requires a
+        # counter-claim to carry cascade-graph backing. Tests that expect a
+        # counter to surface populate this map; an unbacked candidate
+        # (absent here) fails the cascade gate by design.
+        self._cascade_weights = dict(cascade_weights or {})
 
     def list_conclusions(self) -> list[_Conclusion]:
         return list(self._conclusions)
 
     def list_claims(self) -> list[_Claim]:
         return list(self._claims)
+
+    def cascade_weight_for(self, *, source_kind: str, source_id: str) -> float | None:
+        return self._cascade_weights.get(source_id)
 
 
 class _ScriptedClient:
@@ -115,6 +124,24 @@ def _stub_predicted_location(
     monkeypatch.setattr(dialectic, "_predicted_contradiction_location", _fake)
 
 
+def _stub_nli(
+    monkeypatch, *, contradiction: float = 0.9, entailment: float = 0.02
+) -> None:
+    """Replace the NLI gate with a fixed verdict.
+
+    The hybrid retrieval gate (Round 17 prompt 27) runs an NLI judgment to
+    confirm a candidate *actually contradicts* the opinion. Loading a
+    cross-encoder in a unit test is both slow and beside the point; tests
+    for the NLI model itself live elsewhere. Here we assert what the
+    dialectic does given a known NLI verdict.
+    """
+
+    def _fake(premise: str, hypothesis: str) -> tuple[float, float]:
+        return float(contradiction), float(entailment)
+
+    monkeypatch.setattr(dialectic, "_nli_scores", _fake)
+
+
 def _opinion_payload() -> dict[str, Any]:
     return {
         "stance": "AGREES",
@@ -157,10 +184,16 @@ def test_find_counter_claim_surfaces_planted_opposing_conclusion(monkeypatch) ->
         text="The firm holds that durable institutional discipline matters.",
         embedding=_supporting_vector(),
     )
-    store = _Store(conclusions=[aligned, opposing])
+    # The opposing conclusion carries cascade-graph backing so it clears
+    # the cascade gate; the NLI gate is stubbed to a clear contradiction.
+    store = _Store(
+        conclusions=[aligned, opposing],
+        cascade_weights={"conc_opposing": 0.6, "conc_aligned": 0.6},
+    )
 
     _stub_embed(monkeypatch, {opinion["headline"]: _aligned_vector()})
     _stub_predicted_location(monkeypatch, _predicted_opposing_location())
+    _stub_nli(monkeypatch, contradiction=0.9, entailment=0.02)
 
     counter = dialectic.find_counter_claim(
         store,
@@ -174,6 +207,9 @@ def test_find_counter_claim_surfaces_planted_opposing_conclusion(monkeypatch) ->
     # The opposing vector must score strictly above the aligned vector at
     # the predicted-contradiction location — that is the geometric guarantee.
     assert counter.similarity > 0.0
+    # The hybrid gate recorded the NLI verdict and the cascade backing.
+    assert counter.nli_contradiction == pytest.approx(0.9)
+    assert counter.cascade_weight == pytest.approx(0.6)
 
 
 def test_no_counter_above_floor_returns_none(monkeypatch) -> None:
@@ -320,8 +356,9 @@ def test_generate_reconciliation_references_counter_claim(monkeypatch) -> None:
 
 
 def test_generate_reconciliation_rejects_strawman(monkeypatch) -> None:
-    """A 'strongest form' that drops the counter-claim's content collapses
-    to the honest no-counter note rather than being persisted."""
+    """A 'strongest form' that drops the counter-claim's content forces a
+    regeneration; a second strawman collapses to the honest no-counter note
+    rather than being persisted."""
 
     counter = dialectic.CounterClaim(
         source_kind="conclusion",
@@ -346,7 +383,9 @@ def test_generate_reconciliation_rejects_strawman(monkeypatch) -> None:
             }
         ),
     )
-    client = _ScriptedClient([strawman])
+    # Round 17 prompt 27: the strawman detector forces a regeneration. Both
+    # attempts strawman here, so the pass falls back to the honest note.
+    client = _ScriptedClient([strawman, strawman])
 
     reconciliation = asyncio.run(
         dialectic.generate_reconciliation(
@@ -359,6 +398,8 @@ def test_generate_reconciliation_rejects_strawman(monkeypatch) -> None:
     assert reconciliation.no_counter_found is True
     assert dialectic.NO_COUNTER_FOUND_NOTE in reconciliation.reconciliation_markdown
     assert reconciliation.audit.get("skipped") == "strawman_rejected"
+    assert reconciliation.audit.get("attempts") == 2
+    assert len(client.calls) == 2
 
 
 def test_reconciliation_metadata_carries_audit_fields() -> None:

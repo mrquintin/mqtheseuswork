@@ -1,0 +1,44 @@
+{
+  "roster": [
+    {
+      "model": "hash-det",
+      "available": true,
+      "reason": "deterministic local control \u2014 always available, 0 credits"
+    },
+    {
+      "model": "minilm-l6",
+      "available": true,
+      "reason": "local sentence-transformers runtime importable"
+    },
+    {
+      "model": "bge-large",
+      "available": true,
+      "reason": "local sentence-transformers runtime importable"
+    },
+    {
+      "model": "openai-3-large",
+      "available": false,
+      "reason": "api key OPENAI_API_KEY absent \u2014 adapter skipped (no API call attempted)"
+    },
+    {
+      "model": "voyage-3",
+      "available": false,
+      "reason": "api key VOYAGE_API_KEY absent \u2014 adapter skipped (no API call attempted)"
+    },
+    {
+      "model": "cohere-en-v3",
+      "available": false,
+      "reason": "api key COHERE_API_KEY absent \u2014 adapter skipped (no API call attempted)"
+    }
+  ],
+  "available": [
+    "hash-det",
+    "minilm-l6",
+    "bge-large"
+  ],
+  "skipped": [
+    "openai-3-large",
+    "voyage-3",
+    "cohere-en-v3"
+  ]
+}

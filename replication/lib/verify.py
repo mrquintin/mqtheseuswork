@@ -371,6 +371,57 @@ def _format_report(report: VerificationReport) -> str:
     return "\n".join(lines)
 
 
+def _emit_certificate_from_runs(
+    *,
+    prior_dir: Path | str,
+    current_dir: Path | str,
+    report: VerificationReport,
+    out_path: Path | str,
+    replicator_name: str,
+    replicator_affiliation: str,
+    consent_public: bool,
+    notes: str,
+    sign: bool,
+) -> Path:
+    """Build (and optionally sign) a certificate from a verified run pair.
+
+    Imported lazily so a `make verify` invocation that doesn't ask for
+    a certificate doesn't pay the certificate module's import cost.
+    """
+    from replication.lib.certificate import (
+        build_certificate,
+        sign_certificate,
+        write_certificate,
+    )
+
+    prior = read_envelope(prior_dir)
+    current = read_envelope(current_dir)
+    keys_compared = tuple(
+        sorted(
+            {
+                d.get("key", "")
+                for d in report.metric_diff
+            }
+            | set(DEFAULT_METRIC_KEYS)
+        )
+    )
+    cert = build_certificate(
+        firm_envelope=prior.as_dict(),
+        replicator_envelope=current.as_dict(),
+        verdict=report.verdict,
+        abs_tol=report.abs_tol,
+        rel_tol=report.rel_tol,
+        metric_keys_compared=keys_compared,
+        replicator_name=replicator_name,
+        replicator_affiliation=replicator_affiliation,
+        replicator_consent_public=consent_public,
+        notes=notes,
+    )
+    if sign:
+        cert = sign_certificate(cert)
+    return write_certificate(cert, out_path)
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     import argparse
 
@@ -399,6 +450,51 @@ def main(argv: Sequence[str] | None = None) -> int:
         action="store_true",
         help="Print the report as JSON instead of human-readable text",
     )
+    parser.add_argument(
+        "--emit-certificate",
+        metavar="PATH",
+        default=None,
+        help=(
+            "When the verdict is `match`, write a reproducibility "
+            "certificate to PATH (a file path or a directory). The "
+            "certificate is signed by default — pass --no-sign to write "
+            "an unsigned draft for the firm to sign later."
+        ),
+    )
+    parser.add_argument(
+        "--no-sign",
+        action="store_true",
+        help=(
+            "Build the certificate but do not sign it. Useful when the "
+            "replicator is pre-staging the certificate locally and will "
+            "submit the run dir to the firm for signing."
+        ),
+    )
+    parser.add_argument(
+        "--replicator-name",
+        default="",
+        help="Name of the researcher whose hardware the harness ran on.",
+    )
+    parser.add_argument(
+        "--replicator-affiliation",
+        default="",
+        help="Institutional affiliation of the replicator (free text).",
+    )
+    parser.add_argument(
+        "--consent-public",
+        action="store_true",
+        help=(
+            "The replicator consents to being named publicly on the "
+            "firm's /methodology/replicators page. Absent this flag, "
+            "the certificate still exists but the public page omits the "
+            "row."
+        ),
+    )
+    parser.add_argument(
+        "--certificate-notes",
+        default="",
+        help="Free-text notes embedded in the certificate (not signed).",
+    )
     args = parser.parse_args(argv)
 
     report = verify_runs(
@@ -408,6 +504,28 @@ def main(argv: Sequence[str] | None = None) -> int:
         print(json.dumps(report.as_dict(), indent=2))
     else:
         print(_format_report(report))
+
+    if args.emit_certificate:
+        if report.verdict != "match":
+            print(
+                "[verify] not emitting certificate: verdict is "
+                f"{report.verdict!r}, only 'match' is certifiable.",
+                file=__import__("sys").stderr,
+            )
+        else:
+            out = _emit_certificate_from_runs(
+                prior_dir=args.prior,
+                current_dir=args.current,
+                report=report,
+                out_path=args.emit_certificate,
+                replicator_name=args.replicator_name,
+                replicator_affiliation=args.replicator_affiliation,
+                consent_public=args.consent_public,
+                notes=args.certificate_notes,
+                sign=not args.no_sign,
+            )
+            print(f"[verify] certificate written to {out}")
+
     if report.verdict == "match":
         return 0
     if report.verdict == "incompatible":

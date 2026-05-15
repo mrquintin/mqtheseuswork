@@ -38,6 +38,19 @@ from noosphere.methods.domain_bounds import (
     load_domain_bound,
     refuse_out_of_bounds,
 )
+from noosphere.methods.retirement import (
+    DeprecatedMethodWarning,
+    MigrationPlan,
+    RetiredMethodError,
+    RetirementCriterion,
+    RetirementRecord,
+    RetirementReviewVerdict,
+    RetirementSignals,
+    RetirementState,
+    RetirementTransitionError,
+    plan_migration,
+    qualifies_for_review,
+)
 
 
 def get_method(
@@ -49,6 +62,7 @@ def get_method(
 __all__ = [
     "AnchorBound",
     "CORRELATION_ID",
+    "DeprecatedMethodWarning",
     "DomainBound",
     "DomainRefusal",
     "DomainVerdict",
@@ -59,7 +73,15 @@ __all__ = [
     "MethodDag",
     "MethodNode",
     "MethodNotFoundError",
+    "MigrationPlan",
     "REGISTRY",
+    "RetiredMethodError",
+    "RetirementCriterion",
+    "RetirementRecord",
+    "RetirementReviewVerdict",
+    "RetirementSignals",
+    "RetirementState",
+    "RetirementTransitionError",
     "TagBound",
     "TENANT_ID",
     "build_dag",
@@ -70,6 +92,8 @@ __all__ = [
     "get_method",
     "graph_snapshot",
     "load_domain_bound",
+    "plan_migration",
+    "qualifies_for_review",
     "refuse_out_of_bounds",
     "register_failure_hook",
     "register_method",

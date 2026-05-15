@@ -1,0 +1,105 @@
+# Theseus — default configuration overlay.
+#
+# This file is the lowest-precedence layer. It carries values that are
+# safe and committable: defaults, thresholds, scheduler cadences, and
+# model identifiers. Per-environment overlays (development.yaml,
+# production.yaml) refine these.
+#
+# Loading order: defaults.yaml → <THESEUS_ENV>.yaml → process env.
+#
+# DO NOT put secrets here. Secrets stay in environment variables. See
+# docs/architecture/Configuration.md for the full contract and for the
+# `THESEUS_*` env-var names used to override individual fields.
+
+# ----- LLM defaults ---------------------------------------------------------
+embedding_model_name: all-mpnet-base-v2
+embedding_device: cpu
+nli_model_name: roberta-large-mnli
+llm_provider: anthropic
+llm_model: claude-sonnet-4-20250514
+
+# ----- Coherence cache-bust tokens (bump to invalidate caches) -------------
+coherence_ver_nli: cross-encoder/nli-deberta-v3-base:v1
+coherence_ver_argumentation: dung-neighbors:v1
+coherence_ver_probabilistic: llm-commitments:v1
+coherence_ver_geometry: hoyer-cosine:v1
+coherence_ver_information: zstd-ratio:v1
+coherence_ver_judge: llm-judge:v1
+
+# ----- Strategic toggles (off until human-review pass) ---------------------
+adversarial_enforce: false
+adversarial_shadow: false
+adversarial_k: 3
+adversarial_stale_days: 30
+voice_citation_shadow: true
+calibration_confidence_enabled: false
+ingestion_guard_enabled: true
+
+# ----- Currents / news ingest ---------------------------------------------
+currents_lookback_minutes: 15
+currents_api_host: 0.0.0.0
+currents_api_port: 8088
+currents_cors_origins: http://localhost:3001
+currents_llm_model: claude-haiku-4-5
+currents_llm_max_prompt_tokens_per_hour: 1500000
+currents_llm_max_completion_tokens_per_hour: 400000
+
+# ----- Forecasts (live trading defaults; secrets stay env-only) -----------
+forecasts_live_trading_enabled: false
+forecasts_max_stake_usd: 5.0
+forecasts_max_daily_loss_usd: 20.0
+forecasts_kill_switch_auto_threshold_usd: 15.0
+forecasts_paper_initial_balance_usd: 10000.0
+
+# ----- Public site --------------------------------------------------------
+public_site_origin: http://localhost:3001
+currents_api_url: http://currents-api:8088
+
+# ----- Notifications ------------------------------------------------------
+theseus_notify_from: notify@theseus.local
+
+# ----- Magic-number registry (Round 17 thresholds) -----------------------
+# Rationale lives next to each field in noosphere/noosphere/core/config.py.
+# Tuning here is a separate prompt — refactor only.
+thresholds:
+  currents:
+    min_significance_score: 1.35
+    min_likes: 1000
+    min_retweets: 100
+    min_impressions: 25000
+    max_events_per_cycle: 40
+    discovery_max_candidates: 100
+    request_timeout_s: 15.0
+    lookback_minutes: 15
+  forecasts:
+    max_stake_usd_default: 5.0
+    max_daily_loss_usd_default: 20.0
+    kill_switch_auto_threshold_usd_default: 15.0
+    paper_initial_balance_usd_default: 10000.0
+    budget_hourly_prompt_tokens: 1500000
+    budget_hourly_completion_tokens: 400000
+    ingest_interval_s: 900
+    generate_interval_s: 600
+    resolution_poll_interval_s: 300
+    paper_bet_drain_interval_s: 60
+    max_markets_per_cycle: 200
+    request_timeout_s: 15.0
+  calibration:
+    min_sample_size: 30
+    drift_severity_multiplier: 1.5
+    drift_sigma_warning: 2.0
+    drift_sigma_critical: 3.0
+  coherence:
+    similarity_dedup_cutoff: 0.92
+    similarity_contradiction_floor: 0.55
+    adversarial_k_default: 3
+    adversarial_stale_days_default: 30
+  retention:
+    embedding_cache_ttl_s: 604800     # 7 days
+    audit_log_retention_days: 90
+    rate_limit_window_s: 60
+  latency_budget_ms:
+    public_ask_p95_ms: 2500
+    public_calibration_manifest_p95_ms: 800
+    methodology_manifest_p95_ms: 800
+    embed_pass_per_chunk_p95_ms: 350

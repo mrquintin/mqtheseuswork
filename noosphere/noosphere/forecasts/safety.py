@@ -16,7 +16,11 @@ from typing import Any, Literal
 
 from sqlmodel import desc, select
 
-from noosphere.models import ForecastPortfolioState, ForecastResolution
+from noosphere.models import (
+    EquityPortfolioState,
+    ForecastPortfolioState,
+    ForecastResolution,
+)
 from noosphere.observability import get_logger
 
 log = get_logger(__name__)
@@ -53,6 +57,11 @@ class GateContext:
     kill_switch_engaged: bool
     daily_loss_usd: float
     live_balance_usd: float
+    # Equity-broker credential flags. Default False keeps the prediction-market
+    # call sites unaffected; the equities pipeline (prompt 61+) populates these
+    # via ``gate_context_from_env_for_equities``.
+    alpaca_configured: bool = False
+    robinhood_configured: bool = False
 
 
 @dataclass(frozen=True)
@@ -98,6 +107,64 @@ def gate_context_from_env(state: ForecastPortfolioState | None) -> GateContext:
     )
 
 
+def gate_context_from_env_for_equities(
+    state: "EquityPortfolioState | ForecastPortfolioState | None",
+) -> GateContext:
+    """Build the equity-flavoured live gate context.
+
+    Reuses the prediction-market max-stake / max-daily-loss env knobs so a
+    single founder authorization gates both markets. Alpaca is the primary
+    broker; Robinhood is gated behind an explicit env flag (see
+    ``noosphere.forecasts.safety`` module docstring).
+    """
+
+    # Live trading is enabled when EITHER the cross-market founder flag OR the
+    # equities-specific flag is set. The equities-only flag exists so the
+    # operator can authorise live equity trading independently of prediction-
+    # market trading (e.g. enable Alpaca/Robinhood while still in paper for
+    # Polymarket/Kalshi).
+    live_enabled = (
+        os.getenv("FORECASTS_LIVE_TRADING_ENABLED", "").strip().lower() == "true"
+        or os.getenv("EQUITIES_LIVE_TRADING_ENABLED", "").strip().lower() == "true"
+    )
+    # Equity-specific ceilings fall back to the shared FORECASTS ceilings so a
+    # single founder authorization continues to gate both markets when the
+    # operator has not configured equities-only knobs.
+    raw_equity_stake = os.getenv("EQUITIES_MAX_STAKE_USD")
+    raw_equity_loss = os.getenv("EQUITIES_MAX_DAILY_LOSS_USD")
+    max_stake = (
+        _env_float("EQUITIES_MAX_STAKE_USD", 0.0)
+        if raw_equity_stake is not None and raw_equity_stake.strip()
+        else _env_float("FORECASTS_MAX_STAKE_USD", 0.0)
+    )
+    max_daily_loss = (
+        _env_float("EQUITIES_MAX_DAILY_LOSS_USD", 0.0)
+        if raw_equity_loss is not None and raw_equity_loss.strip()
+        else _env_float("FORECASTS_MAX_DAILY_LOSS_USD", 0.0)
+    )
+    return GateContext(
+        live_trading_enabled=live_enabled,
+        polymarket_configured=False,
+        kalshi_configured=False,
+        alpaca_configured=bool(
+            os.getenv("ALPACA_API_KEY_ID", "").strip()
+            and os.getenv("ALPACA_API_SECRET_KEY", "").strip()
+        ),
+        robinhood_configured=(
+            os.getenv("ROBINHOOD_ENABLED", "").strip().lower() == "true"
+            and bool(os.getenv("ROBINHOOD_USERNAME", "").strip())
+            and bool(os.getenv("ROBINHOOD_PASSWORD", "").strip())
+        ),
+        max_stake_usd=max_stake,
+        max_daily_loss_usd=max_daily_loss,
+        kill_switch_engaged=bool(state.kill_switch_engaged) if state else False,
+        daily_loss_usd=float(state.daily_loss_usd) if state else 0.0,
+        live_balance_usd=float(state.live_balance_usd or Decimal("0.00"))
+        if state
+        else 0.0,
+    )
+
+
 def current_trading_mode() -> str:
     """Return the import-time trading posture for structured startup logging."""
 
@@ -135,23 +202,26 @@ def check_all_gates(*, prediction: Any, bet: Any, ctx: GateContext) -> None:
         raise exc
 
 
+def check_all_equity_gates(
+    *, signal: Any, position: Any, ctx: GateContext
+) -> None:
+    """Equity-flavoured wrapper: reuses the eight-gate contract for an EquityPosition."""
+
+    for result in evaluate_equity_gate_results(
+        signal=signal, position=position, ctx=ctx
+    ):
+        if result.passed:
+            continue
+        exc = GateFailure(result.code or "NOT_CONFIGURED", result.reason)
+        _log_gate_failure(exc, prediction=signal, bet=position)
+        raise exc
+
+
 def evaluate_gate_results(*, prediction: Any, bet: Any, ctx: GateContext) -> list[GateResult]:
     """Return all eight live-trading gate results in the check_all_gates order."""
 
     results: list[GateResult] = []
-
-    results.append(
-        GateResult(
-            gate_name="live_trading_enabled",
-            passed=ctx.live_trading_enabled,
-            reason=(
-                "FORECASTS_LIVE_TRADING_ENABLED=true"
-                if ctx.live_trading_enabled
-                else "live trading env flag is not true"
-            ),
-            code=None if ctx.live_trading_enabled else "DISABLED",
-        )
-    )
+    results.append(_gate_live_trading_enabled(ctx))
 
     exchange = _enum_value(getattr(bet, "exchange", ""))
     if exchange == "POLYMARKET":
@@ -207,66 +277,164 @@ def evaluate_gate_results(*, prediction: Any, bet: Any, ctx: GateContext) -> lis
     )
 
     stake = _decimal(getattr(bet, "stake_usd", Decimal("0.00")))
-    max_stake = _decimal(ctx.max_stake_usd)
-    stake_ok = stake <= max_stake
+    results.append(_gate_stake_ceiling(stake, ctx))
+    results.append(_gate_daily_loss_ceiling(ctx))
+    results.append(_gate_kill_switch_clear(ctx))
+    results.append(_gate_sufficient_balance(stake, ctx))
+
+    return results
+
+
+def evaluate_equity_gate_results(
+    *, signal: Any, position: Any, ctx: GateContext
+) -> list[GateResult]:
+    """Return all eight live-trading gate results for an EquityPosition.
+
+    The shared contract: gates 1, 6, 7, 8 are identical to the prediction-market
+    path; only gates 2-5 read equity-shaped fields. Stake is derived from
+    ``qty * entry_price`` since equities have no single ``stake_usd`` field.
+    """
+
+    results: list[GateResult] = []
+    results.append(_gate_live_trading_enabled(ctx))
+
+    broker_configured = ctx.alpaca_configured or ctx.robinhood_configured
+    broker_name = (
+        "alpaca"
+        if ctx.alpaca_configured
+        else "robinhood"
+        if ctx.robinhood_configured
+        else "<none>"
+    )
     results.append(
         GateResult(
-            gate_name="stake_ceiling",
-            passed=stake_ok,
+            gate_name="broker_credentials_configured",
+            passed=broker_configured,
             reason=(
-                f"stake_usd={stake} is within max_stake_usd={max_stake}"
-                if stake_ok
-                else f"stake_usd={stake} exceeds max_stake_usd={max_stake}"
+                f"live credentials are configured for broker={broker_name}"
+                if broker_configured
+                else "live credentials are not configured for any equity broker"
             ),
-            code=None if stake_ok else "STAKE_OVER_CEILING",
+            code=None if broker_configured else "NOT_CONFIGURED",
         )
     )
 
+    authorized = getattr(signal, "live_authorized_at", None) is not None
+    results.append(
+        GateResult(
+            gate_name="signal_live_authorized",
+            passed=authorized,
+            reason=(
+                "parent signal has live_authorized_at"
+                if authorized
+                else "parent signal has no live_authorized_at timestamp"
+            ),
+            code=None if authorized else "NOT_AUTHORIZED",
+        )
+    )
+
+    # An equity position is "confirmed" when its status is PENDING (operator-
+    # gated, awaiting submission) and its own liveAuthorizedAt timestamp is set.
+    # The PENDING→OPEN transition is what the live adapter performs.
+    position_status = _enum_value(getattr(position, "status", ""))
+    confirmed = (
+        position_status == "PENDING"
+        and getattr(position, "live_authorized_at", None) is not None
+    )
+    results.append(
+        GateResult(
+            gate_name="operator_confirmation",
+            passed=confirmed,
+            reason=(
+                "position has per-position operator confirmation"
+                if confirmed
+                else "position has not completed the per-position operator confirmation"
+            ),
+            code=None if confirmed else "NOT_CONFIRMED",
+        )
+    )
+
+    qty = _decimal(getattr(position, "qty", Decimal("0")))
+    entry_price = _decimal(getattr(position, "entry_price", Decimal("0")))
+    stake = qty * entry_price
+    results.append(_gate_stake_ceiling(stake, ctx))
+    results.append(_gate_daily_loss_ceiling(ctx))
+    results.append(_gate_kill_switch_clear(ctx))
+    results.append(_gate_sufficient_balance(stake, ctx))
+
+    return results
+
+
+def _gate_live_trading_enabled(ctx: GateContext) -> GateResult:
+    return GateResult(
+        gate_name="live_trading_enabled",
+        passed=ctx.live_trading_enabled,
+        reason=(
+            "FORECASTS_LIVE_TRADING_ENABLED=true"
+            if ctx.live_trading_enabled
+            else "live trading env flag is not true"
+        ),
+        code=None if ctx.live_trading_enabled else "DISABLED",
+    )
+
+
+def _gate_stake_ceiling(stake: Decimal, ctx: GateContext) -> GateResult:
+    max_stake = _decimal(ctx.max_stake_usd)
+    stake_ok = stake <= max_stake
+    return GateResult(
+        gate_name="stake_ceiling",
+        passed=stake_ok,
+        reason=(
+            f"stake_usd={stake} is within max_stake_usd={max_stake}"
+            if stake_ok
+            else f"stake_usd={stake} exceeds max_stake_usd={max_stake}"
+        ),
+        code=None if stake_ok else "STAKE_OVER_CEILING",
+    )
+
+
+def _gate_daily_loss_ceiling(ctx: GateContext) -> GateResult:
     daily_loss = _decimal(ctx.daily_loss_usd)
     max_daily_loss = _decimal(ctx.max_daily_loss_usd)
     daily_loss_ok = daily_loss <= max_daily_loss
-    results.append(
-        GateResult(
-            gate_name="daily_loss_ceiling",
-            passed=daily_loss_ok,
-            reason=(
-                f"daily_loss_usd={daily_loss} is within max_daily_loss_usd={max_daily_loss}"
-                if daily_loss_ok
-                else f"daily_loss_usd={daily_loss} exceeds max_daily_loss_usd={max_daily_loss}"
-            ),
-            code=None if daily_loss_ok else "DAILY_LOSS_OVER_CEILING",
-        )
+    return GateResult(
+        gate_name="daily_loss_ceiling",
+        passed=daily_loss_ok,
+        reason=(
+            f"daily_loss_usd={daily_loss} is within max_daily_loss_usd={max_daily_loss}"
+            if daily_loss_ok
+            else f"daily_loss_usd={daily_loss} exceeds max_daily_loss_usd={max_daily_loss}"
+        ),
+        code=None if daily_loss_ok else "DAILY_LOSS_OVER_CEILING",
     )
 
-    results.append(
-        GateResult(
-            gate_name="kill_switch_clear",
-            passed=not ctx.kill_switch_engaged,
-            reason=(
-                "portfolio kill switch is clear"
-                if not ctx.kill_switch_engaged
-                else "portfolio kill switch is engaged"
-            ),
-            code=None if not ctx.kill_switch_engaged else "KILL_SWITCH_ENGAGED",
-        )
+
+def _gate_kill_switch_clear(ctx: GateContext) -> GateResult:
+    return GateResult(
+        gate_name="kill_switch_clear",
+        passed=not ctx.kill_switch_engaged,
+        reason=(
+            "portfolio kill switch is clear"
+            if not ctx.kill_switch_engaged
+            else "portfolio kill switch is engaged"
+        ),
+        code=None if not ctx.kill_switch_engaged else "KILL_SWITCH_ENGAGED",
     )
 
+
+def _gate_sufficient_balance(stake: Decimal, ctx: GateContext) -> GateResult:
     live_balance = _decimal(ctx.live_balance_usd)
     balance_ok = live_balance >= stake
-    results.append(
-        GateResult(
-            gate_name="sufficient_live_balance",
-            passed=balance_ok,
-            reason=(
-                f"live_balance_usd={live_balance} covers stake_usd={stake}"
-                if balance_ok
-                else f"live_balance_usd={live_balance} is below stake_usd={stake}"
-            ),
-            code=None if balance_ok else "INSUFFICIENT_BALANCE",
-        )
+    return GateResult(
+        gate_name="sufficient_live_balance",
+        passed=balance_ok,
+        reason=(
+            f"live_balance_usd={live_balance} covers stake_usd={stake}"
+            if balance_ok
+            else f"live_balance_usd={live_balance} is below stake_usd={stake}"
+        ),
+        code=None if balance_ok else "INSUFFICIENT_BALANCE",
     )
-
-    return results
 
 
 def engage_kill_switch(

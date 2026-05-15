@@ -1,18 +1,75 @@
 import { redirect, notFound } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import Link from "next/link";
+import { Prisma } from "@prisma/client";
 import {
   fetchMethodDriftSummary,
   fetchMethodVersion,
   downloadHref,
 } from "@/lib/api/round3";
 import DriftPanel from "../DriftPanel";
+import RetirementBanner, {
+  type RetirementInfo,
+  type RetirementState,
+} from "@/components/RetirementBanner";
+import { db } from "@/lib/db";
 import { requireTenantContext } from "@/lib/tenant";
 import {
   describeConfidenceBand,
   fetchTrackRecordsForMethod,
   formatSlopeCi,
 } from "@/lib/methodTrackRecord";
+
+/**
+ * Method retirement state for this org/method. Raw SQL with a try/catch
+ * so the page degrades to "no retirement record" rather than failing on
+ * a DB whose `MethodRetirement` table has not been migrated yet — the
+ * same defensive pattern the drift-summary lookup uses.
+ */
+async function fetchRetirement(
+  organizationId: string,
+  name: string,
+): Promise<RetirementInfo | null> {
+  try {
+    const rows = await db.$queryRaw<
+      Array<{
+        state: string;
+        replacement: string | null;
+        rationale: string | null;
+        reviewOpenedAt: Date | string | null;
+        deprecatedAt: Date | string | null;
+        retiredAt: Date | string | null;
+        sunsetAt: Date | string | null;
+      }>
+    >(
+      Prisma.sql`SELECT state, replacement, rationale,
+                        "reviewOpenedAt", "deprecatedAt", "retiredAt", "sunsetAt"
+                   FROM "MethodRetirement"
+                  WHERE "organizationId" = ${organizationId}
+                    AND "methodName" = ${name}
+                  LIMIT 1`,
+    );
+    if (rows.length === 0) return null;
+    const r = rows[0];
+    const iso = (v: Date | string | null) =>
+      v == null ? null : v instanceof Date ? v.toISOString() : String(v);
+    const allowed = ["active", "under_review", "deprecated", "retired"] as const;
+    const state = (allowed as readonly string[]).includes(r.state)
+      ? (r.state as RetirementState)
+      : "active";
+    return {
+      state,
+      replacement: r.replacement || null,
+      rationale: r.rationale || "",
+      reviewOpenedAt: iso(r.reviewOpenedAt),
+      deprecatedAt: iso(r.deprecatedAt),
+      retiredAt: iso(r.retiredAt),
+      sunsetAt: iso(r.sunsetAt),
+    };
+  } catch {
+    return null;
+  }
+}
 
 export default async function MethodVersionPage({
   params,
@@ -56,6 +113,10 @@ export default async function MethodVersionPage({
     decodedName,
   );
 
+  // Retirement state is likewise keyed on method identity, not version:
+  // a RETIRED method is retired across every version.
+  const retirement = await fetchRetirement(tenant.organizationId, decodedName);
+
   async function packageMethod() {
     "use server";
     const base = process.env.PORTAL_API_BASE || "http://localhost:3000";
@@ -98,6 +159,8 @@ export default async function MethodVersionPage({
         {method.name}{" "}
         <span style={{ fontSize: "0.7em", color: "var(--parchment-dim)" }}>v{method.version}</span>
       </h1>
+
+      <RetirementBanner info={retirement} variant="authed" />
 
       {sp.ledger && (
         <div

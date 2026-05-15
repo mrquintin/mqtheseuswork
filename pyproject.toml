@@ -41,11 +41,34 @@ select = [
     "I",   # isort
     "W",   # pycodestyle warnings
     "UP",  # pyupgrade
+    "N",   # pep8-naming — enforces docs/architecture/Naming_Conventions.md
 ]
-ignore = []
+# Ruff's `N` ruleset is the line-by-line enforcement of the Python
+# naming conventions. The repo-wide gate
+# (`scripts/check_naming_conventions.py`) uses a baseline for
+# grandfathered drift; ruff catches violations in *new* code at edit
+# time.
+ignore = [
+    # N818: "exception name should end in Error". The firm uses
+    # `XxxRaised`-style names for control-flow signals that are not
+    # strictly errors; renaming them is a follow-up.
+    "N818",
+]
 
 [tool.ruff.lint.isort]
 known-first-party = ["noosphere", "dialectic"]
+
+[tool.ruff.lint.per-file-ignores]
+# Qt event handlers override camelCase parent methods — names are
+# imposed by PyQt/PySide and cannot be renamed (N802).
+"dialectic/dialectic/recording_modal.py" = ["N802"]
+"dialectic/dialectic/dashboard.py" = ["N802"]
+# http.server overrides require `do_GET`/`do_POST` exactly (N802).
+"tests/e2e/conftest.py" = ["N802"]
+# Test names occasionally encode mathematical thresholds (capital K,
+# N) by design — e.g. `test_typed_confirmation_kicks_in_above_K`.
+"noosphere/tests/test_revision.py" = ["N802"]
+"noosphere/tests/test_ci_round3_invariants.py" = ["N802"]
 
 # ---- Black ----
 [tool.black]

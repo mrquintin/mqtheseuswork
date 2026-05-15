@@ -4,29 +4,48 @@ a prior canonical claim that points the other way. Your job is to take that
 counter-claim seriously — at its strongest available form — and write a
 short reconciliation paragraph the firm itself stands behind.
 
+The cardinal failure mode is diplomatic softening. A reconciliation that
+quietly weakens the counter-claim so it is easy to answer is worse than no
+reconciliation at all: it tells the reader the firm engaged the objection
+when it did not. An automated strawman detector runs on your output and
+compares your `strongest_form_of_counter_claim` against the firm's actual
+prior text. If your restatement drops the counter-claim's content, shortens
+it to a vague gesture, or adds hedges the prior text never used, your output
+is rejected and regenerated. Write the strongest form on the first pass.
+
 Hard rules:
 
 1. The counter-claim is fixed. Do NOT invent, soften, or substitute a
    different objection. The counter-claim text and id below is the only
    counter-claim you may engage with.
-2. State the counter-claim in its strongest form before responding to it.
-   Strawmanning is the cardinal failure mode. If you cannot state it
-   stronger than the firm's prior text already states it, quote the prior
-   text verbatim.
-3. Either reconcile honestly — show why the firm's new opinion still holds
+2. State the counter-claim in its STRONGEST form before responding to it.
+   Use the counter-claim's own load-bearing terms. The strongest form must
+   carry the full substance of `counter_claim_text` — same scope, same
+   force, same specifics. If you cannot state it stronger than the firm's
+   prior text already states it, quote the prior text verbatim. A
+   restatement that is materially shorter or vaguer than the prior text is
+   a strawman and will be rejected.
+3. Do NOT introduce softening qualifiers — "arguably", "to some extent",
+   "somewhat", "on balance", "a minor", "a limited", "broadly speaking",
+   "for the most part", "some have suggested" — unless that exact hedge
+   appears in the counter-claim text itself. Diplomatic hedging of the
+   counter is the failure mode this pass exists to prevent.
+4. Either reconcile honestly — show why the firm's new opinion still holds
    under the counter-claim's strongest form — or declare the tension
    unresolved. An unresolved tension is acceptable and often more honest
    than a forced reconciliation. If the counter-claim materially defeats
    the new opinion, set "unresolved_tension" to true and say so.
-4. Do not down-weight the counter-claim's force to make the reconciliation
+5. Do not down-weight the counter-claim's force to make the reconciliation
    easier. Do not append diplomatic hedges like "but on balance" if the
-   counter-claim has not actually been answered.
-5. Reference the counter-claim by its id using the inline token
+   counter-claim has not actually been answered. The reconciliation may be
+   firm and confident, but it earns that confidence by answering the
+   counter-claim at full strength — not by shrinking it.
+6. Reference the counter-claim by its id using the inline token
    `[C:<counter_claim_id>]` at least once in `reconciliation_markdown`.
-6. `reconciliation_markdown` is a single paragraph (3–6 sentences), in the
+7. `reconciliation_markdown` is a single paragraph (3–6 sentences), in the
    firm's voice. Use phrasing like "the firm acknowledges," "the firm's
    prior position holds that," "the firm cannot reconcile this without."
-7. If you cannot reconcile, the paragraph must say what the firm would need
+8. If you cannot reconcile, the paragraph must say what the firm would need
    to learn — a specific operating fact, a specific data point, a specific
    future event — to close the tension. Vague phrases like "more research"
    are not acceptable.
@@ -37,5 +56,5 @@ Return only strict JSON. No prose, no fences, no extra keys:
   "reconciliation_markdown": "string — single paragraph, 3 to 6 sentences",
   "unresolved_tension": true | false,
   "what_we_would_need_to_know": "string or empty — required when unresolved_tension is true",
-  "strongest_form_of_counter_claim": "string — the counter-claim restated at full force, used for peer-review verification"
+  "strongest_form_of_counter_claim": "string — the counter-claim restated at full force, carrying the full substance of counter_claim_text; used for automated strawman verification"
 }

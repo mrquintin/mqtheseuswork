@@ -1,0 +1,137 @@
+You are operating in /Users/michaelquintin/Desktop/Theseus.
+
+Goal: produce equity signals (bullish / bearish / neutral) that
+are grounded in the firm's PRINCIPLES — not in technicals, not in
+sentiment, not in raw market data. A signal exists because a
+principle, applied to current evidence about a company, implies a
+directional view. This is the founder's "build from principle"
+posture, applied to stocks.
+
+Before you start — read:
+1. `noosphere/noosphere/forecasts/forecast_generator.py` —
+   the prediction-market generator. Same architectural shape
+   here: retrieval → strict-JSON LLM → verbatim-citation
+   validator → budget guard → persist.
+2. `noosphere/noosphere/conclusions.py` after prompt 56 — each
+   principle now carries `principle_kind`,
+   `domain_of_applicability`, `quantifiable_proxies`, etc.
+3. `noosphere/noosphere/quantitative/` after prompt 57 —
+   APPROVED `QuantitativeFormalisation` rows.
+
+Implement:
+
+A. Retrieval adapter
+   `noosphere/noosphere/equities/retrieval_adapter.py`:
+   - `build_query_from_instrument(instrument)` — composes a
+     query from `symbol + name + sector + recent_news_blurb
+     (if available, optional)`. The `recent_news_blurb` is a
+     hook for a later prompt; if not present, only static
+     metadata is used.
+   - `retrieve_for_instrument(store, instrument, *, top_k=10)`
+     — wraps the existing HybridRetriever. Filter rules:
+     - Drop sources with `visibility != PUBLIC` unless
+       `surfaceable=True` (same rule as Currents/Forecasts).
+     - Prefer principles over conclusions over claims (boost
+       principle scores by +0.10 to its cosine).
+     - Drop principles with `domain_of_applicability` that
+       does not match the instrument's sector/asset class
+       (fuzzy match; the principle's domain string is what
+       the founder approved).
+     - MMR with lambda=0.7 to diversify.
+   - On error: return [], log structured `equities.retrieval
+     .error`, do not raise.
+
+B. Signal generator
+   `noosphere/noosphere/equities/signal_generator.py`:
+   - `class SignalOutcome(str, Enum):
+       PUBLISHED, ABSTAINED_INSUFFICIENT_PRINCIPLES,
+       ABSTAINED_NO_DOMAIN_MATCH, ABSTAINED_NEAR_DUPLICATE,
+       ABSTAINED_BUDGET, ABSTAINED_CITATION_FABRICATION,
+       ABSTAINED_RECENTLY_REVISED`.
+   - `async generate_signal(store, instrument_id, *, budget)`:
+     1. Retrieve. If fewer than 2 PUBLIC principles surface
+        for the instrument's domain → ABSTAIN_INSUFFICIENT.
+     2. Near-dup check vs. PUBLISHED signals on this
+        instrument in last 24h.
+     3. LLM call (Haiku 4.5, same client as Forecasts).
+        Strict JSON schema:
+        ```jsonc
+        {
+          "direction": "BULLISH|BEARISH|NEUTRAL",
+          "confidence_low": 0.0-1.0,
+          "confidence_high": 0.0-1.0,
+          "target_price_low": number | null,
+          "target_price_high": number | null,
+          "horizon_days": integer (7-365),
+          "headline": "<= 140 chars",
+          "reasoning_markdown": "<= 1800 chars",
+          "uncertainty_notes": "<= 500 chars",
+          "citations": [
+            { "source_type": "PRINCIPLE|CONCLUSION|CLAIM",
+              "source_id": "...",
+              "quoted_span": "exact substring",
+              "support_label": "DIRECT|INDIRECT|CONTRARY" }
+          ]
+        }
+        ```
+     4. Validate verbatim. Retry once on failure.
+     5. Persist EquitySignal + EquitySignalCitation rows.
+     6. Charge budget.
+   - The generator REFUSES to produce a directional signal
+     when fewer than ONE PRINCIPLE-typed citation is present.
+     A signal grounded only in raw claims is not the firm's
+     posture. This is enforced in code; the test corpus
+     exercises it.
+
+C. System prompt
+   `noosphere/noosphere/equities/_prompts/signal_system.md`:
+   - "You assess EQUITIES from the firm's PRINCIPLES."
+   - "Direction must follow from at least one cited
+     principle's application to this instrument. If no
+     principle applies, return NEUTRAL with reasoning."
+   - "You are NOT a price predictor. Target prices are
+     optional; if you do not have a defensible target derived
+     from cited principles, set null."
+   - "Do NOT use technical analysis indicators. The firm does
+     not trade technicals; it trades its principles."
+   - Strict JSON schema is repeated in the prompt.
+
+D. Budget guard. Reuse `HourlyBudgetGuard` from
+   `noosphere.currents.budget`, with independent persistence
+   file `equities_budget.json` and env-driven ceilings
+   `EQUITIES_BUDGET_HOURLY_PROMPT_TOKENS`,
+   `EQUITIES_BUDGET_HOURLY_COMPLETION_TOKENS`.
+
+E. Scheduling hook. The Forecasts scheduler from Round 10
+   prompt 19 gains an equity sub-loop that, on its tick:
+   - iterates instruments with stale signals (no
+     PUBLISHED signal in last 24h, or stale by > horizon/3);
+   - calls `generate_signal` per instrument with budget.
+
+F. Tests:
+   - Fake LLM happy path: signal with principle-typed
+     citation passes.
+   - Refusal-on-no-principle: signal with only claim-typed
+     citations is rejected by the generator's code path.
+   - Near-dup test.
+   - Domain-mismatch abstention.
+   - Verbatim-citation fabrication abstention.
+
+Constraints
+- A NEUTRAL signal is fine and often correct. The generator
+  is not forced to take sides.
+- The signal is NOT an order. Order generation happens in
+  prompt 62 (live) / prompt 60 (paper). A signal can exist
+  without ever producing a position.
+- Do not import any technical-analysis library. If a future
+  signal layer wants TA, it goes into a different, separate
+  pipeline; this one is principle-grounded only.
+
+SCOPE
+- `noosphere/noosphere/equities/retrieval_adapter.py` CREATE
+- `noosphere/noosphere/equities/signal_generator.py` CREATE
+- `noosphere/noosphere/equities/_prompts/signal_system.md` CREATE
+- `noosphere/noosphere/equities/budget.py` CREATE
+- `noosphere/noosphere/forecasts/scheduler.py` MODIFY
+- `noosphere/tests/test_signal_generator.py` CREATE
+- `noosphere/tests/test_equities_retrieval.py` CREATE

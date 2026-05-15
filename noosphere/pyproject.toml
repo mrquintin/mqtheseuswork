@@ -39,6 +39,14 @@ dev = [
     "reportlab >= 4.0",
     "Pillow >= 10.0",
 ]
+# Optional Robinhood live-equity adapter. Robinhood does NOT publish a
+# supported retail trading API; this depends on the reverse-engineered
+# `robin_stocks` library, which upstream Robinhood app releases periodically
+# break. The adapter is OFF by default and is documented in the operator
+# console with a yellow risk banner whenever enabled.
+robinhood = [
+    "robin_stocks >= 3.0",
+]
 
 [build-system]
 requires = ["setuptools>=68.0"]

@@ -17,6 +17,14 @@ hands the rendered digests back to codex for delivery via the existing
 
 No tracking pixels are inserted. Every email carries a one-click
 unsubscribe URL whose token is the subscriber's own ``unsubscribe_token``.
+
+If a per-cycle acknowledgment token is supplied, the digest also
+includes a voluntary "I read this" link. The token is unique to the
+specific send; the codex side stores only its SHA-256 hash (see
+``DigestSend.ackTokenHash`` in the Prisma schema) so the firm can
+count opt-in opens without storing per-recipient identifiers. No ack
+link is rendered when no token is supplied — silence is the default,
+not a hidden default-on counter.
 """
 
 from __future__ import annotations
@@ -39,7 +47,15 @@ Scope = Literal["firm", "methodology", "domain", "conclusion"]
 
 @dataclass(frozen=True)
 class Subscriber:
-    """A confirmed (active) subscriber row in shape relevant to digests."""
+    """A confirmed (active) subscriber row in shape relevant to digests.
+
+    ``ack_token`` is the per-cycle one-time token the codex side mints
+    when it exports the intake snapshot. When present, the rendered
+    digest includes the voluntary "I read this" link wired to
+    ``/api/public/digest-ack/<token>``. When absent (empty string), no
+    ack link is rendered — the firm only records what subscribers
+    explicitly opt into.
+    """
 
     id: str
     email: str
@@ -48,6 +64,7 @@ class Subscriber:
     cadence: Cadence
     unsubscribe_token: str
     last_sent_at: datetime | None = None
+    ack_token: str = ""
 
 
 @dataclass(frozen=True)
@@ -82,6 +99,7 @@ class Digest:
     html: str
     items: tuple[DigestEvent, ...]
     unsubscribe_url: str
+    ack_url: str = ""
     headers: dict[str, str] = field(default_factory=dict)
 
 
@@ -189,6 +207,7 @@ def render_text(
     subscriber: Subscriber,
     items: Sequence[DigestEvent],
     unsubscribe_url: str,
+    ack_url: str = "",
 ) -> str:
     lines: list[str] = []
     scope_line = _scope_label(subscriber.scope, subscriber.scope_key)
@@ -205,6 +224,14 @@ def render_text(
         lines.append(event.url)
         lines.append("")
     lines.append("---")
+    if ack_url:
+        lines.append(
+            "Voluntary signal — if you read this digest and want the firm to "
+            "know, click once: " + ack_url
+        )
+        lines.append(
+            "(Opt-in only. The link records a hashed acknowledgment, not your address.)"
+        )
     lines.append("Unsubscribe (one click, no questions): " + unsubscribe_url)
     lines.append("Theseus does not embed tracking pixels in any email it sends.")
     return "\n".join(lines).rstrip() + "\n"
@@ -214,6 +241,7 @@ def render_html(
     subscriber: Subscriber,
     items: Sequence[DigestEvent],
     unsubscribe_url: str,
+    ack_url: str = "",
 ) -> str:
     scope_line = _scope_label(subscriber.scope, subscriber.scope_key)
     out: list[str] = [
@@ -235,6 +263,15 @@ def render_html(
             out.append(f"<p style=\"margin:0.3rem 0 0;font-size:0.92rem\">{_escape(event.summary)}</p>")
         out.append("</div>")
     out.append('<hr style="border:0;border-top:1px solid #ccc;margin:1rem 0"/>')
+    if ack_url:
+        out.append(
+            "<p style=\"font-size:0.82rem;color:#555\">"
+            f"<a href=\"{_escape(ack_url)}\">I read this</a> — voluntary, one click. "
+            "Records a hashed acknowledgment so the firm can see how many "
+            "subscribers opted to confirm; never stores your address against "
+            "the click."
+            "</p>"
+        )
     out.append(
         f"<p style=\"font-size:0.82rem;color:#555\"><a href=\"{_escape(unsubscribe_url)}\">Unsubscribe</a> — one click, no questions.<br/>Theseus does not embed tracking pixels in any email it sends.</p>"
     )
@@ -255,14 +292,18 @@ def build_digest(
 
     if not items:
         return None
-    unsubscribe_url = (
-        site_url.rstrip("/") + "/api/public/unsubscribe/" + subscriber.unsubscribe_token
+    base = site_url.rstrip("/")
+    unsubscribe_url = base + "/api/public/unsubscribe/" + subscriber.unsubscribe_token
+    ack_url = (
+        base + "/api/public/digest-ack/" + subscriber.ack_token
+        if subscriber.ack_token
+        else ""
     )
     scope_line = _scope_label(subscriber.scope, subscriber.scope_key)
     counts = _kind_counts(items)
     subject = f"[Theseus] Follow-digest · {scope_line} · {counts}"
-    text = render_text(subscriber, items, unsubscribe_url)
-    html = render_html(subscriber, items, unsubscribe_url)
+    text = render_text(subscriber, items, unsubscribe_url, ack_url)
+    html = render_html(subscriber, items, unsubscribe_url, ack_url)
     return Digest(
         subscriber_id=subscriber.id,
         to=subscriber.email,
@@ -271,6 +312,7 @@ def build_digest(
         html=html,
         items=tuple(items),
         unsubscribe_url=unsubscribe_url,
+        ack_url=ack_url,
         headers={
             "List-Unsubscribe": f"<{unsubscribe_url}>",
             "List-Unsubscribe-Post": "List-Unsubscribe=One-Click",

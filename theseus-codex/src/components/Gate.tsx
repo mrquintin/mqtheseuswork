@@ -445,13 +445,22 @@ function GateInner() {
 
         <button
           type="submit"
-          className="btn-solid btn"
+          // R-011: cool the submit button. Hot amber is reserved for
+          // primary actions on data-laden surfaces; the login submit is
+          // the only control on this page, so it doesn't need to compete
+          // for attention. Drop the solid amber fill and use a quiet
+          // bordered variant with parchment text on a stone-light fill.
+          className="btn"
           disabled={isLocked}
           style={{
             marginTop: "0.5rem",
             width: "100%",
             opacity: isLocked ? 0.75 : 1,
             position: "relative",
+            background: "var(--stone-light)",
+            color: "var(--parchment)",
+            borderColor: "var(--amber-dim)",
+            textShadow: "none",
           }}
         >
           {phase === "idle" &&

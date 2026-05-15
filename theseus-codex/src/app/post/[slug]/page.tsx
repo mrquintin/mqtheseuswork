@@ -2,6 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import type { Metadata } from "next";
 
+import ArticleRenderer from "@/components/article/ArticleRenderer";
 import PrintButton from "@/components/PrintButton";
 import PrintEndnotes, { type PrintEndnoteSource } from "@/components/PrintEndnotes";
 import PrintMetadataBlock from "@/components/PrintMetadataBlock";
@@ -121,7 +122,6 @@ export default async function PostPage({ params }: PageProps) {
   });
 
   const body = post.textContent || "";
-  const paragraphs = splitParagraphs(body);
   const byline = post.authorBio || founderDisplayName(post.founder);
 
   const canonicalUrl = `${getPublicSiteUrl()}/post/${encodeURIComponent(post.slug ?? slug)}`;
@@ -312,28 +312,28 @@ export default async function PostPage({ params }: PageProps) {
           </section>
         ) : null}
 
-        <div
-          className="post-body public-article-body"
-          style={{
-            fontFamily: "'EB Garamond', serif",
-            color: "var(--parchment)",
-            fontSize: "1.1rem",
-            lineHeight: 1.7,
-          }}
-        >
-          {paragraphs.length === 0 ? (
+        {body.trim() ? (
+          <ArticleRenderer
+            body={body}
+            className="post-body public-article-body"
+            testId="post-article-body"
+          />
+        ) : (
+          <div
+            className="post-body public-article-body"
+            style={{
+              fontFamily: "'EB Garamond', serif",
+              color: "var(--parchment)",
+              fontSize: "1.1rem",
+              lineHeight: 1.7,
+            }}
+          >
             <p style={{ color: "var(--parchment-dim)", fontStyle: "italic" }}>
               (This post has no body text. If it was ingested from audio,
               the transcript may still be processing.)
             </p>
-          ) : (
-            paragraphs.map((p, i) => (
-              <p key={i} style={{ margin: "0 0 1.1rem" }}>
-                {p}
-              </p>
-            ))
-          )}
-        </div>
+          </div>
+        )}
 
         <PrintEndnotes sources={printEndnotes} />
 
@@ -556,37 +556,3 @@ function formatDuration(seconds: number): string {
   return h > 0 ? `${h}:${mm}:${ss}` : `${m}:${ss}`;
 }
 
-/**
- * Split prose into paragraphs. A "paragraph" is a block separated by
- * one-or-more blank lines. We also soft-split runs of plain single-line
- * content into paragraphs if they're long enough to warrant breaks —
- * but only when there are ZERO paragraph-break signals, so we don't
- * double-split well-formed text.
- */
-function splitParagraphs(text: string): string[] {
-  const trimmed = text.trim();
-  if (!trimmed) return [];
-  // Primary split: double-newline paragraph breaks (the normal case).
-  const blocks = trimmed.split(/\n\s*\n+/);
-  if (blocks.length > 1) {
-    return blocks
-      .map((b) => b.trim().replace(/\s+/g, " "))
-      .filter(Boolean);
-  }
-  // Fallback: treat every 3–4 sentences as a paragraph so a long
-  // one-line dump doesn't become an unreadable wall. 400 chars is a
-  // reasonable paragraph in EB Garamond at 1.1rem.
-  const SENT = /([^.!?]+[.!?]+)\s+(?=[A-Z])/g;
-  const sentences = trimmed.replace(SENT, "$1\n").split(/\n/);
-  const out: string[] = [];
-  let buf = "";
-  for (const s of sentences) {
-    buf = buf ? buf + " " + s.trim() : s.trim();
-    if (buf.length >= 400) {
-      out.push(buf);
-      buf = "";
-    }
-  }
-  if (buf) out.push(buf);
-  return out.length > 0 ? out : [trimmed];
-}

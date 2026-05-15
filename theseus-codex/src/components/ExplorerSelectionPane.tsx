@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useMemo } from "react";
 
-import type { ExplorerEdge, ExplorerPoint } from "./ExplorerCanvas";
+import { EDGE_COLORS, type ExplorerEdge, type ExplorerPoint } from "./ExplorerCanvas";
 
 interface ExplorerSelectionPaneProps {
   selection: ReadonlySet<string>;
@@ -252,11 +252,15 @@ export default function ExplorerSelectionPane({
       <section style={{ padding: "0.6rem 0.9rem", borderBottom: "1px solid var(--border)" }}>
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.5rem", fontSize: "0.78rem" }}>
           <div>
-            <div className="mono" style={dimLabel}>Contradicts</div>
+            <div className="mono" style={dimLabel}>
+              <EdgeSwatch color={EDGE_COLORS.contradicts} dashed /> Contradicts
+            </div>
             <div>{contradictionCount}</div>
           </div>
           <div>
-            <div className="mono" style={dimLabel}>Supports</div>
+            <div className="mono" style={dimLabel}>
+              <EdgeSwatch color={EDGE_COLORS.supports} /> Supports
+            </div>
             <div>{supportCount}</div>
           </div>
           {calibrations ? (
@@ -369,3 +373,29 @@ const dimLabel: React.CSSProperties = {
   letterSpacing: "0.1em",
   color: "var(--parchment-dim)",
 };
+
+/**
+ * Inline colour key matching the canvas overlay legend, so a founder
+ * reading the selection pane doesn't have to cross-reference which
+ * colour means which edge kind.
+ */
+function EdgeSwatch({ color, dashed = false }: { color: string; dashed?: boolean }) {
+  return (
+    <svg
+      width={14}
+      height={6}
+      aria-hidden="true"
+      style={{ marginRight: "0.3rem", verticalAlign: "middle" }}
+    >
+      <line
+        x1={0}
+        y1={3}
+        x2={14}
+        y2={3}
+        stroke={color}
+        strokeWidth={2}
+        strokeDasharray={dashed ? "3 2" : undefined}
+      />
+    </svg>
+  );
+}

@@ -29,6 +29,14 @@ The bracket cap is the discipline: an objection's max severity is set
 by the structural inputs; the judge can place inside that bracket but
 not above. This is what makes the score robust to model puffery.
 
+This rubric is *stipulated* — it maps inputs to a score by a formula
+the firm asserts, not one fit to data. Once enough objection→outcome
+data exists (see :mod:`noosphere.peer_review.severity_calibration`),
+:func:`score_objection_with_model` replaces it with a logistic model
+fit on which objections *actually* moved a conclusion. The stipulated
+formula stays here as the cold-start fallback and the ablation
+alternative — :func:`score_objection` is never deleted.
+
 A severity score expires when the underlying conclusion is materially
 revised (revision engine, prompt 16). Stale scores are not carried
 forward — see :func:`is_stale`.
@@ -87,6 +95,11 @@ class ObjectionSeverity:
     )
     # Set when `mark_stale` runs after a material revision.
     stale: bool = False
+    # Which scorer produced `value`: "stipulated" (the formula in this
+    # module) or "calibrated" (the fitted model from
+    # `severity_calibration`). Recorded so re-scores and ablations can
+    # tell the two apart in the audit trail.
+    scorer: str = "stipulated"
 
     def to_dict(self) -> dict:
         return {
@@ -96,6 +109,7 @@ class ObjectionSeverity:
             "bracket_ceiling": round(self.bracket_ceiling, 4),
             "judge_capped": self.judge_capped,
             "stale": self.stale,
+            "scorer": self.scorer,
             "rationale": self.rationale,
             "inputs": {
                 "cascade_weight": round(self.inputs.cascade_weight, 4),
@@ -230,6 +244,62 @@ def score_objection(
         inputs=inputs,
         judge_capped=capped,
         rationale=rationale,
+        scorer="stipulated",
+    )
+
+
+# ── Calibrated scorer (prompt 22) ────────────────────────────────────
+
+
+class CalibratedSeverityScorer(Protocol):
+    """A fitted model that predicts P(material change) from SeverityInputs.
+
+    Implemented by
+    :class:`noosphere.peer_review.severity_calibration.SeverityCalibrationModel`.
+    Typed structurally so this module needs no import of the calibration
+    module — which itself imports this one, and would create a cycle.
+    """
+
+    def predict_inputs(self, inputs: "SeverityInputs") -> float: ...
+
+
+def score_objection_with_model(
+    inputs: SeverityInputs,
+    model: CalibratedSeverityScorer,
+    *,
+    rationale: str = "",
+) -> ObjectionSeverity:
+    """Score an objection with the fitted calibration model (prompt 22).
+
+    The model's predicted probability that the objection — if true —
+    materially changes the conclusion *is* the severity value. This
+    replaces the stipulated rubric (:func:`score_objection`) once enough
+    objection→outcome data exists to fit on; the stipulated formula
+    stays in this module as the cold-start fallback and the ablation
+    alternative.
+
+    The structural bracket is still computed and recorded for audit and
+    the founder-facing UI, but it does **not** cap the calibrated value.
+    The bracket cap existed to stop the *LLM judge* self-promoting a
+    nitpick into a structural blow; a model fit on realized outcomes is
+    already grounded in exactly the structural inputs the bracket was
+    protecting, so capping it would only distort a calibrated number.
+    ``judge_capped`` is therefore always ``False`` on a calibrated
+    score, and ``scorer`` is ``"calibrated"``.
+    """
+
+    ceiling = _structural_ceiling(inputs)
+    floor = min(_structural_floor(inputs), ceiling)
+    value = _clamp01(model.predict_inputs(inputs))
+    return ObjectionSeverity(
+        value=value,
+        label=label_for(value),
+        bracket_floor=floor,
+        bracket_ceiling=ceiling,
+        inputs=inputs,
+        judge_capped=False,
+        rationale=rationale,
+        scorer="calibrated",
     )
 
 
@@ -251,6 +321,7 @@ def mark_stale(severity: ObjectionSeverity) -> ObjectionSeverity:
         rationale=severity.rationale,
         scored_at=severity.scored_at,
         stale=True,
+        scorer=severity.scorer,
     )
 
 
@@ -442,6 +513,7 @@ __all__ = [
     "HIGH_BLOCK_COUNT",
     "LOW_MAX",
     "MEDIUM_MAX",
+    "CalibratedSeverityScorer",
     "ObjectionSeverity",
     "SeverityAggregate",
     "SeverityInputs",
@@ -454,4 +526,5 @@ __all__ = [
     "mark_stale",
     "mqs_severity_penalty",
     "score_objection",
+    "score_objection_with_model",
 ]

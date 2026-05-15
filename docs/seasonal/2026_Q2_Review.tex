@@ -1,0 +1,119 @@
+\documentclass[11pt,letterpaper]{article}
+
+\usepackage[margin=1in]{geometry}
+\usepackage[T1]{fontenc}
+\usepackage{lmodern}
+\usepackage{microtype}
+\usepackage{parskip}
+\usepackage{enumitem}
+\usepackage{booktabs}
+\usepackage{titlesec}
+\usepackage[hidelinks,colorlinks=true,linkcolor=black,urlcolor=black,citecolor=black]{hyperref}
+\usepackage{xcolor}
+\usepackage{fancyhdr}
+
+\titleformat{\section}{\Large\bfseries}{\thesection}{1em}{}
+\titleformat{\subsection}{\large\bfseries}{\thesubsection}{1em}{}
+
+\pagestyle{fancy}
+\fancyhf{}
+\fancyhead[L]{\small Theseus Seasonal Review --- 2026 Q2}
+\fancyhead[R]{\small\thepage}
+\renewcommand{\headrulewidth}{0.4pt}
+
+\setlength{\parindent}{0pt}
+
+\newcommand{\datagap}[1]{\textcolor{black!55}{\emph{#1}}}
+
+\title{\textbf{Theseus Seasonal Research Review}\\[6pt]\large 2026 Q2}
+\date{2026-06-30 12:00 UTC}
+\author{Theseus}
+
+\begin{document}
+
+\maketitle
+\thispagestyle{empty}
+
+\begin{center}
+\fbox{%
+  \begin{minipage}{0.92\textwidth}
+    \centering\small
+    \textbf{Disclosure:} machine-drafted, founder-reviewed.\\
+    Slug: \texttt{2026\_Q2\_Review}. Generated 2026-06-30 12:00 UTC.\\
+    Sections marked \emph{data not available} are omitted from the
+    quarter rather than estimated.
+  \end{minipage}%
+}
+\end{center}
+
+\vspace{1.5em}
+
+\section*{Overview}
+The firm closed 2026 Q2 with 4 active method(s), 1 deprecated, and 1 retired. 2 drift event(s) entered the ledger; 4 forecast(s) resolved. The firm published 2 article(s) and the self-critique pass surfaced 2 finding(s).
+\section{Methods}
+The register carries 4 active method(s) at quarter close. The firm marked 1 method(s) deprecated and retired 1. Retirement is the firm's standing acknowledgement that a method no longer earns its place in the register.
+\textbf{Active.} 4 method(s).
+\textbf{Deprecated.} 1 method(s).
+\textbf{Retired.} 1 method(s).
+
+\subsection*{Retired this register}
+\begin{itemize}[leftmargin=1.5em]
+  \item \texttt{m\_naive\_priors} --- Naive priors \emph{(v1.0)}
+\end{itemize}
+\subsection*{Deprecated}
+\begin{itemize}[leftmargin=1.5em]
+  \item \texttt{m\_legacy\_heuristic} --- Legacy domain heuristic \emph{(v1.0)}
+\end{itemize}
+\section{Drift}
+The firm observed 2 drift event(s) in window. The highest-scoring event was against target m\_geometry at score 0.420; the firm treats the score as evidence of a regime shift to be investigated, not an automatic retirement trigger.
+\textbf{Drift events in window: 2.}
+
+\begin{center}
+\begin{tabular}{@{}p{0.32\textwidth} p{0.12\textwidth} p{0.18\textwidth} p{0.30\textwidth}@{}}
+\toprule
+\textbf{Target} & \textbf{Score} & \textbf{Observed} & \textbf{Notes} \\
+\midrule
+\texttt{m\_geometry} & 0.420 & 2026-04-21 & cross-domain transfer regression after embedder swap \\
+\texttt{m\_calibration} & 0.275 & 2026-05-04 & bucket-12 reliability slipped \\
+\bottomrule
+\end{tabular}
+\end{center}
+\section{Calibration trend}
+Across 4 resolved forecast(s), the firm posted a mean Brier of 0.138, and mean log-loss 0.340. The firm reads the score as a calibration check, not a performance leaderboard.
+Resolved forecasts in window: 4.
+Mean Brier: 0.138.
+Mean log-loss: 0.340.
+\section{Open questions}
+\datagap{data not available}
+\section{Published articles}
+The firm published 2 article(s) in the quarter. Each carries the machine-drafted, founder-reviewed disclosure non-removably; the firm speaks as the firm, never as a single voice.
+\begin{itemize}[leftmargin=1.5em]
+  \item 2026-04-15 --- A calibrated narrow claim beats a confident broad one \texttt{(calibrated-narrowing)}
+  \item 2026-05-03 --- Adversarial review surfaces the buried assumption \texttt{(adversarial-first)}
+\end{itemize}
+\section{Principles distilled}
+The firm distilled 2 principle(s) in the quarter; the strongest reached conviction 0.74 across 3 domain(s). Conviction earns its place in the register; the firm does not auto-promote a draft.
+\begin{itemize}[leftmargin=1.5em]
+  \item Cross-domain coherence beats single-domain depth when the firm must commit under uncertainty. \emph{(domains: 3, conviction: 0.74)}
+  \item Adversarial review precedes friendly review; the friendly read leaves load-bearing assumptions buried. \emph{(domains: 2, conviction: 0.68)}
+\end{itemize}
+\section{Most-edited conclusions}
+\datagap{no conclusions edited in window}
+\section{What we got wrong}
+The self-critique pass surfaced 2 finding(s) the firm got wrong this quarter. Each finding is named — the firm does not soften a self-critique.
+\begin{itemize}[leftmargin=1.5em]
+  \item Article \texttt{calibrated-narrowing} --- Self-critique on 'A calibrated narrow claim beats a confident broad one' — verdict: weakened. The supporting forecast resolved YES, but the claim's narrowing was tighter than the resolved bucket licensed.
+        \emph{(review item review\_self\_crit\_one)}
+  \item Article \texttt{adversarial-first} --- Self-critique on 'Adversarial review surfaces the buried assumption' — verdict: scope-overreach. The supporting evidence covered methodology and forecasting, not all transfer targets the article implied.
+        \emph{(review item review\_self\_crit\_two)}
+\end{itemize}
+\vfill
+\begin{center}\small
+\textit{This review was machine-assembled from the firm's own machinery
+for 2026 Q2. The .tex source is the authoritative
+artifact; the PDF is a build product. The structured numbers carried in
+the sibling \texttt{review.json} are the source of truth for every
+numeric claim above.}
+\end{center}
+
+\end{document}

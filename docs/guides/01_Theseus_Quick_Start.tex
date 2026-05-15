@@ -1,0 +1,176 @@
+\documentclass[11pt]{article}
+\input{_preamble}
+
+\title{\sffamily\bfseries Theseus --- Quick Start\\[2pt]\large Guide 1 of 6}
+\date{}
+\author{}
+
+\begin{document}
+\maketitle
+\thispagestyle{empty}
+
+\begin{tldr}
+Theseus is a small group of web surfaces that together turn the
+documents and conversations you upload into a coherent, citation-grounded
+view of what your firm believes. This guide is a thirty-minute first
+session: you will sign in, upload one document, watch claims extract,
+ask the Oracle a question, and observe a Currents opinion form. By the
+end you will know which screen does which thing, and which of the five
+other guides to read next.
+\end{tldr}
+
+\begin{youwillneed}
+\begin{itemize}[leftmargin=*,itemsep=0.2em,topsep=0.2em]
+  \item A signed-in browser session on the Codex
+        (\route{theseus-codex} deployment).
+  \item One document you are willing to upload as a starter corpus
+        item --- a memo, transcript, essay, or PDF. Public material is
+        easiest for a first walkthrough.
+  \item Roughly thirty uninterrupted minutes.
+\end{itemize}
+\end{youwillneed}
+
+\begin{notcovered}
+\begin{itemize}[leftmargin=*,itemsep=0.2em,topsep=0.2em]
+  \item How extraction and clustering work internally --- see Guide 2.
+  \item Citation quality and hallucination warnings in depth --- Guide 3.
+  \item How Currents opinions are generated and the eight invariants
+        that govern them --- Guide 4.
+  \item Prediction markets and equities, paper vs.\ live, the eight
+        safety gates --- Guide 5.
+  \item Founder-only operator controls (kill switch, deletion, live
+        authorization) --- Guide 6.
+\end{itemize}
+\end{notcovered}
+
+\section{What Theseus is}
+
+Theseus is not one product; it is a small constellation of related
+surfaces that share a database. Three of them matter for the first
+session:
+
+\begin{itemize}[leftmargin=*,itemsep=0.3em]
+  \item \page{Codex} (authed, founder-facing). The control plane. You
+        upload documents, inspect extracted claims, ask the Oracle,
+        and manage published material here.
+  \item \page{Public site} (reader-facing). What outside readers see:
+        articles, conclusions, principles, Currents opinions, the
+        forecasts grid.
+  \item \page{Currents} (public, separate origin). Live commentary on
+        outside events the firm's corpus has something to say about.
+\end{itemize}
+
+The Codex is what you spend most of your time in. The public site is
+what your work eventually surfaces on. Currents is a constant
+background process you read like a feed.
+
+\section{The first thirty minutes}
+
+\subsection{Step 1 --- sign in and orient}
+
+Open the Codex deployment. You land on the dashboard. The left rail
+shows the top-level surfaces; for now you only need four:
+\page{Upload}, \page{Knowledge}, \page{Ask}, \page{Currents}.
+
+\screenshot{01_quick_start_dashboard.png}{The authenticated dashboard, with the four surfaces this guide uses highlighted.}{qs-dashboard}
+
+\subsection{Step 2 --- upload one document}
+
+Click \page{Upload}. Drag a file in. PDFs, markdown, text files, and
+transcripts are all accepted. After the upload completes the file
+appears in the upload list with a small \texttt{processing} badge.
+This badge clears once extraction finishes, which usually takes a
+few seconds for short text and a minute or two for a long PDF.
+
+You do not need to do anything else here. The pipeline takes the file
+from this point. See Guide 2 for what it does to the file along the
+way.
+
+\subsection{Step 3 --- watch claims extract}
+
+Open \page{Knowledge}. You will see the upload you just made, with a
+small \texttt{claims} count growing as extraction runs. Click into
+your upload to see the extracted claims --- short, declarative
+statements with provenance back to the source text.
+
+If your upload is the first piece of content in the corpus, this list
+is also the first row of your firm's working memory.
+
+\subsection{Step 4 --- ask the Oracle}
+
+Open \page{Ask}. Type a question that the document you just uploaded
+would plausibly inform. The Oracle answers with inline citations back
+to claims and uploaded content. Click any citation to jump to the
+source.
+
+For first-session expectations: do not expect the Oracle to be all-
+knowing. It only knows what is in the corpus. With one document
+uploaded, its answers will be narrow. That is correct behavior.
+
+\screenshot{01_quick_start_ask.png}{An Oracle answer, with inline citations linking back to the uploaded source.}{qs-ask}
+
+If the Oracle returns a hallucination warning or a low-confidence
+banner, do not be alarmed. Read Guide 3 for what those mean and what
+to do.
+
+\subsection{Step 5 --- observe a Currents opinion}
+
+Open \page{Currents}. If the Currents pipeline has been live for any
+period, you will see public opinions written by Theseus on outside
+events. Each opinion has a small audit trail of citations back to firm
+material. If the corpus is too sparse to support commentary on a
+particular event, you will see an explicit abstention rather than
+fabricated commentary.
+
+Currents is the place to develop a feel for the firm's voice in the
+wild. Guide 4 explains where opinions come from, what controls them,
+and how to read their audit trails.
+
+\section{What you just saw}
+
+Five surfaces, one pipeline. Documents enter through \page{Upload},
+get broken into claims that live in \page{Knowledge}, get clustered
+into principles that surface on the public site, get cited by the
+\page{Oracle} when you ask questions, and get cited by Currents when
+the firm has something to say about outside news. Everything else in
+the Codex is a refinement of one of these five surfaces.
+
+\section{Common first-session frictions}
+
+\begin{itemize}[leftmargin=*,itemsep=0.3em]
+  \item \textbf{The Oracle returned ``I don't have enough sources.''}
+        That is the correct response when the corpus is sparse. Upload
+        more material in the same topic area, or rephrase the question
+        to something your single uploaded document actually addresses.
+  \item \textbf{No Currents opinions are appearing.} Currents requires
+        an X ingestion token and at least three relevant Conclusions
+        in the corpus. See \file{docs/operator/CURRENTS.md} for the
+        operator-side health check, and Guide 4 for the pipeline.
+  \item \textbf{Upload sits in \texttt{processing} for a long time.}
+        Large PDFs take time. If processing exceeds five minutes for
+        a single document, check the founder dashboard's
+        \page{OperatorPulse} card --- it shows which scheduler loops
+        are live.
+\end{itemize}
+
+\section{Where the docs are}
+
+\begin{itemize}[leftmargin=*,itemsep=0.2em]
+  \item \file{docs/operator/CURRENTS.md} --- operator notes for the
+        Currents pipeline.
+  \item \file{docs/operator/public\_surfacing.md} --- the authoritative
+        table of which public surfaces are backed by which database
+        rows.
+  \item \file{docs/operations/Forecasts\_Founder\_Alpha\_Runbook.md} ---
+        the single page a founder needs when moving the forecasts
+        portfolio from read-only to live.
+\end{itemize}
+
+\begin{nextup}
+Continue with \href{02_Knowledge_and_Principles.pdf}{Guide 2 ---
+Knowledge and Principles} for how the firm turns uploaded material
+into reusable principles. That guide picks up the moment your upload
+finishes processing.
+\end{nextup}
+
+\end{document}

@@ -1,0 +1,205 @@
+name: Replication Three-Machine Determinism Check
+
+# Manual-trigger only. The matrix below runs the full replication
+# harness (`make all`) on three distinct runners — a Linux x86-64
+# runner, a macOS ARM runner, and a second Linux runner pinned to a
+# different Python patch version — and then cross-compares every
+# pair of run envelopes. The point is to catch determinism
+# regressions across hardware / OS / patch-version combinations
+# that the nightly single-runner replication can never see.
+#
+# Why manual-trigger only:
+#   - `make all` includes `make cross-model`, which calls remote
+#     embedding APIs for any provider whose key is set. The
+#     deterministic adapter (`hash-det`) is free, but if the workflow
+#     is dispatched with provider keys present in repo secrets, the
+#     run can incur real API spend on three runners simultaneously.
+#     Manual dispatch makes that cost intentional rather than
+#     scheduled.
+#   - The job takes ~10–15 minutes per runner; three runners in
+#     parallel is meaningful CI minutes even when the API spend is
+#     zero. The firm consciously chose not to run this nightly.
+#
+# Outputs:
+#   - Per-runner artefact bundle containing every
+#     `replication_envelope.json` and `metrics_*.json` produced.
+#   - A "verify-matrix" summary job that runs the harness's own
+#     `replication.lib.verify` over every (runner_a, runner_b) pair
+#     and fails the workflow if any pair produces verdict
+#     `mismatch` or `incompatible`.
+#
+# A failure here is a louder alert than method drift: a
+# deterministic-mode flag that doesn't actually produce matching
+# numbers across machines is a bug in the harness, not in the
+# replicator's setup.
+
+on:
+  workflow_dispatch:
+    inputs:
+      include_cross_model:
+        description: 'Include `make cross-model` (costs API credits if keys present)'
+        type: boolean
+        default: false
+      cross_model_budget:
+        description: 'THESEUS_CROSS_MODEL_BUDGET cap (only used if cross-model is enabled)'
+        type: string
+        default: '50'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: replication-three-machine-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  run-harness:
+    name: harness · ${{ matrix.label }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - label: linux-x86-py311
+            os: ubuntu-latest
+            python: '3.11'
+          - label: linux-x86-py311-patch
+            os: ubuntu-22.04
+            python: '3.11'
+          - label: macos-arm-py311
+            os: macos-latest
+            python: '3.11'
+    uses: ./.github/workflows/_setup_python.yml
+    with:
+      python-version: ${{ matrix.python }}
+      requirements-path: 'noosphere/requirements.txt'
+      pip-extras: 'dev'
+      timeout-minutes: 30
+      runs-on: ${{ matrix.os }}
+      env-vars: |
+        PYTHONHASHSEED=0
+        OMP_NUM_THREADS=1
+        MKL_NUM_THREADS=1
+        OPENBLAS_NUM_THREADS=1
+        THESEUS_CROSS_MODEL_BUDGET=${{ inputs.cross_model_budget }}
+        THREE_MACHINE_LABEL=${{ matrix.label }}
+        INCLUDE_CROSS_MODEL=${{ inputs.include_cross_model }}
+      upload-artifact-name: three-machine-${{ matrix.label }}-${{ github.run_id }}
+      upload-artifact-path: |
+        replication/runs/**/replication_envelope.json
+        replication/runs/**/metrics_summary.json
+        replication/runs/**/metrics_*.json
+        replication/runs/**/results_*.json
+      upload-artifact-retention-days: 30
+      script: |
+        # cwd: repo root.
+        set -euxo pipefail
+        echo "[three-machine] label=${THREE_MACHINE_LABEL}"
+        pytest replication/tests -q
+
+        # Always run the deterministic QH benchmark + ablation; both
+        # are free. Cross-model is gated because it can incur API spend.
+        ( cd replication && make qh-benchmark RUN_ROOT="${GITHUB_WORKSPACE}/replication/runs/${THREE_MACHINE_LABEL}/qh" )
+        ( cd replication && make ablation RUN_ROOT="${GITHUB_WORKSPACE}/replication/runs/${THREE_MACHINE_LABEL}/ablation" )
+
+        if [ "${INCLUDE_CROSS_MODEL}" = "true" ]; then
+          ( cd replication && make cross-model RUN_ROOT="${GITHUB_WORKSPACE}/replication/runs/${THREE_MACHINE_LABEL}/cross-model" )
+        else
+          echo "[three-machine] skipping cross-model (manual opt-in)"
+        fi
+
+        # The artefact path uploads everything under replication/runs;
+        # the cross-machine verify job pulls these and pairs them.
+        ls -R "${GITHUB_WORKSPACE}/replication/runs/${THREE_MACHINE_LABEL}" || true
+
+  verify-matrix:
+    name: cross-runner verify
+    needs: run-harness
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install harness (verifier only)
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+
+      - name: Download all three-machine artefacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: three-machine-*-${{ github.run_id }}
+          path: artefacts/
+
+      - name: Cross-verify every pair
+        env:
+          # Cross-machine tolerance per the firm's published bar.
+          # Same-machine tests in the harness use 1e-12; here we
+          # accept 5e-3 because BLAS path differences across runners
+          # are a fact, not a bug.
+          ABS_TOL: '5e-3'
+        run: |
+          set -euxo pipefail
+
+          # Discover labels.
+          mapfile -t LABELS < <(ls artefacts/ | sed -E 's/^three-machine-(.+)-[0-9]+$/\1/' | sort -u)
+          echo "[verify-matrix] labels: ${LABELS[*]}"
+
+          if [ "${#LABELS[@]}" -lt 2 ]; then
+            echo "::error::need at least two runner artefacts to cross-verify, found ${#LABELS[@]}"
+            exit 1
+          fi
+
+          status=0
+          mkdir -p verify-out
+          for ((i=0; i<${#LABELS[@]}; i++)); do
+            for ((j=i+1; j<${#LABELS[@]}; j++)); do
+              A="${LABELS[$i]}"
+              B="${LABELS[$j]}"
+              echo "::group::pair $A vs $B"
+              # Pair runs by subdirectory name (qh / ablation / cross-model).
+              for subset in qh ablation cross-model; do
+                a_root=$(find "artefacts/three-machine-${A}-${{ github.run_id }}" -type d -name "${subset}" | head -1)
+                b_root=$(find "artefacts/three-machine-${B}-${{ github.run_id }}" -type d -name "${subset}" | head -1)
+                if [ -z "$a_root" ] || [ -z "$b_root" ]; then
+                  echo "[verify-matrix] skipping $subset (one of the runners did not produce it)"
+                  continue
+                fi
+                a_run=$(ls -1td "$a_root"/*/ 2>/dev/null | head -1)
+                b_run=$(ls -1td "$b_root"/*/ 2>/dev/null | head -1)
+                if [ -z "$a_run" ] || [ -z "$b_run" ]; then
+                  echo "[verify-matrix] no run dir for $subset on $A or $B"
+                  continue
+                fi
+                report="verify-out/${A}__vs__${B}__${subset}.txt"
+                set +e
+                python -m replication.lib.verify \
+                  "$a_run" "$b_run" --abs-tol "${ABS_TOL}" \
+                  | tee "$report"
+                rc=$?
+                set -e
+                if [ "$rc" != "0" ]; then
+                  echo "::error::$A vs $B on $subset: non-match (exit $rc)"
+                  status=1
+                fi
+              done
+              echo "::endgroup::"
+            done
+          done
+
+          if [ "$status" != "0" ]; then
+            echo "::error::three-machine determinism check failed; see verify-out/*.txt"
+            exit 1
+          fi
+
+      - name: Upload verify reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: verify-matrix-${{ github.run_id }}
+          path: verify-out/
+          if-no-files-found: warn
+          retention-days: 30

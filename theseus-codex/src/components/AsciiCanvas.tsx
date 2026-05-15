@@ -519,6 +519,7 @@ export default function AsciiCanvas({
     if (paused) {
       if (rafRef.current != null) cancelAnimationFrame(rafRef.current);
       rafRef.current = null;
+      drawFrame(0);
       return;
     }
     const start = performance.now();

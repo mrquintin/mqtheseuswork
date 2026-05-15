@@ -18,7 +18,7 @@ from typing import Any, Iterable, Optional
 
 from noosphere.models import Artifact, Claim, Conclusion
 from noosphere.observability import get_logger
-from noosphere.store import Store, StoredEmbeddingModelVersion
+from noosphere.store import Store
 
 logger = get_logger(__name__)
 
@@ -132,14 +132,24 @@ def list_conclusions_replay_consistent(store: Store, as_of: date) -> list[Conclu
 def embedding_model_disclaimer(store: Store, as_of: date) -> list[str]:
     cutoff = cutoff_datetime_inclusive_utc(as_of)
     rows: list[tuple[datetime, str]] = []
-    with store.session() as s:
-        from sqlmodel import select
+    with store.engine.connect() as conn:
+        from sqlalchemy import text
 
-        for r in s.exec(select(StoredEmbeddingModelVersion).order_by(StoredEmbeddingModelVersion.effective_from)).all():
-            eff_r = r.effective_from
+        version_rows = conn.execute(
+            text(
+                """
+                SELECT effective_from, model_name
+                FROM embedding_model_version
+                ORDER BY effective_from
+                """
+            )
+        ).all()
+        for eff_r, model_name in version_rows:
+            if isinstance(eff_r, str):
+                eff_r = datetime.fromisoformat(eff_r.replace("Z", "+00:00"))
             if eff_r.tzinfo is None:
                 eff_r = eff_r.replace(tzinfo=timezone.utc)
-            rows.append((eff_r, r.model_name))
+            rows.append((eff_r, str(model_name)))
     warns: list[str] = []
     if not rows:
         warns.append("No embedding_model_version rows; encoder history is unmodeled.")

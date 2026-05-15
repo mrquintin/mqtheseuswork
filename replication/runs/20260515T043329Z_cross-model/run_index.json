@@ -1,0 +1,15 @@
+{
+  "benchmark_version": "qh-v1",
+  "git_sha": "0034929158a42e4e536d85efd41ab22721c7ca50",
+  "runs": [
+    {
+      "model_name": "hash-det:qh-cross-v1",
+      "items_embedded": 50,
+      "items_total": 1936,
+      "truncated": true,
+      "predictions_path": "/Users/michaelquintin/Desktop/Theseus/replication/runs/20260515T043329Z_cross-model/predictions__hash-det__qh-cross-v1.parquet",
+      "manifest_path": "/Users/michaelquintin/.theseus/data/cross_model/manifest__hash-det_qh-cross-v1.json",
+      "error": null
+    }
+  ]
+}

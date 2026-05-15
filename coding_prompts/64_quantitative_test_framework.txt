@@ -1,0 +1,119 @@
+You are operating in /Users/michaelquintin/Desktop/Theseus.
+
+Goal: actually RUN the quantitative formalisations that prompt 57
+specs out. Each APPROVED `QuantitativeFormalisation` row names
+metrics, data sources, and tests; this prompt builds the runner
+that pulls the data, computes the metrics, runs the tests, and
+emits a `QuantitativeTestResult` row.
+
+This is the "numerical version of the logical principle" the
+founder described — the regressions and trends that operationalise
+the firm's principles.
+
+Before you start — read:
+1. Output of prompt 57:
+   `noosphere/noosphere/quantitative/formalisation.py` and the
+   schema of `QuantitativeFormalisation`.
+2. The existing data-source patterns. The firm may already
+   touch some quantitative-looking data via Currents and the
+   forecast resolver; reuse rather than duplicate.
+
+Implement:
+
+A. `QuantitativeTestResult` entity per run:
+   - `formalisation_id` FK.
+   - `run_stamp` (timestamp + slug).
+   - `metric_values`: JSON dict of metric name → number, with
+     `as_of` per metric.
+   - `test_outputs`: JSON list of per-test results:
+     `{ test_kind, statistic, p_value, effect_size,
+        sample_size, confidence_interval, passed_threshold }`.
+   - `decision_summary`: free-text agent-generated paragraph
+     summarising the firm's implied update.
+   - `artifacts_path`: filesystem path under
+     `benchmarks/quantitative/<formalisation_id>/<run_stamp>/`
+     for raw data, plots, fit objects.
+   - `status`: enum `RAN | PARTIAL | FAILED`.
+   - `error`: nullable, error text on FAILED.
+   - `created_at`.
+
+B. Runner `noosphere/noosphere/quantitative/runner.py`:
+   - `class QuantitativeRunner`:
+     - `async run(formalisation_id)`:
+       1. Load the formalisation.
+       2. Resolve each `data_sources` entry: pull data from
+          the named source. Supported sources in v1:
+          - internal Postgres tables (read-only),
+          - CSV/Parquet files under
+            `noosphere/data/quantitative/`,
+          - a thin yfinance fetcher (for equity historicals).
+          Unknown sources → result rows for that source
+          report `FAILED` with `error="UNKNOWN_DATA_SOURCE"`.
+       3. Compute each metric per spec.
+       4. Run each test using SciPy / statsmodels (regressions,
+          KS, hazard) or scikit-learn (classification). The
+          choice of library is documented in the formalisation;
+          the runner dispatches.
+       5. Materialise plots:
+          - residual plot for each regression,
+          - distribution overlay for each KS,
+          - calibration plot for any classifier.
+       6. Persist `QuantitativeTestResult`.
+       7. Emit a structured log line with the principal
+          numbers.
+
+C. Cadence. A new sub-loop in the Forecasts scheduler ticks
+   `runner.run` for every APPROVED formalisation on its
+   configured refresh cadence (`update_cadence` field from
+   prompt 57's schema). Default cadence is weekly; daily and
+   monthly are allowed; sub-daily is denied (those would be
+   trading signals, which is prompt 61's territory).
+
+D. Public surface. The principle detail page (prompt 58)
+   gains a "Latest test result" section showing the most
+   recent `QuantitativeTestResult.decision_summary`, the
+   headline metrics, and a "View artifacts" link to the
+   committed plots. The principle's conviction score is
+   nudged automatically when a test crosses any
+   `decision_thresholds` row from the formalisation — same
+   founder-confirmable queue pattern as elsewhere (the agent
+   recommends, the founder accepts).
+
+E. CLI:
+   - `noosphere quantitative run --formalisation <id>`
+   - `noosphere quantitative run --all`
+   - `noosphere quantitative status` prints last-run-per-
+     formalisation summary.
+
+F. Tests:
+   - A small fixture formalisation with one regression test on
+     a stub dataset (committed under
+     `noosphere/tests/fixtures/quant_fixture.csv`). Runner
+     produces a `QuantitativeTestResult` with the expected
+     coefficients within tolerance.
+   - Unknown-data-source path returns `FAILED`, does not
+     crash the runner.
+   - Decision-threshold-crossing produces a triage queue row
+     for the founder, not an auto-update.
+
+Constraints
+- No commit of raw bulk data > 1 MB. Larger inputs go in
+  `noosphere/data/quantitative/` which is gitignored; the
+  formalisation names a fetch script.
+- Tests cannot make a real network call (yfinance is mocked).
+- The runner is idempotent per (formalisation, run_stamp).
+
+SCOPE
+- `noosphere/noosphere/quantitative/runner.py` CREATE
+- `noosphere/noosphere/quantitative/dispatchers.py` CREATE
+- `noosphere/noosphere/quantitative/plots.py` CREATE
+- `noosphere/noosphere/models.py` MODIFY
+- `noosphere/noosphere/store.py` MODIFY
+- `theseus-codex/prisma/schema.prisma` MODIFY
+- `theseus-codex/prisma/migrations/<ts>_quantitative_test_results/migration.sql` CREATE
+- `noosphere/alembic/versions/<rev>_quantitative_test_results.py` CREATE
+- `noosphere/noosphere/forecasts/scheduler.py` MODIFY
+- `noosphere/noosphere/cli.py` MODIFY
+- `noosphere/tests/fixtures/quant_fixture.csv` CREATE
+- `noosphere/tests/test_quantitative_runner.py` CREATE
+- `theseus-codex/src/app/principles/[id]/page.tsx` MODIFY

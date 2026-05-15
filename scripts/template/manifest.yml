@@ -1,0 +1,287 @@
+# Theseus template extraction manifest.
+#
+# Used by `scripts/build_template.sh` to build a tenant-installable
+# copy of Theseus. Each section names paths or tokens with one of
+# four classifications:
+#
+#   include_core       — copied verbatim
+#   include_config     — copied with token substitution
+#   include_seed       — replaced with an empty-shape stub
+#   exclude_firm       — never copied
+#
+# Classifications match `docs/template/INVENTORY.md`. When a new
+# top-level path is added to the source repo, add it here too —
+# the extractor refuses to copy anything not declared.
+#
+# Paths are interpreted relative to the source-repo root. Trailing
+# `/` denotes a directory (match recursively). Glob patterns use
+# shell-style globs.
+
+version: 1
+
+# ──────────────────────────────────────────────────────────────────
+# CORE — verbatim copy
+# ──────────────────────────────────────────────────────────────────
+include_core:
+  - .editorconfig
+  - .gitignore
+  - Makefile
+  - Dockerfile.api
+  - Dockerfile.scheduler
+  - requirements.txt
+  - format_stream_claude.py
+  - format_stream_events.py
+  - THE_META_METHOD.md
+  - current_events_api/
+  - deploy/
+  - dialectic/
+  - docs/api-methods/
+  - docs/architecture/
+  - docs/Auto_Processing_Setup.md
+  - docs/CI_CD_Setup.tex
+  - docs/CI_CD_Setup.pdf
+  - docs/currents/
+  - docs/design/
+  - docs/Desktop_Packaging.tex
+  - docs/Desktop_Packaging.pdf
+  - docs/Docker_Deployment.tex
+  - docs/Docker_Deployment.pdf
+  - docs/eval/
+  - docs/guides/
+  - docs/interop/
+  - docs/methods/
+  - docs/operations/
+  - docs/Operations_Manual.md
+  - docs/operator/
+  - docs/peer_review/
+  - docs/perf/
+  - docs/Performance_Synthesis.md
+  - docs/Server_Architecture.pdf
+  - docs/The_Meta_Method.pdf
+  - docs/Theseus_Codex_User_Guide.tex
+  - docs/Theseus_Codex_User_Guide.pdf
+  - docs/Transcript_Extraction_Research.pdf
+  - noosphere/
+  - ops/
+  - packages/
+  - replication/
+  - researcher_api/
+  - scripts/
+  - tests/
+  - theseus-codex/
+  - theseus-public/
+
+# ──────────────────────────────────────────────────────────────────
+# CONFIG — copied with token substitution
+# ──────────────────────────────────────────────────────────────────
+include_config:
+  - .env.live.template
+  - config/defaults.yaml
+  - config/development.yaml
+  - config/production.yaml
+  - docker-compose.dev.yml
+  - docker-compose.yml
+  - docs/security/Threat_Model.md
+  - pyproject.toml
+  # README is fully overwritten with the template payload; we keep
+  # the token pass for files inside subdirectories that may carry
+  # the firm name in headers.
+
+# Tokens applied to every CONFIG file (and to certain CORE files
+# where a stray reference may exist — the extractor will also pass
+# CORE files through a non-destructive replace for the tokens
+# listed here, so we don't have to enumerate every README).
+tokens:
+  THESEUS_ORG_NAME:
+    description: Display name of the operating firm.
+    source_value: "Theseus"
+    template_value: "<your firm name>"
+  THESEUS_ORG_SLUG:
+    description: URL-safe slug for the operating firm.
+    source_value: "theseus-local"
+    template_value: "<your-firm-slug>"
+  THESEUS_DEFAULT_LLM:
+    description: Default LLM model id. Bootstrap may override.
+    source_value: "haiku-4-5"
+    template_value: "haiku-4-5"
+  THESEUS_NOTIFY_FROM_DEFAULT:
+    description: Default sender for notification email.
+    source_value: "notify@theseus.local"
+    template_value: "notify@example.invalid"
+  THESEUS_PUBLIC_BASE_URL:
+    description: Public site origin.
+    source_value: "https://theseus.local"
+    template_value: "https://your-firm.example"
+  THESEUS_FOUNDER_DISPLAY_NAME:
+    description: Substituted anywhere a founder's name appears.
+    source_value: "Michael Quintin"
+    template_value: "<founder name>"
+
+# Firm-attribution phrases that must be scrubbed wholesale from any
+# CONFIG / CORE file that slips them through. The extractor refuses
+# to emit a file that still contains any of these after token
+# substitution.
+forbidden_phrases:
+  - "Quintin Hypothesis"
+  - "Michael Quintin"
+  - "FOUNDER_ALPHA_EMAIL=qmichael444@gmail.com"
+
+# ──────────────────────────────────────────────────────────────────
+# SEED — empty-shape stubs
+# ──────────────────────────────────────────────────────────────────
+include_seed:
+  - noosphere_data/
+  - noosphere/noosphere_data/
+  - replication/runs/
+  - theseus-public/content/
+  # `theseus-codex/prisma/seed.ts` ships unchanged but the bootstrap
+  # wizard invokes it WITHOUT `SEED_WITH_MOCK_DATA=1`, so the new
+  # tenant starts with zero conclusions / zero principles.
+
+seed_stubs:
+  noosphere_data/noosphere_config.json: |
+    {
+      "tenant_slug": "<your-firm-slug>",
+      "tenant_name": "<your firm name>",
+      "default_model": "haiku-4-5",
+      "currents_enabled": true,
+      "forecasts_enabled": false,
+      "equities_enabled": false
+    }
+  noosphere_data/README.md: |
+    # Runtime data
+
+    This directory holds the per-tenant runtime ledger. It is
+    populated as the platform runs; do not pre-fill it.
+  theseus-public/content/README.md: |
+    # Published content
+
+    Articles approved for public surfacing land here. Start empty.
+
+# ──────────────────────────────────────────────────────────────────
+# FIRM — never copied
+# ──────────────────────────────────────────────────────────────────
+exclude_firm:
+  - .env
+  - .env.live
+  - .env.live.fake
+  - .env.production.fake
+  - .env.staging.fake
+  - .git/
+  - .claude/
+  - .claude_code_runs/
+  - .codex_runs/
+  - .pytest_cache/
+  - .ruff_cache/
+  - .venv/
+  - .venv-currents/
+  - .vercel/
+  - .vscode/
+  - .DS_Store
+  - benchmarks/
+  - build_claude_code_prompts.py
+  - coding_prompts/
+  - docs/archive/
+  - docs/benchmarks/
+  - docs/bugs/
+  - docs/editorial/
+  - docs/external/
+  - docs/Founders_Questions.pdf
+  - docs/Founders_Reading_and_Research.pdf
+  - docs/Geometry_of_Unresolution.pdf
+  - docs/Methodological_Reorientation.pdf
+  - docs/Noosphere_Project_Status.pdf
+  - docs/Podcast_Infrastructure_Research.pdf
+  - docs/Product_And_Software_Summary.pdf
+  - docs/Product_And_Software_Summary.tex
+  - docs/Product_Description.pdf
+  - docs/Reader_Guide.pdf
+  - docs/Reader_Guide.tex
+  - docs/redteam/
+  - docs/research/
+  - docs/runs/
+  - docs/Schooling_Questions.pdf
+  - docs/Schooling_Questions.tex
+  - FOUNDERS_READING_AND_RESEARCH.md
+  - ideologicalOntology/
+  - METHODOLOGICAL_REORIENTATION.md
+  - node_modules/
+  - "Non-coding material/"
+  - noosphere/noosphere/benchmarks/qh_analysis.py
+  - noosphere/noosphere/benchmarks/qh_ablations.py
+  - noosphere/noosphere/benchmarks/qh_metrics.py
+  - noosphere/noosphere/benchmarks/qh_runner.py
+  - noosphere/noosphere/benchmarks/cross_model_runner.py
+  - noosphere/noosphere/transfer/
+  - noosphere/noosphere/peer_review/geometric_blindspot.py
+  - noosphere/noosphere/methods/geometric_blindspot.RATIONALE.md
+  - noosphere/scripts/run_qh_full.sh
+  - noosphere/scripts/run_cross_model_full.sh
+  - noosphere/scripts/build_cross_model_pdf.py
+  - noosphere/tests/test_qh_benchmark.py
+  - noosphere/tests/test_qh_full_run_integration.py
+  - "Podcast talks/"
+  - README.md
+  - reference/
+  - run_prompts.sh
+  - run_prompts_codex.sh
+  - scripts/round18_smoke.sh
+  # The extraction tooling itself stays in the source repo: shipping it
+  # would force us to ship the firm names it enumerates as exclusions.
+  - scripts/build_template.sh
+  - scripts/template/
+  - docs/template/
+  - SETUP_GITHUB.sh
+  - sync.sh
+  - tests/
+  - theseus-codex/dev.db
+  - theseus-codex/dist-desktop/
+  - theseus-codex/node_modules/
+  - theseus-codex/public/qh-benchmark/
+  - theseus-codex/src/app/methodology/benchmark/
+  - theseus-codex/src/app/methodology/geometric_blindspot/
+  - theseus-codex/src/app/methodology/replicate/
+  - theseus-codex/src/app/methodology/replicators/
+  - Theseus_Stack_Architectural_Guide.pdf
+  - theseus.egg-info/
+  - TODO.md
+  - WAVE3_TODO_STORE_HELPER.md
+  - .github/workflows/qh_benchmark.yml
+  - .github/workflows/redteam_tournament.yml
+
+# Always strip these as glob patterns regardless of where they appear.
+exclude_globs:
+  - "**/.DS_Store"
+  - "**/__pycache__/"
+  - "**/*.pyc"
+  - "**/.next/"
+  - "**/dist/"
+  - "**/build/"
+  - "**/*.egg-info/"
+  - "**/node_modules/"
+  - "**/*.aux"
+  - "**/*.log"
+  - "**/*.out"
+  - "**/*.toc"
+  - "**/.pytest_cache/"
+  - "**/.ruff_cache/"
+  - "**/playwright-report/"
+  - "**/test-results/"
+  - "**/coverage/"
+  - "**/.venv/"
+  - "**/.vercel/"
+
+# Files the extractor sources from `theseus-template/` in the source
+# repo and writes into the output (after CORE/CONFIG/SEED have been
+# emitted, so they overwrite any same-named CORE files).
+payload:
+  - theseus-template/README.md
+  - theseus-template/scripts/bootstrap.sh
+  - theseus-template/.github/workflows/template_ci.yml
+
+# Output configuration
+output:
+  default_dir: "../theseus-template"
+  initial_commit_message: "Initial commit (extracted from Theseus platform)"
+  initial_commit_author_name: "Theseus Template Builder"
+  initial_commit_author_email: "template@theseus.invalid"

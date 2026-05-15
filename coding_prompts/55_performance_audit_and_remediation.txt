@@ -1,0 +1,89 @@
+You are operating in /Users/michaelquintin/Desktop/Theseus.
+
+Goal: the site is "very, very slow" per the founder. Button
+presses lag, the ASCII rendering used to be faster, navigation
+feels sluggish. The founder suspects this correlates with the
+volume of uploaded material. Diagnose, fix, regression-prevent.
+
+Before you start — read:
+1. Recent Vercel deployment metrics (Core Web Vitals) if
+   accessible. If not, run Lighthouse locally and capture.
+2. `theseus-codex/next.config.js` — current bundling and image
+   settings.
+3. `theseus-codex/src/app/page.tsx` and the heaviest dashboard
+   page. Note their data-fetching pattern (RSC fetch + cache?
+   client-side fetch?), the number of separate DB queries,
+   the largest client-side JS bundles.
+4. The ASCII sculpture renderer (Three.js or whatever drives
+   it) — this is named in the founder's complaint ("ASCII
+   rendering used to be faster").
+5. `theseus-codex/prisma/schema.prisma` — any table without
+   indexes on the columns the homepage queries.
+
+Implement:
+
+A. Measurement first. Capture a baseline:
+   - Lighthouse score on `/` and `/(authed)/dashboard` (cold
+     cache, throttled to "Slow 4G + 4x CPU slowdown" so the
+     numbers are stable).
+   - TTFB, LCP, FID, CLS, TBT.
+   - Bundle size per route (`next build` output).
+   - Slowest 10 DB queries on a representative dataset
+     (use `EXPLAIN ANALYZE` or pg_stat_statements if
+     accessible; if not, instrument with timing logs).
+   Save to `docs/perf/2026-05-13_baseline/` as a single
+   `report.md` plus the raw artifacts.
+
+B. Rank the bottlenecks by impact-to-fix-cost. Address the top
+   3–5. Plausible bottlenecks (let the data decide; do not
+   front-run):
+   - Unindexed columns on tables the homepage joins on.
+     Add the indexes; document each in a comment with WHY.
+   - Client-side fetch waterfall: move to server-side RSC
+     fetch with `Promise.all`.
+   - Oversized client bundle from a heavy library imported
+     server-only that leaked into a client component.
+   - The Three.js / ASCII renderer re-instantiating on every
+     navigation; hoist to a persistent layout.
+   - No `cache-control` on static-ish API routes.
+   - Conclusion / claim queries pulling whole rows when the
+     surface needs ten fields. Project columns explicitly.
+
+C. Post-fix re-measure with the same throttled Lighthouse
+   profile. Save to `docs/perf/2026-05-13_post_fix/`. The
+   delta is the "ship-or-not" signal. Target: LCP improves
+   by ≥ 30% on the homepage; TBT improves by ≥ 40% on the
+   dashboard. If either target is not met, the prompt's
+   report explains why and proposes follow-up.
+
+D. Regression budget. Add a CI check that runs `next build`
+   on a PR and fails if any route's bundle grows by > 20%
+   without an explicit allow-list. Wire it into the existing
+   CI pipeline (or document the missing hook).
+
+E. Tests:
+   - DB-index test: every join column in homepage-critical
+     queries has an index (verified by introspecting
+     pg_indexes, not by reading the schema file).
+   - Bundle-size snapshot test.
+
+Constraints
+- Do not delete features in the name of perf. If a feature is
+  on the critical path and slow, fix the cause, don't remove
+  the feature.
+- Do not add a CDN or a caching layer that hides correctness
+  bugs. Cache must invalidate when data changes (see prompt 52).
+- The ASCII renderer is part of the firm's identity; performance
+  fixes there must not change the visual.
+- Do not modify the LLM client or any prompt to "make it
+  faster" — those are correctness territory.
+
+SCOPE
+- `docs/perf/2026-05-13_baseline/report.md` CREATE
+- `docs/perf/2026-05-13_post_fix/report.md` CREATE
+- `theseus-codex/next.config.js` MODIFY
+- `theseus-codex/prisma/schema.prisma` MODIFY
+- `theseus-codex/prisma/migrations/<ts>_perf_indexes/migration.sql` CREATE
+- `noosphere/alembic/versions/<rev>_perf_indexes.py` CREATE
+- `.github/workflows/bundle-budget.yml` CREATE-OR-MODIFY
+- `theseus-codex/src/__tests__/perf_indexes.test.ts` CREATE

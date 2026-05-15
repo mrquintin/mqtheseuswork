@@ -11,11 +11,11 @@
 \usepackage{textcomp}
 \title{Cross-Model Embedding Geometry Study\\\large QH Benchmark v1, Multi-Backend Replication}
 \author{Theseus / Noosphere Research}
-\date{2026-05-08}
+\date{2026-05-14}
 \begin{document}
 \maketitle
 
-\begin{abstract}We replicate the Quintin Hypothesis (QH) contradiction-geometry probe across multiple embedding back-ends to determine whether the predicted geometric signature is a property of language or a property of one specific model. We run the frozen QH-v1 benchmark with 1 embedding models for a total of 5808 prediction rows and compare per-model accuracy, AUROC, and ECE against random and cosine baselines.\par On the models reported here the geometry probe does not lose to the cosine baseline on AUROC. We retain the honest-failure framing because the negative result remains the more informative outcome and the prior publication commitment binds prospectively.\end{abstract}
+\begin{abstract}We replicate the Quintin Hypothesis (QH) contradiction-geometry probe across multiple embedding back-ends to determine whether the predicted geometric signature is a property of language or a property of one specific model. We run the frozen QH-v1 benchmark with 3 embedding models for a total of 17424 prediction rows and compare per-model accuracy, AUROC, and ECE against random and cosine baselines.\par\textbf{Headline.} Across the 3 model(s) that ran, the firm's probe underperforms the cosine baseline on accuracy (domain-averaged $\Delta = -0.0317$), and the difference is not statistically significant (one-sided paired permutation $p = 0.9966$). The paid-API back-ends did not run this round, so this is a within-local-embedder result, not the general cross-model claim.\par On the models reported here the geometry probe does not lose to the cosine baseline on AUROC. We retain the honest-failure framing because the negative result remains the more informative outcome and the prior publication commitment binds prospectively.\end{abstract}
 
 \section{Background}
 The Quintin Hypothesis (QH) predicts that the difference vector between embeddings of a premise and its logical contradiction is sparse (concentrated in few dimensions, measured by Hoyer sparsity) while the difference between a premise and a coherent continuation is dense. If this is a property of language, the prediction should hold across embedding back-ends. If it is a property of one specific model — for instance \texttt{text-embedding-3-large} — that is also useful information, but it is a much weaker claim than the firm originally asserted.
@@ -33,6 +33,12 @@ Model & Runner & $n$ & Accuracy & AUROC & ECE \\
 \texttt{hash-det:qh-cross-v1} & \texttt{random} & 1936 & 0.3352 & 0.4964 & 0.2537 \\
 \texttt{hash-det:qh-cross-v1} & \texttt{cosine} & 1936 & 0.3791 & 0.3877 & 0.4382 \\
 \texttt{hash-det:qh-cross-v1} & \texttt{contradiction\_geometry} & 1936 & 0.2877 & 0.6101 & 0.3120 \\
+\texttt{st:BAAI/bge-large-en-v1.5} & \texttt{random} & 1936 & 0.3352 & 0.4964 & 0.2537 \\
+\texttt{st:BAAI/bge-large-en-v1.5} & \texttt{cosine} & 1936 & 0.3275 & 0.5000 & 0.4677 \\
+\texttt{st:BAAI/bge-large-en-v1.5} & \texttt{contradiction\_geometry} & 1936 & 0.4096 & 0.5641 & 0.2586 \\
+\texttt{st:sentence-transformers/all-MiniLM-L6-v2} & \texttt{random} & 1936 & 0.3352 & 0.4964 & 0.2537 \\
+\texttt{st:sentence-transformers/all-MiniLM-L6-v2} & \texttt{cosine} & 1936 & 0.4055 & 0.4982 & 0.4666 \\
+\texttt{st:sentence-transformers/all-MiniLM-L6-v2} & \texttt{contradiction\_geometry} & 1936 & 0.3951 & 0.6093 & 0.2513 \\
 \bottomrule
 \end{tabular}
 
@@ -45,6 +51,8 @@ Model & Runner & $n$ & Accuracy & AUROC & ECE \\
 Model & economics & ethics & physics \\
 \midrule
 \texttt{hash-det:qh-cross-v1} & 0.2596 & 0.3285 & 0.2898 \\
+\texttt{st:BAAI/bge-large-en-v1.5} & 0.4495 & 0.2384 & 0.4450 \\
+\texttt{st:sentence-transformers/all-MiniLM-L6-v2} & 0.4669 & 0.2442 & 0.4057 \\
 \bottomrule
 \end{tabular}
 
@@ -52,26 +60,40 @@ Model & economics & ethics & physics \\
 
 
 \section{Inter-model agreement (binary contradicting label)}
-\begin{tabular}{l r}
+\begin{tabular}{l r r r}
 \toprule
- & hash-det:qh-cross-v1 \\
+ & hash-det:qh-cross-v1 & st:BAAI/bge-large-en-v1.5 & st:sentence-transformers/all-MiniLM-L6-v2 \\
 \midrule
-\texttt{hash-det:qh-cross-v1} & 1.00 \\
+\texttt{hash-det:qh-cross-v1} & 1.00 & 0.00 & 0.00 \\
+\texttt{st:BAAI/bge-large-en-v1.5} & 0.00 & 1.00 & 1.00 \\
+\texttt{st:sentence-transformers/all-MiniLM-L6-v2} & 0.00 & 1.00 & 1.00 \\
 \bottomrule
 \end{tabular}
 
 
 
 
+\section{Headline test: is the probe better than cosine, controlling for domain?}
+\textbf{Method.} \texttt{permutation\_paired\_sign\_flip\_domain\_stratified}\\
+\textbf{Statistic} (domain-averaged $\Delta$ accuracy, geometry $-$ cosine)\textbf{.} -0.0317\\
+\textbf{p-value} (one-sided, H1 = probe better)\textbf{.} 0.9966\\
+\textbf{Paired observations.} 5808 across 3 model(s).\\
+\textbf{Per-domain $\Delta$.} \texttt{economics} 0.0372, \texttt{ethics} -0.1492, \texttt{physics} 0.0170.\\
+\textit{One-sided paired sign-flip permutation test (5000 resamples, seed 17). Statistic is the domain-averaged mean of (geometry correct - cosine correct); positive favours the firm probe. Stratified across 3 domains so each weighs equally. statsmodels not installed; the permutation test is the result.}
+
 \section{Statistical test: do models differ controlling for domain?}
-\textbf{Method.} \texttt{insufficient\_sample}\\
-\textbf{Statistic.} n/a\\
-\textbf{p-value.} n/a\\
-\textbf{Observations.} 1936 across 1 models.\\
-\textit{need >=2 models and >=4 obs; got 1 models, 1936 obs}
+\textbf{Method.} \texttt{permutation\_within\_item}\\
+\textbf{Statistic.} 37.5449\\
+\textbf{p-value.} 0.0005\\
+\textbf{Observations.} 5808 across 3 models.\\
+\textit{mixed-effects unavailable (ModuleNotFoundError); F-statistic of correctness across models, with model labels permuted within each item; controls for item and domain effects.}
 
 
 \section{Figures}
+
+\begin{figure}[h]\centering\includegraphics[width=0.95\linewidth]{figures/cross_model/cross_model_bars.png}\caption{Per-model accuracy by runner. The QH prediction is that \texttt{contradiction\_geometry} should beat \texttt{cosine} on every back-end; deviations are evidence about the model-versus-language question.}\end{figure}
+
+\begin{figure}[h]\centering\includegraphics[width=0.7\linewidth]{figures/cross_model/cross_model_agreement.png}\caption{Inter-model agreement on the binary contradicting label, geometry runner. Off-diagonal entries near the diagonal value indicate the geometry signal is labelled consistently across embedding spaces; entries collapsed to 0/1 indicate the frozen threshold is constant-predicting on those models rather than discriminating --- a calibration diagnostic, not a language-versus-model verdict.}\end{figure}
 
 \section{Reproducibility}
 The benchmark dataset is frozen as \texttt{qh-v1} under \texttt{benchmarks/quintin\_hypothesis/v1/}. Per-model predictions are persisted as parquet under \texttt{results/cross\_model/}; raw embedding vectors are stored off-tree (default \texttt{\textasciitilde/.theseus/data/cross\_model/}) with a manifest. The figures and numbers in this PDF are regenerated from \texttt{cross\_model\_analysis.json} on each build; no number is hand-edited.

@@ -1,0 +1,362 @@
+% Theseus Architecture --- pdflatex distribution variant.
+% NOT canonical. The canonical document is docs/architecture/Theseus_Architecture.md.
+% This .tex exists for distribution / printing only. Build:
+%   scripts/build_architecture_pdf.sh
+\documentclass[11pt]{article}
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage[margin=1in]{geometry}
+\usepackage{enumitem}
+\usepackage{longtable}
+\usepackage{fancyvrb}
+\usepackage[hidelinks]{hyperref}
+\usepackage{parskip}
+
+\title{Theseus Architecture}
+\author{Theseus --- research and investment firm}
+\date{Document version: bound to git SHA \texttt{0034929} (2026-05-14)}
+
+\begin{document}
+\maketitle
+
+\noindent\textbf{Status: descriptive.} This document records the system as it
+stands \emph{after} Round~17 (the methodology-implementation push) and
+Round~18 (the consolidation and research-run pass). It is not a roadmap. The
+canonical version of this document is the Markdown file
+\texttt{docs/architecture/Theseus\_Architecture.md}; this PDF is the
+distribution / printing variant and may lag the Markdown by a build.
+
+\medskip
+\noindent This is the connecting document for the eight scattered architecture
+notes the firm accumulated through Round~17/18 ---
+\texttt{Schema\_Audit\_Round18.md}, \texttt{API\_Envelope\_Contract.md},
+\texttt{Type\_Boundaries.md}, \texttt{Noosphere\_Module\_Map.md},
+\texttt{Naming\_Conventions.md}, \texttt{Configuration.md},
+\texttt{Trace\_Coverage.md}, and \texttt{Mobile\_Polish\_Survey.md}. Each
+audits one slice of the system; this file names how the slices fit together
+and does not duplicate their prose.
+
+\medskip
+\noindent\textbf{Status markers:} \textbf{[production]} --- module, route or
+migration, test, and operational path all exist; \textbf{[experimental]} ---
+code and tests exist but the surface is founder-only, partially instrumented,
+or still being calibrated; \textbf{[proposed]} --- named in a companion doc as
+a target, not yet built.
+
+\section{System mission}
+
+Theseus is a research and investment firm building software for recorded,
+inspectable reasoning. The durable object the system protects is not a
+conclusion but a \emph{reviewable record}: the source material, the claims
+pulled from it, the method that produced each claim, the strongest objection,
+the confidence, the revision condition, and --- later --- the outcome.
+
+Three levels of work are kept distinct (see \texttt{THE\_META\_METHOD.md}):
+object-level claims (what the firm believes), methods (the reasoning
+procedures that produced them), and meta-methods (criteria for judging whether
+a method is reliable in the domain where it was used). Every architectural
+decision below serves one constraint: reasoning only compounds if a later
+reviewer can inspect the record. The firm deliberately separates working
+software from research ambition, and this document marks each subsystem's real
+status rather than its aspiration.
+
+\textit{See also:} \texttt{README.md}, \texttt{METHODOLOGICAL\_REORIENTATION.md},
+\texttt{THE\_META\_METHOD.md}.
+
+\section{Top-level components and their boundaries}
+
+Theseus is three software surfaces over one shared database.
+
+\begin{itemize}[leftmargin=1.4em]
+  \item \textbf{Noosphere} \textbf{[production]} --- the Python processing
+  engine. Ingests transcripts and writings, extracts claims and source
+  structure, builds and scores methodology profiles, computes embeddings, runs
+  the coherence / adversarial / calibration tooling, drives Currents and
+  forecasts, and writes back to the Codex database. Entry point:
+  \texttt{python -m noosphere}.
+  \item \textbf{Theseus Codex} \textbf{[production]} --- the Next.js~16 /
+  React~19 / Prisma~7 web application; both the public site and the founder
+  control plane. Codex owns the database schema.
+  \item \textbf{Dialectic} \textbf{[production]} --- the PyQt6 desktop
+  live-conversation analyzer. Captures a discussion, transcribes it with
+  \texttt{faster-whisper}, shows argumentative signals live, and emits
+  artifacts into the Codex upload contract. Its output is an input to
+  Noosphere, never a peer of it.
+\end{itemize}
+
+\textbf{Boundary rules.} Noosphere never queries Prisma directly; it reaches
+the database through the \texttt{io} layer (\texttt{codex\_bridge}) using
+generated Pydantic models. Codex never imports Python; it calls Noosphere
+through the FastAPI services or by reading rows Noosphere has written.
+Dialectic talks only to the Codex upload/auth contract. JSON Schema
+(\texttt{Type\_Boundaries.md}) plus the unified API envelope
+(\texttt{API\_Envelope\_Contract.md}) keep the three honest at every wire
+crossing. The full package and route rosters are in Appendix~A.
+
+\textit{See also:} \texttt{Noosphere\_Module\_Map.md},
+\texttt{Type\_Boundaries.md}, \texttt{API\_Envelope\_Contract.md},
+\texttt{README.md}.
+
+\section{The data substrate}
+
+Theseus persists state in three places, each with a different durability and
+ownership rule.
+
+\begin{Verbatim}[frame=single,fontsize=\small]
+flowchart LR
+  Postgres (Codex DB, Supabase): Conclusion / Claim / Upload,
+    Round-17 method & calibration models, Span / AlertRule /
+    AlertEvent, PublicationSignature
+  Filesystem (THESEUS_DATA_DIR): graph.json cascade snapshot,
+    embeddings/*.npy, registries, synthesis output
+  Embeddings manifest: manifest.json (model, dims, checksums)
+  Noosphere --codex_bridge--> Postgres
+  Noosphere --storage_client--> Filesystem
+  embeddings/*.npy --- manifest.json
+  Codex --Prisma client--> Postgres
+  Codex ..reads..> manifest.json
+\end{Verbatim}
+
+\textbf{Postgres} is the system of record for everything relational. The
+schema is owned by Prisma; \texttt{Schema\_Audit\_Round18.md} is the
+table-by-table inventory. \textbf{The filesystem} (\texttt{THESEUS\_DATA\_DIR})
+holds what does not belong in a row: the cascade snapshot, embedding arrays,
+registries, synthesis output, abstracted by \texttt{storage\_client}.
+\textbf{The embeddings manifest} is the contract between the two: model,
+dimensionality, and per-file checksums, so Codex can detect a stale or
+model-mismatched embedding set without loading the arrays.
+
+\textbf{Persistence rules.} Mutable rows carry \texttt{createdAt} and
+\texttt{updatedAt}; append-only ledger rows carry only \texttt{createdAt} ---
+the absence of \texttt{updatedAt} is the signal a row is immutable. Every
+tenant-scoped row carries \texttt{organizationId} with a \texttt{Restrict}
+delete policy; observability tables are intentionally tenant-light. Migrations
+are forward-only and idempotent. Backups bundle the SQLite file, the data
+directory, and the manifest together so a restore is internally consistent.
+
+\textit{See also:} \texttt{Schema\_Audit\_Round18.md},
+\texttt{Configuration.md}, \texttt{docs/operations/Migration\_Runbook.md}.
+
+\section{The methodological substrate}
+
+This is the layer that distinguishes Theseus from a document store. It lives
+mostly in the Noosphere \texttt{methods}, \texttt{evaluation},
+\texttt{coherence}, \texttt{cascade}, \texttt{inquiry}, and \texttt{temporal}
+packages.
+
+\begin{itemize}[leftmargin=1.4em]
+  \item \textbf{Methods} \textbf{[production]} --- every reasoning procedure is
+  a registered package carrying \texttt{method.py}, \texttt{RATIONALE.md}, and
+  \texttt{FAILURES.yaml}; snapshots are content-addressed into
+  \texttt{MethodVersion}.
+  \item \textbf{MQS --- Methodology Quality Score} \textbf{[production]} --- the
+  five working criteria (progressivity, severity, aim-method fit,
+  compressibility, domain sensitivity) plus a composite, computed in
+  \texttt{noosphere/evaluation/mqs.py}, persisted 1:1 against each
+  \texttt{Conclusion}. Formal definition: \texttt{docs/methods/MQS\_Specification.md}.
+  \item \textbf{Criteria tooling} \textbf{[production / experimental]} --- the
+  aim-method-fit and severity rubrics are production scoring paths; their
+  ongoing calibration is tracked separately.
+  \item \textbf{Cascade} \textbf{[production]} --- the firm's belief graph:
+  truth-valued nodes joined by signed, weighted relation edges.
+  \item \textbf{Revision} \textbf{[production]} --- computes the blast radius
+  of new evidence; every committed revision writes an immutable
+  \texttt{RevisionEvent}, so replay-by-ledger can reconstruct any prior belief
+  state.
+  \item \textbf{Lineage} \textbf{[production]} --- assembles and diffs the
+  per-conclusion lineage (source $\rightarrow$ claim $\rightarrow$ method
+  $\rightarrow$ objection $\rightarrow$ revision).
+  \item \textbf{Bayesian belief layer (BN)} \textbf{[experimental]} --- a
+  derived view, not a replacement for the cascade: projects a cascade snapshot
+  onto an acyclic Bayesian network for marginal probabilities and evidence
+  updates. Founder-only, rebuilt on demand, holds no state.
+  \item \textbf{Cross-domain transfer} \textbf{[experimental]} --- packages a
+  method for a new domain and runs a transfer-fitness study; the current
+  output is a research study, not a production gate.
+\end{itemize}
+
+\textit{See also:} \texttt{docs/methods/MQS\_Specification.md},
+\texttt{docs/methods/Bayesian\_Belief\_Layer.md},
+\texttt{docs/methods/Aim\_Method\_Fit\_Rubric.md},
+\texttt{docs/methods/Method\_Retirement\_Criteria.md},
+\texttt{THE\_META\_METHOD.md}.
+
+\section{The reasoning workflow, end to end}
+
+\begin{Verbatim}[frame=single,fontsize=\small]
+flowchart TD
+  Ingestion (transcripts, documents, Currents)
+    -> Claim & conclusion extraction
+    -> Methodology profile + MQS scoring
+    -> Cascade graph (signed weighted edges)
+    -> Review (coherence, adversarial, peer-review, citation chain)
+    -> blocking objection or drift?
+         yes -> Revision engine -> RevisionEvent ledger -> Cascade graph
+         no  -> Publication & signing pipeline
+    -> Outcome (forecast resolution, calibration)
+    -> Method track record + drift detector -> Revision engine
+\end{Verbatim}
+
+The steps are: ingestion (uploads or \texttt{CurrentEvent}, with relevant-text
+filtering); claim and conclusion extraction; methodology profile generation
+and MQS scoring; cascade integration; review by the six-layer coherence
+engine, the multi-model adversarial swarm, peer review, and the citation-chain
+validator; revision (blast-radius preview, then a committed
+\texttt{RevisionEvent}); publication; and outcome --- forecasts resolve,
+calibration recomputes, the method track record rolls up, and the drift
+detector watches for a method whose calibration has decayed, which re-enters
+the loop at revision. The loop is deliberately a loop: an outcome is evidence,
+and evidence revises.
+
+\textit{See also:} \texttt{Trace\_Coverage.md},
+\texttt{Schema\_Audit\_Round18.md}, \texttt{METHODOLOGICAL\_REORIENTATION.md}.
+
+\section{The publication and signing pipeline}
+
+\begin{Verbatim}[frame=single,fontsize=\small]
+flowchart LR
+  Reviewed conclusion / article candidate
+    -> Citation-chain validation
+    -> public-citable sources only?
+         no  -> Held (founder source-triage queue)
+         yes -> Canonicalize preimage
+              -> Ed25519 sign (ledger/publication_signing)
+              -> PublicationSignature row
+              -> Public render + /api/public/signature/[slug]
+              -> Self-critique pass -> Addendum (dated)
+\end{Verbatim}
+
+Publication is gated, not automatic \textbf{[production]}. Citation gating
+validates every cited excerpt against the stated claim with an NLI judge; a
+publication blocker or a private-only source holds the piece in the founder
+source-triage queue. Canonicalization builds a deterministic preimage ---
+renaming any field that participates in it invalidates every historical
+signature, which is why such renames are an out-of-band review item in
+\texttt{Naming\_Conventions.md}. Signing uses an Ed25519 key held outside the
+web tree and writes one immutable \texttt{PublicationSignature} per published
+revision; any reader can re-derive and verify it. Published articles are
+periodically re-reviewed; a finding becomes a dated \texttt{Addendum} rather
+than a silent edit. Desktop-application code-signing is a separate
+distribution concern.
+
+\textit{See also:} \texttt{Naming\_Conventions.md},
+\texttt{Schema\_Audit\_Round18.md}, \texttt{docs/security/Threat\_Model.md}.
+
+\section{The observability and operations surfaces}
+
+\textbf{Spans} \textbf{[production / instrumentation in progress]} --- Round~17
+added span-based observability via the \texttt{@traced} decorator; the
+decorator and \texttt{Span} schema are production, but only $\sim$9\% of public
+functions are wrapped today --- \texttt{Trace\_Coverage.md} is the living gap
+list. \textbf{Metrics and alerts} \textbf{[production]} ---
+\texttt{MethodMetricRollup} aggregates per-method windows; \texttt{AlertRule} /
+\texttt{AlertEvent} hold threshold rules and firings. \textbf{The attention
+queue} \textbf{[production]} --- a unified founder queue; every snooze/dismiss
+is an append-only \texttt{AttentionAction}, and schema drift at a wire boundary
+surfaces here rather than throwing silently. \textbf{Configuration}
+\textbf{[production]} --- all environment reads route through one typed module
+per language, enforced by a CI gate. \textbf{Operations} --- health routes,
+the production migration runbook, the forecast scheduler, and backup/restore
+are the operational surface; CI is a wall of consistency gates, including the
+check for this document.
+
+\textit{See also:} \texttt{Trace\_Coverage.md}, \texttt{Configuration.md},
+\texttt{docs/operations/Migration\_Runbook.md},
+\texttt{docs/operations/Forecasts\_Scheduler.md}.
+
+\section{The public-facing surfaces and the visibility model}
+
+The Codex serves two audiences from one app, split by route group: the
+\textbf{founder workspace} (\texttt{authed} --- uploads, dashboard, library,
+explorer, review, forecasts, ops, behind bcryptjs auth) and the
+\textbf{public site} (reviewed articles, structured responses, public
+Currents, forecasts, the methodology explorer, the calibration scorecard, the
+auto-generated research papers, critiques, revisions, and the syndication
+feeds). The \texttt{api} route group returns the unified envelope on every
+route.
+
+\textbf{The visibility model.} The default is private. A conclusion, source,
+or citation becomes public only by an explicit gate: public article citations
+resolve only when the cited source is itself public; the Bayesian marginal,
+the raw cascade, raw transcripts, and hidden source documents are
+founder-only; outside-reader replies and bounty critiques are double-opt-in.
+The public surfaces are also held to a mobile contract --- every
+mobile/desktop split ships both renderings and lets a CSS media query choose,
+so there is no post-hydration layout shift. The full route roster is in
+Appendix~A.
+
+\textit{See also:} \texttt{Mobile\_Polish\_Survey.md},
+\texttt{API\_Envelope\_Contract.md}, \texttt{Naming\_Conventions.md},
+\texttt{METHODOLOGICAL\_REORIENTATION.md}.
+
+\section{Open questions about the architecture itself}
+
+\begin{enumerate}[leftmargin=1.6em]
+  \item \textbf{The Noosphere layering is a target, not a fact.} The
+  hierarchical package layout is enforced by \texttt{import-linter}, but the
+  modules have not been physically relocated and the deprecation shims are
+  \textbf{[proposed]}.
+  \item \textbf{Where do \texttt{cascade}, \texttt{cases}, \texttt{decisions},
+  \texttt{principles}, \texttt{voices} live?} They are domain aggregates with
+  no clear home in the core/methods/inquiry split.
+  \item \textbf{Observability coverage.} At $\sim$9\% \texttt{@traced}
+  coverage the trace is not yet a reliable end-to-end picture of a request.
+  \item \textbf{The polymorphic citation key.} Promoting
+  \texttt{CitationVerdict.(citationKind, citationId)} to a discriminated union
+  is \textbf{[proposed]} and deferred.
+  \item \textbf{Two languages, one schema.} The JSON-Schema bridge aligns
+  Pydantic and TypeScript, but Prisma is still a third generator; there is no
+  single source of truth for all shared types.
+  \item \textbf{The BN's relationship to the cascade.} Whether a future
+  revision engine should consume BN marginals directly is open.
+\end{enumerate}
+
+\textit{See also:} \texttt{Noosphere\_Module\_Map.md},
+\texttt{Schema\_Audit\_Round18.md}, \texttt{Type\_Boundaries.md},
+\texttt{Known\_Cycles.md}, \texttt{Dead\_Code\_Survey.md}.
+
+\section*{Appendix A --- Component index (CI-checked)}
+\addcontentsline{toc}{section}{Appendix A --- Component index}
+
+This index exists so \texttt{scripts/check\_architecture\_consistency.py} can
+confirm the document still names every Noosphere package and every top-level
+Codex route. The canonical, CI-checked copy of this index is in the Markdown
+document; this is a printed mirror.
+
+\textbf{Noosphere packages} (\texttt{noosphere/noosphere/}):
+\texttt{core}, \texttt{ledger}, \texttt{observability}, \texttt{\_generated},
+\texttt{methods}, \texttt{evaluation}, \texttt{inquiry}, \texttt{coherence},
+\texttt{peer\_review}, \texttt{mitigations}, \texttt{rigor\_gate},
+\texttt{cascade}, \texttt{inference}, \texttt{cases}, \texttt{decisions},
+\texttt{principles}, \texttt{voices}, \texttt{articles},
+\texttt{distillation}, \texttt{temporal}, \texttt{literature},
+\texttt{currents}, \texttt{forecasts}, \texttt{social}, \texttt{decay},
+\texttt{io}, \texttt{extractors}, \texttt{embeddings}, \texttt{interop},
+\texttt{transfer}, \texttt{external\_battery}, \texttt{cli},
+\texttt{cli\_commands}, \texttt{docgen}, \texttt{benchmarks}.
+
+\textbf{Codex routes} (\texttt{theseus-codex/src/app/}):
+\texttt{home}, \texttt{about}, \texttt{ask}, \texttt{c}, \texttt{calibration},
+\texttt{critiques}, \texttt{currents}, \texttt{forecasts},
+\texttt{methodology}, \texttt{post}, \texttt{privacy}, \texttt{proof},
+\texttt{research}, \texttt{revisions}, \texttt{login}, \texttt{atom.xml},
+\texttt{feed.xml}, \texttt{authed}, \texttt{api}.
+
+\section*{Changelog}
+\addcontentsline{toc}{section}{Changelog}
+
+Each substantive change writes a new entry, tagged with the git SHA at which
+it landed.
+
+\begin{longtable}{p{2.2cm} p{2.2cm} p{9.5cm}}
+\textbf{Date} & \textbf{Git SHA} & \textbf{Change} \\
+\hline
+2026-05-14 & \texttt{0034929} & Initial architecture document. Connects the
+eight Round 17/18 scattered docs; describes the three components, the data and
+methodological substrates, the end-to-end reasoning workflow, the
+publication/signing pipeline, the observability and public surfaces, and the
+open architectural questions. Adds the CI-checked component index
+(Appendix~A). \\
+\end{longtable}
+
+\end{document}

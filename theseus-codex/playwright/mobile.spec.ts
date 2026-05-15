@@ -177,6 +177,196 @@ for (const viewport of VIEWPORTS) {
       const scrollTop = await page.evaluate(() => window.scrollY);
       expect(scrollTop).toBeLessThan(200);
     });
+
+    // ── Round 17 prompt 37 polish pass: mobile-specific layouts for the
+    //    surfaces introduced by Round 18 v2 (composition graph, methods
+    //    table, calibration plot, lineage timeline, auto-paper page).
+
+    test("methodology composition collapses the graph to a card list", async ({
+      page,
+    }) => {
+      await page.goto("/methodology/composition");
+      await expectNoHorizontalScroll(page);
+
+      // The radial SVG map is removed from the flow on phones; the
+      // method card list stands in as the mobile representation.
+      await expect(page.getByTestId("composition-graph")).toBeHidden();
+      await expect(page.getByTestId("composition-card-list")).toBeVisible();
+    });
+
+    test("methodology index table reflows to stacked cards", async ({
+      page,
+    }) => {
+      await page.goto("/methodology");
+      await expectNoHorizontalScroll(page);
+
+      const row = page.locator(".public-table-row").first();
+      if ((await row.count()) === 0) {
+        test.skip(true, "no methods in the manifest in this environment");
+        return;
+      }
+      // Each <tr> becomes a block-level card and the <thead> is taken
+      // out of the visual flow (clipped) — the cells carry their column
+      // name inline via `data-label`.
+      const rowDisplay = await row.evaluate(
+        (el) => window.getComputedStyle(el).display,
+      );
+      expect(rowDisplay).toBe("block");
+      const theadWidth = await page
+        .locator(".public-table thead")
+        .first()
+        .evaluate((el) => el.getBoundingClientRect().width);
+      expect(theadWidth).toBeLessThanOrEqual(2);
+    });
+
+    test("calibration reliability diagram swaps to the mobile bar chart", async ({
+      page,
+    }) => {
+      await page.goto("/calibration");
+      await expectNoHorizontalScroll(page);
+
+      // The square scatter is desktop-only; the per-bin bar chart is the
+      // mobile rendering. Both ship in the HTML, CSS picks one.
+      await expect(page.getByTestId("calibration-plot-mobile")).toBeVisible();
+      await expect(page.locator(".calibration-plot-desktop")).toBeHidden();
+    });
+
+    test("auto-paper page shows an open-in-PDF button, not an inline embed", async ({
+      page,
+    }) => {
+      const slug = await firstResearchSlug(page);
+      test.skip(
+        !slug,
+        "no published auto-paper available in this environment",
+      );
+      const response = await page.goto(`/research/${slug}`);
+      test.skip(
+        !response || response.status() >= 400,
+        "auto-paper route not reachable in this environment",
+      );
+
+      await expectNoHorizontalScroll(page);
+      // Abstract stays; the inline PDF <object> is replaced by a button.
+      await expect(page.getByTestId("paper-abstract")).toBeVisible();
+      await expect(page.getByTestId("paper-open-pdf")).toBeVisible();
+      await expect(page.locator(".paper-pdf-embed")).toBeHidden();
+    });
+  });
+}
+
+/**
+ * Resolve a published-post slug from the home rail so the lineage test
+ * has a real target. Returns null when no public post is exposed.
+ */
+async function firstPostSlug(page: Page): Promise<string | null> {
+  await page.goto("/");
+  const href = await page
+    .locator('a[href^="/post/"]')
+    .first()
+    .getAttribute("href")
+    .catch(() => null);
+  if (!href) return null;
+  const match = href.match(/^\/post\/([^/]+)/);
+  return match ? match[1] : null;
+}
+
+/**
+ * Resolve a published auto-paper slug. There is no public index page for
+ * research papers, so we probe the surfaces that link to them; returns
+ * null when none are reachable (the common case in CI).
+ */
+async function firstResearchSlug(page: Page): Promise<string | null> {
+  for (const route of ["/research", "/methodology"]) {
+    await page.goto(route).catch(() => null);
+    const href = await page
+      .locator('a[href^="/research/"]')
+      .first()
+      .getAttribute("href")
+      .catch(() => null);
+    if (!href) continue;
+    const match = href.match(/^\/research\/([^/.]+)$/);
+    if (match) return match[1];
+  }
+  return null;
+}
+
+// Lineage view: reflows from side-by-side swim lanes to a single
+// chronological column, with the lane filters in a sticky bottom sheet.
+for (const viewport of VIEWPORTS) {
+  test.describe(`lineage view @ ${viewport.width}×${viewport.height}`, () => {
+    test.use({ viewport: { width: viewport.width, height: viewport.height } });
+
+    test("lineage timeline reflows to a single column with a bottom sheet", async ({
+      page,
+    }) => {
+      const slug = await firstPostSlug(page);
+      test.skip(!slug, "no public post available in this environment");
+
+      const response = await page.goto(`/post/${slug}/lineage`);
+      test.skip(
+        !response || response.status() >= 400,
+        "lineage route not reachable for this post",
+      );
+
+      const sheet = page.getByTestId("lineage-mobile-sheet");
+      if ((await sheet.count()) === 0) {
+        test.skip(true, "this post exposes no public lineage timeline");
+        return;
+      }
+
+      await expectNoHorizontalScroll(page);
+      // Single-column body is shown; the side-by-side swim-lane toolbar
+      // is hidden and the lane filters live in the sticky bottom sheet.
+      await expect(page.getByTestId("lineage-mobile-column")).toBeVisible();
+      await expect(sheet).toBeVisible();
+
+      // The sheet pins to the bottom edge and expands on tap.
+      const handle = sheet.getByRole("button").first();
+      await expect(handle).toHaveAttribute("aria-expanded", "false");
+      await handle.click();
+      await expect(handle).toHaveAttribute("aria-expanded", "true");
+    });
+  });
+}
+
+/**
+ * Visual-regression capture. Tagged `@visual` so a screenshot review can
+ * select exactly this suite (`--grep @visual`); every catalogued issue
+ * in docs/architecture/Mobile_Polish_Survey.md is re-checkable from the
+ * artifacts this produces. The shots land in playwright/screenshots/.
+ */
+const SCREENSHOT_PAGES: Array<{ name: string; path: string }> = [
+  { name: "home", path: "/" },
+  { name: "methodology", path: "/methodology" },
+  { name: "methodology-composition", path: "/methodology/composition" },
+  { name: "calibration", path: "/calibration" },
+  { name: "currents", path: "/currents" },
+  { name: "forecasts", path: "/forecasts" },
+  { name: "about", path: "/about" },
+];
+
+for (const viewport of VIEWPORTS) {
+  test.describe(`mobile screenshots @ ${viewport.width}`, {
+    tag: "@visual",
+  }, () => {
+    test.use({ viewport: { width: viewport.width, height: viewport.height } });
+
+    for (const target of SCREENSHOT_PAGES) {
+      test(`capture ${target.name} @ ${viewport.width}`, {
+        tag: "@visual",
+      }, async ({ page }) => {
+        const response = await page.goto(target.path);
+        test.skip(
+          !response || response.status() >= 400,
+          `${target.path} not reachable in this environment`,
+        );
+        await expectNoHorizontalScroll(page);
+        await page.screenshot({
+          path: `playwright/screenshots/mobile/${target.name}-${viewport.width}.png`,
+          fullPage: true,
+        });
+      });
+    }
   });
 }
 

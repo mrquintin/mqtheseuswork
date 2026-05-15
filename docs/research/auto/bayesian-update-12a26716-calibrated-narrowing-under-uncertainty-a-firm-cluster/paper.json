@@ -1,0 +1,44 @@
+{
+  "cluster_id": "bayesian-update-12a26716",
+  "lead_conclusion_id": "conclusion-calibration-over-coverage-1",
+  "conclusion_ids": [
+    "conclusion-calibration-over-coverage-1",
+    "conclusion-calibration-over-coverage-2",
+    "conclusion-calibration-over-coverage-3"
+  ],
+  "methodology_profile_id": "profile-calibration-over-coverage-1",
+  "resolved_forecast_prediction_ids": [
+    "prediction-calibration-over-coverage-1",
+    "prediction-calibration-over-coverage-2"
+  ],
+  "disclosure": "machine-drafted, founder-reviewed",
+  "review_state": "pending",
+  "generated_at": "2026-05-14T18:01:25.473099+00:00Z",
+  "review": {
+    "slug": "bayesian-update-12a26716-calibrated-narrowing-under-uncertainty-a-firm-cluster",
+    "cluster_id": "bayesian-update-12a26716",
+    "mqs_composite": 0.6699,
+    "mqs_threshold": 0.55,
+    "severity_weighted": 1.2,
+    "blocker_count": 0,
+    "major_count": 2,
+    "minor_count": 0,
+    "info_count": 0,
+    "todo_count": 0,
+    "reference_count": 1,
+    "publish_ready": true,
+    "recommended_action": "publish",
+    "strengths": [
+      "2 resolved forecast(s) settle the cluster's claims against reality",
+      "Shared methodology root \"Calibrated narrowing under uncertainty\" across all 3 conclusions",
+      "3 registered failure mode(s) \u2014 the limits section is sourced, not invented",
+      "3 supporting-principle reference(s) anchor the cluster",
+      "Every numeric claim resolves to a database row (7 \\rowref markers, 0 TODO)",
+      "MQS composite 0.67 clears the 0.55 publish bar"
+    ],
+    "weaknesses": [
+      "2 major peer-review objection(s) unaddressed"
+    ]
+  },
+  "review_updated_at": "2026-05-14T18:01:27.213751+00:00Z"
+}

@@ -1,0 +1,196 @@
+\documentclass[11pt]{article}
+\input{_preamble}
+
+\title{\sffamily\bfseries Forecasts and Portfolio\\[2pt]\large Guide 5 of 6}
+\date{}
+\author{}
+
+\begin{document}
+\maketitle
+\thispagestyle{empty}
+
+\begin{tldr}
+Forecasts is the prediction-market surface; Portfolio is the
+equities-side companion. Both are read-only by default. Live trading is
+guarded by eight successive human gates: every gate is explicit, every
+gate is manual, and the system refuses to advance past any gate it does
+not see authorized. This guide explains paper vs.\ live, the eight-gate
+contract, and the per-bet operator confirmation flow.
+\end{tldr}
+
+\begin{youwillneed}
+\begin{itemize}[leftmargin=*,itemsep=0.2em,topsep=0.2em]
+  \item A signed-in Codex session as an operator.
+  \item For paper trading: the scheduler running.
+  \item For live trading: real funds, real credentials, and the
+        environment variables in
+        \file{docs/operations/Forecasts\_Portfolio\_Setup.md}. Do not
+        proceed past paper mode without reading that document and the
+        founder-alpha runbook end to end.
+\end{itemize}
+\end{youwillneed}
+
+\begin{notcovered}
+\begin{itemize}[leftmargin=*,itemsep=0.2em,topsep=0.2em]
+  \item Credential storage; covered authoritatively in
+        \file{docs/operations/Forecasts\_Portfolio\_Setup.md}.
+  \item Scheduler ops; see
+        \file{docs/operations/Forecasts\_Scheduler.md}.
+  \item The decision contract; see
+        \file{docs/architecture/Algorithmized\_Decision\_Making.md}.
+  \item The kill switch, deletion, replication outreach --- Guide 6.
+\end{itemize}
+\end{notcovered}
+
+\section{What Forecasts and Portfolio are}
+
+\page{Forecasts} (\route{/forecasts}) is a grid of prediction-market
+opportunities. Each card is one \texttt{ForecastPrediction} row. A row
+is publicly visible iff \texttt{liveAuthorizedAt IS NOT NULL} and
+\texttt{status IN ('OPEN','RESOLVED')}.
+
+\page{Portfolio} (\route{/forecasts/portfolio} and the dashboard rail)
+is the live and paper position view: open positions, realized PnL,
+exchange balances, exposure caps.
+
+\screenshot{05_forecasts_grid.png}{The Forecasts grid, with one open prediction in detail view.}{fc-grid}
+
+\section{Paper vs.\ live}
+
+The system has two trading modes, controlled by a single env flag:
+
+\begin{itemize}[leftmargin=*,itemsep=0.3em]
+  \item \textbf{Paper.} The default. The scheduler ingests markets,
+        scores them, and writes bets to a paper-mode ledger. No order
+        ever reaches an exchange. Paper mode is safe to run with
+        production credentials configured --- the live-trading flag is
+        the only thing that ever lets the system call
+        \code{submit\_live\_bet}.
+  \item \textbf{Live.} Requires \env{FORECASTS\_LIVE\_TRADING\_ENABLED=true}
+        \emph{plus} the seven other gates below. Real funds move.
+\end{itemize}
+
+\section{The eight-gate safety contract}
+
+The contract is taken verbatim from the founder-alpha runbook
+(\file{docs/operations/Forecasts\_Founder\_Alpha\_Runbook.md} \S0). Each
+gate is a separate human action; no gate auto-promotes the next.
+
+\begin{enumerate}[leftmargin=*,itemsep=0.3em]
+  \item \textbf{Exchange credentials configured.} Polymarket and/or
+        Kalshi env vars present on the API and scheduler processes.
+        See \file{Forecasts\_Portfolio\_Setup.md}.
+  \item \textbf{Scheduler ingesting \& monitoring.} The forecasts
+        worker container is running and writing recent rows. Absence
+        of fresh rows blocks every downstream step.
+  \item \textbf{Paper mode validated.} Paper bets have been written,
+        scored, and reconciled for long enough that you trust the
+        decision pipeline.
+  \item \textbf{Risk caps configured.}
+        \env{FORECASTS\_MAX\_STAKE\_USD} and
+        \env{FORECASTS\_MAX\_DAILY\_LOSS\_USD} are set to numbers you
+        are willing to lose. The submitter checks both on every bet.
+  \item \textbf{Master live flag.}
+        \env{FORECASTS\_LIVE\_TRADING\_ENABLED=true}. Without this,
+        no other authorization counts.
+  \item \textbf{Per-prediction live authorization.} The operator UI
+        sets \texttt{liveAuthorizedAt} on the specific
+        \texttt{ForecastPrediction} row. A row that is live-eligible
+        in principle but not yet authorized is still paper-only.
+  \item \textbf{Per-bet live confirmation.} For each individual bet,
+        the operator clicks confirm. The system refuses to submit
+        without it.
+  \item \textbf{Kill switch clear at submit time.} The submitter
+        re-checks the kill switch immediately before placing the
+        order. If the kill switch flipped between confirmation and
+        submission, the bet is dropped.
+\end{enumerate}
+
+If any gate fails, every later gate refuses. The staircase is the
+control surface.
+
+\screenshot{05_forecasts_authorization.png}{The per-bet confirmation modal: live amount, gate state, and the explicit human-confirmation click target.}{fc-auth}
+
+\section{The per-bet operator confirmation flow}
+
+Day-to-day, gates 1--5 are configured once and stay configured. The
+gates a founder sees on most bets are gates 6, 7, and 8.
+
+\begin{enumerate}[leftmargin=*,itemsep=0.3em]
+  \item Open the forecast row in \page{Forecasts}.
+  \item Click \page{Authorize for live trading} if the row is not
+        yet authorized. The system records \texttt{liveAuthorizedAt}
+        with the actor and timestamp. This is gate 6.
+  \item For each proposed bet, the row shows: amount, side, edge
+        estimate, model confidence, current price. Click
+        \page{Confirm live bet}. This is gate 7.
+  \item The submitter re-evaluates the kill switch
+        (\env{FORECASTS\_KILL\_SWITCH}) in the same request that
+        places the order. This is gate 8. You do not click anything
+        for gate 8 except to ensure the kill switch is not set.
+\end{enumerate}
+
+\section{The Portfolio surface}
+
+\page{Portfolio} shows: open positions, realized PnL by exchange and
+overall, exposure relative to the configured caps, and recent
+fills. It is the place to verify the daily loss cap is not about to
+trip, and to spot stuck or unfilled orders.
+
+\screenshot{05_portfolio_summary.png}{The Portfolio summary card on the founder dashboard.}{po-summary}
+
+The portfolio surface is read-only with respect to live trading. You
+cannot place a bet from the portfolio view --- bets are placed from
+the per-forecast card, where the gating UI lives.
+
+\begin{preview}
+The portfolio's equities sub-surface (real-money equity orders) is
+gated identically to the prediction-market surface but currently
+ships in read-only mode for live accounts. The eight gates are wired
+in; the equity submitter is staged behind an additional environment
+flag. See \file{docs/operations/Forecasts\_Founder\_Alpha\_Runbook.md}
+\S8 for the live-equity status.
+\end{preview}
+
+\section{What can go wrong}
+
+\begin{itemize}[leftmargin=*,itemsep=0.3em]
+  \item \textbf{A bet is suggested but cannot be authorized.} Almost
+        always a missing earlier gate. Look at the gate ribbon on the
+        forecast card --- it shows which gate is currently red.
+  \item \textbf{The kill switch trips mid-session.} The submitter
+        refuses new orders. Open positions are not auto-closed; you
+        close them manually if you want to. The kill switch path is
+        documented in Guide 6.
+  \item \textbf{Daily loss cap exceeded.} The submitter refuses new
+        orders for the rest of the day, even if all eight gates are
+        otherwise green. Reset is by the calendar day, not by
+        operator action.
+  \item \textbf{An exchange API returns an error.} The system retries
+        with bounded backoff. Persistent errors are surfaced on the
+        portfolio card; you can pause ingestion or trading from
+        \page{ops}.
+\end{itemize}
+
+\section{Where the docs are}
+
+\begin{itemize}[leftmargin=*,itemsep=0.2em]
+  \item \file{docs/operations/Forecasts\_Founder\_Alpha\_Runbook.md}
+        --- the single page to keep open during the first live
+        session.
+  \item \file{docs/operations/Forecasts\_Portfolio\_Setup.md} ---
+        credential surface; the negative rules around key material.
+  \item \file{docs/operations/Forecasts\_Scheduler.md} --- worker
+        loops.
+  \item \file{docs/architecture/Algorithmized\_Decision\_Making.md} ---
+        decision contract; how the gates and edge estimate compose.
+\end{itemize}
+
+\begin{nextup}
+Continue with \href{06_Operator_Console.pdf}{Guide 6 --- Operator
+Console} for the founder-only surfaces of last resort: the kill
+switch, live authorization revocation, deletion requests, and
+replication outreach drafts.
+\end{nextup}
+
+\end{document}

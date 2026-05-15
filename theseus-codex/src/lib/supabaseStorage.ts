@@ -12,7 +12,7 @@
  * to be playable — the blog gracefully degrades to text-only when
  * they're missing):
  *
- *   SUPABASE_URL                 e.g. https://ltuglowgkaircxgjcjvs.supabase.co
+ *   SUPABASE_URL                 e.g. https://<ref>.supabase.co
  *   SUPABASE_SERVICE_ROLE_KEY    server-side-only key; never ship to the
  *                                 browser. Creates + signs upload URLs.
  *   SUPABASE_AUDIO_BUCKET        bucket name (default: "audio"). MUST be
@@ -102,10 +102,10 @@ export async function createSignedAudioUploadUrl(
   }
   // Supabase's sign endpoint returns a URL *relative to the Storage
   // service*, i.e. "/object/upload/sign/<bucket>/<path>?token=<jwt>".
-  // SUPABASE_URL is the project origin ("https://xxx.supabase.co"),
+  // SUPABASE_URL is the project origin ("https://<ref>.supabase.co"),
   // NOT the Storage service root ("…/storage/v1"). Naively doing
   // `${cfg.url}${data.url}` produces
-  //   https://xxx.supabase.co/object/upload/sign/…
+  //   https://<ref>.supabase.co/object/upload/sign/…
   // which isn't routed to Storage at all — the browser PUT fails
   // as an opaque "Failed to fetch" / CORS error after a long wait.
   //

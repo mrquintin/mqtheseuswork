@@ -1,17 +1,24 @@
 import type { ReliabilityBin } from "@/lib/calibrationData";
 
 /**
- * Server-rendered SVG calibration plot.
+ * Server-rendered SVG reliability diagram.
  *
  * Visual conventions:
  *   - X axis = predicted probability (mean of the bin).
  *   - Y axis = realized frequency (Σ outcomes / n in the bin).
- *   - Diagonal y = x is the perfectly-calibrated reference.
- *   - Vertical whiskers show the bootstrap CI on observed frequency.
- *   - Sparse bins (n < SPARSE_BIN_THRESHOLD) are drawn open (no fill,
- *     no whisker, lower opacity) and labelled "n=<count>". The page
- *     never implies more precision than the data supports.
+ *   - The dashed gold diagonal y = x is the perfect-calibration reference.
+ *   - Vertical whiskers show the *bootstrap* CI on observed frequency
+ *     (the manifest's `ci_low`/`ci_high` — a non-parametric percentile
+ *     bootstrap, never an analytic normal approximation).
+ *   - Every drawn bin is labelled with its sample size `n=<count>`.
+ *   - Sparse bins (n < sparseThreshold) are greyed: hollow grey marker,
+ *     no whisker, lower opacity. A thin bin must never look like a
+ *     confident point.
  *   - Empty bins are not drawn.
+ *
+ * Mobile: the SVG scales via `viewBox` + `width: 100%`, and the figure
+ * carries a text legend + caption so the diagram stays comprehensible
+ * when the markers are too small to inspect individually.
  */
 export type CalibrationPlotProps = {
   bins: ReliabilityBin[];
@@ -20,26 +27,33 @@ export type CalibrationPlotProps = {
   sparseThreshold?: number;
 };
 
+const DENSE_COLOR = "#3a342a";
+const SPARSE_COLOR = "#a39a86";
+const DIAGONAL_COLOR = "#d4a017";
+
 export default function CalibrationPlot({
   bins,
   width = 480,
   height = 480,
   sparseThreshold = 5,
 }: CalibrationPlotProps) {
-  const padding = { top: 24, right: 24, bottom: 48, left: 56 };
+  const padding = { top: 24, right: 28, bottom: 48, left: 56 };
   const plotW = width - padding.left - padding.right;
   const plotH = height - padding.top - padding.bottom;
   const x = (p: number) => padding.left + p * plotW;
   const y = (p: number) => padding.top + (1 - p) * plotH;
 
-  const visibleBins = bins.filter((b) => b.n > 0 && b.meanPredicted !== null && b.observedFrequency !== null);
+  const visibleBins = bins.filter(
+    (b) => b.n > 0 && b.meanPredicted !== null && b.observedFrequency !== null,
+  );
+  const isSparse = (b: ReliabilityBin) => b.sparse || b.n < sparseThreshold;
 
   const gridTicks = [0, 0.25, 0.5, 0.75, 1];
 
   return (
     <figure
       role="figure"
-      aria-label="Calibration plot — predicted probability vs realized frequency"
+      aria-label="Reliability diagram — predicted probability vs realized frequency, with bootstrap confidence intervals per bin"
       style={{ margin: 0 }}
     >
       <svg
@@ -64,66 +78,92 @@ export default function CalibrationPlot({
             <line x1={padding.left} y1={y(t)} x2={padding.left + plotW} y2={y(t)} />
           </g>
         ))}
-        {/* Diagonal reference y = x */}
+        {/* Diagonal reference y = x — perfect calibration */}
         <line
           x1={x(0)}
           y1={y(0)}
           x2={x(1)}
           y2={y(1)}
-          stroke="#d4a017"
+          stroke={DIAGONAL_COLOR}
           strokeDasharray="4 4"
           strokeWidth={1.5}
         />
-        {/* Bin whiskers (CI on observed frequency) */}
+        <text
+          x={x(0.78)}
+          y={y(0.78) - 6}
+          fontSize={9}
+          fill={DIAGONAL_COLOR}
+          fontFamily="ui-monospace, SFMono-Regular, Menlo, monospace"
+        >
+          perfect calibration
+        </text>
+        {/* Bin whiskers — bootstrap CI on observed frequency */}
         {visibleBins.map((b, i) => {
           if (b.meanPredicted === null || b.observedFrequency === null) return null;
-          if (b.sparse || b.ciLow === null || b.ciHigh === null) return null;
+          if (isSparse(b) || b.ciLow === null || b.ciHigh === null) return null;
           return (
-            <line
-              key={`whisker-${i}`}
-              x1={x(b.meanPredicted)}
-              y1={y(b.ciLow)}
-              x2={x(b.meanPredicted)}
-              y2={y(b.ciHigh)}
-              stroke="#3a342a"
-              strokeWidth={1.5}
-            />
+            <g key={`whisker-${i}`} stroke={DENSE_COLOR} strokeWidth={1.5}>
+              <line
+                x1={x(b.meanPredicted)}
+                y1={y(b.ciLow)}
+                x2={x(b.meanPredicted)}
+                y2={y(b.ciHigh)}
+              />
+              <line
+                x1={x(b.meanPredicted) - 3}
+                y1={y(b.ciLow)}
+                x2={x(b.meanPredicted) + 3}
+                y2={y(b.ciLow)}
+              />
+              <line
+                x1={x(b.meanPredicted) - 3}
+                y1={y(b.ciHigh)}
+                x2={x(b.meanPredicted) + 3}
+                y2={y(b.ciHigh)}
+              />
+            </g>
           );
         })}
-        {/* Bin points */}
+        {/* Bin points — every bin labelled by sample size */}
         {visibleBins.map((b, i) => {
           if (b.meanPredicted === null || b.observedFrequency === null) return null;
-          const sparse = b.sparse || b.n < sparseThreshold;
+          const sparse = isSparse(b);
           const cx = x(b.meanPredicted);
           const cy = y(b.observedFrequency);
+          // Keep the n= label inside the frame on the far-right bins.
+          const labelRight = b.meanPredicted <= 0.8;
           return (
             <g key={`pt-${i}`}>
               <circle
                 cx={cx}
                 cy={cy}
                 r={5}
-                fill={sparse ? "#ffffff" : "#3a342a"}
-                stroke="#3a342a"
+                fill={sparse ? "#ffffff" : DENSE_COLOR}
+                stroke={sparse ? SPARSE_COLOR : DENSE_COLOR}
                 strokeWidth={1.5}
-                opacity={sparse ? 0.85 : 1}
+                opacity={sparse ? 0.7 : 1}
               />
-              {sparse ? (
-                <text
-                  x={cx + 8}
-                  y={cy - 4}
-                  fontSize={10}
-                  fill="#7a6d55"
-                  fontFamily="ui-monospace, SFMono-Regular, Menlo, monospace"
-                >
-                  n={b.n}
-                </text>
-              ) : null}
+              <text
+                x={labelRight ? cx + 8 : cx - 8}
+                y={cy - 6}
+                fontSize={10}
+                fill={sparse ? SPARSE_COLOR : "#5a5247"}
+                textAnchor={labelRight ? "start" : "end"}
+                fontFamily="ui-monospace, SFMono-Regular, Menlo, monospace"
+              >
+                n={b.n}
+              </text>
             </g>
           );
         })}
         {/* Axis labels */}
         {gridTicks.map((t) => (
-          <g key={`axis-${t}`} fontFamily="ui-monospace, SFMono-Regular, Menlo, monospace" fontSize={10} fill="#5a5247">
+          <g
+            key={`axis-${t}`}
+            fontFamily="ui-monospace, SFMono-Regular, Menlo, monospace"
+            fontSize={10}
+            fill="#5a5247"
+          >
             <text x={x(t)} y={padding.top + plotH + 16} textAnchor="middle">
               {t.toFixed(2)}
             </text>
@@ -137,7 +177,7 @@ export default function CalibrationPlot({
           y={height - 12}
           textAnchor="middle"
           fontSize={11}
-          fill="#3a342a"
+          fill={DENSE_COLOR}
           fontFamily="ui-monospace, SFMono-Regular, Menlo, monospace"
         >
           Predicted probability
@@ -147,25 +187,38 @@ export default function CalibrationPlot({
           y={padding.top + plotH / 2}
           textAnchor="middle"
           fontSize={11}
-          fill="#3a342a"
+          fill={DENSE_COLOR}
           fontFamily="ui-monospace, SFMono-Regular, Menlo, monospace"
           transform={`rotate(-90 16 ${padding.top + plotH / 2})`}
         >
           Realized frequency
         </text>
       </svg>
-      {visibleBins.length === 0 ? (
-        <figcaption
-          style={{
-            marginTop: "0.75rem",
-            fontSize: "0.78rem",
-            color: "#7a6d55",
-            fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace",
-          }}
-        >
-          No resolved forecasts yet — the calibration plot will populate as predictions resolve.
-        </figcaption>
-      ) : null}
+      <figcaption
+        style={{
+          marginTop: "0.6rem",
+          fontSize: "0.74rem",
+          color: "#5a5247",
+          lineHeight: 1.5,
+          fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace",
+        }}
+      >
+        {visibleBins.length === 0 ? (
+          <>
+            No resolved forecasts yet — the reliability diagram will populate as
+            predictions resolve.
+          </>
+        ) : (
+          <>
+            <span style={{ color: DENSE_COLOR }}>● filled</span> = bin with ≥{" "}
+            {sparseThreshold} resolutions; whisker = 90% bootstrap CI on observed
+            frequency.{" "}
+            <span style={{ color: SPARSE_COLOR }}>○ grey</span> = sparse bin (n &lt;{" "}
+            {sparseThreshold}), no CI drawn — we refuse to draw an interval we
+            cannot defend. Every bin is labelled with its sample size.
+          </>
+        )}
+      </figcaption>
     </figure>
   );
 }

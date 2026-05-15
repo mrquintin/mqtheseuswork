@@ -337,8 +337,9 @@ describe("attention API audit log", () => {
     });
     const res = await POST(req);
     expect(res.status).toBe(200);
-    const body = (await res.json()) as { ok: boolean; action: string };
-    expect(body).toEqual({ ok: true, action: "dismiss" });
+    const body = (await res.json()) as { ok: boolean; data: { action: string } };
+    expect(body.ok).toBe(true);
+    expect(body.data).toEqual({ action: "dismiss" });
     expect(dbMock.attentionAction.create).toHaveBeenCalledWith({
       data: expect.objectContaining({
         organizationId: tenant.organizationId,
@@ -382,13 +383,16 @@ describe("attention API audit log", () => {
     const res = await POST(req);
     expect(res.status).toBe(200);
     const body = (await res.json()) as {
-      action: string;
-      rewrittenFromSnooze?: boolean;
-      reason?: string;
+      ok: true;
+      data: {
+        action: string;
+        rewrittenFromSnooze?: boolean;
+        reason?: string;
+      };
     };
-    expect(body.action).toBe("dismiss");
-    expect(body.rewrittenFromSnooze).toBe(true);
-    expect(body.reason).toBe(DISMISS_REASON_DEFERRED);
+    expect(body.data.action).toBe("dismiss");
+    expect(body.data.rewrittenFromSnooze).toBe(true);
+    expect(body.data.reason).toBe(DISMISS_REASON_DEFERRED);
     expect(dbMock.attentionAction.create).toHaveBeenCalledWith({
       data: expect.objectContaining({
         action: "dismiss",
@@ -411,8 +415,8 @@ describe("attention API audit log", () => {
     });
     const res = await POST(req);
     expect(res.status).toBe(200);
-    const body = (await res.json()) as { action: string };
-    expect(body.action).toBe("snooze");
+    const body = (await res.json()) as { ok: true; data: { action: string } };
+    expect(body.data.action).toBe("snooze");
     expect(dbMock.attentionAction.create).toHaveBeenCalledWith({
       data: expect.objectContaining({
         action: "snooze",

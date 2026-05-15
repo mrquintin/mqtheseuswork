@@ -1,0 +1,49 @@
+{
+  "schema": "theseus.transfer.envelope.v1",
+  "study_version": "transfer-v1",
+  "run_stamp": "20260514T233129Z",
+  "git_sha": "0034929158a42e4e536d85efd41ab22721c7ca50",
+  "git_branch": "main",
+  "git_dirty": true,
+  "pairs_manifest": {
+    "path": "benchmarks/transfer/v1/pairs.yaml",
+    "sha256": "906c3d00a3dbc17a9f4a9ca5b34dbf836c728023198a608ebb0f8a182c1b7ab7",
+    "frozen_at": "2026-05-14",
+    "n_pairs": 3
+  },
+  "source_dataset": {
+    "path": "benchmarks/quintin_hypothesis/v1/dataset.jsonl",
+    "sha256": "b25ab62102389fbbbf2cdad08cc5a056e4946631835a89672fe88aa0a8fbe7c4",
+    "sha256_declared": "b25ab62102389fbbbf2cdad08cc5a056e4946631835a89672fe88aa0a8fbe7c4",
+    "sha256_verified": true
+  },
+  "embedder": {
+    "id": "hash-det-v1",
+    "dim": 192
+  },
+  "seed": 17,
+  "bootstrap": {
+    "n_resamples": 10000,
+    "method": "unpaired-percentile-bootstrap",
+    "alpha": 0.05
+  },
+  "model": {
+    "kind": "multinomial-logistic-regression",
+    "features": [
+      "cosine",
+      "hoyer_diff",
+      "norm_diff",
+      "mean_abs_diff",
+      "max_abs_diff",
+      "std_diff",
+      "l1_diff",
+      "hoyer_premise",
+      "hoyer_cont"
+    ],
+    "l2_penalty": 1.0,
+    "k_folds": 5
+  },
+  "min_n_for_conclusion": 20,
+  "python_version": "3.13.7",
+  "platform": "macOS-26.2-arm64-arm-64bit-Mach-O"
+}

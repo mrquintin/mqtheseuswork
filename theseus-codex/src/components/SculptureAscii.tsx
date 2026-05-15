@@ -24,10 +24,9 @@ import { CELL_H, CELL_W } from "@/lib/ascii/shapeVectors";
  *   4. Feed the 2D canvas into `AsciiCanvas`, which walks its cells with
  *      the 6D shape-vector picker and produces glyphs.
  *
- * Performance: at the typical mesh size (~2500 triangles) this is
- * ~150k triangle fills per second at 60fps, which the 2D canvas handles
- * well on anything modern. We `paused` the component automatically when
- * the mesh isn't loaded so we don't burn frames over a blank scene.
+ * Performance: at the typical mesh size (~2500 triangles), a 60fps
+ * backdrop can consume real main-thread time. The default is therefore
+ * a static rendered frame; callers must explicitly opt into animation.
  */
 
 export type SculptureAsciiProps = {
@@ -52,6 +51,8 @@ export type SculptureAsciiProps = {
    * legible. Default 1.0.
    */
   cellScale?: number;
+  /** Opt into a continuous animation loop. Defaults to false for responsiveness. */
+  animated?: boolean;
   ariaLabel?: string;
 };
 
@@ -446,6 +447,7 @@ export default function SculptureAscii({
   scale = 0.85,
   color = "var(--amber)",
   cellScale = 1.0,
+  animated = false,
   ariaLabel = "Classical sculpture, rotating",
 }: SculptureAsciiProps) {
   const [meshState, setMeshState] = useState<{
@@ -887,7 +889,7 @@ export default function SculptureAscii({
       contrast={2.0}
       color={color}
       cellScale={cellScale}
-      paused={!meshState}
+      paused={!meshState || !animated}
       ariaLabel={ariaLabel}
       style={{ display: "flex", justifyContent: "center" }}
     />

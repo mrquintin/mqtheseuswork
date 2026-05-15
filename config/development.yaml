@@ -1,0 +1,18 @@
+# Theseus — development overlay.
+#
+# Loaded after defaults.yaml when THESEUS_ENV=development (the default).
+# Local-friendly tweaks: chattier logging, lower request budgets, all
+# strategic enforcement off.
+
+log_level: DEBUG
+
+# Strategic toggles deliberately stay shadow/off in dev so noisy
+# enforcement doesn't block iteration.
+adversarial_enforce: false
+adversarial_shadow: true
+voice_citation_shadow: true
+calibration_confidence_enabled: false
+
+# Public site origin matches the local Next.js dev server.
+public_site_origin: http://localhost:3001
+currents_cors_origins: http://localhost:3001

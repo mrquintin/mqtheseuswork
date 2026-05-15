@@ -1,0 +1,17 @@
+{
+  "kind": "publication",
+  "headline": "QH Benchmark v1 \u2014 first real run results published",
+  "summary": "First end-to-end run of the QH benchmark v1. Firm contradiction-geometry probe: accuracy 0.2877, AUROC 0.5858. 6 slice(s) where a baseline beats the firm probe are reported honestly. MQS-on-the-firm-probe 0.4741.",
+  "url": "https://theseuscodex.com/methodology/benchmark/qh",
+  "occurred_at": "2026-05-14T05:29:27.832603+00:00",
+  "conclusion_slug": "qh-benchmark-v1-first-run",
+  "methodology_names": [
+    "contradiction_geometry"
+  ],
+  "domain_tags": [
+    "physics",
+    "economics",
+    "ethics"
+  ],
+  "is_major": true
+}

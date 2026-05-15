@@ -42,6 +42,12 @@ export interface SentenceProvenanceReport {
   overall_provenance: number;
   sources: Record<string, SourceContribution>;
   sentences: SentenceProvenance[];
+  /**
+   * Optional per-report override of the firm's publish-worthy
+   * provenance bar. When the assembler does not ship one, the front
+   * end falls back to {@link PUBLISH_WORTHY_THRESHOLD}.
+   */
+  publish_threshold?: number;
 }
 
 const CITE_MARKER = /\[S(\d+)\]/g;
@@ -173,14 +179,85 @@ export function describeBand(band: ProvenanceBand): string {
 }
 
 /**
- * Faint gutter tint colour for each band. Kept on a separate axis from
- * the article body so typography stays clean. The values are intentionally
- * low-alpha — the gutter should be readable, not loud.
+ * Faint gutter tint colour for each band. Retained for any legacy
+ * caller that still wants a background wash; the polished heatmap
+ * renders a thin left-margin bar via {@link barColorFor} instead.
  */
 export function tintFor(band: ProvenanceBand): string {
   if (band === "strong") return "rgba(95, 168, 110, 0.28)";
   if (band === "moderate") return "rgba(214, 156, 63, 0.22)";
   return "rgba(201, 74, 31, 0.32)";
+}
+
+// Endpoints of the left-margin bar ramp. At full provenance the bar is
+// a muted parchment-shadow tone that sits quietly in the margin; as
+// provenance drops it ramps toward the Currents amber so a reader can
+// scan a column of bars and spot weak passages without reading a
+// single number.
+// R-024: ramp endpoints. Strong-evidence end is `--parchment-dim`
+// (#8a8170-ish — near-neutral parchment), weak-evidence end is the
+// firm's `--ember` (#ac3625) so the softest claims are visibly hot
+// in both dark and light themes (contrast verified ≥ 3:1).
+const BAR_STRONG_RGB = [138, 129, 112] as const; // matches --parchment-dim
+const BAR_WEAK_RGB = [172, 54, 37] as const; // matches --ember
+
+/**
+ * Colour of the thin left-margin provenance bar for a sentence. The
+ * ramp is continuous (not banded) so neighbouring sentences differ
+ * smoothly — the bar is unobtrusive at strength and legible at
+ * weakness. Deterministic: the same provenance always yields the same
+ * string, which keeps the gutter snapshot tests stable.
+ */
+export function barColorFor(provenance: number): string {
+  const p = Number.isFinite(provenance) ? Math.min(1, Math.max(0, provenance)) : 0;
+  const weakness = 1 - p;
+  const channel = (i: number) =>
+    Math.round(BAR_STRONG_RGB[i] + (BAR_WEAK_RGB[i] - BAR_STRONG_RGB[i]) * weakness);
+  return `rgb(${channel(0)}, ${channel(1)}, ${channel(2)})`;
+}
+
+/**
+ * The firm's "publish-worthy" provenance bar. A published sentence
+ * whose provenance falls below this line is flagged with a "weak
+ * evidence" pill in the gutter — the firm surfaces its own softest
+ * claims rather than burying them under a slightly darker shade.
+ * Mirrors the spirit of `MQS_PUBLISH_THRESHOLD`
+ * (noosphere/noosphere/docgen/paper_generator.py).
+ */
+export const PUBLISH_WORTHY_THRESHOLD = 0.55;
+
+/**
+ * Resolve the publish-worthy threshold for a report: honour a
+ * per-report override shipped by the assembler when it is a sane
+ * fraction, otherwise fall back to {@link PUBLISH_WORTHY_THRESHOLD}.
+ */
+export function publishThresholdFor(
+  report?: { publish_threshold?: number } | null,
+): number {
+  const t = report?.publish_threshold;
+  if (typeof t === "number" && Number.isFinite(t) && t > 0 && t <= 1) return t;
+  return PUBLISH_WORTHY_THRESHOLD;
+}
+
+/** True when a sentence sits below the firm's publish-worthy bar. */
+export function isWeakEvidence(
+  provenance: number,
+  threshold: number = PUBLISH_WORTHY_THRESHOLD,
+): boolean {
+  return !Number.isFinite(provenance) || provenance < threshold;
+}
+
+/**
+ * Count the sentences in a report that fall below the publish-worthy
+ * bar. Lets a caller report "N weak sentences" without walking the
+ * list itself.
+ */
+export function weakEvidenceCount(
+  report: SentenceProvenanceReport,
+  threshold?: number,
+): number {
+  const t = threshold ?? publishThresholdFor(report);
+  return report.sentences.filter((s) => isWeakEvidence(s.provenance, t)).length;
 }
 
 /**
@@ -211,18 +288,22 @@ export function summaryForScreenReader(sentence: SentenceProvenance): string {
 }
 
 /**
- * Toggle persistence: cookie/localStorage with a graceful default-off
- * when storage is restricted (Safari ITP, private mode).
+ * Toggle persistence: localStorage with a graceful default-*on* when
+ * storage is restricted (Safari ITP, private mode). The polished
+ * heatmap shows the bar by default on article-detail pages; the
+ * stored value only records an explicit reader choice to hide it.
  */
 const TOGGLE_KEY = "theseus.provenance.gutterVisible";
 
 export function readToggle(): boolean {
-  if (typeof window === "undefined") return false;
+  if (typeof window === "undefined") return true;
   try {
     const raw = window.localStorage.getItem(TOGGLE_KEY);
-    return raw === "true";
+    // Default ON — the bar is hidden only when the reader has
+    // explicitly turned it off.
+    return raw !== "false";
   } catch {
-    return false;
+    return true;
   }
 }
 

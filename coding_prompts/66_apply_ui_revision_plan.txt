@@ -1,0 +1,83 @@
+You are operating in /Users/michaelquintin/Desktop/Theseus.
+
+Goal: apply the revisions from prompt 65's
+`UI_CRITIQUE_2026_05_13.md`. This is the IMPLEMENTATION pass.
+The founder is expected to have read and possibly edited the
+critique file between prompts 65 and 66. Trust the file's
+priority order and trust its specs.
+
+Before you start — read:
+1. `coding_prompts/UI_CRITIQUE_2026_05_13.md` end-to-end.
+2. The screenshot evidence under
+   `docs/ui-critique/2026-05-13/screenshots/`.
+3. Round 18 prompt 06's design-system primitives (if landed)
+   and prompts 26-30 (the v2 UI passes). Reconcile any
+   conflict by deferring to the critique's prioritised plan
+   AND to whatever has already shipped — the critique applies
+   to current state, not to a previous version.
+
+Implement:
+
+A. Apply revisions in priority order from the critique's
+   section 5. For each revision R-NNN:
+   - Implement the change as specified.
+   - If a revision's spec requires a primitive or token that
+     does not yet exist, create the smallest sufficient
+     primitive under
+     `theseus-codex/src/components/design/` and document it
+     in `docs/design/Design_System.md` (or add to the
+     existing doc if present).
+   - Tag every commit message with `[UI-R-NNN]` so the
+     revision-to-commit mapping is auditable.
+   - For each surface touched: snapshot a before/after via
+     Playwright, write to
+     `docs/ui-critique/2026-05-13/applied/R-NNN/`.
+
+B. Refuse a revision in the file IF, after attempting it, the
+   change measurably degrades accessibility (WCAG AA contrast,
+   keyboard navigation, screen-reader landmarks) or breaks an
+   existing test. Document the refusal in
+   `docs/ui-critique/2026-05-13/refusals.md` with the
+   specific reason. The founder reads refusals; refusals are
+   not silent.
+
+C. Reconcile with prompt 54 (dashboard terminology cleanup):
+   if the critique recommends different wording, the
+   critique's wording WINS unless the critique would re-
+   introduce a string the founder explicitly removed in
+   prompt 54 (the Attention box, for example). Document any
+   reconciliation in
+   `docs/ui-critique/2026-05-13/reconciliation_with_p54.md`.
+
+D. Visual regression. After every five revisions, run the
+   Playwright snapshot suite. Failures that match an
+   intended change get a baseline update with `[UI-R-NNN]`
+   in the commit; failures that look unintended halt the
+   pass with a structured-log entry naming the unexpected
+   diff.
+
+E. Final report. `docs/ui-critique/2026-05-13/applied/SUMMARY.md`
+   lists every R-NNN with status: APPLIED, REFUSED, DEFERRED
+   (with reason for each). The summary's "applied" count plus
+   "refused" plus "deferred" must equal the critique's total
+   revision count — no silent drops.
+
+Constraints
+- Do not invent revisions outside the critique. If you find
+  something while implementing that the critique missed, add
+  it to `docs/ui-critique/2026-05-13/found_during_apply.md`
+  for the founder's next pass; do not implement it now.
+- Do not refactor unrelated code. The critique scope is the
+  scope.
+- Do not regress prompt 54's specific fixes (attention box
+  stays removed, library button stays consistent).
+
+SCOPE
+- `docs/ui-critique/2026-05-13/refusals.md` CREATE
+- `docs/ui-critique/2026-05-13/reconciliation_with_p54.md` CREATE
+- `docs/ui-critique/2026-05-13/applied/SUMMARY.md` CREATE
+- `docs/ui-critique/2026-05-13/found_during_apply.md` CREATE
+- `docs/design/Design_System.md` MODIFY
+- (per-revision files implied by the critique — discovered
+   dynamically; the agent picks them as it implements each
+   revision; this prompt deliberately does not enumerate)

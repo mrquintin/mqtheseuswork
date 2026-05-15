@@ -1,0 +1,61 @@
+{
+  "schema": "theseus.qh.ablation.envelope.v1",
+  "run_stamp": "20260514T062948Z",
+  "created_utc": "2026-05-14T06:29:50Z",
+  "study": "householder_reflection_ablation",
+  "benchmark_version": "qh-v1",
+  "tooling": "noosphere.benchmarks.qh_ablations",
+  "git_sha": "0034929158a42e4e536d85efd41ab22721c7ca50",
+  "git_branch": "main",
+  "git_dirty": true,
+  "dataset": {
+    "path": "/Users/michaelquintin/Desktop/Theseus/benchmarks/quintin_hypothesis/v1/dataset.jsonl",
+    "sha256": "b25ab62102389fbbbf2cdad08cc5a056e4946631835a89672fe88aa0a8fbe7c4",
+    "n_items": 1936,
+    "n_items_evaluation": 1547,
+    "n_seed_pairs": 127,
+    "holdout_modulus": 5
+  },
+  "embedder": {
+    "id": "hash-det-v1",
+    "dim": 192
+  },
+  "variants": [
+    "full",
+    "no_reflection",
+    "random_reflection",
+    "asym_positive",
+    "raw_embedding"
+  ],
+  "control_is_production_code_path": true,
+  "seeds": {
+    "random_reflection_axis": 1729,
+    "bootstrap": 20259
+  },
+  "bootstrap": {
+    "n_resamples": 10000,
+    "seed": 20259,
+    "method": "paired percentile bootstrap (shared resample indices)",
+    "alpha": 0.05
+  },
+  "direction_estimator": {
+    "method": "uncentered_local_pca",
+    "exemplar_count": 127,
+    "low_confidence": false
+  },
+  "recommendation": {
+    "label": "KEEP-WITH-FURTHER-WORK",
+    "author": "noosphere-research:methodology-review",
+    "signed_utc": "2026-05-14T06:29:49Z"
+  },
+  "embedding_budget": {
+    "embedder": "hash-det-v1",
+    "estimated_credits": 0,
+    "note": "hash-det-v1 is local and deterministic; 0 API credits."
+  },
+  "platform": {
+    "python": "3.13.7",
+    "platform": "macOS-26.2-arm64-arm-64bit-Mach-O",
+    "numpy": "1.26.4"
+  }
+}

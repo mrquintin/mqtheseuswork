@@ -1,0 +1,141 @@
+{
+  "schema": "theseus.qh.cross_model.envelope.v1",
+  "run_stamp": "20260514T060554Z",
+  "created_utc": "2026-05-14T06:07:02Z",
+  "benchmark_version": "qh-v1",
+  "tooling": "noosphere.benchmarks.cross_model_runner + cross_model_analysis",
+  "git_sha": "0034929158a42e4e536d85efd41ab22721c7ca50",
+  "git_branch": "main",
+  "git_dirty": true,
+  "dataset": {
+    "path": "/Users/michaelquintin/Desktop/Theseus/benchmarks/quintin_hypothesis/v1/dataset.jsonl",
+    "sha256": "b25ab62102389fbbbf2cdad08cc5a056e4946631835a89672fe88aa0a8fbe7c4",
+    "n_items": 1936,
+    "domains": [
+      "economics",
+      "ethics",
+      "physics"
+    ],
+    "labels": [
+      "coherent",
+      "contradicting",
+      "orthogonal"
+    ],
+    "frozen_state_verified": true,
+    "frozen_reference_sha256": "b25ab62102389fbbbf2cdad08cc5a056e4946631835a89672fe88aa0a8fbe7c4"
+  },
+  "roster": {
+    "requested": [
+      "hash-det",
+      "minilm-l6",
+      "bge-large",
+      "openai-3-large",
+      "voyage-3",
+      "cohere-en-v3"
+    ],
+    "n_requested": 6,
+    "n_run": 3,
+    "n_skipped": 3,
+    "models_run": [
+      "hash-det:qh-cross-v1",
+      "st:sentence-transformers/all-MiniLM-L6-v2",
+      "st:BAAI/bge-large-en-v1.5"
+    ],
+    "models_skipped": [
+      {
+        "model": "openai:text-embedding-3-large",
+        "reason": "adapter 'openai:text-embedding-3-large' failed on item 'qh-v1-physics-000000': Adapter requires environment variable 'OPENAI_API_KEY'; refusing to call API."
+      },
+      {
+        "model": "voyage:voyage-3",
+        "reason": "adapter 'voyage:voyage-3' failed on item 'qh-v1-physics-000000': Adapter requires environment variable 'VOYAGE_API_KEY'; refusing to call API."
+      },
+      {
+        "model": "cohere:embed-english-v3.0",
+        "reason": "adapter 'cohere:embed-english-v3.0' failed on item 'qh-v1-physics-000000': Adapter requires environment variable 'COHERE_API_KEY'; refusing to call API."
+      }
+    ]
+  },
+  "n_models_disclosure": "n=3 of 6 embedding back-ends",
+  "runners": [
+    "contradiction_geometry",
+    "cosine",
+    "random"
+  ],
+  "seeds": {
+    "random_runner": 0,
+    "probe_vs_cosine_permutation": 17
+  },
+  "embedding_budget": {
+    "per_model_item_cap": 2000,
+    "estimated_credits": 0,
+    "ceiling_note": "every runnable back-end this run is local (hash-det / sentence-transformers); 0 paid API credits consumed",
+    "within_budget": true,
+    "any_model_truncated": false
+  },
+  "preflight": {
+    "roster": [
+      {
+        "model": "hash-det",
+        "available": true,
+        "reason": "deterministic local control \u2014 always available, 0 credits"
+      },
+      {
+        "model": "minilm-l6",
+        "available": true,
+        "reason": "local sentence-transformers runtime importable"
+      },
+      {
+        "model": "bge-large",
+        "available": true,
+        "reason": "local sentence-transformers runtime importable"
+      },
+      {
+        "model": "openai-3-large",
+        "available": false,
+        "reason": "api key OPENAI_API_KEY absent \u2014 adapter skipped (no API call attempted)"
+      },
+      {
+        "model": "voyage-3",
+        "available": false,
+        "reason": "api key VOYAGE_API_KEY absent \u2014 adapter skipped (no API call attempted)"
+      },
+      {
+        "model": "cohere-en-v3",
+        "available": false,
+        "reason": "api key COHERE_API_KEY absent \u2014 adapter skipped (no API call attempted)"
+      }
+    ],
+    "available": [
+      "hash-det",
+      "minilm-l6",
+      "bge-large"
+    ],
+    "skipped": [
+      "openai-3-large",
+      "voyage-3",
+      "cohere-en-v3"
+    ]
+  },
+  "probe_vs_cosine": {
+    "method": "permutation_paired_sign_flip_domain_stratified",
+    "statistic": -0.03167729007407756,
+    "p_value": 0.9966006798640272,
+    "notes": "One-sided paired sign-flip permutation test (5000 resamples, seed 17). Statistic is the domain-averaged mean of (geometry correct - cosine correct); positive favours the firm probe. Stratified across 3 domains so each weighs equally. statsmodels not installed; the permutation test is the result.",
+    "n_observations": 5808,
+    "n_models": 3,
+    "n_domains": 3,
+    "domain_deltas": {
+      "economics": 0.03716608594657375,
+      "ethics": -0.14922480620155038,
+      "physics": 0.017026850032743943
+    },
+    "mean_delta_unstratified": -0.0065426997245179065
+  },
+  "platform": {
+    "python": "3.13.7",
+    "platform": "macOS-26.2-arm64-arm-64bit-Mach-O",
+    "numpy": "1.26.4",
+    "pandas": "3.0.1"
+  }
+}

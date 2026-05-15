@@ -26,8 +26,25 @@ import { loadPublicOpenQuestions } from "@/lib/openQuestionsApi";
  * title-bonus. The Python module `noosphere/inference/public_retrieval.py`
  * pins the embedding-driven equivalent that the firm's tests assert
  * against; this TS path mirrors its kind-bucketing, threshold logic,
- * and snippet-extraction contract so a future cutover to a Currents
- * embedding service is wire-level only.
+ * snippet-extraction contract, query-class routing, MMR diversity, and
+ * freshness signal so a future cutover to a Currents embedding service
+ * is wire-level only.
+ *
+ * Round 17 prompt 28 added four things on top of first-version
+ * retrieval:
+ *   - Query understanding: `classifyQuery` routes each query into one
+ *     of five classes (factual-claim, methodology-question,
+ *     prediction-request, counter-argument-request, browse). Routing
+ *     here is rule-based only — the live route has a 1.5s p50 budget
+ *     and no freeform generation; the Python module carries the
+ *     optional light LLM judge for the offline/Currents path.
+ *   - Diverse retrieval: Maximum Marginal Relevance per rail, so the
+ *     top results are not five paraphrases of one conclusion.
+ *   - Honest empty result: the no-result branch carries both the
+ *     closest open question AND the closest related conclusion.
+ *   - Freshness: every result carries its date and an `isCurrent`
+ *     flag. Stale conclusions are surfaced as stale, never silently
+ *     de-ranked.
  *
  * Why TF-IDF here rather than embeddings? The Postgres rows that back
  * this surface (`PublishedConclusion`, `EventOpinion`, `OpenQuestion`)
@@ -72,9 +89,37 @@ const MIN_QUERY_LEN = 3;
 /** Title-match bonus: matches in the title get this multiplier. */
 const TITLE_BOOST = 1.4;
 
+/**
+ * Maximum Marginal Relevance tradeoff. λ weights pure relevance;
+ * (1 − λ) weights dissimilarity from the items already picked. The
+ * default favours relevance but keeps a meaningful diversity component
+ * so a rail is not five paraphrases of one conclusion. Per-class
+ * profiles override this (see `CLASS_PROFILES`).
+ */
+export const MMR_LAMBDA_DEFAULT = 0.7;
+
+/**
+ * A conclusion older than this — with no explicit "still current"
+ * signal — is shown with a "stale" pill. Staleness is surfaced to the
+ * reader; it is never used to silently de-rank a result.
+ */
+const FRESHNESS_STALE_DAYS = 365;
+
 // ── Public types ───────────────────────────────────────────────────────────
 
 export type PublicAskKind = "conclusion" | "opinion" | "article" | "open_question";
+
+/**
+ * Query-understanding class. Each class has its own retrieval profile
+ * (kind ordering, per-kind boost, MMR λ) and its own rendering path in
+ * `PublicAskBox`. Mirrors `noosphere/inference/query_classifier.py`.
+ */
+export type PublicAskQueryClass =
+  | "factual-claim"
+  | "methodology-question"
+  | "prediction-request"
+  | "counter-argument-request"
+  | "browse";
 
 export type PublicAskResult = {
   id: string;
@@ -93,10 +138,17 @@ export type PublicAskResult = {
   /** Public publishedAt for conclusions / articles, generatedAt for
    *  opinions, createdAt for open questions. */
   occurredAt: string;
+  /** Freshness signal: false once the item is past the staleness
+   *  window. Stale results are still returned — readers see the pill,
+   *  the result is never silently de-ranked. */
+  isCurrent: boolean;
 };
 
 export type PublicAskResponse = {
   query: string;
+  /** Query-understanding verdict — drives the per-class rendering
+   *  path in `PublicAskBox`. */
+  queryClass: PublicAskQueryClass;
   results: {
     conclusion: PublicAskResult[];
     opinion: PublicAskResult[];
@@ -106,6 +158,10 @@ export type PublicAskResponse = {
   topScore: number;
   noResult: boolean;
   closestOpenQuestion: PublicAskResult | null;
+  /** Enriched no-result pointer: the closest related conclusion, so
+   *  the "not addressed directly" page is a useful page, not a dead
+   *  end. Present regardless of the threshold. */
+  closestRelatedConclusion: PublicAskResult | null;
   suggestedRephrasings: string[];
   /** Coarse bucket id of the query — never the raw query. Logged at
    *  most for abuse aggregation. */
@@ -199,6 +255,226 @@ const BUCKET_SALT = "theseus-public-ask";
 export function hashQueryBucket(query: string): string {
   const norm = (query ?? "").toLowerCase().replace(/\s+/g, " ").trim();
   return createHash("sha256").update(`${BUCKET_SALT}|${norm}`).digest("hex").slice(0, 12);
+}
+
+// ── Query understanding (rule-based classifier) ────────────────────────────
+
+/**
+ * Rule layer for query classification. Mirrors the regex signals in
+ * `noosphere/inference/query_classifier.py`. The live route runs this
+ * layer only — it is cheap, deterministic, and within the 1.5s p50
+ * budget. The Python module carries the optional light LLM judge for
+ * the offline/Currents path; the route never freeform-generates.
+ */
+const CLASS_RULES: Array<{
+  cls: PublicAskQueryClass;
+  patterns: Array<{ name: string; re: RegExp; weight: number }>;
+}> = [
+  {
+    cls: "methodology-question",
+    patterns: [
+      { name: "how-do-you", re: /\bhow (do|did|does|was|were|are) (you|the firm|theseus|this|it|they)\b/i, weight: 1.4 },
+      { name: "methodology-word", re: /\bmethodolog/i, weight: 1.6 },
+      { name: "derive", re: /\bhow .{0,40}\b(derive[ds]?|determine[ds]?|conclude[ds]?|reach(ed)?|arrive[ds]?|comput)/i, weight: 1.5 },
+      { name: "process", re: /\bwhat(?:'s| is| are)? (?:your|the firm'?s?) (process|method|approach|reasoning|criteria)\b/i, weight: 1.5 },
+      { name: "how-know", re: /\bhow (do|did) (you|the firm) know\b/i, weight: 1.4 },
+      { name: "firm-method-terms", re: /\b(six.?layer|coherence layer|provenance|audit trail|show your work)\b/i, weight: 1.3 },
+      { name: "on-what-basis", re: /\b(on what basis|what evidence|what makes you (so )?(sure|confident))\b/i, weight: 1.2 },
+    ],
+  },
+  {
+    cls: "prediction-request",
+    patterns: [
+      { name: "will", re: /\bwill\b/i, weight: 1.0 },
+      { name: "forecast-word", re: /\b(predict|forecast|projection|outlook|prognos)/i, weight: 1.6 },
+      { name: "going-to", re: /\b(going to|expected to|likely to|on track to)\b/i, weight: 1.1 },
+      { name: "by-year", re: /\bby (?:the )?(?:end of )?(?:19|20)\d\d\b/i, weight: 1.5 },
+      { name: "in-coming", re: /\bin (?:the )?(?:next|coming) \d*\s*(year|month|decade|quarter)/i, weight: 1.4 },
+      { name: "what-happens-if", re: /\bwhat (?:will|would) happen (?:if|when)\b/i, weight: 1.3 },
+      { name: "future-of", re: /\bfuture of\b/i, weight: 1.0 },
+    ],
+  },
+  {
+    cls: "counter-argument-request",
+    patterns: [
+      { name: "counter-word", re: /\bcounter.?(argument|point|case)/i, weight: 1.7 },
+      { name: "against", re: /\b(argue|argument|case|evidence) against\b/i, weight: 1.6 },
+      { name: "steelman", re: /\b(steel.?man|devil'?s advocate)\b/i, weight: 1.8 },
+      { name: "rebut", re: /\b(rebut|refut|disprove|debunk)/i, weight: 1.5 },
+      { name: "objection", re: /\bobjection/i, weight: 1.3 },
+      { name: "might-be-wrong", re: /\b(why|where|how) (might|would|could|is|are) .{0,40}\b(wrong|mistaken|flawed|fail)/i, weight: 1.5 },
+      { name: "strongest-against", re: /\bstrongest (argument|case|objection)\b/i, weight: 1.6 },
+      { name: "disagree", re: /\b(disagree|pushback|push back|critique of|weakest)\b/i, weight: 1.1 },
+      { name: "contradict", re: /\bcontradict/i, weight: 1.2 },
+    ],
+  },
+  {
+    cls: "factual-claim",
+    patterns: [
+      { name: "what-firm-thinks", re: /\bwhat (?:does|do) the firm (?:think|believe|conclude|say|hold)\b/i, weight: 1.6 },
+      { name: "firm-view-on", re: /\b(?:the firm'?s?|your) (view|position|conclusion|take|stance) on\b/i, weight: 1.5 },
+      { name: "is-it-true", re: /\bis it true\b/i, weight: 1.4 },
+      { name: "interrogative-fact", re: /^(is|are|does|do|did|has|have|was|were|can|should|which)\b.*\?$/i, weight: 1.0 },
+      { name: "what-is", re: /\bwhat (?:is|are)\b/i, weight: 0.8 },
+      { name: "declarative", re: /^[a-z0-9].{0,200}\b(is|are|was|were|drives?|causes?|funds?|leads? to)\b.{0,200}[^?]$/i, weight: 0.7 },
+    ],
+  },
+];
+
+const VERBISH =
+  /\b(is|are|was|were|do|does|did|will|would|should|can|how|why|what|when|where|which|who|predict|argue|think|believe)\b/i;
+
+/** A bare topic is a short noun-phrase query: browse intent. */
+function isBareTopic(query: string): boolean {
+  const q = query.trim();
+  if (!q || q.includes("?")) return false;
+  if (VERBISH.test(q)) return false;
+  return q.split(/\s+/).length <= 6;
+}
+
+/**
+ * Classify a query into one of the five `PublicAskQueryClass` values.
+ * Highest summed rule weight wins; with no class-specific signal a bare
+ * topic is `browse` and anything else falls back to `browse` too (the
+ * route has no LLM judge to break the tie).
+ */
+export function classifyQuery(query: string): PublicAskQueryClass {
+  const q = (query ?? "").trim();
+  if (!q) return "browse";
+
+  let bestClass: PublicAskQueryClass = "browse";
+  let bestScore = 0;
+  for (const { cls, patterns } of CLASS_RULES) {
+    let score = 0;
+    for (const { re, weight } of patterns) {
+      if (re.test(q)) score += weight;
+    }
+    if (score > bestScore) {
+      bestScore = score;
+      bestClass = cls;
+    }
+  }
+  if (bestScore <= 0) return "browse";
+  return bestClass;
+}
+
+/**
+ * Per-class retrieval profile. `kindBoost` re-weights rails for
+ * *ordering and diversity selection only* — never the no-result
+ * threshold, so honesty about silence stays calibrated. `mmrLambda`
+ * tunes the relevance/diversity tradeoff: a counter-argument query
+ * runs a low λ to surface the spread of disagreement rather than the
+ * loudest echo. Mirrors `RetrievalProfile` in the Python module.
+ */
+type ClassProfile = {
+  kindBoost: Partial<Record<PublicAskKind, number>>;
+  mmrLambda: number;
+};
+
+const CLASS_PROFILES: Record<PublicAskQueryClass, ClassProfile> = {
+  "factual-claim": {
+    kindBoost: { conclusion: 1.5, article: 1.15 },
+    mmrLambda: 0.78,
+  },
+  "methodology-question": {
+    kindBoost: { article: 1.5, open_question: 1.25, conclusion: 1.1 },
+    mmrLambda: 0.62,
+  },
+  "prediction-request": {
+    kindBoost: { opinion: 1.5, open_question: 1.15 },
+    mmrLambda: 0.58,
+  },
+  "counter-argument-request": {
+    kindBoost: { open_question: 1.6, opinion: 1.2 },
+    mmrLambda: 0.4,
+  },
+  // Neutral — browse keeps the original relevance ordering.
+  browse: { kindBoost: {}, mmrLambda: MMR_LAMBDA_DEFAULT },
+};
+
+// ── Maximum Marginal Relevance ─────────────────────────────────────────────
+
+/**
+ * Cosine similarity between two sparse token-weight vectors. Used by
+ * MMR to measure item-to-item redundancy.
+ */
+function sparseCosine(a: Map<string, number>, b: Map<string, number>): number {
+  const [small, large] = a.size <= b.size ? [a, b] : [b, a];
+  let dot = 0;
+  for (const [k, v] of small) {
+    const w = large.get(k);
+    if (w) dot += v * w;
+  }
+  let na = 0;
+  for (const v of a.values()) na += v * v;
+  let nb = 0;
+  for (const v of b.values()) nb += v * v;
+  if (na < 1e-12 || nb < 1e-12) return 0;
+  return dot / Math.sqrt(na * nb);
+}
+
+type MmrCandidate = {
+  item: CorpusItem;
+  /** Raw relevance score (boost-adjusted for ordering). */
+  relevance: number;
+  /** IDF-weighted token vector for redundancy measurement. */
+  vec: Map<string, number>;
+};
+
+/**
+ * Maximum Marginal Relevance selection. Greedily picks `k` items, each
+ * step maximising `λ · relevance − (1 − λ) · max-similarity-to-picked`.
+ * The first pick is always the most relevant item, so relevance-ordered
+ * behaviour is preserved at the top; subsequent picks trade relevance
+ * against not being near-duplicates of what is already shown.
+ */
+export function mmrSelect(
+  candidates: MmrCandidate[],
+  lambda: number,
+  k: number,
+): MmrCandidate[] {
+  if (k <= 0 || candidates.length === 0) return [];
+  const lam = Math.max(0, Math.min(1, lambda));
+  const maxRel = candidates.reduce((m, c) => Math.max(m, c.relevance), 0);
+  const norm = maxRel > 1e-12 ? maxRel : 1;
+
+  const remaining = [...candidates];
+  const selected: MmrCandidate[] = [];
+  while (remaining.length > 0 && selected.length < k) {
+    let bestIdx = 0;
+    let bestVal = -Infinity;
+    for (let i = 0; i < remaining.length; i += 1) {
+      const cand = remaining[i];
+      const rel = cand.relevance / norm;
+      let penalty = 0;
+      for (const s of selected) {
+        const sim = sparseCosine(cand.vec, s.vec);
+        if (sim > penalty) penalty = sim;
+      }
+      const val = lam * rel - (1 - lam) * penalty;
+      if (val > bestVal) {
+        bestVal = val;
+        bestIdx = i;
+      }
+    }
+    selected.push(remaining.splice(bestIdx, 1)[0]);
+  }
+  return selected;
+}
+
+// ── Freshness ──────────────────────────────────────────────────────────────
+
+/**
+ * Whether an item is "still considered current". Date-driven: an item
+ * older than the staleness window is stale. An unparseable / missing
+ * date is treated as current — we never fabricate a stale signal we
+ * cannot back with a date.
+ */
+function computeIsCurrent(occurredAt: string, now: number): boolean {
+  const ts = Date.parse(occurredAt);
+  if (Number.isNaN(ts)) return true;
+  const ageDays = (now - ts) / 86_400_000;
+  return ageDays < FRESHNESS_STALE_DAYS;
 }
 
 // ── Internal corpus shape ──────────────────────────────────────────────────
@@ -393,6 +669,7 @@ export async function buildPublicCorpus(organizationId: string): Promise<CorpusI
 function emptyResponse(query: string, queryBucket: string): PublicAskResponse {
   return {
     query,
+    queryClass: classifyQuery(query),
     results: {
       conclusion: [],
       opinion: [],
@@ -402,6 +679,7 @@ function emptyResponse(query: string, queryBucket: string): PublicAskResponse {
     topScore: 0,
     noResult: true,
     closestOpenQuestion: null,
+    closestRelatedConclusion: null,
     suggestedRephrasings: [],
     queryBucket,
   };
@@ -434,6 +712,16 @@ export async function publicAsk(
   return rankAndShape(query, queryTokens, corpus, queryBucket);
 }
 
+/** IDF-weighted token vector for an item — MMR's redundancy metric. */
+function itemVector(item: CorpusItem, idf: Map<string, number>): Map<string, number> {
+  const vec = new Map<string, number>();
+  for (const tok of tokenize(`${item.title} ${item.text}`)) {
+    const w = idf.get(tok) ?? Math.log(1 + 100);
+    vec.set(tok, (vec.get(tok) ?? 0) + w);
+  }
+  return vec;
+}
+
 function rankAndShape(
   query: string,
   queryTokens: string[],
@@ -442,76 +730,82 @@ function rankAndShape(
 ): PublicAskResponse {
   const idf = buildIdf(corpus);
   const querySet = new Set(queryTokens);
+  const now = Date.now();
+
+  // Query understanding: route the query into a class, pick its
+  // retrieval profile. The route runs the rule layer only.
+  const queryClass = classifyQuery(query);
+  const profile = CLASS_PROFILES[queryClass];
 
   const scored = corpus
     .map((item) => ({ item, score: scoreItem(queryTokens, item, idf) }))
     .filter((entry) => entry.score > 0)
     .sort((a, b) => b.score - a.score);
 
+  const toResult = (item: CorpusItem, score: number): PublicAskResult => ({
+    id: item.id,
+    kind: item.kind,
+    title: item.title,
+    href: item.href,
+    snippet: extractSnippet(item.text, querySet),
+    relevance: clip01(score),
+    confidence: item.confidence,
+    methodology: item.methodology,
+    topicHint: item.topicHint,
+    occurredAt: item.occurredAt,
+    isCurrent: computeIsCurrent(item.occurredAt, now),
+  });
+
+  // Per-rail diversity: gather each kind's scored items, apply the
+  // class's per-kind boost for ordering, and run MMR so a rail is not
+  // five paraphrases of one conclusion. The boost touches ordering
+  // only — the no-result threshold below still reads the raw score.
   const buckets: PublicAskResponse["results"] = {
     conclusion: [],
     opinion: [],
     article: [],
     open_question: [],
   };
-
+  const rawScoreById = new Map<string, number>();
+  const candidatesByKind: Record<PublicAskKind, MmrCandidate[]> = {
+    conclusion: [],
+    opinion: [],
+    article: [],
+    open_question: [],
+  };
   for (const { item, score } of scored) {
-    const bucket = buckets[item.kind];
-    if (bucket.length >= TOP_PER_KIND) continue;
-    bucket.push({
-      id: item.id,
-      kind: item.kind,
-      title: item.title,
-      href: item.href,
-      snippet: extractSnippet(item.text, querySet),
-      relevance: clip01(score),
-      confidence: item.confidence,
-      methodology: item.methodology,
-      topicHint: item.topicHint,
-      occurredAt: item.occurredAt,
+    rawScoreById.set(item.id, score);
+    const boost = profile.kindBoost[item.kind] ?? 1;
+    candidatesByKind[item.kind].push({
+      item,
+      relevance: score * boost,
+      vec: itemVector(item, idf),
     });
+  }
+  for (const kind of Object.keys(buckets) as PublicAskKind[]) {
+    const picked = mmrSelect(candidatesByKind[kind], profile.mmrLambda, TOP_PER_KIND);
+    for (const cand of picked) {
+      buckets[kind].push(toResult(cand.item, rawScoreById.get(cand.item.id) ?? 0));
+    }
   }
 
   const topScore = scored.length > 0 ? scored[0].score : 0;
   const noResult = topScore < NO_RESULT_THRESHOLD;
 
-  let closestOpenQuestion: PublicAskResult | null = null;
-  for (const { item, score } of scored) {
-    if (item.kind !== "open_question") continue;
-    closestOpenQuestion = {
-      id: item.id,
-      kind: item.kind,
-      title: item.title,
-      href: item.href,
-      snippet: extractSnippet(item.text, querySet),
-      relevance: clip01(score),
-      confidence: item.confidence,
-      methodology: item.methodology,
-      topicHint: item.topicHint,
-      occurredAt: item.occurredAt,
-    };
-    break;
-  }
-  // If no open question scored above zero, still try to fall through to
-  // the most recent one — a reader on a no-result query deserves a
-  // pointer to *something* the firm has flagged as unresolved.
-  if (!closestOpenQuestion) {
-    const anyOpen = corpus.find((item) => item.kind === "open_question");
-    if (anyOpen) {
-      closestOpenQuestion = {
-        id: anyOpen.id,
-        kind: anyOpen.kind,
-        title: anyOpen.title,
-        href: anyOpen.href,
-        snippet: extractSnippet(anyOpen.text, querySet),
-        relevance: 0,
-        confidence: anyOpen.confidence,
-        methodology: anyOpen.methodology,
-        topicHint: anyOpen.topicHint,
-        occurredAt: anyOpen.occurredAt,
-      };
+  // Closest pointers for the (enriched) no-result panel: the best
+  // open question AND the best related conclusion, surfaced regardless
+  // of the threshold so "not addressed directly" is still a useful
+  // page. Each falls through to *any* item of its kind so a reader on
+  // a true no-result query is never left with a dead end.
+  const firstOfKind = (kind: PublicAskKind): PublicAskResult | null => {
+    for (const { item, score } of scored) {
+      if (item.kind === kind) return toResult(item, score);
     }
-  }
+    const any = corpus.find((item) => item.kind === kind);
+    return any ? toResult(any, 0) : null;
+  };
+  const closestOpenQuestion = firstOfKind("open_question");
+  const closestRelatedConclusion = firstOfKind("conclusion");
 
   const suggestedRephrasings: string[] = [];
   if (
@@ -530,10 +824,12 @@ function rankAndShape(
 
   return {
     query,
+    queryClass,
     results: buckets,
     topScore: clip01(topScore),
     noResult,
     closestOpenQuestion,
+    closestRelatedConclusion,
     suggestedRephrasings,
     queryBucket,
   };
@@ -544,6 +840,60 @@ function clip01(x: number): number {
   if (x < 0) return 0;
   if (x > 1) return 1;
   return x;
+}
+
+// ── Research suggestion submission ─────────────────────────────────────────
+
+export type ResearchSuggestionInput = {
+  title: string;
+  summary?: string;
+  rationale?: string;
+};
+
+export type ResearchSuggestionResult = { id: string };
+
+const SUGGESTION_TITLE_MIN = 8;
+const SUGGESTION_TITLE_MAX = 240;
+const SUGGESTION_FIELD_MAX = 2_000;
+
+/**
+ * Persist a reader-submitted research suggestion from the enriched
+ * no-result panel — the "the firm has not addressed this directly"
+ * branch becomes a place a reader can act rather than a dead end.
+ *
+ * This is the one *write* on the public ask surface. It is not
+ * generation: it stores exactly what the reader typed into the form.
+ * The originating search query is deliberately NOT attached — query-log
+ * discipline keeps raw query strings out of long-lived rows (see
+ * `hashQueryBucket` and the retention runner). Mirrors
+ * `noosphere.models.ResearchSuggestion`.
+ */
+export async function submitPublicResearchSuggestion(
+  input: ResearchSuggestionInput,
+): Promise<ResearchSuggestionResult> {
+  const title = (input?.title ?? "").trim().slice(0, SUGGESTION_TITLE_MAX);
+  if (title.length < SUGGESTION_TITLE_MIN) {
+    throw new Error("Suggestion needs a title of at least 8 characters");
+  }
+  const summary = (input?.summary ?? "").trim().slice(0, SUGGESTION_FIELD_MAX);
+  const rationale = (input?.rationale ?? "").trim().slice(0, SUGGESTION_FIELD_MAX);
+
+  const organizationId = await resolvePublicOrganizationId();
+  if (!organizationId) {
+    throw new Error("No public organization configured");
+  }
+
+  const row = await db.researchSuggestion.create({
+    data: {
+      organizationId,
+      title,
+      summary,
+      rationale,
+      sessionLabel: "public-ask",
+    },
+    select: { id: true },
+  });
+  return { id: row.id };
 }
 
 // ── Rate limit ─────────────────────────────────────────────────────────────

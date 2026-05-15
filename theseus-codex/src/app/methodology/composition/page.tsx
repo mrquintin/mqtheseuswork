@@ -117,7 +117,8 @@ export default async function PublicCompositionPage() {
   return (
     <>
       <PublicHeader authed={Boolean(founder)} />
-      <main className="public-container">
+      <style>{compositionMobileCss}</style>
+      <main className="public-container" data-testid="composition-page">
         <h1 className="public-title">Method composition</h1>
 
         <p className="public-muted public-lede">
@@ -128,7 +129,15 @@ export default async function PublicCompositionPage() {
           failure-mode flags; only the structure is published here.
         </p>
 
-        <section className="public-section" aria-label="composition map">
+        {/* Composition graph — the radial SVG is legible on a wide
+            viewport but collapses to an unreadable tangle at 375px. Below
+            720px it is hidden and the "Methods and their dependencies"
+            list below stands in as the mobile representation. */}
+        <section
+          className="public-section composition-graph-desktop"
+          aria-label="composition map"
+          data-testid="composition-graph"
+        >
           <svg
             viewBox="0 0 720 480"
             role="img"
@@ -189,11 +198,24 @@ export default async function PublicCompositionPage() {
 
         <section className="public-section">
           <h2>Methods and their dependencies</h2>
-          <ul style={{ listStyle: "none", padding: 0 }}>
+          <p className="public-muted composition-list-hint" style={{ marginTop: 0 }}>
+            The same dependency structure drawn above, as a card per method —
+            this is the primary view on a phone, where the radial map is too
+            dense to read.
+          </p>
+          <ul
+            className="composition-method-list"
+            data-testid="composition-card-list"
+            style={{ listStyle: "none", padding: 0 }}
+          >
             {snap.nodes.map((n) => {
               const deps = (depsByMethod.get(n.name) ?? []).slice().sort();
               return (
-                <li key={n.name} style={{ margin: "12px 0" }}>
+                <li
+                  key={n.name}
+                  className="composition-method-card"
+                  style={{ margin: "12px 0" }}
+                >
                   <Link
                     href={`/methodology/${encodeURIComponent(n.name)}`}
                     style={{ fontWeight: 600 }}
@@ -229,3 +251,26 @@ export default async function PublicCompositionPage() {
     </>
   );
 }
+
+/**
+ * Mobile composition layout. The radial SVG map is desktop-only; below
+ * 720px it is removed from the flow entirely (not just shrunk — a 720px
+ * graph scaled to 343px is an unreadable tangle) and the method list
+ * becomes a stack of bordered cards. The list renders on every viewport,
+ * so there is no JS viewport sniffing and no layout shift after hydration.
+ */
+const compositionMobileCss = `
+.composition-list-hint { display: none; }
+@media (max-width: 720px) {
+  .composition-graph-desktop { display: none; }
+  .composition-list-hint { display: block; }
+  .composition-method-list { margin: 0.75rem 0 0; }
+  .composition-method-card {
+    border: 1px solid var(--public-border, #d4cfc2);
+    border-radius: 3px;
+    padding: 0.7rem 0.85rem;
+    margin: 0.6rem 0 !important;
+    background: var(--public-card-bg, rgba(255, 255, 255, 0.02));
+  }
+}
+`;

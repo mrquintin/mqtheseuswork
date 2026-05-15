@@ -1,6 +1,7 @@
 import { randomUUID } from "crypto";
 
 import type {
+  PublicCurrentEvent,
   PublicFollowupMessage,
   PublicOpinion,
   PublicReconciliation,
@@ -47,6 +48,9 @@ export interface CurrentsHealth {
   opinions_last_24h: number;
   disabled_reasons: string[];
   last_cycle?: CurrentsLastCycle | null;
+  db_ok?: boolean;
+  db_error?: string | null;
+  using_db_fallback?: boolean;
 }
 
 type StreamingRequestInit = RequestInit & { duplex?: "half" };
@@ -188,6 +192,76 @@ async function fetchJson<T>(
 function normalizedVisibility(value: string | null | undefined): string | null {
   const normalized = (value ?? "").trim().toLowerCase().replace(/-/g, "_");
   return normalized || null;
+}
+
+function isoDate(value: Date | string | null | undefined): string {
+  if (!value) return new Date(0).toISOString();
+  return value instanceof Date ? value.toISOString() : new Date(value).toISOString();
+}
+
+function enumString(value: unknown): string {
+  return typeof value === "string" ? value : String(value ?? "");
+}
+
+const X_SOURCE_VALUES = new Set(["X", "X_TWITTER", "TWITTER"]);
+
+const INLINE_CONCLUSION_TOKEN_RE = /\s*\[C:[^\]\s]+\]/g;
+const GENERIC_X_EVENT_REPLACEMENTS: Array<[RegExp, string]> = [
+  [/\bThe current event\b/g, "The X post"],
+  [/\bthe current event\b/g, "the X post"],
+  [/\bCurrent event\b/g, "X post"],
+  [/\bcurrent event\b/g, "X post"],
+  [/\bThe event's\b/g, "The post's"],
+  [/\bthe event's\b/g, "the post's"],
+  [/\bThis event's\b/g, "This post's"],
+  [/\bthis event's\b/g, "this post's"],
+  [/\bThat event's\b/g, "That post's"],
+  [/\bthat event's\b/g, "that post's"],
+  [/\bIn the event\b/g, "In the post"],
+  [/\bin the event\b/g, "in the post"],
+  [/\bThe event\b/g, "The post"],
+  [/\bthe event\b/g, "the post"],
+  [/\bThis event\b/g, "This post"],
+  [/\bthis event\b/g, "this post"],
+  [/\bThat event\b/g, "That post"],
+  [/\bthat event\b/g, "that post"],
+  [/\bThe observed event\b/g, "The observed post"],
+  [/\bthe observed event\b/g, "the observed post"],
+  [/\bThe source post\b/g, "The X post"],
+  [/\bthe source post\b/g, "the X post"],
+  [/\bsource post\b/g, "X post"],
+];
+const PUBLIC_SOURCE_LANGUAGE_REPLACEMENTS: Array<[RegExp, string]> = [
+  [/\bthrough the firm's sources\b/gi, "through the firm's judgment"],
+  [/\bbased on the firm's sources\b/gi, "as the firm's opinion"],
+  [/\bthe firm's sources\b/gi, "the firm's judgment"],
+  [/\bfirm sources\b/gi, "firm reasoning"],
+  [/\bretrieved firm conclusions\b/gi, "the firm's recorded conclusions"],
+  [/\bretrieved conclusions\b/gi, "the firm's recorded conclusions"],
+  [/\bretrieved sources\b/gi, "the firm's recorded reasoning"],
+  [/\bsource material\b/gi, "the firm's internal reasoning"],
+  [/\bthe sources\b/gi, "the firm's reasoning"],
+  [/\bthose sources\b/gi, "that reasoning"],
+  [/\bits sources\b/gi, "its judgment"],
+  [/\bsingle source\b/gi, "limited firm confidence"],
+  [/\bthe data\b/gi, "the firm's judgment"],
+];
+
+function sourceSpecificCopy(event: PublicCurrentEvent | null, text: string): string {
+  let revised = text;
+  if (event && X_SOURCE_VALUES.has(event.source.toUpperCase())) {
+    for (const [pattern, replacement] of GENERIC_X_EVENT_REPLACEMENTS) {
+      revised = revised.replace(pattern, replacement);
+    }
+  }
+  for (const [pattern, replacement] of PUBLIC_SOURCE_LANGUAGE_REPLACEMENTS) {
+    revised = revised.replace(pattern, replacement);
+  }
+  return revised
+    .replace(INLINE_CONCLUSION_TOKEN_RE, "")
+    .replace(/[ \t]{2,}/g, " ")
+    .replace(/\s+([,.;:!?])/g, "$1")
+    .trim();
 }
 
 function publicUrlForVisibility(
@@ -695,10 +769,13 @@ async function citationMetadataFromPublicDb(
 async function enrichOpinions(
   opinions: PublicOpinion[],
   options?: CurrentsFetchOptions,
+  enrichOptions: { skipUpstreamSources?: boolean } = {},
 ): Promise<PublicOpinion[]> {
-  const sourceMetadataResults = await Promise.all(
-    opinions.map((opinion) => citationMetadataFromSources(opinion, options)),
-  );
+  const sourceMetadataResults = enrichOptions.skipUpstreamSources
+    ? opinions.map(() => new Map<string, CitationMetadata>())
+    : await Promise.all(
+        opinions.map((opinion) => citationMetadataFromSources(opinion, options)),
+      );
   const [dbMetadata, reconciliations] = await Promise.all([
     citationMetadataFromPublicDb(opinions),
     reconciliationsForOpinions(opinions),
@@ -723,29 +800,393 @@ async function enrichOpinions(
   });
 }
 
+function listParamsFromSearch(search: URLSearchParams): ListCurrentsParams {
+  return {
+    since: search.get("since"),
+    until: search.get("until"),
+    topic: search.get("topic"),
+    stance: search.get("stance"),
+    limit: search.has("limit") ? Number(search.get("limit")) : undefined,
+    seeded: search.has("seeded") ? search.get("seeded") === "true" : undefined,
+  };
+}
+
+function dateFilter(value: string | Date | null | undefined): Date | undefined {
+  if (!value) return undefined;
+  const parsed = value instanceof Date ? value : new Date(value);
+  return Number.isNaN(parsed.getTime()) ? undefined : parsed;
+}
+
+function currentEventToPublic(event: {
+  id: string;
+  source: unknown;
+  externalId: string;
+  authorHandle: string | null;
+  text: string;
+  url: string | null;
+  capturedAt: Date | string;
+  observedAt: Date | string;
+  topicHint: string | null;
+} | null): PublicCurrentEvent | null {
+  if (!event) return null;
+  return {
+    id: event.id,
+    source: enumString(event.source),
+    external_id: event.externalId,
+    author_handle: event.authorHandle,
+    text: event.text,
+    url: event.url,
+    captured_at: isoDate(event.capturedAt),
+    observed_at: isoDate(event.observedAt),
+    topic_hint: event.topicHint,
+  };
+}
+
+function citationSourceId(citation: {
+  sourceKind: string;
+  conclusionId: string | null;
+  claimId: string | null;
+}): string {
+  const kind = citation.sourceKind.toLowerCase();
+  if (kind === "conclusion") return citation.conclusionId ?? "";
+  if (kind === "claim") return citation.claimId ?? "";
+  return citation.conclusionId ?? citation.claimId ?? "";
+}
+
+function citationToPublic(citation: {
+  id: string;
+  sourceKind: string;
+  conclusionId: string | null;
+  claimId: string | null;
+  quotedSpan: string;
+  retrievalScore: number;
+  isRevoked: boolean;
+}): PublicCitation {
+  return {
+    id: citation.id,
+    source_kind: citation.sourceKind.toLowerCase(),
+    source_id: citationSourceId(citation),
+    quoted_span: citation.quotedSpan,
+    retrieval_score: Number(citation.retrievalScore),
+    is_revoked: Boolean(citation.isRevoked),
+  };
+}
+
+function opinionToPublic(opinion: {
+  id: string;
+  organizationId: string;
+  eventId: string;
+  stance: unknown;
+  confidence: number;
+  headline: string;
+  bodyMarkdown: string;
+  uncertaintyNotes: string[];
+  topicHint: string | null;
+  modelName: string;
+  generatedAt: Date | string;
+  revokedAt: Date | string | null;
+  abstentionReason: unknown | null;
+  citations: Array<{
+    id: string;
+    sourceKind: string;
+    conclusionId: string | null;
+    claimId: string | null;
+    quotedSpan: string;
+    retrievalScore: number;
+    isRevoked: boolean;
+  }>;
+  event: Parameters<typeof currentEventToPublic>[0];
+}): PublicOpinion {
+  const event = currentEventToPublic(opinion.event);
+  const citations = opinion.citations.map(citationToPublic);
+  return {
+    id: opinion.id,
+    organization_id: opinion.organizationId,
+    event_id: opinion.eventId,
+    stance: enumString(opinion.stance),
+    confidence: Number(opinion.confidence),
+    headline: sourceSpecificCopy(event, opinion.headline),
+    body_markdown: sourceSpecificCopy(event, opinion.bodyMarkdown),
+    uncertainty_notes: (opinion.uncertaintyNotes ?? []).map((note) =>
+      sourceSpecificCopy(event, note),
+    ),
+    topic_hint: opinion.topicHint,
+    model_name: opinion.modelName,
+    generated_at: isoDate(opinion.generatedAt),
+    revoked_at: opinion.revokedAt ? isoDate(opinion.revokedAt) : null,
+    abstention_reason: opinion.abstentionReason ? enumString(opinion.abstentionReason) : null,
+    revoked_sources_count: citations.filter((citation) => citation.is_revoked).length,
+    event,
+    citations,
+  };
+}
+
+async function resolveCurrentsOrganizationId(): Promise<string | null> {
+  const { resolvePublicOrganizationId } = await import("@/lib/conclusionsRead");
+  return resolvePublicOrganizationId();
+}
+
+async function listCurrentsFromPublicDb(
+  params: ListCurrentsParams,
+  options?: CurrentsFetchOptions,
+): Promise<{ items: PublicOpinion[] }> {
+  const organizationId = await resolveCurrentsOrganizationId();
+  if (!organizationId) return { items: [] };
+
+  const { db } = await import("@/lib/db");
+  const client = db as unknown as {
+    eventOpinion: {
+      findMany: (args: unknown) => Promise<Parameters<typeof opinionToPublic>[0][]>;
+    };
+  };
+  const generatedAt: { gte?: Date; lte?: Date } = {};
+  const since = dateFilter(params.since);
+  const until = dateFilter(params.until);
+  if (since) generatedAt.gte = since;
+  if (until) generatedAt.lte = until;
+
+  const where: Record<string, unknown> = { organizationId };
+  if (Object.keys(generatedAt).length) where.generatedAt = generatedAt;
+  if (params.topic) where.topicHint = params.topic;
+  if (params.stance) where.stance = String(params.stance).toUpperCase();
+
+  const rows = await client.eventOpinion.findMany({
+    where,
+    orderBy: { generatedAt: "desc" },
+    take: Math.max(1, Math.min(50, Number(params.limit) || 20)),
+    include: {
+      event: true,
+      citations: true,
+    },
+  });
+  const opinions = rows.map(opinionToPublic);
+  return {
+    items: await enrichOpinions(opinions, options, { skipUpstreamSources: true }),
+  };
+}
+
+async function getCurrentFromPublicDb(id: string): Promise<PublicOpinion> {
+  const organizationId = await resolveCurrentsOrganizationId();
+  if (!organizationId) throw new Error("currents_public_org_unavailable");
+
+  const { db } = await import("@/lib/db");
+  const client = db as unknown as {
+    eventOpinion: {
+      findFirst: (args: unknown) => Promise<Parameters<typeof opinionToPublic>[0] | null>;
+    };
+  };
+  const row = await client.eventOpinion.findFirst({
+    where: { id, organizationId },
+    include: {
+      event: true,
+      citations: true,
+    },
+  });
+  if (!row) throw new Error("opinion_not_found");
+  return (await enrichOpinions([opinionToPublic(row)], undefined, { skipUpstreamSources: true }))[0];
+}
+
+async function getCurrentSourcesFromPublicDb(id: string): Promise<PublicSource[]> {
+  const organizationId = await resolveCurrentsOrganizationId();
+  if (!organizationId) return [];
+
+  const { db } = await import("@/lib/db");
+  const client = db as unknown as {
+    eventOpinion: {
+      findFirst: (args: unknown) => Promise<{ id: string } | null>;
+    };
+    opinionCitation: {
+      findMany: (args: unknown) => Promise<
+        Array<{
+          id: string;
+          opinionId: string;
+          sourceKind: string;
+          conclusionId: string | null;
+          claimId: string | null;
+          quotedSpan: string;
+          retrievalScore: number;
+          isRevoked: boolean;
+          revokedReason: string | null;
+        }>
+      >;
+    };
+    conclusion: {
+      findMany: (args: unknown) => Promise<Array<{ id: string; text: string }>>;
+    };
+  };
+  const opinion = await client.eventOpinion.findFirst({
+    where: { id, organizationId },
+    select: { id: true },
+  });
+  if (!opinion) return [];
+
+  const citations = await client.opinionCitation.findMany({
+    where: { opinionId: id },
+    orderBy: { id: "asc" },
+  });
+  const conclusionIds = [
+    ...new Set(
+      citations
+        .filter((citation) => citation.sourceKind.toLowerCase() === "conclusion")
+        .map((citation) => citation.conclusionId)
+        .filter(Boolean) as string[],
+    ),
+  ];
+  const conclusions = conclusionIds.length
+    ? await client.conclusion.findMany({
+        where: { id: { in: conclusionIds } },
+        select: { id: true, text: true },
+      })
+    : [];
+  const textByConclusionId = new Map(conclusions.map((row) => [row.id, row.text]));
+
+  return citations.map((citation) => {
+    const sourceKind = citation.sourceKind.toLowerCase();
+    const sourceId = citationSourceId(citation);
+    return {
+      id: citation.id,
+      opinion_id: citation.opinionId,
+      source_kind: sourceKind,
+      source_id: sourceId,
+      source_text:
+        sourceKind === "conclusion" && sourceId
+          ? textByConclusionId.get(sourceId) ?? ""
+          : "",
+      quoted_span: citation.quotedSpan,
+      retrieval_score: Number(citation.retrievalScore),
+      is_revoked: Boolean(citation.isRevoked),
+      revoked_reason: citation.revokedReason,
+      canonical_path:
+        sourceKind === "conclusion" && sourceId
+          ? `/c/${sourceId}`
+          : sourceKind === "claim" && sourceId
+            ? `/conclusions/${sourceId}#claim-${sourceId}`
+            : null,
+    };
+  });
+}
+
+async function getCurrentsHealthFromPublicDb(): Promise<CurrentsHealth> {
+  const organizationId = await resolveCurrentsOrganizationId();
+  if (!organizationId) {
+    return {
+      x_bearer_present: false,
+      curated_count: 0,
+      search_count: 0,
+      last_cycle_at: null,
+      last_event_at: null,
+      last_opinion_at: null,
+      events_last_24h: 0,
+      opinions_last_24h: 0,
+      disabled_reasons: ["currents_public_org_unavailable"],
+      last_cycle: null,
+      db_ok: false,
+      db_error: "public organization could not be resolved",
+      using_db_fallback: true,
+    };
+  }
+  const { db } = await import("@/lib/db");
+  const client = db as unknown as {
+    currentEvent: {
+      count: (args: unknown) => Promise<number>;
+      findFirst: (args: unknown) => Promise<{ createdAt: Date | string } | null>;
+    };
+    eventOpinion: {
+      count: (args: unknown) => Promise<number>;
+      findFirst: (args: unknown) => Promise<{ generatedAt: Date | string } | null>;
+    };
+  };
+  const cutoff = new Date(Date.now() - 24 * 60 * 60 * 1000);
+  const [eventsLast24h, opinionsLast24h, lastEvent, lastOpinion] = await Promise.all([
+    client.currentEvent.count({
+      where: { organizationId, createdAt: { gte: cutoff } },
+    }),
+    client.eventOpinion.count({
+      where: { organizationId, generatedAt: { gte: cutoff } },
+    }),
+    client.currentEvent.findFirst({
+      where: { organizationId },
+      orderBy: { createdAt: "desc" },
+      select: { createdAt: true },
+    }),
+    client.eventOpinion.findFirst({
+      where: { organizationId },
+      orderBy: { generatedAt: "desc" },
+      select: { generatedAt: true },
+    }),
+  ]);
+  return {
+    x_bearer_present: false,
+    curated_count: 0,
+    search_count: 0,
+    last_cycle_at: null,
+    last_event_at: lastEvent ? isoDate(lastEvent.createdAt) : null,
+    last_opinion_at: lastOpinion ? isoDate(lastOpinion.generatedAt) : null,
+    events_last_24h: eventsLast24h,
+    opinions_last_24h: opinionsLast24h,
+    disabled_reasons: ["currents_api_unavailable_db_fallback"],
+    last_cycle: null,
+    db_ok: true,
+    db_error: null,
+    using_db_fallback: true,
+  };
+}
+
 export async function listCurrents(
   params: ListCurrentsParams,
   options?: CurrentsFetchOptions,
 ): Promise<{ items: PublicOpinion[] }> {
-  const result = await fetchJson<{ items: PublicOpinion[] }>(
-    "/v1/currents",
-    searchParamsFor(params),
-    options,
-  );
-  return { items: await enrichOpinions(result.items, options) };
+  try {
+    const result = await fetchJson<{ items: PublicOpinion[] }>(
+      "/v1/currents",
+      searchParamsFor(params),
+      options,
+    );
+    return { items: await enrichOpinions(result.items, options) };
+  } catch (error) {
+    try {
+      return await listCurrentsFromPublicDb(params, options);
+    } catch {
+      throw error;
+    }
+  }
 }
 
 export async function getCurrentsHealth(options?: CurrentsFetchOptions): Promise<CurrentsHealth> {
-  return fetchJson<CurrentsHealth>("/v1/currents/health", undefined, options);
+  try {
+    return await fetchJson<CurrentsHealth>("/v1/currents/health", undefined, options);
+  } catch (error) {
+    try {
+      return await getCurrentsHealthFromPublicDb();
+    } catch {
+      throw error;
+    }
+  }
 }
 
 export async function getCurrent(id: string): Promise<PublicOpinion> {
-  const opinion = await fetchJson<PublicOpinion>(`/v1/currents/${encodeURIComponent(id)}`);
-  return (await enrichOpinions([opinion]))[0];
+  try {
+    const opinion = await fetchJson<PublicOpinion>(`/v1/currents/${encodeURIComponent(id)}`);
+    return (await enrichOpinions([opinion]))[0];
+  } catch (error) {
+    try {
+      return await getCurrentFromPublicDb(id);
+    } catch {
+      throw error;
+    }
+  }
 }
 
 export async function getCurrentSources(id: string): Promise<PublicSource[]> {
-  return fetchJson<PublicSource[]>(`/v1/currents/${encodeURIComponent(id)}/sources`);
+  try {
+    return await fetchJson<PublicSource[]>(`/v1/currents/${encodeURIComponent(id)}/sources`);
+  } catch (error) {
+    try {
+      return await getCurrentSourcesFromPublicDb(id);
+    } catch {
+      throw error;
+    }
+  }
 }
 
 export async function getFollowupMessages(
@@ -804,6 +1245,49 @@ function upstreamUnavailable(error: unknown): Response {
   });
 }
 
+async function currentsFallbackResponse(
+  req: Request,
+  path: string,
+): Promise<Response | null> {
+  if (req.method !== "GET") return null;
+  const sourceUrl = new URL(req.url);
+  try {
+    if (path === "/v1/currents") {
+      const result = await listCurrentsFromPublicDb(
+        listParamsFromSearch(sourceUrl.searchParams),
+      );
+      return Response.json(result);
+    }
+    if (path === "/v1/currents/health") {
+      return Response.json(await getCurrentsHealthFromPublicDb());
+    }
+
+    const sourceMatch = path.match(/^\/v1\/currents\/([^/]+)\/sources$/);
+    if (sourceMatch) {
+      return Response.json(
+        await getCurrentSourcesFromPublicDb(decodeURIComponent(sourceMatch[1])),
+      );
+    }
+    const detailMatch = path.match(/^\/v1\/currents\/([^/]+)$/);
+    if (detailMatch) {
+      return Response.json(
+        await getCurrentFromPublicDb(decodeURIComponent(detailMatch[1])),
+      );
+    }
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "db fallback failed";
+    const status = message === "opinion_not_found" ? 404 : 503;
+    return Response.json(
+      {
+        error: status === 404 ? "opinion_not_found" : "currents_db_fallback_unavailable",
+        detail: message,
+      },
+      { status },
+    );
+  }
+  return null;
+}
+
 export function proxyResponse(upstream: Response): Response {
   return new Response(upstream.body, {
     status: upstream.status,
@@ -847,8 +1331,14 @@ export async function proxyToCurrents(
 
   try {
     const upstream = await fetch(currentsBackendUrl(path, sourceUrl.search), init);
+    if (!upstream.ok && upstream.status >= 500) {
+      const fallback = await currentsFallbackResponse(req, path);
+      if (fallback) return fallback;
+    }
     return options.sse ? proxySseResponse(upstream) : proxyResponse(upstream);
   } catch (error) {
+    const fallback = await currentsFallbackResponse(req, path);
+    if (fallback) return fallback;
     return upstreamUnavailable(error);
   }
 }

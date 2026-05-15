@@ -4,6 +4,12 @@ name: Load test (preview deploy)
 # A failed run blocks the deploy gate. To override, dispatch the
 # workflow manually with an `override_reason` input — the reason is
 # written into the results JSON for audit.
+#
+# Round 17 consolidation: setup is delegated to ./_setup_python.yml.
+# Caller-resolved env (preview URL, slug, override reason) is passed
+# via the reusable's `env-vars:` input so the script body has no
+# `${{ }}` interpolation of its own.
+
 on:
   pull_request:
     paths:
@@ -14,6 +20,7 @@ on:
       - "theseus-codex/src/app/(home)/**"
       - "theseus-codex/src/app/page.tsx"
       - ".github/workflows/load_test_preview.yml"
+      - ".github/workflows/_setup_python.yml"
   deployment_status:
   workflow_dispatch:
     inputs:
@@ -32,49 +39,35 @@ on:
         required: false
         default: ""
 
+permissions:
+  contents: read
+
+concurrency:
+  group: load-test-preview-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   load-test-light:
-    runs-on: ubuntu-latest
-    # Only act on a successful preview deploy or an explicit dispatch.
+    # Only act on a successful preview deploy or an explicit dispatch
+    # or a PR push. Skip every other deployment_status state.
     if: >-
       github.event_name != 'deployment_status' ||
       github.event.deployment_status.state == 'success'
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.11"
-
-      - name: Resolve preview URL
-        id: resolve
-        run: |
-          set -euo pipefail
-          if [ "${{ github.event_name }}" = "deployment_status" ]; then
-            BASE_URL="${{ github.event.deployment_status.target_url }}"
-          else
-            BASE_URL="${{ github.event.inputs.base_url }}"
-          fi
-          if [ -z "$BASE_URL" ]; then
-            echo "no preview URL available; skipping load test" >&2
-            exit 78
-          fi
-          echo "base_url=$BASE_URL" >> "$GITHUB_OUTPUT"
-
-      - name: Run light load profile
-        env:
-          LOAD_TEST_BASE_URL: ${{ steps.resolve.outputs.base_url }}
-          LOAD_TEST_ARTICLE_SLUG: ${{ github.event.inputs.article_slug || vars.LOAD_TEST_ARTICLE_SLUG }}
-          LOAD_TEST_CONCLUSION_ID: ${{ github.event.inputs.conclusion_id }}
-          LOAD_TEST_OVERRIDE_REASON: ${{ github.event.inputs.override_reason }}
-        run: |
-          python tests/load/article_viral.py --profile light
-
-      - name: Upload load-test results
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: load-test-light-${{ github.run_id }}
-          path: tests/load/results/*.json
-          if-no-files-found: warn
-          retention-days: 30
+    uses: ./.github/workflows/_setup_python.yml
+    with:
+      python-version: '3.11'
+      timeout-minutes: 20
+      env-vars: |
+        LOAD_TEST_BASE_URL=${{ github.event_name == 'deployment_status' && github.event.deployment_status.target_url || github.event.inputs.base_url }}
+        LOAD_TEST_ARTICLE_SLUG=${{ github.event.inputs.article_slug || vars.LOAD_TEST_ARTICLE_SLUG }}
+        LOAD_TEST_CONCLUSION_ID=${{ github.event.inputs.conclusion_id }}
+        LOAD_TEST_OVERRIDE_REASON=${{ github.event.inputs.override_reason }}
+      upload-artifact-name: load-test-light-${{ github.run_id }}
+      upload-artifact-path: tests/load/results/*.json
+      upload-artifact-retention-days: 30
+      script: |
+        if [ -z "${LOAD_TEST_BASE_URL}" ]; then
+          echo "no preview URL available; skipping load test" >&2
+          exit 78
+        fi
+        python tests/load/article_viral.py --profile light

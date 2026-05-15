@@ -1,8 +1,8 @@
 # Theseus Security Threat Model
 
-Version: 2026-05-08. Owner: founders. Read alongside the auth modules
-referenced inline; this is the document the rest of the security work
-must align to.
+Version: 2026-05-14 (Round 18 follow-up). Previous: 2026-05-08.
+Owner: founders. Read alongside the auth modules referenced inline;
+this is the document the rest of the security work must align to.
 
 > The firm's credibility evaporates the first time a leaked token
 > publishes a fabricated article under its signature. Treat every
@@ -120,6 +120,118 @@ tokens, the `tcx_` API-key marker, and obvious private-key headers.
 | LOW      | `AuditEvent.detail` is free-form text; consider a discriminated-union JSON column for structured queries.            | Out of scope.                                                    |
 | LOW      | `lastUsedAt` is fire-and-forget; on a hot key it can drop updates under load. Acceptable per existing comment.       | Documented; no action.                                           |
 
+## 6a. Round 18 surface diff (added 2026-05-14)
+
+Round 18 introduced new public surfaces (architecture doc page,
+reader-onboarding tour, public-ask quality pass, methodology &
+calibration manifests, lineage v2, mobile polish). Each was re-walked
+against the table in §3.4 and the adversary list in §2. The diff:
+
+| Public surface                                  | Rate-limited?                                | Auth?    | CSRF?            | Input validation                                  | Output sanitization                                                 |
+|-------------------------------------------------|----------------------------------------------|----------|------------------|---------------------------------------------------|---------------------------------------------------------------------|
+| `GET /api/public/methodology/manifest`          | No (cacheable: 60s edge / 5min CDN)          | None     | N/A (GET only)   | None — pure GET                                   | `buildMethodologyManifest` filters `m.public === true` before emit. |
+| `GET /api/public/calibration/manifest`          | No (cacheable: 60s edge / 5min CDN)          | None     | N/A (GET only)   | Query params `domain` / `method` / `version` are string-coerced and consumed as Prisma `where` filters (parameterised) | `loadPublicCalibrationManifest` returns only resolved-prediction rows; SHA-256 `resolutionSetHash` mirrored to the response header |
+| `GET /api/public/conclusion/[id]/lineage`       | No (cacheable: 60s edge / 5min CDN)          | None     | N/A (GET only)   | `id` matched against `sourceConclusionId` *or* `slug` — unpublished id 404s | `filterPublic()` drops (not redacts) private nodes (drift, revision, peer review, unpublished methodology) |
+| `POST /api/public/ask`                          | 30 req / 60 s per IP (in-memory)             | None     | Lax cookie + anti-bot challenge (env-flagged) | Body 4 KB cap, JSON schema check, `query` required non-empty string | Rule-based `classifyQuery` — no LLM at request time. Persistent log only stores the 12-hex bucket id + class. |
+| `POST /api/public/critique/submit`              | 5 req / 24 h per (org, submitterEmail)       | None     | Lax cookie       | `articleSlug` required; submitter email must contain `@`; org resolved server-side | Stored verbatim; no rendering as HTML on the public site |
+| `POST /api/public/subscribe`                    | 10 req / 24 h per email + per-IP bucket      | None     | Lax cookie + anti-bot challenge (env-flagged) | Email + scope + cadence enum-checked                       | Double opt-in; no leak of existing-subscriber state in response |
+| `GET /api/public/subscribe/confirm`             | Token-bound (single-use)                     | Token    | N/A (GET)        | Confirmation token HMAC-validated                          | Returns generic confirmation page                                  |
+| `POST /api/public/unsubscribe/[token]`          | Token-bound (single-use)                     | Token    | N/A              | Token HMAC-validated                                       | Returns generic unsubscribe confirmation                            |
+| `GET /api/public/signature/[slug]`              | No (cacheable; read-only DB lookup)          | None     | N/A (GET)        | `version` integer-checked when present                     | Returns precomputed signature artefact only — no MAC computed in route |
+| `GET /api/public/challenge`                     | None (issuing endpoint)                      | None     | N/A              | None — IP-bound HMAC mint                                  | Token is `payload.signature` over IP + expiry                       |
+| `GET /api/public/conclusion/...` (read aliases) | No (cacheable: 60s edge / 5min CDN)          | None     | N/A              | Conclusion id / slug                                       | Read path mirrors lineage's public filter                           |
+
+### Specific re-checks
+
+1. **Methodology manifest leak check** — `buildMethodologyManifest`
+   (`src/lib/methodologyManifest.ts`) iterates the failure-mode catalog
+   and skips any mode where `m.public !== true`; the registry encodes
+   `public: false` for failure-mode rows we don't publish. The
+   published-conclusion track-record join applies the
+   `MIN_PUBLISHABLE_SAMPLE` gate before returning rows. Re-verified
+   against the registry on 2026-05-14: no `public: false` rows surface
+   in the JSON. Regression test:
+   `security-followup.test.ts → methodology manifest only exposes
+   public failure modes`.
+
+2. **Public ask prompt injection (ranking)** — The route never
+   freeform-generates and never feeds the query into an LLM at
+   request time. `classifyQuery` is pure regex-rule scoring, and
+   `kindBoost` re-weighting only affects ordering *within* the
+   already-retrieved candidate set; it cannot pull in private items
+   nor invent new ones. Prompt-injection strings ("ignore previous
+   instructions...") classify as `browse` and follow the default MMR
+   path. Regression test: `security-followup.test.ts → public ask
+   classifier ignores prompt-injection strings`.
+
+3. **Signature endpoint timing side-channel** — The route does one
+   Prisma `findFirst`, no HMAC and no comparison of attacker-supplied
+   bytes against any secret. The signing key never enters the web app
+   (CI enforced by `scripts/check_signing_key_not_in_web.py`);
+   signatures are minted offline by the noosphere CLI and stored as
+   `PublicationSignature` rows. There is no oracle an attacker could
+   query that depends on a secret. Verified: 200 vs 404 paths share
+   the same control flow except for the existence of the row.
+   Regression test: `security-followup.test.ts → signature endpoint
+   has no signing side-channel`.
+
+4. **Replication harness env-var surface** — `replication/lib/envelope.py`
+   reads exactly `OPENAI_API_KEY`, `VOYAGE_API_KEY`, `COHERE_API_KEY`,
+   plus deterministic-execution knobs (`PYTHONHASHSEED`,
+   `OMP_NUM_THREADS`, …). The three API keys are the only secrets and
+   are already expected to live in the deploy's secret store; the
+   harness merely skips models whose key is absent. No new env var
+   was introduced in Round 17 prompt 11 that should have been a secret
+   but wasn't. Re-validated against the file on 2026-05-14.
+
+5. **API envelope leak check** — `withApiHandler` (`src/lib/api/handler.ts`)
+   catches every non-`ApiError` throw and returns the constant string
+   `"Internal server error"` with a correlation id; the underlying
+   `Error.message` is logged server-side only. There is no path that
+   forwards a stack trace or the raw message to the client. Regression
+   test: `security-followup.test.ts → api envelope masks raw error
+   messages`.
+
+## 6b. Findings opened in this pass
+
+| ID                  | Severity | Finding                                                                                                                                                | Mitigation status                          | Target date  |
+|---------------------|----------|---------------------------------------------------------------------------------------------------------------------------------------------------------|--------------------------------------------|--------------|
+| F-2026-05-14-01     | MED      | `GET /api/public/methodology/manifest`, `/calibration/manifest`, and `/conclusion/[id]/lineage` have no per-IP limiter. CDN cache absorbs the common path, but a query-param fuzz (`?domain=…&method=…&version=…`) or a cache-miss storm crosses to origin. | TODO — wire the same in-memory limiter `/ask` uses (60 req / 60 s per IP) at the route entry. Accept as deferred until Redis-backed limiter lands. | 2026-06-15 |
+| F-2026-05-14-02     | LOW      | `POST /api/public/critique/submit` rate-limits per (org, submitterEmail). An attacker who rotates `submitterEmail` per request bypasses it.            | TODO — add a per-IP fallback bucket (`5/h` per IP).                                                  | 2026-06-15   |
+| F-2026-05-14-03     | INFO     | Signature endpoint timing was probed — no side-channel exists because no secret is involved at GET time. Documented for the audit trail.               | Accepted — closed without code change.                                                                | n/a          |
+| F-2026-05-14-04     | INFO     | Public-ask prompt-injection re-check — structurally impossible to influence ranking via injected prompts because the route uses no LLM at request time. | Accepted — closed without code change.                                                                | n/a          |
+| F-2026-05-14-05     | INFO     | API envelope masking confirmed: no stack traces or raw `Error.message` reach the client. Documented for the audit trail.                                | Accepted — closed without code change.                                                                | n/a          |
+
+Probes that produced these findings are in `docs/security/probes/`.
+
+## 6c. Bounty program decision (added 2026-05-14)
+
+**Decision: do not publish a `/security/bounty` page at this time.**
+
+Rationale:
+
+- A public bounty page implies a triage SLA and a reward budget. The
+  firm is two founders; we cannot commit to either on a queue we
+  don't control.
+- The current threat model relies on *defence in depth* (the
+  hardening pass in §5) rather than *crowd-sourced disclosure*. A
+  bounty makes most sense when production traffic is large enough
+  that an external researcher's probability of finding a novel issue
+  before an attacker dominates the cost of running the program. The
+  firm's traffic does not yet justify that math.
+- A coordinated-disclosure path **does** exist: `security@theseus.dev`
+  is monitored by the founders; the `/security` page (added in the
+  Round 17 hardening pass) documents the SLA we are willing to commit
+  to today (acknowledge within 5 business days; no monetary reward,
+  public credit on resolution).
+- Re-evaluate after first seasonal review (2026-08) or after the
+  first external replication outreach yields a researcher who asks
+  to test the public surface.
+
+If a `/security/bounty` page is later added, this section is the
+decision audit trail; document the policy reversal here with the new
+date.
+
 ## 7. Operational runbook (high-attention day)
 
 1. `THESEUS_PUBLIC_CHALLENGE_REQUIRED=1` — flip the anti-bot challenge from "issued, not enforced" to "required".
@@ -131,7 +243,13 @@ tokens, the `tcx_` API-key marker, and obvious private-key headers.
 ## 8. Verification
 
 The tests in `theseus-codex/src/__tests__/auth-security.test.ts` are
-the smoke tests for this document. They assert:
+the original smoke tests. The Round 18 follow-up adds
+`theseus-codex/src/__tests__/security-followup.test.ts` for the
+re-checks in §6a (envelope masking, methodology-manifest visibility,
+signature-route control flow, public-ask classifier under
+prompt-injection input).
+
+Together they assert:
 
 - Brute-force lockout fires on the configured threshold.
 - Per-API-key rate limiter denies after burst.

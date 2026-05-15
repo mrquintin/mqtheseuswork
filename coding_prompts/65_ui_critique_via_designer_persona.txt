@@ -1,0 +1,110 @@
+You are operating in /Users/michaelquintin/Desktop/Theseus.
+
+Goal: produce an EXPERT-PERSONA critique of the current Theseus
+UI as a structured plan, then apply the plan in a separate pass.
+The founder's voice memo described this explicitly: "spin up an
+agent, be like, you're like, hey, Silicon Valley product chief
+designer … critique with thesis interface, and provide a UI
+revision strategy, and then take that … TXT file, and then put
+it into the thing and be like, make these changes".
+
+This is the CRITIQUE pass. Prompt 66 is the application pass.
+Keep them separate so the founder reads the critique and can
+edit it before any code touches.
+
+Before you start — read:
+1. Round 18 prompt 06 (design-system extraction) — note what
+   primitives exist or will exist.
+2. Round 18 prompts 26-30 (UI v2 prompts) — the existing
+   polish plans.
+3. The current state of every founder-facing surface. List
+   them: dashboard, knowledge, principles, currents,
+   /portfolio, articles, public homepage, login, operator
+   console. Page-shot each (Playwright or manual).
+
+Implement:
+
+A. The PROMPTED AGENT, for this prompt only, adopts the
+   following role for the critique pass — it is NOT a
+   reusable persona, it is the lens for this single
+   document.
+
+   "You are a senior product designer who has shipped at
+    Stripe, Linear, and Vercel. Your aesthetic is restrained,
+    typographically disciplined, and dense without being
+    crowded. You favor strong information hierarchy, generous
+    line-height for reading, sparing color, and consistent
+    interaction patterns. You are critical without being
+    contrarian. You name specific problems, not vibes. Every
+    critique is paired with a specific revision proposal. You
+    refuse to recommend changes that would degrade
+    accessibility or readability for the sake of novelty."
+
+B. The critique deliverable is
+   `coding_prompts/UI_CRITIQUE_2026_05_13.md`. Sections:
+   1. **Methodology** — how the critique was conducted. Which
+      surfaces were inspected. Which user flows were walked
+      end-to-end. The viewport(s) tested.
+   2. **Cross-surface findings**. Five concrete cross-cutting
+      problems, ranked by impact. Each finding has:
+      - Symptom (described visually).
+      - Where to see it (specific routes).
+      - Why it costs the user (specific outcome).
+      - Revision proposal (specific component / token /
+        layout change).
+   3. **Per-surface findings**, one section per surface,
+      same finding/revision pattern. At least three items
+      per surface, no fewer.
+   4. **What is already good**. Three specific things the
+      designer would NOT change. This protects the firm's
+      identity from a redesign-for-redesign's-sake pass.
+   5. **Prioritised revision plan**. A flat ordered list of
+      revisions. Each item has:
+      - id (`R-001`, `R-002`, ...)
+      - title
+      - surface(s) affected
+      - estimated effort (S / M / L)
+      - dependency on any prior revision (`R-003 depends on
+        R-001`)
+      - one-paragraph spec precise enough that a
+        non-designer engineer could implement it
+   6. **Things the designer is uncertain about** — explicit
+      open questions for the founder to resolve. No silent
+      assumptions.
+
+C. Visual evidence. The Playwright page-shots from step A
+   are committed under
+   `docs/ui-critique/2026-05-13/screenshots/`, referenced
+   from the critique by filename so the reader can see what
+   the designer was looking at.
+
+D. Reading-time gate. The critique is meant to be READ by a
+   human (the founder) before the application pass.
+   The Round 18 README will document the gate: "Run prompt 65
+   first. Read the produced UI_CRITIQUE_2026_05_13.md. Edit
+   it if needed (delete proposals you reject, edit
+   priorities). THEN run prompt 66 to apply the revisions."
+
+E. Tests:
+   - Critique file exists, has all six sections.
+   - Each finding has a paired revision proposal (regex
+     verification on the document structure).
+   - Every revision in the prioritised list has a unique id.
+   - Screenshots referenced in the critique all exist on disk.
+
+Constraints
+- The agent's job here is critique, not implementation. Zero
+  code in src/ should change.
+- The critique avoids generic SaaS-blog tropes ("add more
+  whitespace") in favor of specific, named, falsifiable
+  proposals.
+- The critique respects the firm's identity. Parchment +
+  gold + ASCII rendering are intentional; the critique does
+  not recommend removing them. It can recommend SHARPENING
+  them.
+
+SCOPE
+- `coding_prompts/UI_CRITIQUE_2026_05_13.md` CREATE
+- `docs/ui-critique/2026-05-13/screenshots/.gitkeep` CREATE
+- `theseus-codex/playwright/ui-critique.capture.spec.ts` CREATE
+- `theseus-codex/__tests__/ui_critique_doc_shape.test.ts` CREATE

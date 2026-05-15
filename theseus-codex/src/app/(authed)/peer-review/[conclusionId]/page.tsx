@@ -1,3 +1,5 @@
+import fs from "node:fs";
+import path from "node:path";
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { getFounder } from "@/lib/auth";
@@ -8,6 +10,9 @@ import {
   type Finding,
 } from "@/lib/api/round3";
 import DownloadButton from "@/components/DownloadButton";
+import ExpectedContentionPill, {
+  type ContentionPrediction,
+} from "@/components/ExpectedContentionPill";
 import SwarmDisagreementBadge from "@/components/SwarmDisagreementBadge";
 import {
   objectionSeverityColor,
@@ -144,6 +149,87 @@ function groupByProvider(
   }));
 }
 
+/**
+ * Read the pre-review agreement prediction for a conclusion.
+ *
+ * The artifact is written by either the swarm at review time
+ * (SwarmOrchestrator._persist_agreement_prediction) or the offline
+ * trainer (train_agreement_model.sh) into
+ * `noosphere_data/agreement_model/predictions/<id>.json`. A missing
+ * file is the common case (no swarm run yet, or Python-disabled
+ * deployment) and is a silent no-op — the pill simply does not render.
+ */
+function readContentionPrediction(
+  conclusionId: string,
+): ContentionPrediction | null {
+  const candidates = [
+    path.join(
+      process.cwd(),
+      "..",
+      "noosphere_data",
+      "agreement_model",
+      "predictions",
+      `${conclusionId}.json`,
+    ),
+    path.join(
+      process.cwd(),
+      "public",
+      "agreement_model",
+      "predictions",
+      `${conclusionId}.json`,
+    ),
+  ];
+  for (const p of candidates) {
+    try {
+      const raw = JSON.parse(fs.readFileSync(p, "utf8")) as {
+        calibration_skill: number | null;
+        model_trained_at?: string;
+        generated_at?: string;
+        decision: {
+          action: string;
+          band: string;
+          expected_contention: string;
+          predicted_agreement: number;
+          rationale: string;
+          cost_delta_usd: number;
+          cost_saving_usd: number;
+          coverage_delta: number;
+          coverage_loss: number;
+          baseline_mix: string[];
+          provider_mix: string[];
+          founder_override: boolean;
+        };
+        top_drivers?: { feature: string; contribution: number }[];
+      };
+      const d = raw.decision;
+      return {
+        expectedContention: d.expected_contention,
+        predictedAgreement: d.predicted_agreement,
+        band: d.band,
+        action: d.action,
+        rationale: d.rationale,
+        costDeltaUsd: d.cost_delta_usd,
+        coverageDelta: d.coverage_delta,
+        costSavingUsd: d.cost_saving_usd,
+        coverageLoss: d.coverage_loss,
+        baselineMix: d.baseline_mix,
+        providerMix: d.provider_mix,
+        founderOverride: d.founder_override,
+        modelTrainedAt: raw.model_trained_at ?? "",
+        generatedAt: raw.generated_at ?? "",
+        calibrationSkill: raw.calibration_skill,
+        topDrivers: (raw.top_drivers ?? []).map((t) => ({
+          feature: t.feature,
+          contribution: t.contribution,
+        })),
+      };
+    } catch {
+      // try next candidate
+    }
+  }
+  return null;
+}
+
 export default async function PeerReviewPage({
   params,
   searchParams,
@@ -163,6 +249,7 @@ export default async function PeerReviewPage({
   const { conclusionId } = await params;
   const sp = await searchParams;
   const reviews = await fetchPeerReviews(tenant.organizationId, conclusionId);
+  const contentionPrediction = readContentionPrediction(conclusionId);
 
   const csvData = toCSV(
     reviews.map((r) => ({
@@ -238,6 +325,11 @@ export default async function PeerReviewPage({
         </a>
         , which evaluates pairs of claims rather than individual conclusions.
       </div>
+
+      {/* Pre-review prediction: does the reviewer-agreement model expect
+          the swarm to converge on this conclusion, or fight over it?
+          Renders nothing when no prediction artifact exists. */}
+      <ExpectedContentionPill prediction={contentionPrediction} />
 
       {sp.ledger && (
         <div

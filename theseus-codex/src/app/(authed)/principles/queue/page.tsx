@@ -1,8 +1,9 @@
-import Link from "next/link";
 import { redirect } from "next/navigation";
 
-import { listQueuedPrinciples } from "@/lib/principlesApi";
+import { hydrateClusterConclusions, listQueuedPrinciples } from "@/lib/principlesApi";
 import { requireTenantContext } from "@/lib/tenant";
+
+import QueueClient, { type QueueRow } from "./QueueClient";
 
 export const dynamic = "force-dynamic";
 
@@ -10,18 +11,52 @@ export const dynamic = "force-dynamic";
  * Founder triage queue for distilled principles.
  *
  * Shows draft + needs-re-review rows, conviction-sorted. The detail
- * page (`/principles/[id]`) carries accept/reject/merge.
+ * page (`/principles/[id]`) carries accept-with-edit / reject-with-
+ * reason / merge-with-existing.
  *
  * The queue treats principles as reviewable artifacts: each row prints
  * the cluster size, the distinct domain count, and any drift reason
  * the re-distillation pass attached, so the reviewer reads the
- * provenance next to the candidate text.
+ * provenance next to the candidate text. The conclusions under each
+ * candidate are hydrated here and rendered as one-click links by the
+ * client layer (`QueueClient`), which also carries keyboard navigation
+ * and the page-scoped command palette.
  */
 export default async function PrinciplesQueuePage() {
   const tenant = await requireTenantContext();
   if (!tenant) redirect("/login");
 
   const rows = await listQueuedPrinciples(tenant.organizationId);
+
+  // Hydrate every cluster conclusion in one query, then partition back
+  // onto each row — the founder reads the candidate next to the
+  // conclusions it generalizes without a click.
+  const allConclusionIds = Array.from(
+    new Set(rows.flatMap((r) => r.clusterConclusionIds)),
+  );
+  const hydrated = await hydrateClusterConclusions(
+    tenant.organizationId,
+    allConclusionIds,
+  );
+  const conclusionById = new Map(hydrated.map((c) => [c.id, c]));
+
+  const queueRows: QueueRow[] = rows.map((r) => ({
+    id: r.id,
+    text: r.text,
+    convictionScore: r.convictionScore,
+    domainBreadth: r.domainBreadth,
+    status: r.status,
+    driftReason: r.driftReason,
+    domains: r.domains,
+    clusterConclusionIds: r.clusterConclusionIds,
+    citedConclusionIds: r.citedConclusionIds,
+    conclusions: r.clusterConclusionIds
+      .map((id) => conclusionById.get(id))
+      .filter(
+        (c): c is { id: string; text: string; confidenceTier: string } =>
+          Boolean(c),
+      ),
+  }));
 
   return (
     <main
@@ -52,7 +87,24 @@ export default async function PrinciplesQueuePage() {
             marginTop: "0.4rem",
           }}
         >
-          {rows.length} awaiting review · conviction-sorted
+          {queueRows.length} awaiting review
+        </p>
+        {/* R-019: ordering criterion is shown explicitly so the reader
+         * knows what "top of the queue" means. Today the queue is
+         * conviction-sorted and the ordering is fixed; the popover with
+         * alternatives is left to a follow-up pass (see SUMMARY.md). */}
+        <p
+          className="mono"
+          data-testid="queue-ordering-criterion"
+          style={{
+            fontSize: "0.65rem",
+            letterSpacing: "0.18em",
+            textTransform: "uppercase",
+            color: "var(--parchment-dim)",
+            marginTop: "0.2rem",
+          }}
+        >
+          Ordered by: conviction (descending)
         </p>
         <p
           style={{
@@ -72,7 +124,7 @@ export default async function PrinciplesQueuePage() {
         </p>
       </header>
 
-      {rows.length === 0 ? (
+      {queueRows.length === 0 ? (
         <p
           className="mono"
           style={{
@@ -86,119 +138,7 @@ export default async function PrinciplesQueuePage() {
           No drafts in the queue.
         </p>
       ) : (
-        <ul
-          style={{
-            listStyle: "none",
-            padding: 0,
-            margin: 0,
-            display: "flex",
-            flexDirection: "column",
-            gap: "0.85rem",
-          }}
-        >
-          {rows.map((row) => (
-            <li
-              key={row.id}
-              className="portal-card"
-              style={{ padding: "1.1rem 1.3rem" }}
-            >
-              <div
-                style={{
-                  display: "flex",
-                  justifyContent: "space-between",
-                  alignItems: "baseline",
-                  gap: "1rem",
-                }}
-              >
-                <Link
-                  href={`/principles/${row.id}`}
-                  style={{
-                    color: "var(--gold)",
-                    textDecoration: "none",
-                    fontSize: "1rem",
-                    fontFamily: "'EB Garamond', serif",
-                    flex: 1,
-                  }}
-                >
-                  {row.text}
-                </Link>
-                <span
-                  className="mono"
-                  title="Conviction score (conservative; rewards cross-domain breadth)"
-                  style={{
-                    fontSize: "0.75rem",
-                    color: "var(--amber)",
-                    letterSpacing: "0.1em",
-                  }}
-                >
-                  {row.convictionScore.toFixed(2)}
-                </span>
-              </div>
-              <div
-                className="mono"
-                style={{
-                  marginTop: "0.5rem",
-                  fontSize: "0.65rem",
-                  letterSpacing: "0.18em",
-                  textTransform: "uppercase",
-                  color: "var(--parchment-dim)",
-                  display: "flex",
-                  flexWrap: "wrap",
-                  gap: "0.75rem",
-                }}
-              >
-                <span>cluster · {row.clusterConclusionIds.length}</span>
-                <span>domains · {row.domainBreadth}</span>
-                <span>status · {row.status}</span>
-                {row.driftReason ? (
-                  <span style={{ color: "var(--ember, #c0392b)" }}>
-                    drift · {row.driftReason}
-                  </span>
-                ) : null}
-              </div>
-              {row.domains.length > 0 ? (
-                <div
-                  style={{
-                    marginTop: "0.5rem",
-                    display: "flex",
-                    flexWrap: "wrap",
-                    gap: "0.4rem",
-                  }}
-                >
-                  {row.domains.map((d) => (
-                    <span
-                      key={d}
-                      className="mono"
-                      style={{
-                        fontSize: "0.6rem",
-                        letterSpacing: "0.18em",
-                        textTransform: "uppercase",
-                        padding: "0.2rem 0.6rem",
-                        border: "1px solid var(--border)",
-                        color: "var(--parchment-dim)",
-                      }}
-                    >
-                      {d}
-                    </span>
-                  ))}
-                </div>
-              ) : (
-                <p
-                  className="mono"
-                  style={{
-                    marginTop: "0.5rem",
-                    fontSize: "0.6rem",
-                    letterSpacing: "0.18em",
-                    textTransform: "uppercase",
-                    color: "var(--ember, #c0392b)",
-                  }}
-                >
-                  No domain declared · cannot publish
-                </p>
-              )}
-            </li>
-          ))}
-        </ul>
+        <QueueClient rows={queueRows} />
       )}
     </main>
   );

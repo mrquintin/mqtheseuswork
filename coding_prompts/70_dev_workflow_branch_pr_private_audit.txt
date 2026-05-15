@@ -1,0 +1,115 @@
+You are operating in /Users/michaelquintin/Desktop/Theseus.
+
+Goal: address the dev-workflow concerns the founder raised:
+"is this a repository, did you know? … We need to make this
+private. Okay, okay. It's not private. It's public, right now.
+But commits are being made, right? Yes, yeah, yeah. … We can
+work on something, and we can interact with it, and it doesn't
+break, and then you have, like, before hit. So it's like, here's
+like the main branch that's like interacting. And then you,
+you basically clone the repository onto your local machine, make
+the changes, … and then submit a poll request. So like by the
+time the changes are implemented, they're like flawless."
+
+Three concrete fixes:
+ 1. Privacy audit + flip the repo private. Codex commits to
+    main; this prompt does NOT change that, but it confirms
+    privacy and audits historical leaks.
+ 2. Optional branch-per-prompt workflow for the runner.
+    Each prompt's work lands on its own branch; the founder
+    merges via PR.
+ 3. Pre-commit test gate.
+
+Before you start — read:
+1. `.gitignore` (current state).
+2. `sync.sh` (the current auto-commit script).
+3. `run_prompts.sh` (where to insert the branch flow).
+4. Git log: examine the last ~200 commits for any accidental
+   credential leak. `git log --all -p -S 'API_KEY' -S
+   'private_key' -S 'BEGIN RSA' -S 'sk-ant-'` is the
+   recommended search.
+
+Implement:
+
+A. Privacy audit
+   `docs/security/2026_05_13_repo_privacy_audit.md`:
+   - Result of the credential-leak grep across all branches.
+     Found anything? Document hash + file. Have the founder
+     rotate any leaked credentials and document the rotation
+     timestamp.
+   - List of every file that EVER passed through git that
+     should not have (any `.env*` file, any PEM, any wallet
+     hex).
+   - Confirmation the repo's GitHub setting is PRIVATE. If
+     not, this is a manual step for the founder (the agent
+     CANNOT flip the GitHub setting itself). The doc lists
+     the exact steps and screenshots the founder will see.
+   - "What to do if a leak is found" — git-filter-repo
+     instructions for purging the leaked content from
+     history, with the caveat that anyone who already cloned
+     the public repo has the secrets.
+
+B. Branch-per-prompt mode in the runner. A new flag
+   `--branch-mode` on `run_prompts.sh`:
+   - Default: existing behaviour, commits to current branch.
+   - With `--branch-mode`:
+     - Before each prompt, the runner creates a branch
+       `auto/<round-suffix>/<NN>-<slug>` from the current
+       HEAD.
+     - Codex runs against that branch.
+     - On success, the runner pushes the branch and (if
+       `gh` CLI is installed) opens a draft PR titled
+       `[Round-NN] <slug>` with the prompt's text as the
+       PR body.
+     - On failure, the branch persists locally so the
+       founder can inspect; the runner halts as usual.
+   - This addresses the founder's "flawless before merge"
+     ask while keeping the single-branch default for fast
+     iteration.
+
+C. Pre-commit test gate. A `.husky/pre-commit` hook (or
+   `.git/hooks/pre-commit`, scripted in `scripts/hooks/`)
+   that:
+   - Runs the fast-path test suite (`pytest -x -m 'not slow'`
+     in `noosphere/` and `vitest run --reporter=verbose` in
+     `theseus-codex/`).
+   - Runs `prisma format` and `prisma validate` (with the
+     stub `DATABASE_URL` pattern from earlier rounds).
+   - Refuses the commit on any failure.
+   - Bypass via `git commit --no-verify` for emergencies.
+   The hook is installed by a new
+   `scripts/hooks/install.sh`.
+
+D. Update `sync.sh`. Today it does `git add -A`. After this
+   prompt:
+   - Run the pre-commit hook BEFORE committing.
+   - Refuse to push if any file matched a credential pattern
+     (final defense, redundant with .gitignore).
+   - In branch-mode runs, do not auto-sync (the runner's
+     branch flow owns the push).
+
+E. Tests:
+   - The branch-mode flow on a synthetic prompt against a
+     temp git repo produces a branch, a commit, and (if
+     `gh` is stubbed) a PR creation call.
+   - The pre-commit hook refuses a commit that contains a
+     test file named `secret.txt` with content matching the
+     credential regex.
+
+Constraints
+- The agent does NOT flip GitHub's privacy bit. That is the
+  founder's manual action via the GitHub UI. The audit doc
+  names every step.
+- The agent does NOT force-push or rewrite history without
+  explicit founder action. History rewrites are dangerous.
+- The branch-mode flag is OPT-IN. The default workflow is
+  unchanged so existing automation does not break.
+
+SCOPE
+- `docs/security/2026_05_13_repo_privacy_audit.md` CREATE
+- `scripts/hooks/install.sh` CREATE
+- `scripts/hooks/pre-commit.sh` CREATE
+- `run_prompts.sh` MODIFY
+- `sync.sh` MODIFY
+- `.gitignore` MODIFY
+- `noosphere/tests/test_pre_commit_hook.py` CREATE

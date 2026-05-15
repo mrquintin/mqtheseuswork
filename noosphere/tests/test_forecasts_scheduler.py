@@ -36,6 +36,7 @@ def _config(tmp_path, interval: float = 0.05) -> scheduler.SchedulerConfig:
         paper_bet_drain_interval_s=interval,
         status_file=tmp_path / "forecasts_status.json",
         budget_file=tmp_path / "forecasts_budget.json",
+        equities_budget_file=tmp_path / "equities_budget.json",
         max_predictions_per_cycle=2,
     )
 
@@ -149,6 +150,7 @@ def test_sigterm_during_generate_drains_and_persists_budget(
                     paper_bet_drain_interval_s=60,
                     status_file=tmp_path / "forecasts_status.json",
                     budget_file=tmp_path / "forecasts_budget.json",
+                    equities_budget_file=tmp_path / "equities_budget.json",
                     max_predictions_per_cycle=1,
                 ),
             )
@@ -197,6 +199,7 @@ def test_generate_ticks_do_not_overlap(tmp_path, monkeypatch) -> None:
                     paper_bet_drain_interval_s=10,
                     status_file=tmp_path / "forecasts_status.json",
                     budget_file=tmp_path / "forecasts_budget.json",
+                    equities_budget_file=tmp_path / "equities_budget.json",
                     max_predictions_per_cycle=1,
                 ),
             )

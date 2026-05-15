@@ -1,0 +1,95 @@
+% Shared preamble for Theseus user guides.
+% Compiled with pdflatex. See docs/guides/BUILD.md for rationale.
+
+\usepackage[a4paper,margin=0.85in]{geometry}
+\usepackage[T1]{fontenc}
+\usepackage[utf8]{inputenc}
+
+% Body: Palatino (via mathpazo). Headings: Helvetica (sans).
+% Palatino is requested in the house style as a substitute for Charter
+% because Charter is not part of the standard TeX Live distribution
+% that the build container ships.
+\usepackage{mathpazo}
+\usepackage[scaled=0.92]{helvet}
+\usepackage{courier}
+\renewcommand{\familydefault}{\rmdefault}
+
+\usepackage{microtype}
+\usepackage{parskip}
+\usepackage{enumitem}
+\usepackage{booktabs}
+\usepackage{longtable}
+\usepackage{titlesec}
+\usepackage{xcolor}
+\usepackage{fancyhdr}
+\usepackage{fancyvrb}
+\usepackage{graphicx}
+% Allow `_` in text mode without escaping. The screenshot file names and
+% some environment-variable references in the guides contain underscores.
+\usepackage{underscore}
+\usepackage{tcolorbox}
+\tcbuselibrary{breakable,skins}
+\usepackage[hidelinks,colorlinks=true,linkcolor=black,urlcolor=teal,citecolor=black]{hyperref}
+
+% Sans for chapter and section headings; serif body keeps prose readable
+% on screen and in print.
+\titleformat{\section}{\sffamily\Large\bfseries}{\thesection}{0.7em}{}
+\titleformat{\subsection}{\sffamily\large\bfseries}{\thesubsection}{0.6em}{}
+\titleformat{\subsubsection}{\sffamily\normalsize\bfseries}{\thesubsubsection}{0.5em}{}
+
+\pagestyle{fancy}
+\fancyhf{}
+\fancyhead[L]{\small\sffamily Theseus User Guide}
+\fancyhead[R]{\small\sffamily\thepage}
+\renewcommand{\headrulewidth}{0.3pt}
+
+\setlength{\parindent}{0pt}
+
+% Convenience commands shared by every guide.
+\newcommand{\page}[1]{\textbf{#1}}
+\newcommand{\file}[1]{\texttt{#1}}
+\newcommand{\route}[1]{\texttt{#1}}
+\newcommand{\env}[1]{\texttt{#1}}
+\newcommand{\code}[1]{\texttt{#1}}
+
+% Callout boxes used by every guide.
+\newtcolorbox{tldr}{
+  colback=teal!5!white,colframe=teal!55!black,
+  fonttitle=\sffamily\bfseries,title=TL;DR,
+  breakable,boxrule=0.4pt,arc=2pt
+}
+\newtcolorbox{youwillneed}{
+  colback=gray!4!white,colframe=gray!55!black,
+  fonttitle=\sffamily\bfseries,title=You will need,
+  breakable,boxrule=0.4pt,arc=2pt
+}
+\newtcolorbox{notcovered}{
+  colback=orange!5!white,colframe=orange!55!black,
+  fonttitle=\sffamily\bfseries,title=This guide does NOT cover,
+  breakable,boxrule=0.4pt,arc=2pt
+}
+\newtcolorbox{preview}{
+  colback=yellow!8!white,colframe=yellow!55!black,
+  fonttitle=\sffamily\bfseries,title=Preview --- partially shipped,
+  breakable,boxrule=0.4pt,arc=2pt
+}
+\newtcolorbox{nextup}{
+  colback=blue!4!white,colframe=blue!55!black,
+  fonttitle=\sffamily\bfseries,title=Where to read next,
+  breakable,boxrule=0.4pt,arc=2pt
+}
+
+% Insert a screenshot only when the file exists, so the build does not
+% break before the Playwright capture run is wired up.
+\newcommand{\screenshot}[3]{%
+  \IfFileExists{screenshots/#1}{%
+    \begin{figure}[h]\centering
+      \includegraphics[width=\linewidth]{screenshots/#1}
+      \caption{#2}\label{fig:#3}
+    \end{figure}%
+  }{%
+    \begin{center}\small\itshape%
+      [screenshot \texttt{screenshots/#1} not yet captured --- #2]%
+    \end{center}%
+  }%
+}

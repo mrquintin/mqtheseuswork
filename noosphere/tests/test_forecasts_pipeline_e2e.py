@@ -40,6 +40,17 @@ SOURCE_RE = re.compile(
 )
 
 
+def _fixture_market_time(days_delta: int) -> str:
+    """Return a market timestamp relative to the real test run.
+
+    The E2E fake exchange markets must remain open whenever the suite runs.
+    A fixed 2026 close date made the Kalshi fixtures silently expire once
+    CI passed that date, while Polymarket still appeared healthy.
+    """
+
+    return (datetime.now(UTC).replace(microsecond=0) + timedelta(days=days_delta)).isoformat()
+
+
 @dataclass(frozen=True)
 class _SourceRecord:
     source_type: str
@@ -469,8 +480,8 @@ def _poly_payload(
         "outcomes": ["Yes", "No"],
         "outcomePrices": [str(yes_price), str(no_price)],
         "volume": "125000",
-        "startDate": (NOW - timedelta(days=3)).isoformat(),
-        "endDate": (NOW + timedelta(days=20)).isoformat(),
+        "startDate": _fixture_market_time(-3),
+        "endDate": _fixture_market_time(20),
         "active": True,
         "closed": False,
     }
@@ -493,7 +504,7 @@ def _kalshi_payload(
         "yes_bid": str((yes_price * Decimal("100")).quantize(Decimal("1"))),
         "no_bid": str((no_price * Decimal("100")).quantize(Decimal("1"))),
         "volume_24h": "87000",
-        "open_time": (NOW - timedelta(days=2)).isoformat(),
-        "close_time": (NOW + timedelta(days=12)).isoformat(),
+        "open_time": _fixture_market_time(-2),
+        "close_time": _fixture_market_time(20),
         "status": "open",
     }

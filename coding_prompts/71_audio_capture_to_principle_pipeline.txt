@@ -1,0 +1,102 @@
+You are operating in /Users/michaelquintin/Desktop/Theseus.
+
+Goal: capture the founder's vision from the voice memo —
+"long as we're recording something … long as we're collecting
+data of some kind … we can feed it through some ingestion
+pipeline to automate and refine processes". A quick-record
+surface that captures a stream of consciousness, transcribes,
+extracts principles via the prompt-56 extractor, and queues
+for triage. The "platonic ideal" the founder named: sit, think,
+record, automate.
+
+Before you start — read:
+1. The current upload pipeline. Audio inputs are likely
+   already accepted somewhere (Round 17 references "audio
+   transcripts"; ui_ux_round20 prompt 06 was "audio
+   transcript reading experience"). Reuse the existing
+   transcription path; do not duplicate.
+2. `noosphere/noosphere/extractors/` for the principle
+   extractor from prompt 56.
+3. The founder dashboard for where the quick-record button
+   should live.
+
+Implement:
+
+A. Quick-record button on every founder-side page. Persistent,
+   small, floating-bottom-right or top-right depending on
+   prompt 65's critique recommendation. Two interaction modes:
+   - Click → opens an in-page recorder with VAD-trimmed start,
+     30-minute hard ceiling, pause/resume, save/discard.
+   - Hotkey: `Cmd+Shift+R` toggles record. Visible affordance
+     in a small "recording" pulse the founder cannot miss.
+   The button is ONLY rendered for authed founders. No
+   public-side capture (the firm captures its OWN thinking,
+   not visitors').
+
+B. Recording lifecycle:
+   - Capture in the browser using MediaRecorder API.
+     Container: webm/opus by default; fall back to whatever
+     Safari supports.
+   - Stop / save → upload via the existing artifact-upload
+     endpoint with `kind=AUDIO_VOICE_MEMO` and a tag
+     `quick_capture=true`.
+   - Discard → blob never leaves the browser. Important for
+     privacy of the half-formed thought.
+
+C. Transcription. Reuse the existing audio transcription
+   pipeline. After transcription:
+   - The transcript is treated as a normal artifact: ingest →
+     claim extraction → (after prompt 56) principle
+     extraction.
+   - Voice memos are tagged `provenance=voice_memo` so the
+     extractor's prompt can be slightly adapted: stream-of-
+     consciousness inputs are likelier to contain
+     extractable principles wrapped in first-person prose;
+     the extractor's job is to PULL the principle out of
+     the wrapper.
+
+D. Queue. A new `theseus-codex/src/app/(authed)/captures/page.tsx`
+   showing voice memos top-to-bottom with:
+   - Recorded-at timestamp.
+   - Transcript with the principle extractions inlined.
+   - Founder's triage actions per extracted principle:
+     accept-as-is / edit-then-accept / reject.
+   - A "play audio" affordance — the founder can re-listen
+     while reading the transcript and proposed principles.
+   - "Discard whole capture" with a confirmation.
+
+E. Optional: principle drafted from the LATEST capture
+   appears as a card on the dashboard's main rail for one
+   day (similar to attention surfaces, but principle-shaped).
+   This addresses the founder's "and then this gets surfaced
+   on the dashboard so I can act on it" intuition without
+   re-introducing the deleted Attention box (per prompt 54).
+
+F. Tests:
+   - Recorder UI mounts only on authed routes.
+   - A round-tripped fixture (audio blob → transcript →
+     principle queue row) lands with the correct provenance
+     tag.
+   - The discard path leaves no server-side artifact.
+
+Constraints
+- The capture surface is FOUNDER-ONLY. Visitors do not see
+  it.
+- The capture pipeline does not auto-publish anything. Every
+  emitted principle requires founder approval.
+- Audio is stored alongside other artifacts; the same
+  retention / deletion semantics apply.
+- The recorder must respect the host browser's mic
+  permissions and provide a clear "stop recording"
+  affordance that is visible at all times during recording.
+
+SCOPE
+- `theseus-codex/src/components/capture/QuickRecorder.tsx` CREATE
+- `theseus-codex/src/components/capture/RecordingPulse.tsx` CREATE
+- `theseus-codex/src/app/(authed)/layout.tsx` MODIFY
+- `theseus-codex/src/app/(authed)/captures/page.tsx` CREATE
+- `theseus-codex/src/lib/audio-recorder.ts` CREATE
+- `noosphere/noosphere/ingestion/voice_memo_handler.py` CREATE
+- `noosphere/noosphere/extractors/_prompts/principle_extraction_voice_memo.md` CREATE
+- `noosphere/tests/test_voice_memo_pipeline.py` CREATE
+- `theseus-codex/__tests__/QuickRecorder.test.tsx` CREATE

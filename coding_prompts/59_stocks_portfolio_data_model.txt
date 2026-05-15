@@ -1,0 +1,128 @@
+You are operating in /Users/michaelquintin/Desktop/Theseus.
+
+Goal: extend the Forecasts pipeline to cover equities (stocks)
+alongside Polymarket / Kalshi prediction markets. This prompt
+builds the data model; prompts 60-63 build the ingestor,
+signal layer, live adapter, and dashboard.
+
+The founder's voice memo asked specifically for a Robinhood API
+hookup. Important reality check: Robinhood does not publish a
+supported retail trading API, and unofficial libraries are
+periodically broken by Robinhood's app updates. Alpaca, in
+contrast, ships an official, well-maintained API with a paper
+trading environment that is the industry standard for what the
+founder described. Plan:
+ - Alpaca is the PRIMARY paper + live broker.
+ - Robinhood remains as a documented "if you really want it"
+   adapter behind an explicit flag (prompt 62 implements it
+   thinly, with the caveat).
+
+Before you start — read:
+1. `noosphere/noosphere/forecasts/` end-to-end. The stocks
+   pipeline mirrors this shape: data model → ingestor →
+   retrieval → signal → paper bet → live adapter → API → UI.
+2. The existing prediction-market data model
+   (`ForecastMarket`, `ForecastPrediction`, etc.). Distinguish
+   what is shared (citations, signals, bets) from what is
+   specific (continuous-price equities vs. binary-outcome
+   markets).
+3. The Round 18 ui_ux_round20/16-19 stack — the founder's
+   "founder-alpha portfolio" infrastructure for Polymarket /
+   Kalshi may have already introduced equity-relevant types.
+   Reuse where possible.
+
+Implement:
+
+A. New entities. Add to Prisma and SQLModel:
+   - `EquityInstrument`: a tradeable stock or ETF.
+     Columns: `symbol`, `exchange`, `assetClass` (`STOCK | ETF |
+     ADR`), `name`, `cusip` (nullable), `figi` (nullable),
+     `isTradable`, `lastPrice`, `lastPriceAt`, `currency`,
+     `createdAt`, `updatedAt`. Compound unique key on
+     `(symbol, exchange)`.
+   - `EquityPriceTick`: append-only price history.
+     Columns: `instrumentId` FK, `ts`, `open`, `high`, `low`,
+     `close`, `volume`, `source` (enum
+     `ALPACA | ROBINHOOD | YFINANCE | MANUAL`). Indexed on
+     `(instrumentId, ts DESC)`.
+   - `EquitySignal`: a model-generated bullish / bearish /
+     neutral take on an instrument, grounded in citations
+     from the Noosphere knowledge base (same verbatim-anchor
+     rule as ForecastCitation).
+     Columns: `instrumentId` FK, `direction` (enum
+     `BULLISH | BEARISH | NEUTRAL | ABSTAINED`),
+     `confidenceLow`, `confidenceHigh`, `targetPriceLow`
+     (nullable), `targetPriceHigh` (nullable), `horizonDays`,
+     `headline`, `reasoning`, `modelName`, `promptTokens`,
+     `completionTokens`, `status` (enum
+     `PUBLISHED | ABSTAINED | REVOKED`), `abstentionReason`,
+     `createdAt`, `updatedAt`.
+   - `EquitySignalCitation`: verbatim-anchored citation to a
+     Conclusion or Claim or Principle (post-prompt-56).
+     Columns: `signalId` FK, `sourceType`, `sourceId`,
+     `quotedSpan`, `supportLabel`.
+   - `EquityPosition`: a paper or live position derived from
+     a signal. Columns: `signalId` FK, `instrumentId` FK,
+     `mode` (`PAPER | LIVE`), `side` (`LONG | SHORT |
+     CASH_RESERVE`), `qty`, `entryPrice`, `entryAt`,
+     `exitPrice`, `exitAt`, `status` (`PENDING | OPEN |
+     CLOSED | CANCELLED | FAILED`),
+     `externalOrderId` (nullable; live only),
+     `realizedPnlUsd` (nullable; closed only),
+     `unrealizedPnlUsd` (computed; nullable),
+     `liveAuthorizedAt` (nullable, mirrors ForecastBet's
+     gate-3 field), `createdAt`, `updatedAt`.
+   - `EquityPortfolioState`: singleton per org. Columns:
+     `organizationId`, `paperBalanceUsd`, `liveBalanceUsd`,
+     `dailyLossUsd`, `dailyLossWindowResetAt`,
+     `killSwitchEngaged Boolean @default(false)`,
+     `killSwitchReason`, `updatedAt`. Unique on
+     `organizationId`.
+
+B. The eight-gate live-trading safety contract from
+   `noosphere/noosphere/forecasts/safety.py` is REUSED — not
+   duplicated. Either generalise the existing module to accept
+   either an `EquityPosition` or a `ForecastBet` (preferred),
+   or factor the gate-check function so both call into the
+   same shared core. Test the shared path against both.
+
+C. Migrations: Prisma migration + Alembic revision, additive
+   only. Existing forecasts tables are not renamed.
+
+D. Store helpers in `noosphere/noosphere/store.py` for each
+   new entity: `put_equity_instrument`, `list_open_signals`,
+   `put_equity_position`, `list_positions_for_signal`,
+   `get_equity_portfolio_state`, etc. Same naming pattern as
+   the forecasts helpers.
+
+E. Seed fixtures in `noosphere/tests/conftest.py` covering one
+   STOCK, one ETF, three price ticks, one PUBLISHED signal,
+   and one PAPER position. The fixture is consumed by prompts
+   60-63.
+
+F. Tests:
+   - Migrate up + down on a throwaway DB.
+   - Store helpers round-trip every entity.
+   - Compound unique keys reject duplicates.
+   - The eight-gate check on an `EquityPosition` returns
+     `DISABLED` under default env.
+
+Constraints
+- Equities live alongside prediction markets, not on top of
+  them. A `Forecast*` row and an `Equity*` row never share a
+  table. Sharing happens at the citation and safety layers.
+- USD only in v1. Document the decision; multi-currency is a
+  later round.
+- No options, no futures, no margin, no leverage. v1 is
+  cash-account long-equity. Shorts are deferred (prompt 62
+  decides).
+
+SCOPE
+- `theseus-codex/prisma/schema.prisma` MODIFY
+- `theseus-codex/prisma/migrations/<ts>_equities_data_model/migration.sql` CREATE
+- `noosphere/noosphere/models.py` MODIFY
+- `noosphere/noosphere/store.py` MODIFY
+- `noosphere/alembic/versions/<rev>_equities_data_model.py` CREATE
+- `noosphere/noosphere/forecasts/safety.py` MODIFY
+- `noosphere/tests/conftest.py` MODIFY
+- `noosphere/tests/test_equities_store.py` CREATE

@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 
+import { ApiError } from "@/lib/api/envelope";
+import { withApiHandler } from "@/lib/api/handler";
 import { db } from "@/lib/db";
 import { resolvePublicOrganizationId } from "@/lib/conclusionsRead";
 import { publicCorsHeaders } from "@/lib/publicCors";
@@ -26,108 +28,113 @@ export function OPTIONS(req: NextRequest) {
   return new NextResponse(null, { status: 204, headers: publicCorsHeaders(req) });
 }
 
-export async function POST(req: NextRequest) {
-  const cors = publicCorsHeaders(req);
+type SubscribePayload = {
+  status: "active" | "pending";
+  message: string;
+};
 
-  const ip = clientIpFor(req);
-  const ipRate = checkSubscribeIpRateLimit(ip);
-  if (!ipRate.ok) {
-    return NextResponse.json(
-      { error: "Too many subscribe requests from this network. Try again later." },
-      {
-        status: 429,
-        headers: { ...cors, "Retry-After": String(ipRate.retryAfterSec) },
+export const POST = withApiHandler<SubscribePayload>(
+  async (req) => {
+    const ip = clientIpFor(req);
+    const ipRate = checkSubscribeIpRateLimit(ip);
+    if (!ipRate.ok) {
+      throw new ApiError(
+        "rate_limited",
+        "Too many subscribe requests from this network. Try again later.",
+        { headers: { "Retry-After": String(ipRate.retryAfterSec) } },
+      );
+    }
+
+    const challengeFail = challengeOrReject(req, ip);
+    if (challengeFail) {
+      const message =
+        (challengeFail.body as { error?: string })?.error ?? "Challenge required";
+      const code = challengeFail.status === 428 ? "challenge_required" : "forbidden";
+      throw new ApiError(code, message, { status: challengeFail.status });
+    }
+
+    const body = (await req.json().catch(() => null)) as
+      | { email?: string; scope?: string; scopeKey?: string; cadence?: string }
+      | null;
+    if (!body) {
+      throw new ApiError("bad_json", "JSON body required");
+    }
+
+    const scope = body.scope as SubscriberScope | undefined;
+    if (!scope || !SUBSCRIBER_SCOPES.includes(scope)) {
+      throw new ApiError("validation_error", "invalid scope");
+    }
+    const cadence = (body.cadence as SubscriberCadence | undefined) ?? "weekly";
+    if (!SUBSCRIBER_CADENCES.includes(cadence)) {
+      throw new ApiError("validation_error", "invalid cadence");
+    }
+
+    const organizationId = await resolvePublicOrganizationId();
+    if (!organizationId) {
+      throw new ApiError("service_unavailable", "no public organization configured");
+    }
+
+    const email = String(body.email || "").trim().toLowerCase();
+    const recent = await db.subscriber.count({
+      where: {
+        organizationId,
+        email,
+        createdAt: { gte: new Date(Date.now() - RATE_LIMIT_WINDOW_MS) },
       },
-    );
-  }
-
-  const challengeFail = challengeOrReject(req, ip);
-  if (challengeFail) {
-    return NextResponse.json(challengeFail.body, { status: challengeFail.status, headers: cors });
-  }
-
-  const body = (await req.json().catch(() => null)) as
-    | {
-        email?: string;
-        scope?: string;
-        scopeKey?: string;
-        cadence?: string;
-      }
-    | null;
-  if (!body) {
-    return NextResponse.json({ error: "JSON body required" }, { status: 400, headers: cors });
-  }
-  const scope = body.scope as SubscriberScope | undefined;
-  if (!scope || !SUBSCRIBER_SCOPES.includes(scope)) {
-    return NextResponse.json({ error: "invalid scope" }, { status: 400, headers: cors });
-  }
-  const cadence = (body.cadence as SubscriberCadence | undefined) ?? "weekly";
-  if (!SUBSCRIBER_CADENCES.includes(cadence)) {
-    return NextResponse.json({ error: "invalid cadence" }, { status: 400, headers: cors });
-  }
-
-  const organizationId = await resolvePublicOrganizationId();
-  if (!organizationId) {
-    return NextResponse.json(
-      { error: "no public organization configured" },
-      { status: 503, headers: cors },
-    );
-  }
-
-  const recent = await db.subscriber.count({
-    where: {
-      organizationId,
-      email: String(body.email || "").trim().toLowerCase(),
-      createdAt: { gte: new Date(Date.now() - RATE_LIMIT_WINDOW_MS) },
-    },
-  });
-  if (recent >= RATE_LIMIT_MAX) {
-    return NextResponse.json(
-      { error: "too many subscribe requests for this email today" },
-      { status: 429, headers: cors },
-    );
-  }
-
-  const result = await createOrReviveSubscriber(organizationId, {
-    email: body.email ?? "",
-    scope,
-    scopeKey: body.scopeKey,
-    cadence,
-  });
-
-  if (!result.ok) {
-    return NextResponse.json({ error: result.error }, {
-      status: result.status ?? 400,
-      headers: cors,
     });
-  }
+    if (recent >= RATE_LIMIT_MAX) {
+      throw new ApiError(
+        "rate_limited",
+        "too many subscribe requests for this email today",
+      );
+    }
 
-  if (result.status === "active") {
-    return NextResponse.json(
-      { ok: true, status: "active", message: "Already subscribed and confirmed." },
-      { status: 200, headers: cors },
-    );
-  }
-
-  const row = await db.subscriber.findUnique({ where: { id: result.subscriberId } });
-  if (row) {
-    void sendConfirmEmail({
-      to: row.email,
-      scope: row.scope as SubscriberScope,
-      scopeKey: row.scopeKey,
-      confirmToken: row.confirmToken,
-      unsubscribeToken: row.unsubscribeToken,
-    }).catch((error) => {
-      console.error("[public subscribe] confirm email failed", error);
+    const result = await createOrReviveSubscriber(organizationId, {
+      email: body.email ?? "",
+      scope,
+      scopeKey: body.scopeKey,
+      cadence,
     });
-  }
 
-  return NextResponse.json(
-    {
-      ok: true,
+    if (!result.ok) {
+      throw new ApiError("validation_error", result.error, {
+        status: result.status ?? 400,
+      });
+    }
+
+    if (result.status === "active") {
+      const payload: SubscribePayload = {
+        status: "active",
+        message: "Already subscribed and confirmed.",
+      };
+      return {
+        data: payload,
+        legacy: { ok: true, status: "active", message: payload.message },
+      };
+    }
+
+    const row = await db.subscriber.findUnique({ where: { id: result.subscriberId } });
+    if (row) {
+      void sendConfirmEmail({
+        to: row.email,
+        scope: row.scope as SubscriberScope,
+        scopeKey: row.scopeKey,
+        confirmToken: row.confirmToken,
+        unsubscribeToken: row.unsubscribeToken,
+      }).catch((error) => {
+        console.error("[public subscribe] confirm email failed", error);
+      });
+    }
+
+    const payload: SubscribePayload = {
       status: "pending",
-      message: "Check your inbox to confirm. Nothing is added to the list until you click the confirm link.",
-    },
-    { status: 200, headers: cors },
-  );
-}
+      message:
+        "Check your inbox to confirm. Nothing is added to the list until you click the confirm link.",
+    };
+    return {
+      data: payload,
+      legacy: { ok: true, status: "pending", message: payload.message },
+    };
+  },
+  { cors: true, corsMethods: "POST, OPTIONS" },
+);

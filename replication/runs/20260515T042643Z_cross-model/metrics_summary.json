@@ -1,0 +1,15 @@
+{
+  "benchmark_version": "qh-v1",
+  "deterministic": true,
+  "runs": [
+    {
+      "error": null,
+      "items_embedded": 50,
+      "items_total": 1936,
+      "model_name": "hash-det:qh-cross-v1",
+      "truncated": true
+    }
+  ],
+  "seed": 0,
+  "skipped_models": []
+}

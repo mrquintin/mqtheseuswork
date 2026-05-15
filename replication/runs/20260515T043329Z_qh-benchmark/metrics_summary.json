@@ -1,0 +1,23 @@
+{
+  "benchmark_version": "qh-v1",
+  "deterministic": true,
+  "per_runner": {
+    "contradiction_geometry": {
+      "accuracy": 0.28770661157024796,
+      "auroc_contradicting_vs_coherent": 0.5857525953026863,
+      "ece_contradicting": 0.275205539306266,
+      "n": 1936
+    },
+    "cosine": {
+      "accuracy": 0.3672520661157025,
+      "auroc_contradicting_vs_coherent": 0.3986826679654979,
+      "ece_contradicting": 0.3964024388440697,
+      "n": 1936
+    }
+  },
+  "runners": [
+    "cosine",
+    "contradiction_geometry"
+  ],
+  "seed": 0
+}

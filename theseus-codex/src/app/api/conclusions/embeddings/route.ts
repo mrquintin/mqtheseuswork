@@ -8,6 +8,7 @@ import {
   decodeFloat32Vector,
   embeddedConclusionCount,
 } from "@/lib/embeddingHealth";
+import { canWrite } from "@/lib/roles";
 import { requireTenantContext } from "@/lib/tenant";
 
 export async function GET() {
@@ -15,6 +16,11 @@ export async function GET() {
   if (!tenant) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
+
+  // The Explorer's "rebuild index" affordance is a write-class action;
+  // surface whether this caller may use it so the client can gate the
+  // button without a second round-trip. The API itself re-checks.
+  const canRebuild = canWrite(tenant.role);
 
   const modelName = await activeEmbeddingModelName();
   const [totalCount, storedEmbeddedCount, embeddingRows, jsonEmbeddingRows] = await Promise.all([
@@ -60,6 +66,7 @@ export async function GET() {
       status: "warming-up",
       embeddedCount,
       totalCount,
+      canRebuild,
     });
   }
 
@@ -72,6 +79,7 @@ export async function GET() {
       status: "warming-up",
       embeddedCount,
       totalCount,
+      canRebuild,
     });
   }
   return NextResponse.json({
@@ -80,5 +88,6 @@ export async function GET() {
     status: "ready",
     embeddedCount,
     totalCount,
+    canRebuild,
   });
 }

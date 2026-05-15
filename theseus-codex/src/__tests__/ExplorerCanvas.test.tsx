@@ -203,6 +203,7 @@ describe("explorer URL state codec", () => {
       selection: ["c-3", "c-1", "c-2"],
       overlays: { contradicts: true, supports: false },
       focused: "c-1",
+      viewport: { cx: 0.5, cy: 0.5, scale: 1 },
     };
     const encoded = encodeExplorerState(state);
     const decoded = decodeExplorerState(encoded);

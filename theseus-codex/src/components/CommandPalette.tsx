@@ -25,7 +25,7 @@ import { useHotkey } from "@/lib/hotkeys";
  *   - static "execute query" entries (saved jumps the founder runs daily)
  *   - dynamic "jump to conclusion <id|slug>" — when the query is at
  *     least 6 chars and looks id-like we offer to navigate directly
- *   - dynamic attention-queue actions fetched once on open
+ *   - dynamic review-queue actions fetched once on open
  *
  * The palette lives above all chrome (z-index 1000) and traps focus
  * while open. Esc / outside-click / Enter on a command all close it.
@@ -38,7 +38,7 @@ export interface PaletteCommand {
   /** Sub-line — usually shows the destination path or hint. */
   hint?: string;
   /** Section grouping in the dropdown. */
-  section: "Navigate" | "Conclusions" | "Attention" | "Queries";
+  section: "Navigate" | "Conclusions" | "Review" | "Queries";
   /** Hidden keyword set used by the matcher in addition to label/hint. */
   keywords?: string;
   /** What to do when the command is invoked. */
@@ -55,6 +55,7 @@ interface AttentionItemSlim {
 
 const NAV_TARGETS: ReadonlyArray<{ label: string; href: string; keywords?: string }> = [
   { label: "Dashboard", href: "/dashboard", keywords: "forum home" },
+  { label: "Review Queue", href: "/attention", keywords: "attention open questions triage" },
   { label: "Knowledge", href: "/knowledge", keywords: "library conclusions" },
   { label: "Explorer", href: "/explorer", keywords: "semantic map embeddings" },
   { label: "Ask", href: "/codex-ask", keywords: "oracle query" },
@@ -119,7 +120,7 @@ function score(query: string, command: PaletteCommand): number {
 const SECTION_ORDER: PaletteCommand["section"][] = [
   "Navigate",
   "Conclusions",
-  "Attention",
+  "Review",
   "Queries",
 ];
 
@@ -130,9 +131,20 @@ export interface CommandPaletteProps {
    * into the palette without having to reach into this component.
    */
   extraCommands?: ReadonlyArray<PaletteCommand>;
+  /** Mount already open when lazy-loaded by the shell. */
+  startOpen?: boolean;
+  /** Called after close so the shell can unmount this lazy chunk. */
+  onClosed?: () => void;
+  /** Register Cmd/Ctrl+K internally. Disable when the shell owns the shortcut. */
+  registerHotkey?: boolean;
 }
 
-export default function CommandPalette({ extraCommands = [] }: CommandPaletteProps) {
+export default function CommandPalette({
+  extraCommands = [],
+  startOpen = false,
+  onClosed,
+  registerHotkey = true,
+}: CommandPaletteProps) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
@@ -153,7 +165,8 @@ export default function CommandPalette({ extraCommands = [] }: CommandPalettePro
         // ignore
       }
     }
-  }, []);
+    onClosed?.();
+  }, [onClosed]);
 
   const openPalette = useCallback(() => {
     if (typeof document !== "undefined") {
@@ -170,8 +183,12 @@ export default function CommandPalette({ extraCommands = [] }: CommandPalettePro
       if (open) close();
       else openPalette();
     },
-    { allowInEditable: true },
+    { allowInEditable: true, enabled: registerHotkey },
   );
+
+  useEffect(() => {
+    if (startOpen) openPalette();
+  }, [startOpen, openPalette]);
 
   // Focus the search input on open and fetch the attention queue once.
   useEffect(() => {
@@ -182,9 +199,12 @@ export default function CommandPalette({ extraCommands = [] }: CommandPalettePro
       try {
         const res = await fetch("/api/founder/attention", { cache: "no-store" });
         if (!res.ok || cancelled) return;
-        const json = (await res.json()) as { items?: AttentionItemSlim[] };
-        if (!cancelled && Array.isArray(json.items)) {
-          setAttention(json.items.slice(0, 8));
+        const json = (await res.json()) as
+          | { ok?: true; data?: { items?: AttentionItemSlim[] }; items?: AttentionItemSlim[] }
+          | null;
+        const items = json?.data?.items ?? json?.items;
+        if (!cancelled && Array.isArray(items)) {
+          setAttention(items.slice(0, 8));
         }
       } catch {
         // Palette must keep working offline; swallow.
@@ -225,9 +245,9 @@ export default function CommandPalette({ extraCommands = [] }: CommandPalettePro
     [router, close],
   );
 
-  // Snooze an attention item by N days. Default 1 day; the palette is
-  // intentionally not a slider — it's a one-shot "kick this down the
-  // road" verb. The full snooze UI still lives on the dashboard row.
+  // Move a review item out of sight for N days. Default 1 day; the
+  // palette is intentionally not a slider. The full dated control lives
+  // on the dedicated review queue.
   const snoozeAttention = useCallback(
     async (item: AttentionItemSlim, days = 1) => {
       const until = new Date(Date.now() + days * 24 * 60 * 60 * 1000);
@@ -255,7 +275,7 @@ export default function CommandPalette({ extraCommands = [] }: CommandPalettePro
   const advanceAttention = useCallback(() => {
     const next = attention[0];
     if (!next) {
-      navigate("/dashboard");
+      navigate("/attention");
       return;
     }
     navigate(next.link);
@@ -276,16 +296,16 @@ export default function CommandPalette({ extraCommands = [] }: CommandPalettePro
 
     out.push({
       id: "attention:advance",
-      section: "Attention",
-      label: "Advance to next attention item",
-      hint: attention[0]?.preview.slice(0, 80) ?? "Open the dashboard queue",
+      section: "Review",
+      label: "Open next review item",
+      hint: attention[0]?.preview.slice(0, 80) ?? "Open the review queue",
       keywords: "next inbox queue",
       run: advanceAttention,
     });
     for (const item of attention) {
       out.push({
         id: `attention:open:${item.queue}:${item.itemId}`,
-        section: "Attention",
+        section: "Review",
         label: `Open: ${item.preview.slice(0, 80)}`,
         hint: `${item.severity} · ${item.queue}`,
         keywords: item.queue,
@@ -293,8 +313,8 @@ export default function CommandPalette({ extraCommands = [] }: CommandPalettePro
       });
       out.push({
         id: `attention:snooze:${item.queue}:${item.itemId}`,
-        section: "Attention",
-        label: `Snooze 1 day: ${item.preview.slice(0, 60)}`,
+        section: "Review",
+        label: `Later for 1 day: ${item.preview.slice(0, 60)}`,
         hint: `${item.queue}`,
         keywords: "later defer",
         run: () => snoozeAttention(item, 1),
@@ -369,12 +389,42 @@ export default function CommandPalette({ extraCommands = [] }: CommandPalettePro
     [filtered, highlight],
   );
 
+  // Trap Tab inside the dialog. Without this, Tab from the search input
+  // would walk into chrome behind the modal — a screen-reader user could
+  // believe the page background had become operable.
+  const onDialogKeyDown = useCallback(
+    (event: ReactKeyboardEvent<HTMLDivElement>) => {
+      if (event.key !== "Tab") return;
+      const dialog = dialogRef.current;
+      if (!dialog) return;
+      const focusables = Array.from(
+        dialog.querySelectorAll<HTMLElement>(
+          'a[href], button:not([disabled]), input:not([disabled]), [tabindex]:not([tabindex="-1"])',
+        ),
+      ).filter((el) => !el.hasAttribute("disabled") && el.tabIndex !== -1);
+      if (!focusables.length) {
+        event.preventDefault();
+        return;
+      }
+      const first = focusables[0];
+      const last = focusables[focusables.length - 1];
+      const active = document.activeElement;
+      if (event.shiftKey && active === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && active === last) {
+        event.preventDefault();
+        first.focus();
+      }
+    },
+    [],
+  );
+
   if (!open) return null;
 
   return (
     <div
       role="presentation"
-      aria-hidden={false}
       style={overlayStyle}
       data-testid="command-palette-overlay"
     >
@@ -384,6 +434,7 @@ export default function CommandPalette({ extraCommands = [] }: CommandPalettePro
         aria-modal="true"
         aria-label="Command palette"
         data-testid="command-palette"
+        onKeyDown={onDialogKeyDown}
         style={dialogStyle}
       >
         <input
@@ -393,6 +444,8 @@ export default function CommandPalette({ extraCommands = [] }: CommandPalettePro
           aria-expanded
           aria-controls="command-palette-listbox"
           aria-autocomplete="list"
+          aria-haspopup="listbox"
+          aria-label="Command palette query"
           aria-activedescendant={
             filtered[highlight] ? `palette-option-${filtered[highlight].id}` : undefined
           }
@@ -518,7 +571,9 @@ const inputStyle: CSSProperties = {
   borderBottom: "1px solid var(--gold-dim, #6b5119)",
   color: "var(--parchment, #e8d9b6)",
   font: "1rem 'EB Garamond', serif",
-  outline: "none",
+  // No `outline: none`. The browser default focus ring is the keyboard
+  // user's visible indicator that the palette is operable. WCAG 2.4.7.
+  outlineOffset: "-2px",
   padding: "1rem 1.1rem",
 };
 

@@ -1,0 +1,124 @@
+You are operating in /Users/michaelquintin/Desktop/Theseus.
+
+Goal: refactor the claim/conclusion extraction pipeline so it
+emits PRINCIPLES — transferable decision rules — not first-person
+quotes from the source. The founder reviewed the output and said:
+"I have since become a pan of a fan of Peter Thiel's idea. Like,
+this is, like, a first person, like, this is not what the point
+is. The point is to extract principles that we can use then to
+judge and make decisions from."
+
+This prompt edits the extractor itself. Prompt 17 (Round 18, the
+distillation pass) clusters existing conclusions; this prompt
+fixes what gets created in the first place.
+
+Before you start — read:
+1. `noosphere/noosphere/claim_extractor.py` (or wherever raw
+   extraction lives — confirm by tracing the ingest pipeline
+   from artifact upload to `StoredConclusion` write).
+2. `noosphere/noosphere/conclusions.py` — the Conclusion schema.
+3. The prompts used by the extractor — likely under
+   `noosphere/noosphere/extractors/_prompts/`. These are the
+   load-bearing change.
+4. A handful of recent first-person-shaped conclusions in the
+   DB (run a SQL query, paste 5–10 examples into the
+   diagnosis below) so the fix targets the real failure mode.
+5. Round 18 prompt 17 (`17_run_principle_distillation.txt`).
+   Coordinate: prompt 17 distills principles from CLUSTERS of
+   conclusions. Prompt 56 (this one) makes each conclusion
+   principle-shaped to begin with. They compose — both should
+   land before the firm corpus is re-ingested.
+
+Implement:
+
+A. Diagnosis. Pull 20 random recent conclusions. For each,
+   classify as principle-shaped (transferable, contains a
+   rule / criterion / decision-relevant generalisation) vs.
+   first-person-shaped ("I think X", "I have since become a
+   fan of Y"). Persist counts and 10 worst examples in
+   `docs/research/internal/extractor_diagnosis_2026_05_13.md`.
+
+B. New extractor contract. A conclusion's body MUST satisfy:
+   - Third-person, generalisable statement of a rule, criterion,
+     mechanism, or actionable judgment.
+   - Contains at least one of: a quantifiable trigger ("when
+     X exceeds Y"), a comparative ("X is more reliable than
+     Y when ..."), a counterfactual ("if Z were true, then ..."),
+     or a normative rule ("one should ... because ...").
+   - Does NOT begin with "I", "we", "my", "our". If the
+     source content is purely autobiographical, the extractor
+     either extracts the principle implied by the autobiography
+     OR refuses to emit a conclusion for that span and logs
+     `NO_PRINCIPLE_EXTRACTABLE` with the source span.
+   - Cites the source span verbatim (existing constraint —
+     preserve it).
+   - Carries new structured fields:
+     - `principle_kind`: enum
+       `RULE | CRITERION | MECHANISM | HEURISTIC | DEFINITION |
+        FORMULA | ALGORITHM`
+     - `domain_of_applicability`: free-text but bounded to
+       300 chars
+     - `quantifiable_proxies`: list of metric/data-set names
+       that could OPERATIONALISE this principle (feeds prompt 57
+       and prompt 64 — the quantitative bridge).
+     - `decision_examples`: list of ≤ 3 example decisions this
+       principle would inform.
+
+C. System prompt rewrite. The extractor's system prompt lives
+   in `noosphere/noosphere/extractors/_prompts/`. Rewrite it
+   per the contract above. The new system prompt:
+   - Names the contract explicitly.
+   - Gives 3 positive examples (first-person source → extracted
+     principle) and 3 refusals (first-person source where no
+     principle is extractable).
+   - Requires the new structured fields in the JSON output.
+
+D. Schema migration. Add the new structured fields to the
+   `Conclusion` model (Pydantic + Prisma + SQLModel). Backfill
+   plan: existing conclusions get NULL for the new fields and
+   a queue entry to be re-extracted (see step F).
+
+E. Re-extraction queue. A founder-confirmable queue at
+   `theseus-codex/src/app/(authed)/extractor/re-extract/page.tsx`
+   listing every existing conclusion with first-person markers,
+   showing the original source span, the existing first-person
+   conclusion, and the agent's proposed principle-shaped
+   replacement. Founder accepts / edits / rejects per row.
+   The agent does NOT auto-replace. The agent's recommendation
+   is advisory; the founder publishes.
+
+F. Tests:
+   - Unit: extractor returns valid principle-shaped conclusions
+     on a fixture of 10 source spans (5 with extractable
+     principles, 5 without — the latter must return
+     `NO_PRINCIPLE_EXTRACTABLE`).
+   - Integration: ingest one artifact end-to-end, assert no
+     emitted conclusion starts with "I" / "we" / "my".
+   - Regression: the 10 worst examples from step A's diagnosis
+     produce satisfying replacements when re-extracted.
+
+Constraints
+- Do not delete any existing conclusion. The re-extraction
+  flow is opt-in per row.
+- Do not change citation semantics. Every principle still
+  cites its source span verbatim.
+- This is not a free pass to over-generalise. A principle that
+  is too abstract to falsify is worse than the first-person
+  quote it replaced. The extractor must refuse rather than
+  emit a tautology.
+- Don't break Round 18 prompt 17. Their outputs compose; this
+  prompt narrows the input distribution it sees.
+
+SCOPE
+- `docs/research/internal/extractor_diagnosis_2026_05_13.md` CREATE
+- `noosphere/noosphere/extractors/_prompts/principle_extraction_system.md` CREATE
+- `noosphere/noosphere/extractors/_prompts/principle_extraction_examples.md` CREATE
+- `noosphere/noosphere/claim_extractor.py` MODIFY
+- `noosphere/noosphere/conclusions.py` MODIFY
+- `noosphere/noosphere/models.py` MODIFY
+- `noosphere/noosphere/store.py` MODIFY
+- `theseus-codex/prisma/schema.prisma` MODIFY
+- `theseus-codex/prisma/migrations/<ts>_principle_fields/migration.sql` CREATE
+- `noosphere/alembic/versions/<rev>_principle_fields.py` CREATE
+- `theseus-codex/src/app/(authed)/extractor/re-extract/page.tsx` CREATE
+- `noosphere/tests/test_principle_extraction.py` CREATE

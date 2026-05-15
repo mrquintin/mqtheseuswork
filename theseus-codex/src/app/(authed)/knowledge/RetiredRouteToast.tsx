@@ -17,7 +17,10 @@ export default function RetiredRouteToast({ notice }: { notice?: string }) {
 
   useEffect(() => {
     if (!notice || !message) return;
-    const key = `theseus:retired-route-notice:${notice}`;
+    // R-014: dismissal keys include the retired path so a stale bookmark
+    // for a different retired route still fires its notice once per
+    // session, instead of being suppressed by an unrelated earlier one.
+    const key = `theseus:retired-route-notice:${notice}:${pathname}`;
     try {
       if (window.sessionStorage.getItem(key) === "1") return;
       window.sessionStorage.setItem(key, "1");

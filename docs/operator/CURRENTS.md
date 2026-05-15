@@ -16,6 +16,34 @@ Current public contract: public Currents and articles should be written in the f
 
 Set `X_BEARER_TOKEN` only in the deployment secret store or local untracked env file used by the Currents runtime. Do not commit it and do not paste it into logs. For the existing local-hosted runtime, the secret belongs in the same untracked environment path used by the launchd `currents-api` and `currents-scheduler` services.
 
+The current public `theseus-currents.thenashlabhivemind.com` deployment is a
+Cloudflare Tunnel to the local launchd runtime:
+
+```text
+com.theseus.currents-api       -> http://127.0.0.1:8088
+com.theseus.currents-scheduler -> python -m noosphere.currents loop
+env file                       -> ~/.theseus-currents/app/current_events_api/.env
+```
+
+After any Supabase DB password rotation, refresh that runtime env and restart
+the two Python services:
+
+```bash
+./scripts/refresh-local-currents-runtime.sh --restart --health-check
+```
+
+For automatic password rotation, set the hook consumed by
+`scripts/sync-to-github.sh`:
+
+```bash
+export CURRENTS_BACKEND_REFRESH_CMD="./scripts/refresh-local-currents-runtime.sh --restart --health-check"
+```
+
+Without that hook, a rotation can leave the local API/scheduler repeatedly
+authenticating with the old password. Supabase then returns
+`ECIRCUITBREAKER: too many authentication failures`, and public Currents reads
+return 500/503 until the origin is restarted with the new env.
+
 Discovery is the primary X source. By default it searches recent source posts
 with broad engagement filters, then the scheduler applies the significance and
 KB relevance gates:

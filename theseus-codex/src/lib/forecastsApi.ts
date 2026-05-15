@@ -22,7 +22,7 @@ export const FORECASTS_BACKEND = (
 ).replace(/\/+$/, "");
 
 export const FORECASTS_PROXY_TIMEOUT_MS = Number.parseInt(
-  process.env.FORECASTS_PROXY_TIMEOUT_MS ?? "30000",
+  process.env.FORECASTS_PROXY_TIMEOUT_MS ?? "6000",
   10,
 );
 

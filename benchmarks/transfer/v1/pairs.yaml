@@ -1,0 +1,109 @@
+# Cross-Domain Transfer Study — pair manifest, v1
+#
+# Frozen at experiment start (2026-05-14). This manifest pins the three
+# method/domain pairs the study evaluates, and the sha256 of every
+# frozen dataset it touches. `noosphere.transfer.study` re-verifies each
+# hash before it runs; a manifest that points at a re-curated eval set
+# fails the preflight check loudly. That is deliberate — the held-out
+# target sets must not be re-curated to chase a result.
+#
+# The QUESTION: when a method M has a strong, large-n track record in
+# domain D, does that capability transfer to a *neighboring* domain D'
+# the method has no track record in? The answer is rarely "fully" or
+# "not at all" — this study measures it.
+#
+# THE METHOD UNDER STUDY is a study-internal construct, in the same
+# spirit as the QH benchmark runners (random / cosine /
+# contradiction_geometry): it is a domain-specialist coherence
+# classifier — a multinomial logistic regression over nine geometry
+# features of the (premise, continuation) embedding pair, trained on the
+# source domain D. "The method does not explicitly claim D'" is
+# operationalized as: it has zero resolved items in D' (no track
+# record), and no DomainBound (see noosphere/methods/domain_bounds.py)
+# that names D'. This study produces the *evidence* a founder would use
+# to set such a bound; per the study constraints it does NOT itself
+# modify any declared bound.
+
+schema: theseus.transfer.pairs.v1
+version: transfer-v1
+frozen_at: "2026-05-14"
+
+method:
+  name: geometry_coherence_classifier
+  kind: multinomial-logistic-regression
+  feature_space: geometry-of-embedding-pair
+  embedder: hash-det-v1
+  note: >-
+    Trained per source domain D on the frozen QH v1 dataset slice.
+    Deterministic given the dataset and the L-BFGS solver, so every
+    number in the study re-runs bit-for-bit.
+
+# The source domains are the QH v1 frozen dataset slices — that frozen
+# dataset IS the method's established track record (large n, public,
+# replicable). The source side is never re-curated here.
+source_dataset:
+  path: benchmarks/quintin_hypothesis/v1/dataset.jsonl
+  sha256: b25ab62102389fbbbf2cdad08cc5a056e4946631835a89672fe88aa0a8fbe7c4
+
+pairs:
+  - id: physics-to-chemistry
+    method: geometry_coherence_classifier
+    source:
+      domain: physics
+      filter_domain: physics
+      track_record: >-
+        n=1018 frozen QH v1 physics items — the method's largest and
+        strongest in-domain track record.
+    target:
+      domain: chemistry
+      eval_set: benchmarks/transfer/v1/eval_sets/chemistry.jsonl
+      sha256: 0cc2ce01e59665397874541de57377db966d40e2e64f542edca9e3743d9c7d62
+      n: 172
+    neighbor_rationale: >-
+      Chemistry is the natural-science neighbor of physics: same
+      template construction (parameterized premise, near-identical
+      coherent / contradicting continuations, off-topic orthogonal),
+      different domain vocabulary. The method has no QH track record in
+      chemistry and declares no DomainBound naming it.
+
+  - id: economics-to-finance
+    method: geometry_coherence_classifier
+    source:
+      domain: economics
+      filter_domain: economics
+      track_record: >-
+        n=574 frozen QH v1 economics items — a strong, large-n in-domain
+        track record.
+    target:
+      domain: finance
+      eval_set: benchmarks/transfer/v1/eval_sets/finance.jsonl
+      sha256: 5e57b5f2c700e1e9c86e071100d2566353aa03389c2566290672192452bb09ac
+      n: 160
+    neighbor_rationale: >-
+      Finance is the quantitative-reasoning neighbor of economics:
+      shared structural intuitions (prices, rates, risk) over a
+      distinct vocabulary. No QH track record in finance; no DomainBound
+      naming it.
+
+  - id: ethics-to-law
+    method: geometry_coherence_classifier
+    source:
+      domain: ethics
+      filter_domain: ethics
+      track_record: >-
+        n=344 frozen QH v1 ethics items. Honest caveat: ethics is the
+        method's weakest in-domain track record — the coherent /
+        contradicting flip in the ethics templates is a smaller lexical
+        change than in physics, so the geometry signal is thinner.
+        Included because n far exceeds the n>=20 bar and law is its
+        natural neighbor; the study reports its in-domain accuracy
+        plainly alongside the transfer result.
+    target:
+      domain: law
+      eval_set: benchmarks/transfer/v1/eval_sets/law.jsonl
+      sha256: b31bf744ef566b8fc6ec3cbd73507080ff968012d73e98d543222146c0b99802
+      n: 114
+    neighbor_rationale: >-
+      Law is the normative-reasoning neighbor of ethics: both reason
+      over rules, agents, and permissibility, with a distinct
+      vocabulary. No QH track record in law; no DomainBound naming it.

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import logging
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
@@ -58,6 +59,13 @@ class MultiProviderRun:
     severity_aggregate: Optional[SeverityAggregate] = None
     started_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     completed_at: Optional[datetime] = None
+    # Pre-review agreement prediction + routing decision. Populated when
+    # ``run_multi_provider`` is handed an agreement model; ``None`` when
+    # it is not (the legacy path). The prediction is a *predictive aid*
+    # — it never gates the run, it only (optionally) reshapes the
+    # roster, and the founder can override it entirely.
+    agreement_prediction: Optional[float] = None
+    routing_decision: Optional[dict[str, Any]] = None
 
 
 # Map severity labels onto the existing Finding severity vocabulary.
@@ -153,6 +161,12 @@ class SwarmOrchestrator:
         nli_score: Optional[NLIScoreFn] = None,
         disagreement_threshold: float = 0.55,
         persist_findings: bool = True,
+        agreement_model: Optional[Any] = None,
+        routing_policy: Optional[Any] = None,
+        apply_routing: bool = False,
+        founder_override_full_swarm: bool = False,
+        prompt_variant: str = "default",
+        persist_prediction: bool = True,
     ) -> MultiProviderRun:
         """Rotate the swarm across architecturally distinct providers.
 
@@ -160,13 +174,62 @@ class SwarmOrchestrator:
         — if the budget runs out before every available provider has
         responded, the run is flagged ``partial`` so downstream
         consumers do not treat it as a complete swarm.
+
+        Pre-review agreement prediction (optional). When ``agreement_model``
+        is supplied (an :class:`~noosphere.peer_review.agreement_model.AgreementModel`),
+        the swarm predicts how tightly the reviewers will agree on this
+        conclusion *before* spending a token, and:
+
+        * records the prediction + routing decision on the returned
+          :class:`MultiProviderRun`,
+        * persists a per-conclusion prediction artifact the review page
+          reads to render its "expected contention" pill,
+        * and, only when ``apply_routing`` is set **and** the caller did
+          not pin ``adapters``, lets the routing policy reshape the
+          roster — expanding it for a contested conclusion, shrinking it
+          for a consensus one.
+
+        The prediction is a *predictive aid, not a gate*: it never
+        blocks a run, and ``founder_override_full_swarm=True`` keeps the
+        full default swarm regardless of what the model predicted.
         """
         conclusion = self._store.get_conclusion(conclusion_id)
         if conclusion is None:
             raise ValueError(f"Conclusion {conclusion_id} not found")
 
         ctx = context or {}
-        roster = adapters if adapters is not None else available_providers()
+
+        # Pre-review agreement prediction + routing decision.
+        predicted_agreement: Optional[float] = None
+        decision = None
+        top_drivers: list[dict[str, Any]] = []
+        if agreement_model is not None:
+            predicted_agreement, decision, top_drivers = self._predict_and_route(
+                conclusion,
+                ctx,
+                agreement_model=agreement_model,
+                routing_policy=routing_policy,
+                temperature=temperature,
+                prompt_variant=prompt_variant,
+                founder_override_full_swarm=founder_override_full_swarm,
+            )
+            if persist_prediction and decision is not None:
+                self._persist_agreement_prediction(
+                    conclusion_id,
+                    agreement_model=agreement_model,
+                    decision=decision,
+                    top_drivers=top_drivers,
+                )
+
+        # The routing policy may reshape the roster — but only when the
+        # caller asked for it and did not pin an explicit adapter list.
+        # An explicit ``adapters`` argument always wins; routing is an
+        # aid, not an override of the caller's intent.
+        if apply_routing and adapters is None and decision is not None:
+            wanted = set(decision.provider_mix)
+            roster = [a for a in available_providers() if a.name in wanted]
+        else:
+            roster = adapters if adapters is not None else available_providers()
         roster = list(roster)
 
         if not roster:
@@ -187,6 +250,8 @@ class SwarmOrchestrator:
                 weights=weights or {},
                 requires_human_escalation=False,
                 completed_at=datetime.now(timezone.utc),
+                agreement_prediction=predicted_agreement,
+                routing_decision=decision.to_dict() if decision else None,
             )
 
         if len(roster) == 1:
@@ -285,6 +350,8 @@ class SwarmOrchestrator:
             severities=severities,
             severity_aggregate=sev_agg,
             completed_at=datetime.now(timezone.utc),
+            agreement_prediction=predicted_agreement,
+            routing_decision=decision.to_dict() if decision else None,
         )
 
         if persist_findings:
@@ -328,6 +395,104 @@ class SwarmOrchestrator:
                     "blindspot reviewer will return no findings"
                 )
         return ctx
+
+    def _predict_and_route(
+        self,
+        conclusion: Conclusion,
+        ctx: dict[str, Any],
+        *,
+        agreement_model: Any,
+        routing_policy: Optional[Any],
+        temperature: float,
+        prompt_variant: str,
+        founder_override_full_swarm: bool,
+    ) -> tuple[float, Any, list[dict[str, Any]]]:
+        """Predict pre-review agreement and derive a routing decision.
+
+        Builds the pre-review feature row from the conclusion (text,
+        reasoning, domain, confidence) and its structural severity
+        inputs — every input here is knowable before a provider is
+        called — then runs it through the agreement model and the
+        routing policy. The feature row's ``provider_mix`` is the
+        policy's *base* mix: the prediction answers "how will the
+        default swarm do on this conclusion?", and routing decides
+        whether to deviate from that default.
+        """
+
+        from noosphere.peer_review.agreement_features import (
+            FeatureInputs,
+            feature_dict,
+        )
+        from noosphere.peer_review.swarm_router import default_policy, route
+
+        policy = routing_policy or default_policy()
+        domain = (
+            getattr(conclusion, "domain", None)
+            or ctx.get("domain")
+            or "unspecified"
+        )
+        sev_inputs = severity_inputs_from_context(conclusion, ctx)
+        fi = FeatureInputs(
+            conclusion_id=conclusion.id,
+            config_id="pre-review",
+            conclusion_text=conclusion.text or "",
+            reasoning=getattr(conclusion, "reasoning", "") or "",
+            domain=str(domain),
+            confidence=float(getattr(conclusion, "confidence", 0.5) or 0.5),
+            severity_inputs=sev_inputs,
+            provider_mix=tuple(policy.base_mix),
+            temperature=float(temperature),
+            prompt_variant=str(prompt_variant),
+        )
+        predicted = float(agreement_model.predict_inputs(fi))
+        decision = route(
+            predicted,
+            policy,
+            founder_override_full_swarm=founder_override_full_swarm,
+        )
+        try:
+            drivers = agreement_model.top_drivers(feature_dict(fi), k=4)
+        except Exception:  # pragma: no cover - explainability is best-effort
+            drivers = []
+        return predicted, decision, drivers
+
+    def _persist_agreement_prediction(
+        self,
+        conclusion_id: str,
+        *,
+        agreement_model: Any,
+        decision: Any,
+        top_drivers: list[dict[str, Any]],
+    ) -> None:
+        """Write the per-conclusion prediction artifact the review page reads.
+
+        Best-effort: a failed artifact write must never fail the swarm
+        run. The review page degrades gracefully when the file is
+        absent (no pill rather than an error).
+        """
+
+        try:
+            from noosphere.config import get_settings
+            from noosphere.peer_review.swarm_router import prediction_record
+
+            record = prediction_record(
+                conclusion_id=conclusion_id,
+                decision=decision,
+                model_trained_at=getattr(agreement_model, "trained_at", ""),
+                top_drivers=top_drivers,
+                generated_at=datetime.now(timezone.utc).isoformat(),
+            )
+            base = (
+                get_settings().data_dir / "agreement_model" / "predictions"
+            )
+            base.mkdir(parents=True, exist_ok=True)
+            out = base / f"{conclusion_id}.json"
+            with out.open("w", encoding="utf-8") as fh:
+                json.dump(record, fh, indent=2, sort_keys=True)
+        except Exception:  # pragma: no cover - artifact write is best-effort
+            logger.exception(
+                "failed to persist agreement prediction for %s", conclusion_id
+            )
 
     def _run_reviews(
         self,

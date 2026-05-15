@@ -1,0 +1,114 @@
+You are operating in /Users/michaelquintin/Desktop/Theseus.
+
+Goal: a single portfolio surface that shows the firm's
+positions, P&L, calibration, and active bets across:
+ - prediction markets (Polymarket, Kalshi — already shipped),
+ - equities (Alpaca paper + optional Alpaca/Robinhood live —
+   prompts 60, 62).
+
+The founder asked for "set up a poly market portfolio. … And a
+cow sheep portfolio … hooked up to the knowledge base". Plus the
+equity portfolio added in prompts 59-62. This is the one screen
+where all of those live, with the same audit / authorization
+language across asset classes.
+
+Before you start — read:
+1. `theseus-codex/src/app/forecasts/portfolio/page.tsx` —
+   the existing forecasts portfolio (Round 10 prompt 14).
+2. `noosphere/noosphere/forecasts/` — calibration/Brier
+   plumbing. The equity track uses analogous metrics
+   (`MAPE` for target prices, `directional accuracy` for the
+   bullish/bearish/neutral call, `Sharpe-like` for the
+   realised paper P&L stream).
+3. `theseus-codex/src/components/forecasts/portfolio/...`
+   — the chart primitives. Reuse, don't duplicate.
+
+Implement:
+
+A. New route `/portfolio` (canonical). Old
+   `/forecasts/portfolio` 301s here. The unified portfolio
+   surface.
+
+B. Layout (top to bottom):
+   1. Header strip: net firm P&L (paper across all asset
+      classes), kill-switch state (any kill switch engaged
+      across any track surfaces here as a single banner with
+      a per-track breakdown link).
+   2. Tabs: `Overview | Prediction Markets | Equities`. The
+      overview shows aggregates; the per-asset-class tabs
+      show track-specific detail.
+   3. Overview content:
+      - Net paper P&L curve (cumulative across asset classes).
+      - Calibration plot for prediction markets (Brier-based,
+        as before).
+      - Directional-accuracy plot for equity signals.
+      - Active positions count by asset class.
+      - "Active principles driving positions" — top 5
+        principles that currently support an open position.
+        Click to the principle's detail page (prompt 58).
+   4. Prediction-markets tab: the existing
+      `/forecasts/portfolio` content, unchanged in substance.
+   5. Equities tab: new. Lists open positions, recent signals,
+      paper P&L curve restricted to equities, target-price
+      MAPE chart for resolved signals.
+   6. "Decision trace" surface: clicking any position opens
+      a drawer showing the full chain
+      `principle → signal → position → fill → resolution`,
+      with citations at each link. This is the founder's
+      "continuity all the way through" — the institutional
+      audit trail.
+
+C. API extension. `current_events_api` exposes:
+   - `GET /v1/portfolio` — overview aggregate (extend
+     existing).
+   - `GET /v1/portfolio/equities` — equity track detail.
+   - `GET /v1/portfolio/decision-trace/:positionId` — the
+     chain. Works for both `ForecastBet` and `EquityPosition`
+     ids (dispatch on a prefix or on a type query param).
+
+D. Live status indicators. The header strip names whether
+   live trading is enabled per track:
+   - Prediction markets: `FORECASTS_LIVE_TRADING_ENABLED`.
+   - Equities: `EQUITIES_LIVE_TRADING_ENABLED`.
+   Each shown as a small pill: DISABLED (grey) /
+   ENABLED-AWAITING-AUTH (amber) / ENABLED (green).
+
+E. No live-row leakage to public. As in earlier rounds, the
+   public portfolio view shows PAPER rows only across both
+   asset classes. Live rows are reachable only via the
+   operator console.
+
+F. Tests:
+   - Overview renders with both tracks populated.
+   - Overview renders with one track empty (no crash, hint
+     copy in place).
+   - The decision-trace drawer round-trips a synthetic chain
+     for both a prediction-market position and an equity
+     position.
+   - 301 from old `/forecasts/portfolio` route hits the new
+     `/portfolio` route.
+   - Live pills correctly reflect the env flags.
+
+Constraints
+- Do not duplicate calibration logic. Extract a shared
+  `calibration.ts` (or extend the existing module) that
+  works for both Brier (binary outcomes) and directional
+  accuracy (3-class signals). Tests cover both paths.
+- The "Active principles" rail must respect Round 18's
+  prompt-58 principle-first navigation: clicking goes to
+  `/principles/:id`, not to a deprecated path.
+- This prompt does not enable live trading. The flags exist
+  in env; flipping them is operator territory.
+
+SCOPE
+- `theseus-codex/src/app/portfolio/page.tsx` CREATE
+- `theseus-codex/src/app/forecasts/portfolio/page.tsx` MODIFY (becomes a 301 stub or thin wrapper)
+- `theseus-codex/src/components/portfolio/OverviewTab.tsx` CREATE
+- `theseus-codex/src/components/portfolio/EquitiesTab.tsx` CREATE
+- `theseus-codex/src/components/portfolio/DecisionTraceDrawer.tsx` CREATE
+- `theseus-codex/src/lib/calibration.ts` CREATE-OR-MODIFY
+- `current_events_api/current_events_api/routes/portfolio.py` MODIFY
+- `current_events_api/current_events_api/routes/portfolio_equities.py` CREATE
+- `current_events_api/current_events_api/routes/decision_trace.py` CREATE
+- `current_events_api/tests/test_routes_portfolio_unified.py` CREATE
+- `theseus-codex/src/__tests__/portfolio_pages.test.tsx` CREATE

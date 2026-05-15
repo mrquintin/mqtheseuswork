@@ -22,7 +22,7 @@ else:
     _NUMPY_IMPORT_ERROR = None
 from sqlalchemy import Column, LargeBinary, asc, desc, inspect, text
 from sqlalchemy.engine import Engine
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.pool import NullPool
 from sqlmodel import Field, Session, SQLModel, create_engine, select
 
@@ -53,6 +53,14 @@ from noosphere.models import (
     DecayPolicy,
     DriftEvent,
     Entity,
+    EquityInstrument,
+    EquityPortfolioState,
+    EquityPosition,
+    EquityPositionMode,
+    EquityPriceTick,
+    EquitySignal,
+    EquitySignalCitation,
+    EquitySignalStatus,
     EventOpinion,
     ForecastBet,
     ForecastBetMode,
@@ -66,6 +74,7 @@ from noosphere.models import (
     ForecastPredictionStatus,
     ForecastResolution,
     ForecastTrace,
+    FormalisationStatus,
     FounderOverride,
     FollowUpMessage,
     FollowUpSession,
@@ -81,6 +90,9 @@ from noosphere.models import (
     OperatorState,
     PredictionResolution,
     PredictiveClaim,
+    Principle,
+    QuantitativeFormalisation,
+    QuantitativeTestResult,
     ReadingQueueEntry,
     Rebuttal,
     ResolutionMismatch,
@@ -626,6 +638,45 @@ class StoredMIPManifest(SQLModel, table=True):
     payload_json: str = ""
 
 
+class StoredQuantitativeFormalisation(SQLModel, table=True):
+    """Persistent row for the quantitative-formalisation spec layer.
+
+    One row per ``QuantitativeFormalisation``. The full payload is held
+    as JSON (so the schema evolves without alembic churn); the
+    duplicated ``principle_id`` and ``status`` columns exist for the
+    indexed queries the founder triage UI relies on. Mirrors the
+    Codex-side ``QuantitativeFormalisation`` Prisma model.
+    """
+
+    __tablename__ = "quantitative_formalisation"
+    id: str = Field(primary_key=True)
+    principle_id: str = Field(index=True)
+    status: str = Field(default="DRAFT", index=True)
+    payload_json: str = ""
+    created_at: datetime = Field(default_factory=_utcnow)
+    updated_at: datetime = Field(default_factory=_utcnow)
+
+
+class StoredQuantitativeTestResult(SQLModel, table=True):
+    """One row per runner pass over an APPROVED quantitative formalisation.
+
+    The full payload is held as JSON (``payload_json``); duplicated
+    indexed columns power the most-recent-per-formalisation read the
+    public surface and CLI ``status`` view depend on. Mirrors the
+    Codex-side ``QuantitativeTestResult`` Prisma model.
+    """
+
+    __tablename__ = "quantitative_test_result"
+    id: str = Field(primary_key=True)
+    formalisation_id: str = Field(index=True)
+    principle_id: str = Field(default="", index=True)
+    run_stamp: str = Field(index=True)
+    status: str = Field(default="RAN", index=True)
+    artifacts_path: str = ""
+    payload_json: str = ""
+    created_at: datetime = Field(default_factory=_utcnow)
+
+
 def _sqlite_migrate_literature_columns(engine: Engine) -> None:
     if not str(engine.url).startswith("sqlite"):
         return
@@ -763,20 +814,28 @@ def _backfill_artifact_effective_times(engine: Engine) -> None:
 def _seed_embedding_model_versions(engine: Engine) -> None:
     from noosphere.config import get_settings
 
-    with Session(engine) as s:
-        n = len(s.exec(select(StoredEmbeddingModelVersion)).all())
-        if n > 0:
+    with engine.begin() as conn:
+        existing_id = conn.execute(
+            text("SELECT id FROM embedding_model_version LIMIT 1")
+        ).scalar_one_or_none()
+        if existing_id is not None:
             return
-        sid = "seed-embedding-default"
-        s.add(
-            StoredEmbeddingModelVersion(
-                id=sid,
-                effective_from=datetime(2020, 1, 1, tzinfo=timezone.utc),
-                model_name=get_settings().embedding_model_name,
-                notes="Auto-seed: replace with dated rows when upgrading encoders.",
-            )
+        conn.execute(
+            text(
+                """
+                INSERT INTO embedding_model_version
+                    (id, effective_from, model_name, notes)
+                VALUES
+                    (:id, :effective_from, :model_name, :notes)
+                """
+            ),
+            {
+                "id": "seed-embedding-default",
+                "effective_from": datetime(2020, 1, 1, tzinfo=timezone.utc),
+                "model_name": get_settings().embedding_model_name,
+                "notes": "Auto-seed: replace with dated rows when upgrading encoders.",
+            },
         )
-        s.commit()
 
 
 class Store:
@@ -1023,14 +1082,21 @@ class Store:
         from noosphere.config import get_settings
 
         cutoff = as_of or _utcnow()
-        with self.session() as s:
-            rows = s.exec(
-                select(StoredEmbeddingModelVersion)
-                .where(StoredEmbeddingModelVersion.effective_from <= cutoff)
-                .order_by(desc(StoredEmbeddingModelVersion.effective_from))
-            ).all()
-            if rows:
-                return str(rows[0].model_name)
+        with self.engine.connect() as conn:
+            model_name = conn.execute(
+                text(
+                    """
+                    SELECT model_name
+                    FROM embedding_model_version
+                    WHERE effective_from <= :cutoff
+                    ORDER BY effective_from DESC
+                    LIMIT 1
+                    """
+                ),
+                {"cutoff": cutoff},
+            ).scalar_one_or_none()
+            if model_name:
+                return str(model_name)
         return get_settings().embedding_model_name
 
     def has_current_embedding(
@@ -1275,6 +1341,234 @@ class Store:
                 if conclusion.id not in seen
             ],
         ]
+
+    def list_first_person_conclusions(self) -> list[Conclusion]:
+        """Return conclusions whose text opens with a first-person pronoun.
+
+        Backs the founder-confirmable re-extraction queue
+        (`/extractor/re-extract`). The page UI is what actually drives
+        the rewrite — this is the read side that produces the worklist.
+        """
+
+        from noosphere.conclusions import is_first_person_conclusion
+
+        return [c for c in self.list_conclusions() if is_first_person_conclusion(c.text)]
+
+    # --- Quantitative formalisations (prompt 63) ---
+    def put_quantitative_formalisation(
+        self, formalisation: QuantitativeFormalisation
+    ) -> None:
+        """Insert or replace a quantitative-formalisation row.
+
+        ``status`` and ``principle_id`` are duplicated into indexed
+        columns so the triage UI's per-principle and per-status reads
+        do not have to scan payload-json.
+        """
+        formalisation.updated_at = datetime.now()
+        status_value = (
+            formalisation.status.value
+            if hasattr(formalisation.status, "value")
+            else formalisation.status
+        )
+        with self.session() as s:
+            existing = s.get(
+                StoredQuantitativeFormalisation, formalisation.id
+            )
+            if existing is not None:
+                existing.principle_id = formalisation.principle_id
+                existing.status = status_value
+                existing.payload_json = formalisation.model_dump_json()
+                existing.updated_at = formalisation.updated_at
+                s.add(existing)
+            else:
+                row = StoredQuantitativeFormalisation(
+                    id=formalisation.id,
+                    principle_id=formalisation.principle_id,
+                    status=status_value,
+                    payload_json=formalisation.model_dump_json(),
+                    created_at=formalisation.created_at,
+                    updated_at=formalisation.updated_at,
+                )
+                s.add(row)
+            s.commit()
+
+    def get_quantitative_formalisation(
+        self, formalisation_id: str
+    ) -> Optional[QuantitativeFormalisation]:
+        with self.session() as s:
+            row = s.get(StoredQuantitativeFormalisation, formalisation_id)
+            if row is None:
+                return None
+            return QuantitativeFormalisation.model_validate_json(row.payload_json)
+
+    def get_quantitative_formalisations_for_principle(
+        self, principle_id: str
+    ) -> list[QuantitativeFormalisation]:
+        with self.session() as s:
+            rows = s.exec(
+                select(StoredQuantitativeFormalisation).where(
+                    StoredQuantitativeFormalisation.principle_id == principle_id
+                )
+            ).all()
+            out: list[QuantitativeFormalisation] = []
+            for r in rows:
+                try:
+                    out.append(
+                        QuantitativeFormalisation.model_validate_json(r.payload_json)
+                    )
+                except Exception:
+                    continue
+            return out
+
+    def list_quantitative_formalisations(
+        self, *, status: Optional[str] = None
+    ) -> list[QuantitativeFormalisation]:
+        with self.session() as s:
+            stmt = select(StoredQuantitativeFormalisation)
+            if status is not None:
+                stmt = stmt.where(StoredQuantitativeFormalisation.status == status)
+            rows = s.exec(stmt).all()
+            out: list[QuantitativeFormalisation] = []
+            for r in rows:
+                try:
+                    out.append(
+                        QuantitativeFormalisation.model_validate_json(r.payload_json)
+                    )
+                except Exception:
+                    continue
+            return out
+
+    def upsert_quantitative_test_result(
+        self, result: QuantitativeTestResult
+    ) -> None:
+        """Persist a runner pass.
+
+        Idempotent on ``(formalisation_id, run_stamp)``: a second call
+        with the same pair overwrites the prior row instead of stacking
+        a duplicate. The runner guarantees a unique ``run_stamp`` per
+        intended pass, so re-runs at the same stamp are explicit retries.
+        """
+        status_value = (
+            result.status.value
+            if hasattr(result.status, "value")
+            else result.status
+        )
+        payload_json = result.model_dump_json()
+        with self.session() as s:
+            existing = s.exec(
+                select(StoredQuantitativeTestResult).where(
+                    StoredQuantitativeTestResult.formalisation_id
+                    == result.formalisation_id,
+                    StoredQuantitativeTestResult.run_stamp == result.run_stamp,
+                )
+            ).first()
+            if existing is not None:
+                existing.principle_id = result.principle_id
+                existing.status = status_value
+                existing.artifacts_path = result.artifacts_path
+                existing.payload_json = payload_json
+                s.add(existing)
+            else:
+                row = StoredQuantitativeTestResult(
+                    id=result.id,
+                    formalisation_id=result.formalisation_id,
+                    principle_id=result.principle_id,
+                    run_stamp=result.run_stamp,
+                    status=status_value,
+                    artifacts_path=result.artifacts_path,
+                    payload_json=payload_json,
+                    created_at=result.created_at,
+                )
+                s.add(row)
+            s.commit()
+
+    def get_latest_quantitative_test_result(
+        self, formalisation_id: str
+    ) -> Optional[QuantitativeTestResult]:
+        with self.session() as s:
+            row = s.exec(
+                select(StoredQuantitativeTestResult)
+                .where(
+                    StoredQuantitativeTestResult.formalisation_id
+                    == formalisation_id
+                )
+                .order_by(desc(StoredQuantitativeTestResult.created_at))
+                .limit(1)
+            ).first()
+            if row is None:
+                return None
+            try:
+                return QuantitativeTestResult.model_validate_json(row.payload_json)
+            except Exception:
+                return None
+
+    def list_quantitative_test_results(
+        self,
+        *,
+        formalisation_id: Optional[str] = None,
+        principle_id: Optional[str] = None,
+        limit: int = 200,
+    ) -> list[QuantitativeTestResult]:
+        with self.session() as s:
+            stmt = select(StoredQuantitativeTestResult)
+            if formalisation_id is not None:
+                stmt = stmt.where(
+                    StoredQuantitativeTestResult.formalisation_id == formalisation_id
+                )
+            if principle_id is not None:
+                stmt = stmt.where(
+                    StoredQuantitativeTestResult.principle_id == principle_id
+                )
+            stmt = stmt.order_by(
+                desc(StoredQuantitativeTestResult.created_at)
+            ).limit(limit)
+            rows = s.exec(stmt).all()
+            out: list[QuantitativeTestResult] = []
+            for r in rows:
+                try:
+                    out.append(
+                        QuantitativeTestResult.model_validate_json(r.payload_json)
+                    )
+                except Exception:
+                    continue
+            return out
+
+    def list_principles(self) -> list[Principle]:
+        """Return Principle objects derived from the Codex Principle table.
+
+        Principles are Codex-owned (Prisma); a noosphere-only sqlite
+        deployment will return an empty list, which the drafter
+        treats as "nothing to formalise."
+        """
+        if not self._has_prisma_principle_table():
+            return []
+        try:
+            sql = text(
+                'SELECT id, text, "domainsJson" FROM "Principle" '
+                'WHERE status = :status'
+            )
+            with self.engine.connect() as conn:
+                rows = conn.execute(sql, {"status": "accepted"}).fetchall()
+        except SQLAlchemyError:
+            return []
+        out: list[Principle] = []
+        for row in rows:
+            try:
+                out.append(
+                    Principle(
+                        id=row[0],
+                        text=row[1] or "",
+                    )
+                )
+            except Exception:
+                continue
+        return out
+
+    def _has_prisma_principle_table(self) -> bool:
+        try:
+            return "Principle" in set(inspect(self.engine).get_table_names())
+        except Exception:
+            return False
 
     @staticmethod
     def _json_string_list(value: Any | None) -> list[str]:
@@ -2359,6 +2653,201 @@ class Store:
             if row is not None:
                 row.created_at = _as_utc_aware(row.created_at) or row.created_at
             return row
+
+    # ── Equities helpers ────────────────────────────────────────────────────
+
+    def put_equity_instrument(self, instrument: EquityInstrument) -> str:
+        """Upsert an EquityInstrument by id, falling back to (symbol, exchange)."""
+        with self.session() as s:
+            existing = s.get(EquityInstrument, instrument.id)
+            if existing is None:
+                existing = s.exec(
+                    select(EquityInstrument)
+                    .where(EquityInstrument.symbol == instrument.symbol)
+                    .where(EquityInstrument.exchange == instrument.exchange)
+                ).first()
+            instrument.updated_at = _utcnow()
+            if existing is not None:
+                _copy_sqlmodel_fields(
+                    existing, instrument, exclude={"id", "created_at"}
+                )
+                s.add(existing)
+                s.commit()
+                return existing.id
+            s.add(instrument)
+            s.commit()
+            return instrument.id
+
+    def get_equity_instrument(self, instrument_id: str) -> Optional[EquityInstrument]:
+        with self.session() as s:
+            return s.get(EquityInstrument, instrument_id)
+
+    def get_equity_instrument_by_symbol(
+        self, symbol: str, exchange: str
+    ) -> Optional[EquityInstrument]:
+        with self.session() as s:
+            return s.exec(
+                select(EquityInstrument)
+                .where(EquityInstrument.symbol == symbol)
+                .where(EquityInstrument.exchange == exchange)
+            ).first()
+
+    def list_equity_instruments(
+        self, *, limit: int = 200
+    ) -> list[EquityInstrument]:
+        with self.session() as s:
+            return list(
+                s.exec(
+                    select(EquityInstrument)
+                    .order_by(asc(EquityInstrument.symbol))
+                    .limit(limit)
+                ).all()
+            )
+
+    def put_equity_price_tick(self, tick: EquityPriceTick) -> str:
+        with self.session() as s:
+            s.add(tick)
+            s.commit()
+            return tick.id
+
+    def list_equity_price_ticks(
+        self, instrument_id: str, *, limit: int = 200
+    ) -> list[EquityPriceTick]:
+        with self.session() as s:
+            return list(
+                s.exec(
+                    select(EquityPriceTick)
+                    .where(EquityPriceTick.instrument_id == instrument_id)
+                    .order_by(desc(EquityPriceTick.ts))
+                    .limit(limit)
+                ).all()
+            )
+
+    def put_equity_signal(self, signal: EquitySignal) -> str:
+        signal.updated_at = _utcnow()
+        with self.session() as s:
+            existing = s.get(EquitySignal, signal.id)
+            if existing is not None:
+                _copy_sqlmodel_fields(existing, signal, exclude={"id", "created_at"})
+                s.add(existing)
+                s.commit()
+                return existing.id
+            s.add(signal)
+            s.commit()
+            return signal.id
+
+    def get_equity_signal(self, signal_id: str) -> Optional[EquitySignal]:
+        with self.session() as s:
+            return s.get(EquitySignal, signal_id)
+
+    def list_open_signals(
+        self,
+        *,
+        organization_id: str | None = None,
+        limit: int = 100,
+    ) -> list[EquitySignal]:
+        """Published, non-revoked signals — feeds the position sizer."""
+        status_value = EquitySignalStatus.PUBLISHED.value
+        with self.session() as s:
+            stmt = select(EquitySignal).where(EquitySignal.status == status_value)
+            if organization_id is not None:
+                stmt = stmt.where(EquitySignal.organization_id == organization_id)
+            return list(
+                s.exec(
+                    stmt.order_by(desc(EquitySignal.created_at)).limit(limit)
+                ).all()
+            )
+
+    def put_equity_signal_citation(
+        self, citation: EquitySignalCitation
+    ) -> str:
+        with self.session() as s:
+            existing = s.get(EquitySignalCitation, citation.id)
+            if existing is not None:
+                _copy_sqlmodel_fields(
+                    existing, citation, exclude={"id", "created_at"}
+                )
+                s.add(existing)
+            else:
+                s.add(citation)
+            s.commit()
+            return citation.id if existing is None else existing.id
+
+    def list_equity_signal_citations(
+        self, signal_id: str
+    ) -> list[EquitySignalCitation]:
+        with self.session() as s:
+            return list(
+                s.exec(
+                    select(EquitySignalCitation)
+                    .where(EquitySignalCitation.signal_id == signal_id)
+                    .order_by(asc(EquitySignalCitation.created_at))
+                ).all()
+            )
+
+    def put_equity_position(self, position: EquityPosition) -> str:
+        mode_value = (
+            position.mode.value if hasattr(position.mode, "value") else str(position.mode)
+        )
+        if (
+            mode_value == EquityPositionMode.LIVE.value
+            and position.live_authorized_at is None
+        ):
+            raise ValueError("LIVE equity positions require live_authorized_at")
+        position.updated_at = _utcnow()
+        with self.session() as s:
+            existing = s.get(EquityPosition, position.id)
+            if existing is not None:
+                _copy_sqlmodel_fields(
+                    existing, position, exclude={"id", "created_at"}
+                )
+                s.add(existing)
+                s.commit()
+                return existing.id
+            s.add(position)
+            s.commit()
+            return position.id
+
+    def get_equity_position(self, position_id: str) -> Optional[EquityPosition]:
+        with self.session() as s:
+            return s.get(EquityPosition, position_id)
+
+    def list_positions_for_signal(self, signal_id: str) -> list[EquityPosition]:
+        with self.session() as s:
+            return list(
+                s.exec(
+                    select(EquityPosition)
+                    .where(EquityPosition.signal_id == signal_id)
+                    .order_by(asc(EquityPosition.created_at))
+                ).all()
+            )
+
+    def get_equity_portfolio_state(
+        self, organization_id: str
+    ) -> Optional[EquityPortfolioState]:
+        with self.session() as s:
+            return s.exec(
+                select(EquityPortfolioState).where(
+                    EquityPortfolioState.organization_id == organization_id
+                )
+            ).first()
+
+    def set_equity_portfolio_state(self, state: EquityPortfolioState) -> str:
+        state.updated_at = _utcnow()
+        with self.session() as s:
+            existing = s.exec(
+                select(EquityPortfolioState).where(
+                    EquityPortfolioState.organization_id == state.organization_id
+                )
+            ).first()
+            if existing is not None:
+                _copy_sqlmodel_fields(existing, state, exclude={"id"})
+                s.add(existing)
+                s.commit()
+                return existing.id
+            s.add(state)
+            s.commit()
+            return state.id
 
     def list_claim_ids(self) -> list[str]:
         with self.session() as s:

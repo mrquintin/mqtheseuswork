@@ -1,67 +1,89 @@
 # Extract Open Questions — Rationale
 
-## What the method is trying to do
+## Purpose
 
-Surface unanswered questions from a transcript or document so they
-become first-class artifacts the firm can prioritize and track, rather
-than residue that scrolls off the bottom of the page. The detection
-rules are deliberately three-way conjunctive: a candidate must be
-(1) interrogative form OR an "I-don't-know" hedge, (2) not answered by
-the same speaker within K of their own subsequent turns, and (3) not a
-paraphrase of an existing `OpenQuestion` already in the registry. The
-extractor accumulates accepted questions into a local registry as it
-walks the transcript so two near-duplicate questions inside the same
-session don't both surface.
+`extract_open_questions` surfaces unanswered questions from a transcript or
+document so they become first-class artifacts the firm can prioritise and
+track, rather than residue that scrolls off the bottom of the page. The
+extractor is heuristic and stateless about resolution: a resolved question is a
+write-once event tracked elsewhere, and this extractor is not allowed to re-emit
+one — filtering against the resolution ledger is the caller's job.
 
-The method is heuristic and stateless about resolution. A resolved
-question is a write-once event tracked elsewhere; this extractor is
-not allowed to re-emit one. Filtering against the resolution ledger is
-the caller's job.
+## Inputs
 
-## Epistemic assumptions
+`ExtractOpenQuestionsInput`:
 
-The big assumption is that the firm's questions are mostly visible to
-shallow text features — a `?` at the end of a sentence, an "I don't
-know whether" hedge, or one of a small family of phrasings around
-"the question is whether". Empirically, transcript questions are
-either explicit interrogatives or one of a small set of stylistic
-hedges; an LLM is not needed to find them. What an LLM *would* help
-with — judging whether a question is rhetorical or substantive — we
-approximate with two cheap rules: a self-answer marker in the same
-turn ("the answer is", "obviously", "of course") and a same-speaker
-answer-shaped utterance within K of their own subsequent turns. Both
-rules can be wrong; both are cheap to inspect on the triage page and
-override.
+- `turns` (list[TranscriptTurn]) — the transcript, each turn carrying a speaker,
+  text, and turn index.
+- `existing_questions` (list[ExistingQuestion]) — questions already in the
+  open-question registry, used for the paraphrase check.
+- `k_turns` (int, default `2`) — how many of a speaker's own subsequent turns to
+  scan for a self-answer.
+- `paraphrase_threshold` (float, default `0.55`) — token-Jaccard cut-off for the
+  redundancy check; clamped to `[0, 1]`.
 
-The paraphrase check uses token Jaccard above a threshold (default
-0.55) on a stoplist-stripped tokenization. This is intentionally
-loose: cheap, no embedding round-trip, surfaces obvious duplicates,
-and biases toward letting two genuinely different questions through.
-A vector-based dedupe could be layered on later without changing the
-input/output contract.
+## Outputs
 
-## Known failure modes
+`ExtractOpenQuestionsOutput`:
 
-- Indirect questions phrased as flat declaratives ("we should figure
-  out whether the calibration drifts after Q3") are not caught unless
-  they happen to match a "don't-know" pattern. This is the dominant
-  miss in early evaluation and is the natural place to add an LLM
-  layer if we ever want one.
-- The same-speaker answer detector compares token overlap, so a
-  speaker who asks "is X true?" and answers two turns later "X is
-  obviously true" is correctly rejected, but a speaker who answers
-  with a thematically-unrelated tangent will leave the question
-  surfacing. That's the safer failure mode (false positive on the
-  triage queue is cheaper than a silent miss).
-- The Jaccard paraphrase threshold is global. Domain-specific
-  vocabulary (heavy use of one or two technical terms) inflates
-  similarity scores and can cause questions about distinct sub-topics
-  in a tight domain to merge. The threshold is exposed on the input
-  schema so a caller can dial it down per-domain.
+- `questions` — accepted `ExtractedOpenQuestion` rows, each with text, speaker,
+  turn index, `detection_rule` (`interrogative` or `dont_know`), and a rationale.
+- `rejected_rhetorical`, `rejected_redundant`, `rejected_too_short` — counts of
+  candidates dropped by each gate, for triage-page diagnostics.
 
-## Dependencies
+The method emits no cascade edges, is registered `nondeterministic=False`, and
+declares no `depends_on` methods.
 
-- None at runtime. Pure-Python text processing.
-- The registered method machinery (`register_method`,
-  `MethodInvocation`, store factory) is the same dependency every
-  registered method has and is exercised by `_decorator.py`.
+## Algorithm
+
+The detection rules are deliberately three-way conjunctive. Walking the
+transcript turn by turn, each candidate sentence must be:
+
+1. **Interrogative form** (ends in `?`) **OR** an "I-don't-know" hedge — one of a
+   small family of regex patterns around "I don't know whether", "I'm not sure
+   if", "the question is whether", "open question".
+2. **Not self-answered and not answered by the same speaker** within `k_turns`
+   of their own subsequent turns — approximated by two cheap rules: a self-answer
+   marker ("the answer is", "obviously", "of course") in a later sentence of the
+   same turn, and a same-speaker declarative utterance within K turns that shares
+   ≥2 content tokens with the question.
+3. **Not a paraphrase** of an existing `OpenQuestion` — token Jaccard above
+   `paraphrase_threshold` on a stoplist-stripped tokenisation.
+
+Candidates under `_MIN_QUESTION_TOKENS` (4 content tokens) are rejected as too
+short. Accepted questions accumulate into a local registry as the walk proceeds,
+so two near-duplicate questions inside the same session do not both surface.
+
+## Domain
+
+Built for transcript and document prose where questions are mostly visible to
+shallow text features — a trailing `?`, a "don't-know" hedge, or a small family
+of "the question is whether" phrasings. Empirically that covers most transcript
+questions, so no LLM is needed in the hot path. The paraphrase check is
+intentionally loose (no embedding round-trip) and biases toward letting two
+genuinely different questions through. No machine-checkable `DomainBound` is
+declared; `paraphrase_threshold` is exposed on the input schema so a caller can
+tune it per-domain.
+
+## Failure Modes
+
+This method has no `FAILURES.yaml` catalog; its limits are documented inline.
+
+- **Indirect questions phrased as flat declaratives** ("we should figure out
+  whether the calibration drifts after Q3") are not caught unless they happen to
+  match a "don't-know" pattern. This is the dominant miss in early evaluation
+  and the natural place to add an LLM layer.
+- **Token-overlap answer detection** correctly rejects a speaker who asks "is X
+  true?" and answers "X is obviously true" two turns later, but a speaker whose
+  follow-up is a thematically-unrelated tangent leaves the question surfacing —
+  the safer failure mode (a false positive on the triage queue is cheaper than a
+  silent miss).
+- **Global Jaccard threshold** — domain-specific vocabulary (heavy reuse of one
+  or two technical terms) inflates similarity and can merge questions about
+  distinct sub-topics in a tight domain.
+
+## References
+
+No external research dependencies. Detection is pure-Python text processing —
+regex patterns and token Jaccard — with no underlying paper the method depends
+on.

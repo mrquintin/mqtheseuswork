@@ -40,12 +40,15 @@ export default async function PublishedPaperPage({
 
   return (
     <main
+      className="research-paper-page"
+      data-testid="paper-page"
       style={{
         maxWidth: "1080px",
         margin: "0 auto",
         padding: "3rem 2rem",
       }}
     >
+      <style>{paperPageCss}</style>
       <header style={{ marginBottom: "2rem" }}>
         <p
           style={{
@@ -89,30 +92,56 @@ export default async function PublishedPaperPage({
         </p>
       </header>
 
-      <section style={{ marginBottom: "2rem" }}>
+      <section style={{ marginBottom: "2rem" }} data-testid="paper-abstract">
         <h2 style={{ fontSize: "1.1rem", marginBottom: "0.5rem" }}>
           Plain-prose summary
         </h2>
         <p>{summary}</p>
       </section>
 
-      <section style={{ marginBottom: "2rem" }}>
+      <section style={{ marginBottom: "2rem" }} data-testid="paper-pdf-section">
         <h2 style={{ fontSize: "1.1rem", marginBottom: "0.5rem" }}>
           Paper PDF
         </h2>
         {pdfHref ? (
-          <object
-            data={pdfHref}
-            type="application/pdf"
-            width="100%"
-            height="900"
-            aria-label={`PDF of ${sidecar.cluster_id}`}
-          >
-            <p>
-              Your browser cannot embed PDFs directly.{" "}
-              <a href={pdfHref}>Download the PDF</a> instead.
-            </p>
-          </object>
+          <>
+            {/* Desktop: embed the PDF inline. A 900px-tall <object> on a
+                phone is a scroll trap inside a scroll — long-form research
+                is bad on a phone and pretending otherwise helps no one.
+                Below 720px the embed is replaced by an explicit button
+                that hands the PDF to the OS viewer; the plain-prose
+                summary above is the on-page reading surface. */}
+            <div className="paper-pdf-embed">
+              <object
+                data={pdfHref}
+                type="application/pdf"
+                width="100%"
+                height="900"
+                aria-label={`PDF of ${sidecar.cluster_id}`}
+              >
+                <p>
+                  Your browser cannot embed PDFs directly.{" "}
+                  <a href={pdfHref}>Download the PDF</a> instead.
+                </p>
+              </object>
+            </div>
+            <div className="paper-pdf-button">
+              <p style={{ color: "var(--parchment-dim)", marginTop: 0 }}>
+                The full paper is a long-form PDF — better read in your
+                device&rsquo;s PDF viewer than squeezed into this column.
+                The plain-prose summary above is the on-page version.
+              </p>
+              <a
+                href={pdfHref}
+                target="_blank"
+                rel="noopener"
+                data-testid="paper-open-pdf"
+                className="paper-pdf-open"
+              >
+                Open the PDF →
+              </a>
+            </div>
+          </>
         ) : (
           <p style={{ color: "var(--parchment-dim)" }}>
             PDF not available. The .tex source remains the authoritative
@@ -139,3 +168,31 @@ export default async function PublishedPaperPage({
     </main>
   );
 }
+
+/**
+ * Mobile paper layout. The inline PDF embed is desktop-only; below
+ * 720px it is replaced by an explicit "Open the PDF" button. Both ship
+ * in the HTML and CSS picks one by width — no JS viewport sniffing, no
+ * layout shift. The page padding also tightens on small viewports.
+ */
+const paperPageCss = `
+.paper-pdf-button { display: none; }
+.paper-pdf-open {
+  display: inline-block;
+  margin-top: 0.5rem;
+  padding: 0.7rem 1.2rem;
+  border: 1px solid var(--gold, #d4a017);
+  color: var(--gold, #d4a017);
+  text-decoration: none;
+  font-family: monospace;
+  font-size: 0.8rem;
+  letter-spacing: 0.06em;
+}
+@media (max-width: 720px) {
+  .research-paper-page {
+    padding: 2rem 1.05rem 3rem !important;
+  }
+  .paper-pdf-embed { display: none; }
+  .paper-pdf-button { display: block; }
+}
+`;

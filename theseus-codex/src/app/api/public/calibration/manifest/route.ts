@@ -1,7 +1,9 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 
+import { withApiHandler } from "@/lib/api/handler";
 import {
+  PUBLIC_CALIBRATION_SCHEMA_VERSION,
   type CalibrationFilter,
   loadPublicCalibrationManifest,
 } from "@/lib/calibrationData";
@@ -15,17 +17,18 @@ export const dynamic = "force-dynamic";
  *
  * Returns the full data backing `/calibration` so external auditors can
  * verify the published numbers without running the firm's tooling.
- * Schema is versioned via the top-level `schemaVersion` field — pin
- * against it.
+ * Schema version surfaces both as `meta.schemaVersion` (canonical) and
+ * the `X-Schema-Version` header (mirror for cache-key consumers).
  *
- * Honest-by-construction: includes the SHA-256 `resolutionSetHash` over
- * the canonicalized resolved-prediction set. The same hash that appears
- * on the page appears here, so a discrepancy is detectable.
+ * Honest-by-construction: the SHA-256 `resolutionSetHash` over the
+ * canonicalized resolved-prediction set appears both in `data` and as
+ * the `X-Resolution-Set-Hash` response header — a discrepancy with the
+ * `/calibration` page is detectable from the headers alone.
  *
  * Optional filters (URL query params): `domain`, `method`, `version`.
- * Filters narrow the decile views; aggregate Brier and the reliability
- * curve come from the published nightly manifest as-is so the public
- * cohort cannot be sliced into vanity subsets without leaving a trail.
+ *
+ * Legacy alias: `X-Theseus-Envelope: legacy` or `?envelope=legacy`
+ * returns the raw manifest body during the migration window.
  */
 export function OPTIONS(req: NextRequest) {
   const headers = new Headers(publicCorsHeaders(req));
@@ -33,28 +36,28 @@ export function OPTIONS(req: NextRequest) {
   return new NextResponse(null, { status: 204, headers });
 }
 
-export async function GET(req: NextRequest) {
-  const corsHeaders = new Headers(publicCorsHeaders(req));
-  corsHeaders.set("Access-Control-Allow-Methods", "GET, OPTIONS");
-  const url = new URL(req.url);
-  const filter: CalibrationFilter = {
-    domain: url.searchParams.get("domain"),
-    methodName: url.searchParams.get("method"),
-    methodVersion: url.searchParams.get("version"),
-  };
-  try {
+export const GET = withApiHandler(
+  async (req) => {
+    const url = new URL(req.url);
+    const filter: CalibrationFilter = {
+      domain: url.searchParams.get("domain"),
+      methodName: url.searchParams.get("method"),
+      methodVersion: url.searchParams.get("version"),
+    };
     const manifest = await loadPublicCalibrationManifest(filter);
-    const headers = new Headers(corsHeaders);
-    headers.set("Cache-Control", "public, max-age=60, s-maxage=300");
-    headers.set("Content-Type", "application/json");
-    headers.set("X-Resolution-Set-Hash", manifest.resolutionSetHash);
-    headers.set("X-Schema-Version", String(manifest.schemaVersion));
-    return NextResponse.json(manifest, { status: 200, headers });
-  } catch (error) {
-    console.error("[public calibration manifest] failed:", error);
-    return NextResponse.json(
-      { error: "manifest unavailable" },
-      { status: 500, headers: corsHeaders },
-    );
-  }
-}
+    return {
+      data: manifest,
+      meta: {
+        schemaVersion: manifest.schemaVersion ?? PUBLIC_CALIBRATION_SCHEMA_VERSION,
+        generatedAt: manifest.generatedAt,
+      },
+      legacy: manifest,
+      headers: {
+        "Cache-Control": "public, max-age=60, s-maxage=300",
+        "X-Resolution-Set-Hash": manifest.resolutionSetHash,
+        "X-Schema-Version": String(manifest.schemaVersion ?? PUBLIC_CALIBRATION_SCHEMA_VERSION),
+      },
+    };
+  },
+  { cors: true, corsMethods: "GET, OPTIONS" },
+);

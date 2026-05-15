@@ -38,11 +38,20 @@ export interface KeymapHelpProps {
   pageBindings?: ReadonlyArray<HotkeyBinding>;
   /** Friendly label for the page section ("Conclusion", "Explorer"). */
   pageLabel?: string;
+  /** Mount already open when lazy-loaded by the shell. */
+  startOpen?: boolean;
+  /** Called after close so the shell can unmount this lazy chunk. */
+  onClosed?: () => void;
+  /** Register ? internally. Disable when the shell owns the shortcut. */
+  registerHotkey?: boolean;
 }
 
 export default function KeymapHelp({
   pageBindings: pageBindingsProp,
   pageLabel: pageLabelProp,
+  startOpen = false,
+  onClosed,
+  registerHotkey = true,
 }: KeymapHelpProps) {
   const active = useActivePageKeymap();
   const pageBindings = pageBindingsProp ?? active?.bindings ?? [];
@@ -71,7 +80,10 @@ export default function KeymapHelp({
     }
   }, []);
 
-  const close = useCallback(() => setOpen(false), []);
+  const close = useCallback(() => {
+    setOpen(false);
+    onClosed?.();
+  }, [onClosed]);
 
   const toggle = useCallback(() => {
     setOpen((value) => !value);
@@ -80,8 +92,14 @@ export default function KeymapHelp({
 
   // The "?" key on most US layouts requires shift. We register both
   // forms so callers don't have to think about it.
-  useHotkey("?", toggle);
-  useHotkey("shift+/", toggle);
+  useHotkey("?", toggle, { enabled: registerHotkey });
+  useHotkey("shift+/", toggle, { enabled: registerHotkey });
+
+  useEffect(() => {
+    if (!startOpen) return;
+    setOpen(true);
+    dismissHint();
+  }, [startOpen, dismissHint]);
 
   // Esc closes the overlay.
   useEffect(() => {

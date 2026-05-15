@@ -22,6 +22,15 @@
 #   ./run_prompts.sh --model claude-opus-4-7
 #   ./run_prompts.sh --continue
 #   ./run_prompts.sh --dry-run
+#   ./run_prompts.sh --branch-mode
+#
+# --branch-mode (opt-in):
+#   Each prompt runs on its own branch `auto/<round-suffix>/<NN>-<slug>`
+#   created from current HEAD. On success the branch is pushed and (if
+#   `gh` is on PATH) a draft PR is opened with the prompt's text as the
+#   body. On failure the branch persists locally for inspection and the
+#   runner halts as usual. Suppresses sync.sh auto-commits by exporting
+#   THESEUS_RUNNER_BRANCH_MODE=1 — sync.sh checks that flag and skips.
 
 set -uo pipefail
 
@@ -45,8 +54,11 @@ FROM_N=0
 TO_N=0
 CONTINUE_ON_FAIL=0
 DRY_RUN=0
+BRANCH_MODE=0
+ROUND_SUFFIX=""
 CURRENT_PROMPT_NUM=""
 CURRENT_PROMPT_NAME=""
+CURRENT_BRANCH=""
 
 on_signal() {
   local signal="$1"
@@ -74,10 +86,19 @@ while [[ $# -gt 0 ]]; do
     --model) case "${2-}" in ''|--*) echo "error: --model requires a value" >&2; exit 2 ;; esac; MODEL="$2"; shift 2 ;;
     --continue) CONTINUE_ON_FAIL=1; shift ;;
     --dry-run) DRY_RUN=1; shift ;;
-    -h|--help) sed -n '2,24p' "$0"; exit 0 ;;
+    --branch-mode) BRANCH_MODE=1; shift ;;
+    --round-suffix) case "${2-}" in ''|--*) echo "error: --round-suffix requires a value" >&2; exit 2 ;; esac; ROUND_SUFFIX="$2"; shift 2 ;;
+    -h|--help) sed -n '2,33p' "$0"; exit 0 ;;
     *) echo "unknown flag: $1"; exit 2 ;;
   esac
 done
+
+if [ "$BRANCH_MODE" -eq 1 ]; then
+  export THESEUS_RUNNER_BRANCH_MODE=1
+  if [ -z "$ROUND_SUFFIX" ]; then
+    ROUND_SUFFIX=$(date +"%Y%m%d-%H%M")
+  fi
+fi
 
 is_uint() {
   case "$1" in
@@ -376,11 +397,81 @@ run_claude_with_retry() {
   done
 }
 
+slugify_prompt_name() {
+  # Take the part after the leading "NN_" and squash to a kebab slug.
+  local base="$1"
+  local rest="${base#*_}"
+  echo "$rest" \
+    | tr '[:upper:]' '[:lower:]' \
+    | sed -E 's/[^a-z0-9]+/-/g; s/^-+//; s/-+$//' \
+    | cut -c1-60
+}
+
+# Open the per-prompt branch. Echoes the branch name. Returns non-zero
+# if the branch could not be created (dirty tree, name collision, etc).
+branch_mode_enter() {
+  local num="$1" base="$2"
+  local slug branch
+  slug=$(slugify_prompt_name "$base")
+  branch="auto/${ROUND_SUFFIX}/${num}-${slug}"
+
+  if [ -n "$(git status --porcelain 2>/dev/null)" ]; then
+    echo "${RED}branch-mode: working tree dirty — commit or stash before running.${NC}" >&2
+    return 1
+  fi
+  if git show-ref --verify --quiet "refs/heads/$branch"; then
+    echo "${RED}branch-mode: branch $branch already exists.${NC}" >&2
+    return 1
+  fi
+  if ! git checkout -b "$branch" >/dev/null 2>&1; then
+    echo "${RED}branch-mode: git checkout -b $branch failed.${NC}" >&2
+    return 1
+  fi
+  echo "$branch"
+  return 0
+}
+
+# On success: commit anything the prompt produced, push, open draft PR.
+branch_mode_finalize() {
+  local branch="$1" prompt_file="$2" num="$3" base="$4"
+  local title
+
+  if [ -n "$(git status --porcelain 2>/dev/null)" ]; then
+    git add -A
+    THESEUS_SKIP_PRECOMMIT=1 git commit -m "[Round-${num}] ${base} (auto)" >/dev/null 2>&1 || {
+      echo "${YELLOW}branch-mode: nothing to commit on $branch.${NC}"
+    }
+  else
+    echo "${YELLOW}branch-mode: prompt produced no changes — branch $branch left as a marker.${NC}"
+  fi
+
+  if git config --get remote.origin.url >/dev/null 2>&1; then
+    if ! git push -u origin "$branch" >/dev/null 2>&1; then
+      echo "${YELLOW}branch-mode: git push failed for $branch; left local.${NC}"
+      return 0
+    fi
+  else
+    echo "${YELLOW}branch-mode: no origin remote — left $branch local only.${NC}"
+    return 0
+  fi
+
+  if command -v gh >/dev/null 2>&1; then
+    title="[Round-${num}] ${base}"
+    if ! gh pr create --draft --title "$title" --body-file "$prompt_file" --head "$branch" >/dev/null 2>&1; then
+      echo "${YELLOW}branch-mode: gh pr create failed for $branch.${NC}"
+    else
+      echo "${GREEN}branch-mode: draft PR opened for $branch.${NC}"
+    fi
+  else
+    echo "${YELLOW}branch-mode: gh CLI not installed — no PR opened. Branch pushed.${NC}"
+  fi
+}
+
 run_prompt() {
   local prompt="$1"
   local index="$2"
   local total="$3"
-  local base num stamp log raw status start elapsed bar pct total_elapsed total_mins hb
+  local base num stamp log raw status start elapsed bar pct total_elapsed total_mins hb branch
   base=$(basename "$prompt" .txt)
   num="${base%%_*}"
   stamp=$(date +"%Y%m%d-%H%M%S")
@@ -388,6 +479,13 @@ run_prompt() {
   raw="$LOG_DIR/${stamp}_${base}.raw.jsonl"
   CURRENT_PROMPT_NUM="$num"
   CURRENT_PROMPT_NAME="$base"
+  branch=""
+
+  if [ "$BRANCH_MODE" -eq 1 ]; then
+    branch=$(branch_mode_enter "$num" "$base") || return 2
+    CURRENT_BRANCH="$branch"
+    echo "${BLUE}branch-mode: ${branch}${NC}"
+  fi
 
   bar=$(make_progress_bar "$((index - 1))" "$total" 12)
   pct=$(((index - 1) * 100 / (total == 0 ? 1 : total)))
@@ -417,10 +515,16 @@ run_prompt() {
   elapsed=$(($(date +%s) - start))
   if [ "$status" -eq 0 ]; then
     echo "${GREEN}OK ${base} complete (${elapsed}s)${NC}"
+    if [ "$BRANCH_MODE" -eq 1 ] && [ -n "$branch" ]; then
+      branch_mode_finalize "$branch" "$prompt" "$num" "$base"
+    fi
   else
     echo "${RED}${BOLD}FAIL ${base} (exit ${status}, ${elapsed}s)${NC}"
     echo "${RED}   log: $log${NC}"
     echo "${RED}   raw: $raw${NC}"
+    if [ "$BRANCH_MODE" -eq 1 ] && [ -n "$branch" ]; then
+      echo "${RED}   branch: $branch (left local for inspection)${NC}"
+    fi
     echo "${RED}Halting. Inspect the log and resume with --from ${num}${NC}"
   fi
   return "$status"

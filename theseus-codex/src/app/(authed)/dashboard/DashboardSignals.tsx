@@ -1,7 +1,7 @@
 import Link from "next/link";
 
 /**
- * Operational signal strip rendered under the attention queue.
+ * Operational signal strip rendered under the dashboard review summary.
  *
  * Folds the previously-stacked "X failed uploads", "Y unseen responses",
  * "Z active contradictions", "N decay events", and pending-deletion

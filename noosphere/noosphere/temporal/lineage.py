@@ -28,6 +28,7 @@ from noosphere.models import (
     CascadeEdge,
     CascadeNodeKind,
 )
+from noosphere.observability import traced
 
 
 # ── Node kinds ──────────────────────────────────────────────────────────────
@@ -146,6 +147,7 @@ def _trunc(text: str, n: int) -> str:
 # ── Assembly ────────────────────────────────────────────────────────────────
 
 
+@traced("lineage.assemble_lineage")
 def assemble_lineage(store, conclusion_id: str) -> Lineage:
     """Build the lineage for ``conclusion_id`` from rows in ``store``.
 
@@ -250,6 +252,10 @@ def assemble_lineage(store, conclusion_id: str) -> Lineage:
     )
 
 
+# One span per cascade edge walked. A 100-event conclusion fans this out
+# fast, and a publish-day backfill can push it past 1k/min — sample so the
+# per-traversal latency stays visible without burying the span store.
+@traced("lineage.ingest_cascade_src", sample_rate=0.1)
 def _ingest_cascade_src(
     store,
     edge: CascadeEdge,
@@ -344,6 +350,7 @@ def _add_artifact(
 # ── Diff ────────────────────────────────────────────────────────────────────
 
 
+@traced("lineage.lineage_diff")
 def lineage_diff(t1: Lineage, t2: Lineage) -> LineageDiff:
     """Return what changed between two snapshots — used by revision-event
     rendering to surface "since the last revision, what's new"."""
@@ -366,6 +373,7 @@ def lineage_diff(t1: Lineage, t2: Lineage) -> LineageDiff:
 # ── Markdown export ─────────────────────────────────────────────────────────
 
 
+@traced("lineage.lineage_to_markdown")
 def lineage_to_markdown(lineage: Lineage) -> str:
     """Markdown rendering suitable for a research appendix."""
     lines: list[str] = []
@@ -397,6 +405,7 @@ def lineage_to_markdown(lineage: Lineage) -> str:
 # ── Sentence-provenance bridge ──────────────────────────────────────────────
 
 
+@traced("lineage.lineage_source_ids")
 def lineage_source_ids(lineage: Lineage) -> list[str]:
     """Return the artifact (source) node ids participating in a lineage.
 

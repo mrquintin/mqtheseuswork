@@ -92,6 +92,23 @@ const CRITERIA: Criterion[] = [
 const FORMULA =
   "domain_sensitivity * mean(progressivity, severity, aim_method_fit, compressibility)";
 
+const siblingLinkStyle: React.CSSProperties = {
+  fontSize: "0.65rem",
+  letterSpacing: "0.18em",
+  textTransform: "uppercase",
+  padding: "0.4rem 0.7rem",
+  border: "1px solid var(--public-rule, #ddd)",
+  borderRadius: 2,
+  textDecoration: "none",
+};
+
+/**
+ * Precision audit (Explorer v2): every number on this page is a rubric
+ * threshold or formula literal — spec text, not measured data — so the
+ * decimal places shown are the rubric's own definition, not a rendered
+ * value to round. No measured quantity is displayed here.
+ */
+
 export default async function MethodologyCriteriaPage() {
   const founder = await getFounder();
   return (
@@ -105,7 +122,19 @@ export default async function MethodologyCriteriaPage() {
         >
           ← Methodology
         </Link>
-        <h1 className="public-title" style={{ marginTop: "0.5rem" }}>
+        <p
+          className="mono"
+          style={{
+            fontSize: "0.62rem",
+            letterSpacing: "0.22em",
+            textTransform: "uppercase",
+            color: "var(--amber, #d4a017)",
+            margin: "0.5rem 0 0.25rem",
+          }}
+        >
+          Layer 1 — the meta-method
+        </p>
+        <h1 className="public-title" style={{ marginTop: 0 }}>
           Five-criterion rubric
         </h1>
         <p className="public-muted public-lede">
@@ -116,6 +145,25 @@ export default async function MethodologyCriteriaPage() {
           checked-against-code source of truth — the operator process gate
           fails if this page drifts from the running scorer.
         </p>
+
+        {/* Cross-link density: the meta-method has three public surfaces;
+            this is the rubric, the other two are one click away. */}
+        <nav
+          aria-label="The meta-method's surfaces"
+          style={{
+            display: "flex",
+            flexWrap: "wrap",
+            gap: "0.5rem",
+            margin: "0 0 0.5rem",
+          }}
+        >
+          <Link href="/methodology/composition" className="mono" style={siblingLinkStyle}>
+            Composition map →
+          </Link>
+          <Link href="/methodology/principles" className="mono" style={siblingLinkStyle}>
+            Principles →
+          </Link>
+        </nav>
 
         <section className="public-section">
           <h2>Composite formula</h2>

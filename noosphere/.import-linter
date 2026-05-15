@@ -1,0 +1,157 @@
+; Import contracts for the noosphere package (Round 19).
+;
+; Each contract below corresponds to a layer documented in
+; docs/architecture/Noosphere_Module_Map.md.
+;
+; The contracts in this file are deliberately scoped to the *new* facade
+; roots introduced by the Round-19 hierarchy pass:
+;
+;   noosphere.core, noosphere.inquiry, noosphere.io, noosphere.cli
+;
+; Legacy flat modules (noosphere.store, noosphere.models, …) remain
+; unconstrained — they will be folded into the layered contracts once a
+; future prompt physically relocates the implementations.
+;
+; Run locally:
+;
+;   pip install import-linter
+;   lint-imports --config noosphere/.import-linter
+
+[importlinter]
+root_packages =
+    noosphere
+include_external_packages = False
+
+# ── core is a leaf: it must not depend on any other facade package. ─────────
+[importlinter:contract:core-leaf]
+name = noosphere.core is a leaf
+type = forbidden
+source_modules =
+    noosphere.core
+forbidden_modules =
+    noosphere.cli
+    noosphere.inquiry
+    noosphere.io
+
+# ── inquiry must not reach into the perimeter (cli, io adapters). ───────────
+[importlinter:contract:inquiry-bounds]
+name = noosphere.inquiry stays inside the inference perimeter
+type = forbidden
+source_modules =
+    noosphere.inquiry
+forbidden_modules =
+    noosphere.cli
+    noosphere.io
+
+# ── io is a perimeter adapter: cannot import inquiry. ───────────────────────
+[importlinter:contract:io-bounds]
+name = noosphere.io is a perimeter adapter
+type = forbidden
+source_modules =
+    noosphere.io
+forbidden_modules =
+    noosphere.cli
+    noosphere.inquiry
+
+# ── No facade-level cyclic imports between the three lower facades. ─────────
+[importlinter:contract:facade-acyclic]
+name = noosphere.core / noosphere.io / noosphere.inquiry are acyclic
+type = layers
+layers =
+    noosphere.inquiry
+    noosphere.io
+    noosphere.core
+exhaustive = false
+
+# ── Interface modules are leaves: they must not import anything inside the
+# ── package they belong to. This is the load-bearing guarantee that lets
+# ── the inquiry / temporal / literature interface modules sit underneath
+# ── every cyclic seam without re-creating one.
+[importlinter:contract:inquiry-interfaces-leaf]
+name = noosphere.inquiry._interfaces is a leaf
+type = forbidden
+source_modules =
+    noosphere.inquiry._interfaces
+forbidden_modules =
+    noosphere.cli
+    noosphere.cli_commands
+    noosphere.coherence
+    noosphere.core
+    noosphere.evaluation
+    noosphere.inquiry
+    noosphere.io
+    noosphere.literature
+    noosphere.peer_review
+    noosphere.redteam
+    noosphere.store
+    noosphere.synthesis
+    noosphere.temporal
+
+[importlinter:contract:temporal-interfaces-leaf]
+name = noosphere.temporal._interfaces is a leaf
+type = forbidden
+source_modules =
+    noosphere.temporal._interfaces
+forbidden_modules =
+    noosphere.cli
+    noosphere.cli_commands
+    noosphere.coherence
+    noosphere.evaluation
+    noosphere.inquiry
+    noosphere.io
+    noosphere.literature
+    noosphere.peer_review
+    noosphere.redteam
+    noosphere.store
+    noosphere.synthesis
+    noosphere.temporal.lineage
+
+[importlinter:contract:literature-interfaces-leaf]
+name = noosphere.literature._interfaces is a leaf
+type = forbidden
+source_modules =
+    noosphere.literature._interfaces
+forbidden_modules =
+    noosphere.cli
+    noosphere.cli_commands
+    noosphere.coherence
+    noosphere.evaluation
+    noosphere.inquiry
+    noosphere.io
+    noosphere.literature.citation_chain
+    noosphere.literature.response_triage
+    noosphere.literature.source_credibility
+    noosphere.literature.source_priors
+    noosphere.literature.standing
+    noosphere.literature.standing_polls
+    noosphere.peer_review
+    noosphere.redteam
+    noosphere.store
+    noosphere.synthesis
+    noosphere.temporal
+
+# ── Top-level cyclic-import guard. Every cycle reported by
+# ──   scripts/detect_import_cycles.py noosphere/noosphere --package noosphere
+# ── must either be eliminated by the refactor or listed (with a future
+# ── expiry date) in docs/architecture/Known_Cycles.md. The Python test
+# ── noosphere/tests/test_no_import_cycles.py enforces this. We register
+# ── independent contracts here so failures from ``lint-imports`` and from
+# ── ``pytest`` both surface a cycle at PR-review time.
+[importlinter:contract:peer-review-cycle-allowlist]
+name = noosphere.peer_review registry cycle expires 2026-09-30
+type = forbidden
+source_modules =
+    noosphere.inquiry
+    noosphere.evaluation
+    noosphere.coherence
+    noosphere.redteam
+    noosphere.mitigations
+    noosphere.io
+    noosphere.core
+forbidden_modules =
+    noosphere.peer_review.swarm
+    noosphere.peer_review.reviewers
+ignore_imports =
+    noosphere.peer_review -> noosphere.peer_review.swarm
+    noosphere.peer_review.swarm -> noosphere.peer_review.reviewers
+    noosphere.peer_review.reviewers -> noosphere.peer_review

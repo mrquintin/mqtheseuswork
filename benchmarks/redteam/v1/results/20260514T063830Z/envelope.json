@@ -1,0 +1,28 @@
+{
+  "bench_path": "/Users/michaelquintin/Desktop/Theseus/benchmarks/redteam/v1/conclusion_bench.jsonl",
+  "bench_sha256": "a8c1bb2d315736d11e583b33835729294f08982f1eebfb894be5288e8a3570a8",
+  "config_count": 6,
+  "config_ids": [
+    "cfg-62d1d2eff6260a3d",
+    "cfg-35f06609e41d9c7f",
+    "cfg-6513d1cd2a9cdfdd",
+    "cfg-b048c444daf5c4b5",
+    "cfg-3598c98d63b9564c",
+    "cfg-a4e1e04930f69d0b"
+  ],
+  "driver": "offline_deterministic_driver",
+  "envelope_hash": "env-01ed7510995f7e3b",
+  "finished_at_utc": "2026-05-14T06:45:29.325181+00:00",
+  "platform": "macOS-26.2-arm64-arm-64bit-Mach-O",
+  "python_version": "3.13.7",
+  "referenced_providers": [
+    "anthropic",
+    "gemini",
+    "mistral_oss",
+    "openai"
+  ],
+  "run_kind": "bootstrap-offline-deterministic",
+  "stamp": "20260514T063830Z",
+  "started_at_utc": "2026-05-14T06:45:29.323088+00:00",
+  "tournament_version": "redteam-tournament-v1"
+}

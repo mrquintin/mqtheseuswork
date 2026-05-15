@@ -398,6 +398,18 @@ function DualPulseStyles() {
           display: none;
         }
       }
+
+      /* R-009: below 480 px the dual-pulse crowds the above-the-fold
+       * space and pushes the AskBox CTA off-screen. Hide it entirely on
+       * the narrowest breakpoint; tagline + AskBox occupy the recovered
+       * space. The component stays mounted (live socket subscriptions
+       * keep running) but renders as a zero-height visually-hidden
+       * region so screen readers still see the announcement landmark. */
+      @media (max-width: 479px) {
+        .dual-pulse-section {
+          display: none;
+        }
+      }
     `}</style>
   );
 }

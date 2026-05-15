@@ -60,6 +60,28 @@ out/
 
 # Logs
 *.log
+.claude_code_runs/
+.codex_runs/
+
+# Local encrypted credential recovery archives. These are created by
+# scripts/sync-to-github.sh when it rotates the Supabase DB password.
+.theseus-secrets/
+
+# PEM / wallet / SSH key shapes — never tracked, anywhere in the tree.
+# scripts/hooks/pre-commit.sh and sync.sh enforce the same patterns at
+# the diff level; these globs are the file-name belt for the diff regex
+# braces.
+*.pem
+*.key
+*.p12
+*.pfx
+*.cer
+*.keystore
+id_rsa
+id_rsa.pub
+id_ed25519
+id_ed25519.pub
+*.wallet
 
 # Model files (too large for git)
 *.bin
@@ -120,3 +142,24 @@ Screenshot *.jpeg
 # macOS Finder duplicate of theseus-codex (e.g. "theseus-codex 2", " 3")
 theseus-codex [0-9]*/
 .vercel
+
+# Theseus-template extraction output.
+#
+# `scripts/build_template.sh` writes a tenant-installable copy of the
+# repo to `../theseus-template/` (sibling) by default. If the operator
+# instead aims it at the in-repo `theseus-template/` directory, ignore
+# the build noise (.git/, node_modules/, etc.) but keep the tracked
+# payload files (`scripts/bootstrap.sh`, the README, the CI workflow)
+# so they survive across rebuilds.
+theseus-template/*
+!theseus-template/scripts/
+!theseus-template/scripts/bootstrap.sh
+!theseus-template/README.md
+!theseus-template/.github/
+!theseus-template/.github/workflows/
+!theseus-template/.github/workflows/template_ci.yml
+# Anything else inside the directory is build output.
+theseus-template/.git/
+theseus-template/node_modules/
+theseus-template/dist/
+theseus-template/build/

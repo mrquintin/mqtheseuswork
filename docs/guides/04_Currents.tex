@@ -1,0 +1,195 @@
+\documentclass[11pt]{article}
+\input{_preamble}
+
+\title{\sffamily\bfseries Currents\\[2pt]\large Guide 4 of 6}
+\date{}
+\author{}
+
+\begin{document}
+\maketitle
+\thispagestyle{empty}
+
+\begin{tldr}
+Currents is the firm's live commentary surface. It pulls public events
+in from X, decides whether the firm's corpus has anything substantive
+to say, and either writes a citation-grounded opinion or abstains.
+Every published opinion respects a set of structural invariants that
+prevent it from speaking outside the corpus or revealing private
+material. This guide explains the pipeline, the invariants, and how
+to read an opinion's audit trail.
+\end{tldr}
+
+\begin{youwillneed}
+\begin{itemize}[leftmargin=*,itemsep=0.2em,topsep=0.2em]
+  \item A signed-in Codex session for the operator surfaces, or an
+        anonymous browser session for the public \route{/currents}
+        page.
+  \item Familiarity with how principles and conclusions work --- see
+        Guide 2.
+\end{itemize}
+\end{youwillneed}
+
+\begin{notcovered}
+\begin{itemize}[leftmargin=*,itemsep=0.2em,topsep=0.2em]
+  \item Setting up the X bearer token and the Cloudflare tunnel --- see
+        \file{docs/operator/CURRENTS.md}.
+  \item Operator overrides (kill switch, revocation) --- Guide 6.
+  \item The Oracle's question-answering surface --- Guide 3.
+\end{itemize}
+\end{notcovered}
+
+\section{What Currents is}
+
+Currents is a separate origin from the main Codex. The public page is
+\route{/currents}; the founder-facing controls live inside the Codex
+under \route{/(authed)/founder-currents}. Each ``Current'' is one
+\texttt{EventOpinion} row written by the firm in response to one
+outside event.
+
+\screenshot{04_currents_public_feed.png}{The public \route{/currents} feed, with two opinions visible and one event in abstention.}{cu-feed}
+
+\section{The pipeline}
+
+The pipeline is documented authoritatively in
+\file{docs/currents/PIPELINE.md} and operator-side in
+\file{docs/operator/CURRENTS.md}. Summary, top to bottom:
+
+\begin{enumerate}[leftmargin=*,itemsep=0.2em]
+  \item \textbf{Discovery.} The X recent-search endpoint is asked for
+        recent high-engagement posts (and founder-curated accounts as
+        a side channel). Configured search queries are available as
+        targeted augmentation, not as the default seed.
+  \item \textbf{Significance floor.} Posts below the significance and
+        raw engagement floors are dropped.
+  \item \textbf{Persistence + dedupe.} A surviving post becomes a
+        \texttt{CurrentEvent}. Duplicates of an existing event are
+        suppressed.
+  \item \textbf{Enrichment.} Embeddings, near-duplicate matching,
+        topic enrichment.
+  \item \textbf{KB relevance gate.} Event embeddings are compared
+        against the corpus. If fewer than three relevant conclusions
+        are found, the event abstains explicitly --- it does not
+        become an opinion.
+  \item \textbf{Opinion generation.} The generator retrieves up to
+        twelve firm conclusions and requires at least three to clear
+        the relevance threshold. The LLM is required to cite each one
+        inline as \texttt{[C:<id>]}.
+  \item \textbf{Publication.} \route{/v1/currents} on the FastAPI
+        backend returns the resulting \texttt{EventOpinion}; the
+        Next.js \route{/api/currents} route proxies it onto the
+        public \route{/currents} page.
+\end{enumerate}
+
+\section{The eight invariants}
+
+A published Currents opinion must satisfy all eight of the following
+structural invariants. They are enforced by the generator and the
+publish path; an opinion that fails any one of them is rejected before
+it reaches the public feed.
+
+\begin{enumerate}[leftmargin=*,itemsep=0.3em]
+  \item \textbf{Grounded.} Every non-trivial claim in the opinion text
+        is backed by an inline \texttt{[C:<id>]} citation to a firm
+        Conclusion or Principle. Free-floating assertions are not
+        allowed.
+  \item \textbf{Source-respecting.} Citations resolve only to
+        publicly-safe corpus surfaces. Private transcripts and
+        documents may inform internal reasoning but must not appear
+        as public citation targets.
+  \item \textbf{Quorum.} At least three relevance-cleared firm
+        conclusions back the opinion. If the corpus cannot supply
+        three, the system abstains rather than under-cite.
+  \item \textbf{Voice-consistent.} The opinion is written in the firm's
+        first-person voice rather than recapping or paraphrasing the
+        source post. The article surface is \texttt{EventOpinion},
+        not raw \texttt{CurrentEvent}.
+  \item \textbf{Event-anchored.} Each opinion is bound to exactly one
+        \texttt{CurrentEvent}. Multi-event commentary lives in the
+        articles pipeline, not in Currents.
+  \item \textbf{Revocable.} Every opinion is publishable iff
+        \texttt{revokedAt IS NULL}. Operator revocation is the
+        canonical inverse of publication; there is no separate
+        \texttt{isPublic} flag.
+  \item \textbf{Abstention-honest.} When the relevance gate fails,
+        the system records an \texttt{abstentionReason} on the event
+        and surfaces ``the firm does not yet have enough material to
+        comment.'' Abstentions are a public stance.
+  \item \textbf{Provenance-complete.} Each opinion ships an audit
+        trail: the source post, the relevance scores, the conclusions
+        cited, and the generator parameters. The audit trail is
+        addressable from the public page.
+\end{enumerate}
+
+\section{Reading the audit trail}
+
+Open any opinion at \route{/currents/<id>}. Below the body you will
+find:
+
+\begin{itemize}[leftmargin=*,itemsep=0.2em]
+  \item \textbf{Source post.} The original X post the opinion responds
+        to. Always present, always external.
+  \item \textbf{Cited conclusions.} A list of \texttt{[C:<id>]}
+        references, each click-through to the firm's Conclusion on
+        the public site.
+  \item \textbf{Relevance scores.} The score each cited conclusion
+        had against the source event at generation time.
+  \item \textbf{Generator metadata.} Model identifier, prompt version,
+        retrieval window, timestamp.
+  \item \textbf{Revocation banner} (if revoked). The opinion is hidden
+        from the feed but its row and audit trail remain readable for
+        accountability.
+\end{itemize}
+
+\screenshot{04_currents_audit.png}{The audit trail block at the bottom of a Currents opinion.}{cu-audit}
+
+\section{Operator surfaces}
+
+\begin{itemize}[leftmargin=*,itemsep=0.2em]
+  \item \page{OperatorPulse} card on the founder dashboard --- green
+        when the token and at least one ingestion path are configured,
+        a scheduler cycle has reported, and the last 24 hours contain
+        both events and opinions. Red lists the precise missing link.
+  \item \route{/(authed)/founder-currents} --- per-opinion operator
+        controls: revoke, hold for review, adjust event-level metadata.
+  \item \file{noosphere/scripts/diagnose\_currents\_pipeline.py} ---
+        non-writing diagnostic. Prints booleans, counts, and errors
+        only; never prints the bearer token. Run this before blaming
+        the UI.
+  \item \env{CURRENTS\_X\_INGESTION\_DISABLED=true} --- kill switch.
+        See Guide 6.
+\end{itemize}
+
+\section{Common failure modes}
+
+\begin{itemize}[leftmargin=*,itemsep=0.3em]
+  \item \textbf{No opinions in 24 hours.} Likely either an X token
+        problem or a corpus-relevance problem. Check
+        \page{OperatorPulse} first; it disambiguates.
+  \item \textbf{Opinions look like they are recapping rather than
+        opining.} Check that you have at least a few firm conclusions
+        in the topic area. The generator falls back to thinner prose
+        when its conclusion retrieval comes back near-empty.
+  \item \textbf{An opinion cites a private document.} This is a
+        violation of invariant 2 and should not happen. Revoke the
+        opinion immediately and file a critique --- see Guide 6.
+\end{itemize}
+
+\section{Where the docs are}
+
+\begin{itemize}[leftmargin=*,itemsep=0.2em]
+  \item \file{docs/operator/CURRENTS.md} --- operator notes and
+        environment-variable reference.
+  \item \file{docs/currents/PIPELINE.md} --- the canonical pipeline
+        diagram.
+  \item \file{docs/operator/public\_surfacing.md} --- the surface
+        table, including the EventOpinion row.
+\end{itemize}
+
+\begin{nextup}
+Continue with \href{05_Forecasts_and_Portfolio.pdf}{Guide 5 --- Forecasts
+and Portfolio} for the prediction-market and equities surfaces, which
+share Currents' grounding principles but add a much stricter operator
+confirmation flow.
+\end{nextup}
+
+\end{document}

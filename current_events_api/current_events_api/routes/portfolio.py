@@ -5,9 +5,11 @@ from __future__ import annotations
 import os
 from collections import defaultdict
 from datetime import datetime, timedelta, timezone
-from typing import Annotated
+from decimal import Decimal
+from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, Query
+from pydantic import BaseModel, ConfigDict
 from sqlalchemy import desc
 from sqlmodel import select
 
@@ -30,6 +32,14 @@ from current_events_api.schemas import (
 )
 
 from noosphere.models import (
+    EquityInstrument,
+    EquityPosition,
+    EquityPositionMode,
+    EquityPositionStatus,
+    EquityPortfolioState,
+    EquitySignal,
+    EquitySignalDirection,
+    EquitySignalStatus,
     ForecastBet,
     ForecastBetMode,
     ForecastBetStatus,
@@ -43,6 +53,65 @@ from noosphere.models import (
 from noosphere.store import Store
 
 router = APIRouter(prefix="/v1/portfolio", tags=["portfolio"])
+
+
+class LiveStatusPills(BaseModel):
+    """Per-track live-trading status pills shown on the unified header."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    forecasts: str
+    equities: str
+
+
+class TrackTotals(BaseModel):
+    """Compact per-track aggregates for the overview tab."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    open_positions: int
+    realized_paper_pnl_usd: float
+    unrealized_paper_pnl_usd: float
+
+
+class ActivePrinciple(BaseModel):
+    """Top-N principle currently supporting at least one open position."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    conclusion_id: str
+    snippet: str
+    weight: float
+    position_count: int
+
+
+class UnifiedPortfolioOverview(BaseModel):
+    """Cross-asset-class aggregate served at GET /v1/portfolio.
+
+    The response is a strict superset of the prior `PortfolioSummary`
+    payload: every field that existing forecast-portfolio callers read
+    (``paper_balance_usd``, ``paper_pnl_curve``, ``calibration``,
+    ``mean_brier_90d``, ``total_bets``, ``updated_at``, etc.) remains at
+    the same top-level path. New unified fields are added alongside.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    organization_id: str
+    paper_balance_usd: float
+    paper_pnl_curve: list[PortfolioPoint]
+    calibration: list[CalibrationBucket]
+    mean_brier_90d: float | None = None
+    total_bets: int
+    kill_switch_engaged: bool
+    kill_switch_reason: str | None = None
+    updated_at: datetime | None = None
+    net_paper_pnl_usd: float
+    net_paper_pnl_curve: list[PortfolioPoint]
+    forecasts: TrackTotals
+    equities: TrackTotals
+    live_status: LiveStatusPills
+    active_principles: list[ActivePrinciple]
 
 
 def _org_filter() -> str | None:
@@ -77,6 +146,47 @@ def _csv_env(name: str) -> list[str]:
 
 def _live_enabled() -> bool:
     return os.getenv("FORECASTS_LIVE_TRADING_ENABLED", "").strip().lower() == "true"
+
+
+def _equities_live_enabled() -> bool:
+    return os.getenv("EQUITIES_LIVE_TRADING_ENABLED", "").strip().lower() == "true"
+
+
+def _equities_authorized() -> bool:
+    """Live equities is fully authorized when both the env flag is true and
+    at least one broker has credentials configured."""
+    if not _equities_live_enabled():
+        return False
+    return bool(
+        os.getenv("ALPACA_API_KEY_ID", "").strip()
+        or os.getenv("ALPACA_KEY_ID", "").strip()
+        or os.getenv("ROBINHOOD_USERNAME", "").strip()
+    )
+
+
+def _forecasts_authorized() -> bool:
+    if not _live_enabled():
+        return False
+    return bool(
+        os.getenv("POLYMARKET_PRIVATE_KEY", "").strip()
+        or os.getenv("KALSHI_API_KEY_ID", "").strip()
+    )
+
+
+def _pill_state(env_enabled: bool, authorized: bool) -> str:
+    """One of DISABLED | ENABLED-AWAITING-AUTH | ENABLED."""
+    if not env_enabled:
+        return "DISABLED"
+    if not authorized:
+        return "ENABLED-AWAITING-AUTH"
+    return "ENABLED"
+
+
+def live_status_pills() -> LiveStatusPills:
+    return LiveStatusPills(
+        forecasts=_pill_state(_live_enabled(), _forecasts_authorized()),
+        equities=_pill_state(_equities_live_enabled(), _equities_authorized()),
+    )
 
 
 def _float_or_none(value: object) -> float | None:
@@ -453,15 +563,9 @@ def _surface_watching(store: Store, organization_id: str) -> WatchingSummary:
     )
 
 
-@router.get("", dependencies=[Depends(enforce_read_rate_limit)])
-def get_portfolio(
-    store: Annotated[Store, Depends(get_store)],
-    metrics: Annotated[Metrics, Depends(get_metrics)],
-) -> PortfolioSummary:
-    organization_id = _organization_id(store)
+def _forecasts_summary(store: Store, organization_id: str) -> PortfolioSummary:
     state = _state_for_org(store, organization_id)
     bets = _paper_bets(store, organization_id)
-    metrics.inc("forecasts_read_requests_total", {"route": "get_portfolio"})
     return PortfolioSummary(
         organization_id=organization_id,
         paper_balance_usd=float(state.paper_balance_usd) if state else 0.0,
@@ -472,6 +576,234 @@ def get_portfolio(
         kill_switch_engaged=bool(state.kill_switch_engaged) if state else False,
         kill_switch_reason=state.kill_switch_reason if state else None,
         updated_at=state.updated_at if state else None,
+    )
+
+
+def _decimal_to_float(value: Any) -> float:
+    if value is None:
+        return 0.0
+    if isinstance(value, Decimal):
+        return float(value)
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def _equity_paper_positions(store: Store, organization_id: str) -> list[EquityPosition]:
+    with store.session() as db:
+        return list(
+            db.exec(
+                select(EquityPosition)
+                .where(EquityPosition.organization_id == organization_id)
+                .where(EquityPosition.mode == EquityPositionMode.PAPER.value)
+                .order_by(desc(EquityPosition.created_at))
+            ).all()
+        )
+
+
+def _equity_track_totals(positions: list[EquityPosition]) -> TrackTotals:
+    open_statuses = {
+        EquityPositionStatus.OPEN.value,
+        EquityPositionStatus.PENDING.value,
+    }
+    open_count = sum(1 for p in positions if _enum_value(p.status) in open_statuses)
+    realized = sum(
+        _decimal_to_float(p.realized_pnl_usd)
+        for p in positions
+        if _enum_value(p.status) == EquityPositionStatus.CLOSED.value
+    )
+    unrealized = sum(
+        _decimal_to_float(p.unrealized_pnl_usd)
+        for p in positions
+        if _enum_value(p.status) in open_statuses
+    )
+    return TrackTotals(
+        open_positions=open_count,
+        realized_paper_pnl_usd=realized,
+        unrealized_paper_pnl_usd=unrealized,
+    )
+
+
+def _forecasts_track_totals(
+    store: Store,
+    organization_id: str,
+    summary: PortfolioSummary,
+) -> TrackTotals:
+    open_statuses = {
+        ForecastBetStatus.PENDING.value,
+        ForecastBetStatus.AUTHORIZED.value,
+        ForecastBetStatus.CONFIRMED.value,
+        ForecastBetStatus.SUBMITTED.value,
+        ForecastBetStatus.FILLED.value,
+    }
+    with store.session() as db:
+        bets = list(
+            db.exec(
+                select(ForecastBet)
+                .where(ForecastBet.organization_id == organization_id)
+                .where(ForecastBet.mode == ForecastBetMode.PAPER.value)
+            ).all()
+        )
+    realized = sum(
+        _decimal_to_float(bet.settlement_pnl_usd)
+        for bet in bets
+        if bet.settlement_pnl_usd is not None
+    )
+    open_count = sum(1 for bet in bets if _enum_value(bet.status) in open_statuses)
+    # Unrealized PnL for open paper bets is the residual the engine has
+    # not yet booked. The settlement engine writes settlement_pnl_usd on
+    # settle; the public surface treats anything else as zero so we never
+    # over-state on-paper performance.
+    unrealized = 0.0
+    return TrackTotals(
+        open_positions=open_count,
+        realized_paper_pnl_usd=realized,
+        unrealized_paper_pnl_usd=unrealized,
+    )
+
+
+def _merge_paper_curves(
+    forecasts_curve: list[PortfolioPoint],
+    equity_positions: list[EquityPosition],
+) -> list[PortfolioPoint]:
+    points: list[PortfolioPoint] = []
+    for point in forecasts_curve:
+        points.append(
+            PortfolioPoint(
+                ts=point.ts,
+                paper_balance_usd=point.paper_balance_usd,
+                paper_pnl_usd=point.paper_pnl_usd,
+            )
+        )
+    equity_settled = [
+        p
+        for p in equity_positions
+        if _enum_value(p.status) == EquityPositionStatus.CLOSED.value
+        and p.exit_at is not None
+        and p.realized_pnl_usd is not None
+    ]
+    equity_settled.sort(key=lambda p: p.exit_at or datetime.min.replace(tzinfo=timezone.utc))
+    running = points[-1].paper_pnl_usd if points else 0.0
+    balance = points[-1].paper_balance_usd if points else 0.0
+    for p in equity_settled:
+        running += _decimal_to_float(p.realized_pnl_usd)
+        points.append(
+            PortfolioPoint(
+                ts=p.exit_at,  # type: ignore[arg-type]
+                paper_balance_usd=balance,
+                paper_pnl_usd=running,
+            )
+        )
+    points.sort(key=lambda pt: pt.ts)
+    return points
+
+
+def _active_principles(
+    store: Store, organization_id: str, *, limit: int = 5
+) -> list[ActivePrinciple]:
+    open_statuses = {
+        ForecastBetStatus.PENDING.value,
+        ForecastBetStatus.AUTHORIZED.value,
+        ForecastBetStatus.CONFIRMED.value,
+        ForecastBetStatus.SUBMITTED.value,
+        ForecastBetStatus.FILLED.value,
+    }
+    counts: dict[str, dict[str, Any]] = {}
+    with store.session() as db:
+        bets = list(
+            db.exec(
+                select(ForecastBet)
+                .where(ForecastBet.organization_id == organization_id)
+                .where(ForecastBet.status.in_(open_statuses))
+            ).all()
+        )
+        for bet in bets:
+            prediction = db.get(ForecastPrediction, bet.prediction_id)
+            if prediction is None:
+                continue
+            trace = _trace_for_prediction(db, prediction.id)
+            for principle in _trace_principles(trace):
+                cid = str(principle.get("conclusionId") or principle.get("conclusion_id") or "")
+                if not cid:
+                    continue
+                weight = principle.get("weight")
+                try:
+                    weight_f = float(weight) if weight is not None else 0.0
+                except (TypeError, ValueError):
+                    weight_f = 0.0
+                row = counts.setdefault(
+                    cid,
+                    {
+                        "snippet": str(principle.get("snippet") or ""),
+                        "weight_sum": 0.0,
+                        "positions": 0,
+                    },
+                )
+                row["weight_sum"] = float(row["weight_sum"]) + weight_f
+                row["positions"] = int(row["positions"]) + 1
+                if not row["snippet"]:
+                    row["snippet"] = str(principle.get("snippet") or "")
+    ranked = sorted(
+        counts.items(),
+        key=lambda item: (item[1]["positions"], item[1]["weight_sum"]),
+        reverse=True,
+    )
+    out: list[ActivePrinciple] = []
+    for cid, row in ranked[:limit]:
+        positions = int(row["positions"])
+        out.append(
+            ActivePrinciple(
+                conclusion_id=cid,
+                snippet=str(row["snippet"]),
+                weight=float(row["weight_sum"]) / max(positions, 1),
+                position_count=positions,
+            )
+        )
+    return out
+
+
+@router.get("", dependencies=[Depends(enforce_read_rate_limit)])
+def get_portfolio(
+    store: Annotated[Store, Depends(get_store)],
+    metrics: Annotated[Metrics, Depends(get_metrics)],
+) -> UnifiedPortfolioOverview:
+    organization_id = _organization_id(store)
+    summary = _forecasts_summary(store, organization_id)
+    state = _state_for_org(store, organization_id)
+    equity_positions = _equity_paper_positions(store, organization_id)
+    equity_totals = _equity_track_totals(equity_positions)
+    forecast_totals = _forecasts_track_totals(store, organization_id, summary)
+    equity_state: EquityPortfolioState | None = None
+    try:
+        equity_state = store.get_equity_portfolio_state(organization_id)
+    except Exception:
+        equity_state = None
+    kill_switch_engaged = bool(state.kill_switch_engaged) if state else False
+    kill_switch_reason = state.kill_switch_reason if state else None
+    if equity_state is not None and equity_state.kill_switch_engaged:
+        kill_switch_engaged = True
+        if not kill_switch_reason:
+            kill_switch_reason = equity_state.kill_switch_reason
+    merged_curve = _merge_paper_curves(summary.paper_pnl_curve, equity_positions)
+    net_pnl = merged_curve[-1].paper_pnl_usd if merged_curve else 0.0
+    metrics.inc("forecasts_read_requests_total", {"route": "get_portfolio"})
+    return UnifiedPortfolioOverview(
+        organization_id=organization_id,
+        paper_balance_usd=summary.paper_balance_usd,
+        paper_pnl_curve=summary.paper_pnl_curve,
+        calibration=summary.calibration,
+        mean_brier_90d=summary.mean_brier_90d,
+        total_bets=summary.total_bets,
+        kill_switch_engaged=kill_switch_engaged,
+        kill_switch_reason=kill_switch_reason,
+        updated_at=summary.updated_at,
+        net_paper_pnl_usd=net_pnl,
+        net_paper_pnl_curve=merged_curve,
+        forecasts=forecast_totals,
+        equities=equity_totals,
+        live_status=live_status_pills(),
+        active_principles=_active_principles(store, organization_id),
     )
 
 

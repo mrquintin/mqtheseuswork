@@ -26,6 +26,13 @@ HAND_AUTHORED = {"rationale.md"}
 # does not declare (or vice versa) fails CI.
 RATIONALE_SUFFIX = ".RATIONALE.md"
 
+# Round 17 added curated failure-mode catalogs (`<method>.FAILURES.yaml`)
+# next to the method source. A RATIONALE for a method that has a catalog
+# must cross-link to it — otherwise a reader of the rationale never learns
+# the method has an authoritative "do not trust it when…" list. We treat a
+# catalog with no cross-link from its RATIONALE as drift.
+FAILURES_SUFFIX = ".FAILURES.yaml"
+
 
 def check_precommit_hook(staged_files: list[str], docs_dir: Path) -> list[str]:
     """Return list of violations: generated files that were manually edited."""
@@ -128,6 +135,43 @@ def check_depends_on_rationale_drift(
     return diffs
 
 
+def check_rationale_failures_crosslink(methods_dir: Path) -> list[str]:
+    """Flag methods whose ``<method>.FAILURES.yaml`` catalog exists but
+    whose ``<method>.RATIONALE.md`` never points the reader at it.
+
+    Round 17 introduced the catalogs; rationales authored before that
+    round describe failure modes in free prose without telling the reader
+    a machine-readable catalog now exists. The rationale's Failure Modes
+    section is supposed to cross-link the catalog so the two stay in sync.
+
+    The check is filesystem-only (no registry / docgen import) so it runs
+    in the fast CI lane alongside the depends_on drift check.
+    """
+    diffs: list[str] = []
+    if not methods_dir.exists():
+        return diffs
+    for catalog in sorted(methods_dir.glob(f"*{FAILURES_SUFFIX}")):
+        method_name = catalog.name[: -len(FAILURES_SUFFIX)]
+        rationale = methods_dir / f"{method_name}{RATIONALE_SUFFIX}"
+        if not rationale.exists():
+            diffs.append(
+                f"{catalog.name}: method has a failure-mode catalog but no "
+                f"{method_name}{RATIONALE_SUFFIX} — every catalogued method "
+                f"needs a rationale that explains and cross-links it."
+            )
+            continue
+        body = rationale.read_text(encoding="utf-8")
+        # Accept either an explicit filename reference or a plain-prose
+        # mention of the catalog ("FAILURES catalog", "FAILURES.yaml").
+        if catalog.name not in body and "FAILURES" not in body:
+            diffs.append(
+                f"{rationale.name}: a {catalog.name} catalog exists but the "
+                f"RATIONALE never cross-links it — add a reference to "
+                f"`{catalog.name}` in the Failure Modes section."
+            )
+    return diffs
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Check for doc drift")
     parser.add_argument("--docs-dir", type=Path, default=Path("docs/methods"))
@@ -161,6 +205,11 @@ def main() -> int:
     # CI lane can catch typos without booting the full doc compiler.
     early_diffs: list[str] = []
     if not args.skip_rationale_drift:
+        # Filesystem-only checks first — these never need the registry or
+        # the docgen toolchain, so they still run when those imports fail.
+        early_diffs.extend(
+            check_rationale_failures_crosslink(args.methods_dir)
+        )
         try:
             from noosphere.methods._registry import REGISTRY as _EARLY_REGISTRY
             # Import all method modules so REGISTRY is populated.

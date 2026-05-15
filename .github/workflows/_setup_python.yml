@@ -1,0 +1,161 @@
+name: _setup_python
+
+# Reusable Python setup. Centralizes:
+#   - python-version pin (default 3.11)
+#   - pip cache keyed off the lockfile hash (single key per ecosystem)
+#   - editable installs of repo packages
+#   - the well-known secret env-var mapping shared by every Python job
+#
+# The leading underscore signals this file is non-runnable on its own;
+# it must be invoked via `jobs.X.uses: ./.github/workflows/_setup_python.yml`.
+# Concurrency, triggers, and permissions live on the CALLER, never here.
+#
+# Why a reusable workflow rather than a composite action?
+#   - Reusable workflows give us a single audit point for cache keys,
+#     timeouts, and secret mappings — composite actions can't enforce
+#     timeouts and have to inline the secret list at every caller.
+#   - The `_*.yml` filename convention matches the prompt and makes the
+#     non-runnable status discoverable from `gh workflow list`.
+
+on:
+  workflow_call:
+    inputs:
+      python-version:
+        type: string
+        default: '3.11'
+      requirements-path:
+        type: string
+        default: ''
+        description: 'Lockfile path used for the pip cache key. Empty = use pyproject.toml.'
+      pip-extras:
+        type: string
+        default: ''
+        description: 'pip install -e ".[<extras>]" — e.g. "dev". Empty to skip.'
+      install-editable:
+        type: string
+        default: ''
+        description: 'Path to install with `pip install -e <path>`. Empty to skip.'
+      extra-packages:
+        type: string
+        default: ''
+        description: 'Whitespace-separated extra pip packages installed after the lockfile.'
+      working-directory:
+        type: string
+        default: '.'
+      script:
+        type: string
+        required: true
+        description: 'Bash run after setup — the job body.'
+      env-vars:
+        type: string
+        default: ''
+        description: 'Newline-separated KEY=VALUE non-secret env vars exported into the script step.'
+      timeout-minutes:
+        type: number
+        default: 30
+      runs-on:
+        type: string
+        default: 'ubuntu-latest'
+      upload-artifact-name:
+        type: string
+        default: ''
+      upload-artifact-path:
+        type: string
+        default: ''
+      upload-artifact-retention-days:
+        type: number
+        default: 30
+      upload-artifact-if-no-files-found:
+        type: string
+        default: 'warn'
+    secrets:
+      # Well-known secrets are declared here so callers can opt in via
+      # `secrets: inherit`. Listed in `_secrets.yml`. Keep this list in
+      # sync with that doc.
+      ANTHROPIC_API_KEY:
+        required: false
+      OPENAI_API_KEY:
+        required: false
+      GOOGLE_API_KEY:
+        required: false
+      MISTRAL_OSS_API_KEY:
+        required: false
+
+permissions:
+  contents: read
+
+jobs:
+  run:
+    runs-on: ${{ inputs.runs-on }}
+    timeout-minutes: ${{ inputs.timeout-minutes }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Resolve cache-dependency-path
+        id: cache-key
+        run: |
+          if [ -n "${{ inputs.requirements-path }}" ]; then
+            echo "path=${{ inputs.requirements-path }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "path=pyproject.toml" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ inputs.python-version }}
+          cache: 'pip'
+          cache-dependency-path: ${{ steps.cache-key.outputs.path }}
+
+      - name: Install python deps
+        env:
+          REQUIREMENTS_PATH: ${{ inputs.requirements-path }}
+          PIP_EXTRAS: ${{ inputs.pip-extras }}
+          INSTALL_EDITABLE: ${{ inputs.install-editable }}
+          EXTRA_PACKAGES: ${{ inputs.extra-packages }}
+        run: |
+          set -euo pipefail
+          python -m pip install --upgrade pip
+          if [ -n "${REQUIREMENTS_PATH}" ] && [ -f "${REQUIREMENTS_PATH}" ]; then
+            pip install -r "${REQUIREMENTS_PATH}"
+          fi
+          if [ -n "${PIP_EXTRAS}" ]; then
+            pip install -e ".[${PIP_EXTRAS}]"
+          fi
+          if [ -n "${INSTALL_EDITABLE}" ]; then
+            pip install -e "${INSTALL_EDITABLE}"
+          fi
+          if [ -n "${EXTRA_PACKAGES}" ]; then
+            # word-split is intentional
+            pip install ${EXTRA_PACKAGES}
+          fi
+
+      - name: Export non-secret env vars
+        if: inputs.env-vars != ''
+        env:
+          ENV_VARS: ${{ inputs.env-vars }}
+        run: |
+          set -euo pipefail
+          while IFS= read -r line; do
+            [ -z "$line" ] && continue
+            echo "$line" >> "$GITHUB_ENV"
+          done <<< "$ENV_VARS"
+
+      - name: Run script
+        working-directory: ${{ inputs.working-directory }}
+        env:
+          ANTHROPIC_API_KEY:    ${{ secrets.ANTHROPIC_API_KEY }}
+          OPENAI_API_KEY:       ${{ secrets.OPENAI_API_KEY }}
+          GOOGLE_API_KEY:       ${{ secrets.GOOGLE_API_KEY }}
+          MISTRAL_OSS_API_KEY:  ${{ secrets.MISTRAL_OSS_API_KEY }}
+        run: |
+          set -euo pipefail
+          ${{ inputs.script }}
+
+      - name: Upload artifact
+        if: always() && inputs.upload-artifact-name != '' && inputs.upload-artifact-path != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ inputs.upload-artifact-name }}
+          path: ${{ inputs.upload-artifact-path }}
+          if-no-files-found: ${{ inputs.upload-artifact-if-no-files-found }}
+          retention-days: ${{ inputs.upload-artifact-retention-days }}

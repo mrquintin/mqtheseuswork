@@ -9,6 +9,11 @@ name: Load test (nightly + spike)
 # A failing nightly run opens an issue (handled by the deploy gate
 # elsewhere); a failing spike run requires the dispatcher to set
 # `override_reason` to mark the run as accepted.
+#
+# Round 17 consolidation: setup is delegated to ./_setup_python.yml.
+# Profile resolution happens in the caller via expressions; the
+# resolved value is forwarded to the script via `env-vars:`.
+
 on:
   schedule:
     - cron: "0 7 * * *" # 07:00 UTC nightly.
@@ -38,55 +43,36 @@ on:
         required: false
         default: ""
 
+permissions:
+  contents: read
+
+concurrency:
+  # Distinct group from the preview workflow so a nightly run never
+  # cancels a PR's load test (and vice versa).
+  group: load-test-nightly-${{ github.ref }}-${{ github.event_name == 'schedule' && 'viral' || github.event.inputs.profile }}
+  cancel-in-progress: false
+
 jobs:
   load-test:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.11"
-
-      - name: Resolve profile and base URL
-        id: resolve
-        run: |
-          set -euo pipefail
-          if [ "${{ github.event_name }}" = "schedule" ]; then
-            PROFILE="viral"
-          else
-            PROFILE="${{ github.event.inputs.profile }}"
-          fi
-          BASE_URL="${{ github.event.inputs.base_url }}"
-          if [ -z "$BASE_URL" ]; then
-            BASE_URL="${{ vars.LOAD_TEST_STAGING_URL }}"
-          fi
-          if [ -z "$BASE_URL" ]; then
-            echo "LOAD_TEST_STAGING_URL is not set; cannot run" >&2
-            exit 1
-          fi
-          echo "profile=$PROFILE" >> "$GITHUB_OUTPUT"
-          echo "base_url=$BASE_URL" >> "$GITHUB_OUTPUT"
-
-      - name: Validate spike override reason
-        if: steps.resolve.outputs.profile == 'spike' && github.event.inputs.override_reason == ''
-        run: |
+    uses: ./.github/workflows/_setup_python.yml
+    with:
+      python-version: '3.11'
+      timeout-minutes: 30
+      env-vars: |
+        LOAD_TEST_PROFILE=${{ github.event_name == 'schedule' && 'viral' || github.event.inputs.profile }}
+        LOAD_TEST_BASE_URL=${{ github.event.inputs.base_url != '' && github.event.inputs.base_url || vars.LOAD_TEST_STAGING_URL }}
+        LOAD_TEST_ARTICLE_SLUG=${{ github.event.inputs.article_slug || vars.LOAD_TEST_ARTICLE_SLUG }}
+        LOAD_TEST_CONCLUSION_ID=${{ github.event.inputs.conclusion_id }}
+        LOAD_TEST_OVERRIDE_REASON=${{ github.event.inputs.override_reason }}
+      upload-artifact-name: load-test-${{ github.run_id }}
+      upload-artifact-path: tests/load/results/*.json
+      upload-artifact-retention-days: 90
+      script: |
+        if [ -z "${LOAD_TEST_BASE_URL}" ]; then
+          echo "LOAD_TEST_STAGING_URL is not set; cannot run" >&2
+          exit 1
+        fi
+        if [ "${LOAD_TEST_PROFILE}" = "spike" ] && [ -z "${LOAD_TEST_OVERRIDE_REASON}" ]; then
           echo "::notice::spike profile is allowed to fail only with a recorded override_reason input."
-
-      - name: Run profile
-        env:
-          LOAD_TEST_BASE_URL: ${{ steps.resolve.outputs.base_url }}
-          LOAD_TEST_ARTICLE_SLUG: ${{ github.event.inputs.article_slug || vars.LOAD_TEST_ARTICLE_SLUG }}
-          LOAD_TEST_CONCLUSION_ID: ${{ github.event.inputs.conclusion_id }}
-          LOAD_TEST_OVERRIDE_REASON: ${{ github.event.inputs.override_reason }}
-        run: |
-          python tests/load/article_viral.py --profile "${{ steps.resolve.outputs.profile }}"
-
-      - name: Upload results artifact
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: load-test-${{ steps.resolve.outputs.profile }}-${{ github.run_id }}
-          path: tests/load/results/*.json
-          if-no-files-found: warn
-          retention-days: 90
+        fi
+        python tests/load/article_viral.py --profile "${LOAD_TEST_PROFILE}"

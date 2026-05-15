@@ -1,13 +1,16 @@
 /**
- * Print-only metadata block.
+ * Print-only metadata block — the printed document's title page.
  *
  * Rendered into the DOM on every public article + conclusion page but
  * hidden on screen by `.print-only` (defined in `app/print.css`). When
- * the reader hits "Save as PDF" / "Print", the block becomes the
- * opening page of the printed document and carries the irreducible
- * context: title, byline, publish date, methodology pill, MQS, and
- * confidence — plus the cryptographic fingerprint and the canonical
- * URL so a printed page can always be traced back to its live source.
+ * the reader hits "Save as PDF" / "Print", `print.css` gives this
+ * block `page-break-after: always`, so it becomes a true title page:
+ * a full opening page carrying the irreducible context — title,
+ * author, methodology pill, MQS, confidence, publication date — with
+ * the cryptographic fingerprint and canonical URL settled against the
+ * page foot so a printed page can always be traced back to its live
+ * source. The article body then opens on page 2, which is where the
+ * running header + numbered footer begin.
  *
  * The component is intentionally low-styling: the visual rules live in
  * `print.css` so the screen rendering cannot regress.
@@ -62,17 +65,15 @@ export default function PrintMetadataBlock(props: PrintMetadataBlockProps) {
       className="print-only print-metadata-block"
       data-testid="print-metadata-block"
     >
+      <p className="print-metadata-imprint">Theseus Codex</p>
       <h1 className="print-metadata-title">{props.title}</h1>
-      <p className="print-metadata-byline">
-        {props.byline} · {isoToHumanDate(props.publishedAt)}
-      </p>
-      <dl>
-        {props.methodology ? (
-          <>
-            <dt>Method</dt>
-            <dd>{props.methodology}</dd>
-          </>
-        ) : null}
+      <p className="print-metadata-byline">{props.byline}</p>
+      {props.methodology ? (
+        <p className="print-metadata-pill" data-testid="print-metadata-pill">
+          {props.methodology}
+        </p>
+      ) : null}
+      <dl className="print-metadata-stats">
         {mqsLabel ? (
           <>
             <dt>MQS</dt>
@@ -88,13 +89,21 @@ export default function PrintMetadataBlock(props: PrintMetadataBlockProps) {
             </dd>
           </>
         ) : null}
-        <dt>Signed</dt>
-        <dd className="print-metadata-fingerprint">
-          {fingerprint ? fingerprint : "(unsigned)"}
-        </dd>
-        <dt>Source</dt>
-        <dd className="print-endnote-url">{props.canonicalUrl}</dd>
+        <dt>Published</dt>
+        <dd>{isoToHumanDate(props.publishedAt)}</dd>
       </dl>
+      <div className="print-metadata-foot">
+        <p className="print-metadata-row">
+          <span className="print-metadata-key">Signed</span>
+          <span className="print-metadata-fingerprint">
+            {fingerprint ? fingerprint : "(unsigned)"}
+          </span>
+        </p>
+        <p className="print-metadata-row">
+          <span className="print-metadata-key">Source</span>
+          <span className="print-endnote-url">{props.canonicalUrl}</span>
+        </p>
+      </div>
     </aside>
   );
 }

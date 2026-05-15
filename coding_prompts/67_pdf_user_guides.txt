@@ -1,0 +1,120 @@
+You are operating in /Users/michaelquintin/Desktop/Theseus.
+
+Goal: produce a coherent set of PDF user guides that explain
+what Theseus is, how it works, and how the founder (and any
+future tenant) uses each major surface. The founder asked for
+this specifically: "I need to create some guys [guides] so that
+you can understand, like, how it works, what it does, what the
+product does … create some like PDF guys [guides]". This prompt
+ships the first cut.
+
+Constraint from founder preferences: guides MUST be compiled
+with pdflatex (the founder's standing rule for documents).
+
+Before you start — read:
+1. The product surfaces, top to bottom, so the guides reflect
+   reality. Walk the public homepage, the authed dashboard,
+   /knowledge, /principles, /currents, /portfolio, /articles,
+   /forecasts/operator. The guides describe what is, not what
+   was planned.
+2. Existing docs under `docs/operator/`. Reuse content where
+   it exists; the new PDFs cite the docs by path.
+
+Implement:
+
+A. Six guides under `docs/guides/`. Each as a `.tex` source
+   plus a committed `.pdf` built via pdflatex. The build is
+   scripted (`docs/guides/build_pdfs.sh`) so the founder can
+   rebuild after edits.
+
+   1. `01_Theseus_Quick_Start.tex/pdf` — what Theseus is in
+      two paragraphs, the founder's first 30 minutes:
+      upload a document, run extraction, ask the Oracle a
+      question, observe a Currents opinion form.
+   2. `02_Knowledge_and_Principles.tex/pdf` — how the firm
+      turns uploaded material into principles. The pipeline:
+      ingest → extract claims → cluster → distill principles.
+      The founder's role in the triage queue. Where the
+      principles live afterward (per prompt 58's principles
+      surface).
+   3. `03_The_Oracle.tex/pdf` — how Q&A works, what counts
+      as a citation, how to interpret hallucination warnings,
+      what to do with low-confidence answers.
+   4. `04_Currents.tex/pdf` — what Currents does, where
+      opinions come from, the eight invariants that govern
+      them (from Round 9), how to read a Currents opinion's
+      audit trail.
+   5. `05_Forecasts_and_Portfolio.tex/pdf` — prediction
+      markets + equities. The paper-vs-live distinction.
+      The eight-gate safety contract. The founder's per-bet
+      operator-confirmation flow. The portfolio surface
+      (prompt 63).
+   6. `06_Operator_Console.tex/pdf` — the founder-only
+      surface: kill switch, live authorization, replication
+      outreach drafts, deletion requests, all the
+      surface-of-last-resort controls.
+
+B. House style for every guide:
+   - 11pt Charter or Palatino body, narrow margins, two
+     pages per spread when read on screen, a serif for the
+     body and a sans for chapter headings.
+   - First page is a one-paragraph TL;DR + a "you will need"
+     checklist + a "this guide does NOT cover" callout.
+   - Last page is "what changes after this guide ships?"
+     pointing at the next guide in sequence and at any
+     scheduled-tasks the operator sets up.
+   - Screenshots from `docs/guides/screenshots/`, captured
+     via the same Playwright run that prompt 65 uses.
+
+C. Build pipeline:
+   - `docs/guides/build_pdfs.sh`: loops over each .tex,
+     invokes pdflatex twice (once for refs, once for
+     bibliography), checks the build with `grep -i error`
+     on the log, fails the script on any error.
+   - `docs/guides/Makefile` provides per-guide and "all"
+     targets.
+   - `.github/workflows/build-guides.yml` runs the build on
+     any PR that touches `docs/guides/` and commits the
+     freshly-built PDFs as artifacts.
+
+D. Cross-linking. Each guide ends with a "Where to read next"
+   pointing at the right other guide or operator runbook. No
+   dead links; the build script grep-checks every `\href`
+   target resolves to an existing path or URL.
+
+E. Tests:
+   - Build script succeeds against the empty-state corpus
+     (i.e. before any content is added).
+   - Each PDF is < 5 MB.
+   - Every screenshot referenced exists.
+   - Spell-check pass on each .tex (codespell or similar).
+
+Constraints
+- Compile with pdflatex. Not LuaLaTeX, not XeLaTeX (unless a
+  required font is unavailable to pdflatex, in which case
+  document the choice in `docs/guides/BUILD.md`).
+- Guides describe current behavior. If a feature is partially
+  shipped, the guide either describes only the shipped part
+  OR includes a clearly-marked "preview" callout.
+- Guides do NOT contain credentials, tokens, secrets, or
+  per-tenant identifiers. They are general-purpose
+  documentation.
+
+SCOPE
+- `docs/guides/01_Theseus_Quick_Start.tex` CREATE
+- `docs/guides/01_Theseus_Quick_Start.pdf` CREATE
+- `docs/guides/02_Knowledge_and_Principles.tex` CREATE
+- `docs/guides/02_Knowledge_and_Principles.pdf` CREATE
+- `docs/guides/03_The_Oracle.tex` CREATE
+- `docs/guides/03_The_Oracle.pdf` CREATE
+- `docs/guides/04_Currents.tex` CREATE
+- `docs/guides/04_Currents.pdf` CREATE
+- `docs/guides/05_Forecasts_and_Portfolio.tex` CREATE
+- `docs/guides/05_Forecasts_and_Portfolio.pdf` CREATE
+- `docs/guides/06_Operator_Console.tex` CREATE
+- `docs/guides/06_Operator_Console.pdf` CREATE
+- `docs/guides/build_pdfs.sh` CREATE
+- `docs/guides/Makefile` CREATE
+- `docs/guides/BUILD.md` CREATE
+- `.github/workflows/build-guides.yml` CREATE
+- `docs/guides/screenshots/.gitkeep` CREATE

@@ -1,0 +1,96 @@
+{
+  "schema": "theseus.qh.envelope.v1",
+  "run_stamp": "20260514T052854Z",
+  "created_utc": "2026-05-14T05:29:24Z",
+  "benchmark_version": "qh-v1",
+  "tooling": "noosphere.benchmarks.qh_analysis",
+  "git_sha": "0034929158a42e4e536d85efd41ab22721c7ca50",
+  "git_branch": "main",
+  "git_dirty": true,
+  "dataset": {
+    "path": "/Users/michaelquintin/Desktop/Theseus/benchmarks/quintin_hypothesis/v1/dataset.jsonl",
+    "sha256": "b25ab62102389fbbbf2cdad08cc5a056e4946631835a89672fe88aa0a8fbe7c4",
+    "n_items": 1936,
+    "domains": [
+      "economics",
+      "ethics",
+      "physics"
+    ],
+    "labels": [
+      "coherent",
+      "contradicting",
+      "orthogonal"
+    ],
+    "frozen_state_verified": true
+  },
+  "embedder": {
+    "id": "hash-det-v1",
+    "dim": 192,
+    "available": true
+  },
+  "runners": [
+    "contradiction_geometry",
+    "cosine",
+    "random"
+  ],
+  "seeds": {
+    "random_runner": 0,
+    "analysis_bootstrap": 17
+  },
+  "bootstrap": {
+    "n_resamples": 10000,
+    "method": "paired BCa (bias-corrected and accelerated)",
+    "alpha": 0.05
+  },
+  "embedding_budget": {
+    "embedder": "hash-det-v1",
+    "estimated_credits": 0,
+    "ceiling": 50000,
+    "within_budget": true,
+    "note": "hash-det-v1 is local and deterministic; 0 API credits."
+  },
+  "preflight": {
+    "checked_utc": "2026-05-14T05:28:54Z",
+    "dataset_n_items": 1936,
+    "dataset_domains": [
+      "economics",
+      "ethics",
+      "physics"
+    ],
+    "dataset_labels": [
+      "coherent",
+      "contradicting",
+      "orthogonal"
+    ],
+    "dataset_sha256": "b25ab62102389fbbbf2cdad08cc5a056e4946631835a89672fe88aa0a8fbe7c4",
+    "dataset_v1_promises_met": true,
+    "dataset_frozen": true,
+    "dataset_frozen_check": "passed",
+    "embedder_available": true,
+    "embedder_id": "hash-det-v1",
+    "embedder_dim": 192,
+    "shard_size": 100,
+    "shard_run": {
+      "contradiction_geometry": {
+        "status": "ok",
+        "n_of_N": "100 of 100",
+        "accuracy": 0.41
+      },
+      "cosine": {
+        "status": "ok",
+        "n_of_N": "100 of 100",
+        "accuracy": 0.2
+      },
+      "random": {
+        "status": "ok",
+        "n_of_N": "100 of 100",
+        "accuracy": 0.36
+      }
+    }
+  },
+  "platform": {
+    "python": "3.13.7",
+    "platform": "macOS-26.2-arm64-arm-64bit-Mach-O",
+    "numpy": "1.26.4"
+  }
+}

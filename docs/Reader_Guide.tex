@@ -1,0 +1,248 @@
+\documentclass[11pt,letterpaper]{article}
+
+\usepackage[margin=1in]{geometry}
+\usepackage[T1]{fontenc}
+\usepackage{lmodern}
+\usepackage{microtype}
+\usepackage{parskip}
+\usepackage{enumitem}
+\usepackage{booktabs}
+\usepackage{longtable}
+\usepackage{array}
+\usepackage{titlesec}
+\usepackage[hidelinks,colorlinks=true,linkcolor=black,urlcolor=black,citecolor=black]{hyperref}
+\usepackage{xcolor}
+\usepackage{fancyvrb}
+\usepackage{fancyhdr}
+
+\titleformat{\section}{\Large\bfseries}{\thesection}{1em}{}
+\titleformat{\subsection}{\large\bfseries}{\thesubsection}{1em}{}
+\titleformat{\subsubsection}{\normalsize\bfseries}{\thesubsubsection}{1em}{}
+
+\pagestyle{fancy}
+\fancyhf{}
+\fancyhead[L]{\small Theseus --- Reader Guide}
+\fancyhead[R]{\small\thepage}
+\renewcommand{\headrulewidth}{0.4pt}
+
+\setlength{\parindent}{0pt}
+
+\newcommand{\surface}[1]{\texttt{#1}}
+\newcommand{\rt}[1]{\textsl{#1}}
+
+\title{\textbf{How to Read Theseus}\\[4pt]\large A Reading Guide for Outside Readers}
+\date{May 2026}
+\author{}
+
+\begin{document}
+
+\maketitle
+\thispagestyle{empty}
+
+\vspace{1.5em}
+
+\begin{quote}
+\itshape
+A serious researcher or financier landing on theseuscodex.com should be able to get from ``what is this firm?'' to ``I understand what they claim and how I would test it'' within about thirty minutes. This guide is that path. It is a reading map, not a summary --- it indexes the firm's surfaces and tells you the order to read them in. It does not restate them.
+\end{quote}
+
+\vspace{1em}
+
+\textbf{Web version:} \url{https://theseuscodex.com/about/reader-guide} --- the same map, with a ``tour me'' overlay and live links.
+
+\vspace{2em}
+
+\tableofcontents
+\newpage
+
+% =======================================================================
+\section{How to use this guide}
+% =======================================================================
+
+\subsection*{Who this guide is for}
+
+It is written for two readers in particular. The first is a researcher who wants to know whether the firm's empirical claims are real --- testable, tested, and reproducible --- before spending time on them. The second is a financier or journalist who needs to understand what the firm is and what it stands behind, quickly, without being handed a pitch. Both are served by the same map; they differ only in which stops they linger on. A researcher will spend most of the budget at Stops 3, 4, and 6; a financier or journalist will spend it at Stops 1, 2, and 5.
+
+\subsection*{How the seven stops are ordered}
+
+This guide has seven stops. Each one points at a page that already exists on the firm's public site and tells you roughly how long that page takes to read. You do not have to read all of them.
+
+\begin{itemize}[leftmargin=*,itemsep=0.3em]
+  \item \textbf{The full path} --- all seven stops, about 36 minutes --- is the complete route: what the firm is, the commitment under it, the rubric that commitment produces, the evidence, and the three doors back in (challenge, replicate, subscribe).
+  \item \textbf{The fast path} --- stops 1, 3, 4, and 5, about 22 minutes --- is the shortest route to the thing that matters most: what the firm claims and how you would test it. It skips the commitment essay and the housekeeping.
+\end{itemize}
+
+Nothing about this guide gates anything. There is no badge, no login, no unlocked surface at the end. Every page it points at is public. If a stop's description and the page it points at ever disagree, the page is correct --- the guide indexes, it does not replace.
+
+\vspace{1em}
+
+\subsection*{The reading map at a glance}
+
+\begin{longtable}{@{}r p{6.4cm} p{3.4cm} r@{}}
+\toprule
+\textbf{\#} & \textbf{Stop} & \textbf{Surface} & \textbf{Read} \\
+\midrule
+\endhead
+1 & What Theseus does & \surface{/about} & 1 min \\
+2 & The methodological commitment & \surface{THE\_META\_METHOD} & 8 min \\
+3 & The five working criteria & \surface{/methodology/criteria} & 6 min \\
+4 & The empirical claims the firm has tested & \surface{/methodology/benchmark/qh} \emph{(+2)} & 12 min \\
+5 & How to challenge the firm & \surface{/critiques} & 3 min \\
+6 & How to replicate & \surface{/methodology/replicate} & 5 min \\
+7 & How to subscribe & subscriber form & 1 min \\
+\midrule
+ & \textbf{Full path} & & \textbf{36 min} \\
+ & \textbf{Fast path} (1, 3, 4, 5) & & \textbf{22 min} \\
+\bottomrule
+\end{longtable}
+
+\newpage
+
+% =======================================================================
+\section{Stop 1 --- What Theseus does}
+% =======================================================================
+
+\textbf{Where to read it:} \url{https://theseuscodex.com/about} \quad \rt{(1 min)}
+
+\medskip
+
+Theseus is a research firm that publishes its conclusions and, more durably, the discipline that produced them. Recorded deliberation --- memos, transcripts, essays, live conversations --- is turned into public theses, and each thesis carries the method that made it and the record that method has earned.
+
+Start on the firm's own description of itself. Read it for the claim Theseus makes about its own work: it sells conclusions, but the reusable object is the method. Everything else in this guide is that claim, made inspectable.
+
+\textbf{Take away:} the firm's distinctive object is not any single conclusion --- it is the published, reusable discipline that produced it.
+
+% =======================================================================
+\section{Stop 2 --- The methodological commitment}
+% =======================================================================
+
+\textbf{Where to read it:} \surface{THE\_META\_METHOD} on the firm's repository, and \url{https://theseuscodex.com/methodology} \quad \rt{(8 min)}
+
+\medskip
+
+Before any single method, the firm holds a method for judging methods. \surface{THE\_META\_METHOD} is the document that states it: inquiry is only worth publishing when it can be checked, and the firm commits --- in advance, before it has results --- to scoring its own work against that standard.
+
+This is the load-bearing stop. You are looking at a prior commitment: the standard the firm agreed to be held to before it knew whether its own work would pass. The methodology explorer is that document turned into a working surface. Everything downstream in this guide --- the rubric, the benchmark, the replication harness --- is this commitment made concrete.
+
+The thing to test here is not whether the commitment sounds reasonable --- most do --- but whether the firm is actually bound by it. The remaining stops are where you check that: a rubric checked against running code, a benchmark the firm loses on, a replication harness anyone can run. If the commitment at this stop and the evidence at the later stops ever come apart, the later stops are the ones that matter.
+
+\textbf{Take away:} the firm committed, in advance, to a standard of checkability --- and the rest of the guide is how you verify it kept that commitment.
+
+% =======================================================================
+\section{Stop 3 --- The five working criteria}
+% =======================================================================
+
+\textbf{Where to read it:} \url{https://theseuscodex.com/methodology/criteria} \quad \rt{(6 min)}
+
+\medskip
+
+The Meta-Method resolves into five criteria the firm applies to every method it uses:
+
+\begin{enumerate}[leftmargin=*,itemsep=0.25em]
+  \item \textbf{Progressivity} --- did the analysis produce a prediction, implication, or decision rule that can later be checked?
+  \item \textbf{Severity} --- would the procedure that produced this conclusion have caught the claim if it were false?
+  \item \textbf{Aim-Method Fit} --- is the method actually capable of answering the question being asked?
+  \item \textbf{Compressibility} --- how many independent assumptions must hold for the conclusion to survive?
+  \item \textbf{Domain Sensitivity} --- where should this method stop being trusted, and is the current conclusion inside or outside that boundary?
+\end{enumerate}
+
+The criteria page carries the exact rubric and the composite formula --- the same one the firm's running scorer uses, checked against code so the page cannot quietly drift from it. Read the five criteria as the test the firm runs on itself.
+
+One detail is worth carrying forward: Domain Sensitivity is a multiplicative gate, not a weighted addend. A method that does not fit the domain of the question cannot be redeemed by being severe and progressive elsewhere --- a domain score of 0.5 caps the whole composite at 0.5. This is the firm's structural defence against a method being trusted outside the territory where it has earned trust.
+
+\textbf{Take away:} the rubric is computable, auditable, and revisable --- and the firm publishes the score only when it is fresher than the conclusion it scores.
+
+% =======================================================================
+\section{Stop 4 --- The empirical claims the firm has tested}
+% =======================================================================
+
+\textbf{Where to read it:} \url{https://theseuscodex.com/methodology/benchmark/qh}, the cross-model study at \surface{/methodology/benchmark/qh/cross-model}, and the Householder ablation at \surface{/methodology/contradiction\_geometry} \quad \rt{(12 min)}
+
+\medskip
+
+The firm's headline claim is the Quintin Hypothesis: that logical coherence leaves a geometric signature in embedding space. The firm has put this claim on a frozen, public benchmark; replicated it across multiple embedding back-ends; and run an ablation against its own method.
+
+Read this layer for what the claims are and how they have actually scored --- not how the firm would prefer they scored. Three things are worth noticing:
+
+\begin{itemize}[leftmargin=*,itemsep=0.25em]
+  \item The benchmark leaderboard is one the firm itself can lose on. At the frozen v1 thresholds, the firm's probe wins on AUROC and loses on accuracy to a trivial cosine baseline. That is published as a finding, not hidden as a bug.
+  \item The cross-model study reports a negative result: on the local embedders that ran, the probe does not beat the cosine baseline on accuracy, and the difference is not statistically significant.
+  \item The Householder ablation is a structural null --- the firm ran an ablation that could have embarrassed its own method, found it, and published it anyway.
+\end{itemize}
+
+A reader who finishes this stop should be able to state the claim and name at least one place the evidence is weak.
+
+\textbf{Take away:} the firm has staked a falsifiable claim, tested it on a frozen public benchmark, and published the places it does not yet win.
+
+% =======================================================================
+\section{Stop 5 --- How to challenge the firm}
+% =======================================================================
+
+\textbf{Where to read it:} \url{https://theseuscodex.com/critiques}, and the \emph{Challenge this conclusion} response form on any published article \quad \rt{(3 min)}
+
+\medskip
+
+A reader who thinks a conclusion is wrong has a published path to say so. The critique hall of fame carries the severity rubric --- what counts as a load-bearing critique --- and every critique the firm has accepted, with credit to the critic. The response form is the \emph{Challenge this conclusion} affordance attached to every published article: bring the specific claim, the counter-evidence, the method you used, and your citations.
+
+Severe critiques --- those that move a load-bearing claim and cause the firm to update its position --- carry a \$500 bounty, paid to the critic or to a charity the critic chooses. The rubric is published before you file, so the incentive is grounded in something concrete rather than the mood of the firm. This is the part of the firm built to be attacked.
+
+\textbf{Take away:} disagreement has a published, credited, and bountied channel --- the firm has made it cheaper to be told it is wrong.
+
+% =======================================================================
+\section{Stop 6 --- How to replicate}
+% =======================================================================
+
+\textbf{Where to read it:} \url{https://theseuscodex.com/methodology/replicate} \quad \rt{(5 min)}
+
+\medskip
+
+The empirical claims at Stop 4 are either reproducible or they are not. The replication harness is the firm's standing offer to be checked: clone the repository, run one \surface{make} target, and compare your reproducibility envelope --- git SHA, dataset hash, model identifiers, OS, Python version --- against the firm's recorded runs.
+
+The harness needs nothing beyond Python and \surface{pip}: no Docker, no firm-issued credentials. Targets that need an API key skip the affected model with a clear log line rather than failing, so a researcher who has never spoken to the firm can still run it. The page documents the dataset card, the success rubric, and a triage order for when your numbers differ. A failed replication of the firm's own thesis is, by the firm's own statement, the loudest alert in its codebase.
+
+\textbf{Take away:} the claims at Stop 4 are not asserted, they are reproducible --- and the firm has lowered the cost of reproducing them to a single command.
+
+% =======================================================================
+\section{Stop 7 --- How to subscribe}
+% =======================================================================
+
+\textbf{Where to read it:} the subscriber form at the foot of the web guide \quad \rt{(1 min)}
+
+\medskip
+
+The last stop on the map, and the only optional one. If you want to follow the firm's output --- new theses, revisions, retractions --- the subscriber form sends a digest at the cadence you choose. It is double opt-in, with one-click unsubscribe in every email and no tracking pixels.
+
+Subscribing changes nothing about your access. Every surface in this guide is public, with or without an email on file.
+
+% =======================================================================
+\section{The boundaries the firm keeps}
+% =======================================================================
+
+It is worth being explicit about what the public surfaces deliberately do \emph{not} show, because the omissions are part of the method rather than gaps in it.
+
+\begin{itemize}[leftmargin=*,itemsep=0.3em]
+  \item \textbf{No raw deliberation.} The methodology explorer exposes a method at the level needed for critique and reuse. It does not publish raw transcript text, private memos, or unreviewed chain-of-thought. What is published is the method, not the mess that produced it.
+  \item \textbf{No proprietary data in the replication repository.} The replication dataset is the public Quintin Hypothesis v1 set only. The harness reproduces the firm's claims without bundling anything the firm could not publish.
+  \item \textbf{No stale scores.} A composite score is shown publicly only when it is fresher than the conclusion's last edit. A score that has fallen behind the text it describes is withheld, not dressed up.
+  \item \textbf{Immutable snapshots.} Material revisions create a new snapshot row rather than overwriting the old one, so a link you followed last year still resolves to what it said then.
+\end{itemize}
+
+These boundaries are why the guide can be short. The firm has already done the work of deciding what an outside reader needs in order to critique and reuse its work --- this guide is just the index to it.
+
+% =======================================================================
+\section{What this guide is not}
+% =======================================================================
+
+This guide indexes; it does not replace. It carries no conclusion, no score, and no claim that the underlying surfaces do not already make for themselves. It does not flatten the firm's intellectual content into a brochure --- it is a map to that content, and the content stays where it is.
+
+There is no marketing language here by design. If a stop's description and the page it points at ever disagree, trust the page. And if, after the full path, you cannot say what the firm claims and how you would test it, that is a failure of this guide --- the response form at Stop 5 is the right place to say so.
+
+\vfill
+
+\begin{center}
+\small\itshape
+This printable guide mirrors \url{https://theseuscodex.com/about/reader-guide}.\\
+Theseus --- May 2026.
+\end{center}
+
+\end{document}

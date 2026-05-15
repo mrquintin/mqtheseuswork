@@ -1,0 +1,127 @@
+% References.bib — centralized bibliography for method RATIONALE documents.
+%
+% Every `<method>.RATIONALE.md` that cites a paper or external claim references
+% an entry here by its BibTeX key (written `[@key]` in the RATIONALE's
+% References section). `scripts/check_rationale_structure.py` audits the
+% cross-links: a `[@key]` with no matching entry, or an entry with no working
+% URL / DOI / arXiv id, fails CI.
+%
+% Kept in BibTeX (not inline prose) so the seasonal research review and the
+% auto-paper generator can reuse the same entries without re-curating them.
+%
+% Internal firm artifacts (the Embedding Geometry Conjecture experiments, the
+% Quintin Hypothesis benchmark, the Householder ablation report) are *not*
+% papers and are referenced in RATIONALE prose by repo-relative path rather
+% than by a key here.
+
+@article{hoyer2004nmf,
+  author  = {Hoyer, Patrik O.},
+  title   = {Non-negative Matrix Factorization with Sparseness Constraints},
+  journal = {Journal of Machine Learning Research},
+  volume  = {5},
+  pages   = {1457--1469},
+  year    = {2004},
+  url     = {https://www.jmlr.org/papers/v5/hoyer04a.html}
+}
+
+@inproceedings{reimers2019sbert,
+  author        = {Reimers, Nils and Gurevych, Iryna},
+  title         = {Sentence-BERT: Sentence Embeddings using Siamese BERT-Networks},
+  booktitle     = {Proceedings of the 2019 Conference on Empirical Methods in Natural Language Processing (EMNLP-IJCNLP)},
+  year          = {2019},
+  eprint        = {1908.10084},
+  archivePrefix = {arXiv},
+  url           = {https://arxiv.org/abs/1908.10084}
+}
+
+@inproceedings{he2021deberta,
+  author        = {He, Pengcheng and Liu, Xiaodong and Gao, Jianfeng and Chen, Weizhu},
+  title         = {DeBERTa: Decoding-enhanced BERT with Disentangled Attention},
+  booktitle     = {International Conference on Learning Representations (ICLR)},
+  year          = {2021},
+  eprint        = {2006.03654},
+  archivePrefix = {arXiv},
+  url           = {https://arxiv.org/abs/2006.03654}
+}
+
+@inproceedings{he2023debertav3,
+  author        = {He, Pengcheng and Gao, Jianfeng and Chen, Weizhu},
+  title         = {DeBERTaV3: Improving DeBERTa using ELECTRA-Style Pre-Training with Gradient-Disentangled Embedding Sharing},
+  booktitle     = {International Conference on Learning Representations (ICLR)},
+  year          = {2023},
+  eprint        = {2111.09543},
+  archivePrefix = {arXiv},
+  url           = {https://arxiv.org/abs/2111.09543}
+}
+
+@inproceedings{bowman2015snli,
+  author        = {Bowman, Samuel R. and Angeli, Gabor and Potts, Christopher and Manning, Christopher D.},
+  title         = {A Large Annotated Corpus for Learning Natural Language Inference},
+  booktitle     = {Proceedings of the 2015 Conference on Empirical Methods in Natural Language Processing (EMNLP)},
+  year          = {2015},
+  eprint        = {1508.05326},
+  archivePrefix = {arXiv},
+  url           = {https://arxiv.org/abs/1508.05326}
+}
+
+@inproceedings{williams2018multinli,
+  author        = {Williams, Adina and Nangia, Nikita and Bowman, Samuel R.},
+  title         = {A Broad-Coverage Challenge Corpus for Sentence Understanding through Inference},
+  booktitle     = {Proceedings of the 2018 Conference of the North American Chapter of the Association for Computational Linguistics (NAACL-HLT)},
+  year          = {2018},
+  eprint        = {1704.05426},
+  archivePrefix = {arXiv},
+  url           = {https://arxiv.org/abs/1704.05426}
+}
+
+@article{dung1995argumentation,
+  author  = {Dung, Phan Minh},
+  title   = {On the Acceptability of Arguments and its Fundamental Role in Nonmonotonic Reasoning, Logic Programming and n-Person Games},
+  journal = {Artificial Intelligence},
+  volume  = {77},
+  number  = {2},
+  pages   = {321--357},
+  year    = {1995},
+  doi     = {10.1016/0004-3702(94)00041-X},
+  url     = {https://doi.org/10.1016/0004-3702(94)00041-X}
+}
+
+@book{kolmogorov1956foundations,
+  author    = {Kolmogorov, Andrey N.},
+  title     = {Foundations of the Theory of Probability},
+  publisher = {Chelsea Publishing Company},
+  year      = {1956},
+  note      = {Second English edition; translation of the 1933 German original},
+  url       = {https://archive.org/details/foundationsofthe00kolm}
+}
+
+@article{brier1950verification,
+  author  = {Brier, Glenn W.},
+  title   = {Verification of Forecasts Expressed in Terms of Probability},
+  journal = {Monthly Weather Review},
+  volume  = {78},
+  number  = {1},
+  pages   = {1--3},
+  year    = {1950},
+  doi     = {10.1175/1520-0493(1950)078<0001:VOFEIT>2.0.CO;2},
+  url     = {https://doi.org/10.1175/1520-0493(1950)078<0001:VOFEIT>2.0.CO;2}
+}
+
+@article{kent1964words,
+  author  = {Kent, Sherman},
+  title   = {Words of Estimative Probability},
+  journal = {Studies in Intelligence},
+  volume  = {8},
+  number  = {4},
+  pages   = {49--65},
+  year    = {1964},
+  url     = {https://www.cia.gov/resources/csi/studies-in-intelligence/archives/words-of-estimative-probability/}
+}
+
+@article{mauboussin2018likely,
+  author  = {Mauboussin, Andrew and Mauboussin, Michael J.},
+  title   = {If You Say Something Is ``Likely,'' How Likely Do People Think It Is?},
+  journal = {Harvard Business Review},
+  year    = {2018},
+  url     = {https://hbr.org/2018/07/if-you-say-something-is-likely-how-likely-do-people-think-it-is}
+}

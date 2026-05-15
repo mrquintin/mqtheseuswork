@@ -10,7 +10,7 @@ import type { PublicOpinion } from "@/lib/currentsTypes";
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
-const SEED_FETCH_TIMEOUT_MS = 8_000;
+const SEED_FETCH_TIMEOUT_MS = 2_500;
 
 export default async function CurrentsPage() {
   let seed: PublicOpinion[] = [];

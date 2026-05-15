@@ -34,6 +34,14 @@ from noosphere.evaluation.public_calibration import (
     publish_manifest as publish_public_calibration_manifest,
     revalidate_public_page as revalidate_public_calibration_page,
 )
+from noosphere.equities.budget import (
+    DEFAULT_BUDGET_PATH as DEFAULT_EQUITIES_BUDGET_PATH,
+    PersistentHourlyBudgetGuard as EquitiesPersistentHourlyBudgetGuard,
+)
+from noosphere.equities.signal_generator import (
+    SignalOutcome as EquitySignalOutcome,
+    generate_signal as generate_equity_signal,
+)
 from noosphere.forecasts.budget import PersistentHourlyBudgetGuard
 from noosphere.forecasts.config import KalshiConfig, PolymarketConfig
 from noosphere.forecasts.decision_metrics import EDGE_LIVE_THRESHOLD
@@ -49,6 +57,9 @@ from noosphere.forecasts.polymarket_ingestor import ingest_once as ingest_polyma
 from noosphere.forecasts.resolution_tracker import poll_all_open
 from noosphere.forecasts.status import status_path_from_env, utc_now_iso, write_status
 from noosphere.models import (
+    EquityInstrument,
+    EquitySignal,
+    EquitySignalStatus,
     ForecastBet,
     ForecastBetMode,
     ForecastBetStatus,
@@ -68,6 +79,21 @@ SHUTDOWN_GRACE_SECONDS = 30.0
 DEFAULT_BUDGET_PATH = Path("/var/lib/theseus/forecasts_budget.json")
 DEFAULT_PUBLIC_CALIBRATION_INTERVAL_S = 24 * 60 * 60  # nightly
 DEFAULT_RECALIBRATION_INTERVAL_S = 7 * 24 * 60 * 60  # weekly
+# Quantitative-runner tick. The sub-loop wakes hourly and runs only those
+# APPROVED formalisations whose configured cadence (daily/weekly/monthly)
+# has elapsed since the last persisted ``QuantitativeTestResult``. Hourly
+# is the smallest interval that still respects the sub-daily ban.
+DEFAULT_QUANTITATIVE_INTERVAL_S = 60 * 60  # hourly check
+
+# Per-tick wall-clock cap. A hung external call should surface as a
+# structured-log tick_timeout event rather than blocking a sub-loop forever.
+TICK_TIMEOUT_FLOOR_S = 10.0
+TICK_TIMEOUT_INTERVAL_MULTIPLIER = 10.0
+
+# Bounds for the heartbeat task. The fast end keeps fast-clock tests usable;
+# the slow end keeps prod write rates sane (≤ 0.5 Hz status writes).
+HEARTBEAT_MIN_INTERVAL_S = 0.05
+HEARTBEAT_MAX_INTERVAL_S = 2.0
 
 log = get_logger(__name__)
 
@@ -81,12 +107,16 @@ class SchedulerConfig:
     paper_bet_drain_interval_s: int = 60
     live_order_poll_interval_s: int = 60
     article_interval_s: int = 3600
+    equity_signal_interval_s: int = 900
     public_calibration_interval_s: int = DEFAULT_PUBLIC_CALIBRATION_INTERVAL_S
     recalibration_interval_s: int = DEFAULT_RECALIBRATION_INTERVAL_S
+    quantitative_interval_s: int = DEFAULT_QUANTITATIVE_INTERVAL_S
     status_file: Path = Path("/var/lib/theseus/forecasts_status.json")
     budget_file: Path = DEFAULT_BUDGET_PATH
+    equities_budget_file: Path = DEFAULT_EQUITIES_BUDGET_PATH
     max_predictions_per_cycle: int = 8
     max_metric_scan_per_cycle: int = 32
+    max_equity_signals_per_cycle: int = 8
     max_articles_per_week: int = DEFAULT_WEEKLY_ARTICLE_CAP
 
     @classmethod
@@ -96,6 +126,11 @@ class SchedulerConfig:
             Path(data_dir) / "forecasts_budget.json"
             if data_dir
             else DEFAULT_BUDGET_PATH
+        )
+        default_equities_budget = (
+            Path(data_dir) / "equities_budget.json"
+            if data_dir
+            else DEFAULT_EQUITIES_BUDGET_PATH
         )
         return cls(
             ingest_interval_s=_env_seconds("FORECASTS_INGEST_INTERVAL_S", cls.ingest_interval_s),
@@ -123,6 +158,10 @@ class SchedulerConfig:
                 "FORECASTS_ARTICLE_INTERVAL_S",
                 cls.article_interval_s,
             ),
+            equity_signal_interval_s=_env_seconds(
+                "EQUITIES_SIGNAL_INTERVAL_S",
+                cls.equity_signal_interval_s,
+            ),
             public_calibration_interval_s=_env_seconds(
                 "FORECASTS_PUBLIC_CALIBRATION_INTERVAL_S",
                 cls.public_calibration_interval_s,
@@ -131,8 +170,16 @@ class SchedulerConfig:
                 "FORECASTS_RECALIBRATION_INTERVAL_S",
                 cls.recalibration_interval_s,
             ),
+            quantitative_interval_s=_env_seconds(
+                "FORECASTS_QUANTITATIVE_INTERVAL_S",
+                cls.quantitative_interval_s,
+            ),
             status_file=status_path_from_env(),
             budget_file=Path(os.environ.get("FORECASTS_BUDGET_PATH", "").strip() or default_budget),
+            equities_budget_file=Path(
+                os.environ.get("EQUITIES_BUDGET_PATH", "").strip()
+                or default_equities_budget
+            ),
             max_predictions_per_cycle=_env_int(
                 "FORECASTS_MAX_PREDICTIONS_PER_CYCLE",
                 cls.max_predictions_per_cycle,
@@ -140,6 +187,10 @@ class SchedulerConfig:
             max_metric_scan_per_cycle=_env_int(
                 "FORECASTS_MAX_METRIC_SCAN_PER_CYCLE",
                 cls.max_metric_scan_per_cycle,
+            ),
+            max_equity_signals_per_cycle=_env_int(
+                "EQUITIES_MAX_SIGNALS_PER_CYCLE",
+                cls.max_equity_signals_per_cycle,
             ),
             max_articles_per_week=_env_nonnegative_int(
                 "NOOSPHERE_ARTICLES_WEEKLY_CAP",
@@ -160,13 +211,21 @@ class SchedulerState:
     last_live_order_poll_ts: str | None = None
     last_resolve_ts: str | None = None
     last_article_ts: str | None = None
+    last_equity_signal_ts: str | None = None
+    last_equity_signal_outcome: str | None = None
     last_public_calibration_ts: str | None = None
     last_public_calibration_hash: str | None = None
     last_recalibration_ts: str | None = None
     last_recalibration_models_written: int = 0
+    last_quantitative_ts: str | None = None
+    last_quantitative_runs: int = 0
     last_error: str | None = None
     last_error_loop: str | None = None
     last_error_ts: str | None = None
+    last_tick_ts: str | None = None
+    last_timeout_loop: str | None = None
+    last_timeout_ts: str | None = None
+    shutdown_at: str | None = None
 
 
 @dataclass(frozen=True)
@@ -347,6 +406,10 @@ def _status_payload(store: Store, state: SchedulerState) -> dict[str, Any]:
         "ts": now.replace(microsecond=0).isoformat().replace("+00:00", "Z"),
         "kill_switch_engaged": portfolio.kill_switch_engaged,
         "kill_switch_reason": portfolio.kill_switch_reason,
+        "last_tick_ts": state.last_tick_ts,
+        "shutdown_at": state.shutdown_at,
+        "last_timeout_loop": state.last_timeout_loop,
+        "last_timeout_ts": state.last_timeout_ts,
         "last_ingest_ts": state.last_ingest_ts,
         "last_generate_ts": state.last_generate_ts,
         "last_metric_scan_ts": state.last_metric_scan_ts,
@@ -357,10 +420,14 @@ def _status_payload(store: Store, state: SchedulerState) -> dict[str, Any]:
         "last_live_order_poll_ts": state.last_live_order_poll_ts,
         "last_resolve_ts": state.last_resolve_ts,
         "last_article_ts": state.last_article_ts,
+        "last_equity_signal_ts": state.last_equity_signal_ts,
+        "last_equity_signal_outcome": state.last_equity_signal_outcome,
         "last_public_calibration_ts": state.last_public_calibration_ts,
         "last_public_calibration_hash": state.last_public_calibration_hash,
         "last_recalibration_ts": state.last_recalibration_ts,
         "last_recalibration_models_written": state.last_recalibration_models_written,
+        "last_quantitative_ts": state.last_quantitative_ts,
+        "last_quantitative_runs": state.last_quantitative_runs,
         "last_error": state.last_error,
         "last_error_loop": state.last_error_loop,
         "last_error_ts": state.last_error_ts,
@@ -379,7 +446,18 @@ async def _write_status(
     config: SchedulerConfig,
     status_lock: asyncio.Lock,
 ) -> dict[str, Any]:
+    # Build the payload inside the lock so that two near-simultaneous sub-loop
+    # writes cannot land in a different order than they took the lock. Combined
+    # with the atomic temp-file rename inside ``write_status`` this gives a
+    # strictly-advancing on-disk view.
+    lock_wait_started = time.monotonic()
     async with status_lock:
+        lock_wait_s = time.monotonic() - lock_wait_started
+        if lock_wait_s > 1.0:
+            log.warning(
+                "forecasts_scheduler_status_lock_slow",
+                lock_wait_s=round(lock_wait_s, 3),
+            )
         payload = _status_payload(store, state)
         write_status(payload, config.status_file)
         return payload
@@ -1014,6 +1092,80 @@ def _fit_recalibration_models_sync(store: Store) -> tuple[int, int]:
     return (len(written), len(binary_rows))
 
 
+async def _tick_quantitative(
+    store: Store,
+    *,
+    config: SchedulerConfig,
+    state: SchedulerState,
+    status_lock: asyncio.Lock,
+) -> TickReport:
+    """Drive the quantitative runner over APPROVED formalisations whose
+    cadence has elapsed since their last persisted result.
+
+    The runner refuses sub-daily cadences; this loop additionally skips
+    formalisations that ran inside their cadence window so the sub-loop
+    can tick hourly without re-running weekly tests every hour.
+    """
+
+    from noosphere.quantitative.runner import (
+        QuantitativeRunner,
+        cadence_to_seconds,
+    )
+
+    started = time.monotonic()
+    started_at = utc_now_iso()
+    errors: list[str] = []
+    attempted = 0
+    succeeded = 0
+    skipped = 0
+    state.last_quantitative_ts = utc_now_iso()
+    try:
+        approved = store.list_quantitative_formalisations(status="APPROVED")
+    except Exception as exc:
+        errors.append(f"list_approved:{type(exc).__name__}: {exc}")
+        approved = []
+
+    runner = QuantitativeRunner(store)
+    now = _utcnow()
+    for formalisation in approved:
+        attempted += 1
+        cadence = (
+            formalisation.metrics[0].update_cadence
+            if formalisation.metrics
+            else "weekly"
+        )
+        interval = cadence_to_seconds(cadence)
+        if interval <= 0:
+            skipped += 1
+            continue
+        latest = store.get_latest_quantitative_test_result(formalisation.id)
+        if latest is not None and isinstance(latest.created_at, datetime):
+            elapsed = (now - _as_utc(latest.created_at)).total_seconds()
+            if elapsed < interval:
+                skipped += 1
+                continue
+        try:
+            await runner.run(formalisation.id)
+            succeeded += 1
+        except Exception as exc:
+            errors.append(
+                f"formalisation:{formalisation.id}:{type(exc).__name__}: {exc}"
+            )
+
+    state.last_quantitative_runs = succeeded
+    await _write_status(store, state, config=config, status_lock=status_lock)
+    return TickReport(
+        loop="quantitative",
+        started_at=started_at,
+        duration_ms=int((time.monotonic() - started) * 1000),
+        status="ok" if not errors else "error",
+        attempted=attempted,
+        succeeded=succeeded,
+        skipped=skipped,
+        errors=tuple(errors),
+    )
+
+
 async def _tick_recalibration(
     store: Store,
     *,
@@ -1050,6 +1202,136 @@ async def _tick_recalibration(
         status="ok" if not errors else "error",
         attempted=1,
         succeeded=1 if not errors else 0,
+        errors=tuple(errors),
+    )
+
+
+def _latest_published_signal_for_instrument(
+    store: Store, instrument_id: str
+) -> EquitySignal | None:
+    with store.session() as session:
+        return session.exec(
+            select(EquitySignal)
+            .where(EquitySignal.instrument_id == instrument_id)
+            .where(EquitySignal.status == EquitySignalStatus.PUBLISHED.value)
+            .order_by(desc(EquitySignal.created_at))
+            .limit(1)
+        ).first()
+
+
+def _instruments_with_stale_signals(
+    store: Store,
+    *,
+    max_instruments: int,
+    now: datetime,
+) -> list[str]:
+    """Return instrument ids whose most recent PUBLISHED signal is stale.
+
+    Stale = no PUBLISHED signal in the last 24h, or older than
+    ``horizon_days / 3`` of the most recent signal.
+    """
+
+    if max_instruments <= 0:
+        return []
+    with store.session() as session:
+        rows = list(
+            session.exec(
+                select(EquityInstrument)
+                .where(EquityInstrument.is_tradable.is_(True))
+                .order_by(asc(EquityInstrument.symbol))
+                .limit(max(max_instruments * 8, max_instruments))
+            ).all()
+        )
+    selected: list[str] = []
+    fresh_cutoff = now - RECENT_PREDICTION_WINDOW
+    for instrument in rows:
+        latest = _latest_published_signal_for_instrument(store, instrument.id)
+        if latest is None:
+            selected.append(instrument.id)
+        else:
+            created_at = (
+                _as_utc(latest.created_at)
+                if isinstance(latest.created_at, datetime)
+                else None
+            )
+            horizon_days = max(1, int(getattr(latest, "horizon_days", 30) or 30))
+            horizon_third = timedelta(days=max(1, horizon_days // 3))
+            if created_at is None:
+                selected.append(instrument.id)
+            elif created_at < fresh_cutoff or created_at < now - horizon_third:
+                selected.append(instrument.id)
+        if len(selected) >= max_instruments:
+            break
+    return selected
+
+
+async def _tick_equity_signals(
+    store: Store,
+    *,
+    config: SchedulerConfig,
+    state: SchedulerState,
+    status_lock: asyncio.Lock,
+    budget: EquitiesPersistentHourlyBudgetGuard,
+) -> TickReport:
+    """Generate a small batch of equity signals for instruments with stale takes."""
+
+    started = time.monotonic()
+    started_at = utc_now_iso()
+    portfolio = _portfolio_snapshot(store)
+    if portfolio.kill_switch_engaged:
+        state.last_equity_signal_ts = utc_now_iso()
+        await _write_status(store, state, config=config, status_lock=status_lock)
+        return TickReport(
+            loop="equity_signals",
+            started_at=started_at,
+            duration_ms=int((time.monotonic() - started) * 1000),
+            status="skipped_kill_switch",
+            skipped=1,
+        )
+
+    instrument_ids = _instruments_with_stale_signals(
+        store,
+        max_instruments=config.max_equity_signals_per_cycle,
+        now=_utcnow(),
+    )
+    published = 0
+    attempted = 0
+    skipped = 0
+    errors: list[str] = []
+    last_outcome: str | None = None
+    for instrument_id in instrument_ids:
+        attempted += 1
+        try:
+            outcome = await generate_equity_signal(
+                store, instrument_id, budget=budget
+            )
+        except BudgetExhausted as exc:
+            errors.append(f"instrument:{instrument_id}:BudgetExhausted: {exc}")
+            last_outcome = EquitySignalOutcome.ABSTAINED_BUDGET.value
+            break
+        except Exception as exc:
+            errors.append(f"instrument:{instrument_id}:{type(exc).__name__}: {exc}")
+            continue
+        last_outcome = _enum_value(outcome)
+        if last_outcome == EquitySignalOutcome.PUBLISHED.value:
+            published += 1
+        else:
+            skipped += 1
+            if last_outcome == EquitySignalOutcome.ABSTAINED_BUDGET.value:
+                break
+
+    state.last_equity_signal_ts = utc_now_iso()
+    if last_outcome is not None:
+        state.last_equity_signal_outcome = last_outcome
+    await _write_status(store, state, config=config, status_lock=status_lock)
+    return TickReport(
+        loop="equity_signals",
+        started_at=started_at,
+        duration_ms=int((time.monotonic() - started) * 1000),
+        status="ok" if not errors else "error",
+        attempted=attempted,
+        succeeded=published,
+        skipped=skipped,
         errors=tuple(errors),
     )
 
@@ -1121,10 +1403,35 @@ async def _periodic_loop(
     stop_event: asyncio.Event,
     state: SchedulerState | None = None,
 ) -> None:
+    timeout_s = max(
+        TICK_TIMEOUT_FLOOR_S,
+        float(interval_s) * TICK_TIMEOUT_INTERVAL_MULTIPLIER,
+    )
     while not stop_event.is_set():
         tick_started = time.monotonic()
         try:
-            await _guarded_tick(name, lock, runner, state)
+            await asyncio.wait_for(
+                _guarded_tick(name, lock, runner, state),
+                timeout=timeout_s,
+            )
+        except asyncio.TimeoutError:
+            report = TickReport(
+                loop=name,
+                started_at=utc_now_iso(),
+                duration_ms=int((time.monotonic() - tick_started) * 1000),
+                status="timeout",
+                errors=(f"tick exceeded {timeout_s:.1f}s",),
+            )
+            log.warning(
+                "forecasts_scheduler_tick_timeout",
+                loop=name,
+                timeout_s=round(timeout_s, 3),
+                interval_s=float(interval_s),
+            )
+            _log_tick(report, state)
+            if state is not None:
+                state.last_timeout_loop = name
+                state.last_timeout_ts = utc_now_iso()
         except Exception as exc:
             report = TickReport(
                 loop=name,
@@ -1136,6 +1443,41 @@ async def _periodic_loop(
             _log_tick(report, state)
         elapsed = time.monotonic() - tick_started
         await _sleep_or_stop(max(0.0, float(interval_s) - elapsed), stop_event)
+
+
+async def _heartbeat_loop(
+    store: Store,
+    *,
+    config: SchedulerConfig,
+    state: SchedulerState,
+    status_lock: asyncio.Lock,
+    interval_s: float,
+    stop_event: asyncio.Event,
+) -> None:
+    """Independent liveness pulse.
+
+    Updates ``state.last_tick_ts`` and persists the status file on a fast
+    cadence even if every sub-loop is currently blocked inside a runner.
+    Readers (operators, ``/readyz`` follow-ups, ops tooling) can use this
+    field as a true scheduler-liveness signal instead of inferring liveness
+    from the slowest sub-loop's progress.
+    """
+
+    while not stop_event.is_set():
+        state.last_tick_ts = utc_now_iso()
+        try:
+            await _write_status(
+                store,
+                state,
+                config=config,
+                status_lock=status_lock,
+            )
+        except Exception as exc:
+            log.warning(
+                "forecasts_scheduler_heartbeat_write_failed",
+                error=f"{type(exc).__name__}: {exc}",
+            )
+        await _sleep_or_stop(interval_s, stop_event)
 
 
 def _install_signal_handlers(stop_event: asyncio.Event) -> Callable[[], None]:
@@ -1175,8 +1517,10 @@ _LOOP_NAMES: tuple[str, ...] = (
     "paper_drain",
     "live_orders",
     "articles",
+    "equity_signals",
     "public_calibration",
     "recalibration",
+    "quantitative",
 )
 
 
@@ -1195,6 +1539,7 @@ async def run_once(
     state = SchedulerState()
     status_lock = asyncio.Lock()
     budget = PersistentHourlyBudgetGuard(config.budget_file)
+    equities_budget = EquitiesPersistentHourlyBudgetGuard(config.equities_budget_file)
     locks = {name: asyncio.Lock() for name in _LOOP_NAMES}
     all_runners: dict[str, Callable[[], Awaitable[TickReport]]] = {
         "ingest": lambda: _tick_ingest(
@@ -1226,10 +1571,20 @@ async def run_once(
             status_lock=status_lock,
             budget=budget,
         ),
+        "equity_signals": lambda: _tick_equity_signals(
+            store,
+            config=config,
+            state=state,
+            status_lock=status_lock,
+            budget=equities_budget,
+        ),
         "public_calibration": lambda: _tick_public_calibration(
             store, config=config, state=state, status_lock=status_lock,
         ),
         "recalibration": lambda: _tick_recalibration(
+            store, config=config, state=state, status_lock=status_lock,
+        ),
+        "quantitative": lambda: _tick_quantitative(
             store, config=config, state=state, status_lock=status_lock,
         ),
     }
@@ -1238,8 +1593,11 @@ async def run_once(
     if unknown:
         raise ValueError(f"unknown scheduler loops: {unknown}")
     for name in selected:
+        state.last_tick_ts = utc_now_iso()
         await _guarded_tick(name, locks[name], all_runners[name], state)
+    state.last_tick_ts = utc_now_iso()
     budget.save()
+    equities_budget.save()
     return _status_payload(store, state)
 
 
@@ -1252,6 +1610,7 @@ async def run_forever(store: Store, *, config: SchedulerConfig) -> None:
     state = SchedulerState()
     status_lock = asyncio.Lock()
     budget = PersistentHourlyBudgetGuard(config.budget_file)
+    equities_budget = EquitiesPersistentHourlyBudgetGuard(config.equities_budget_file)
     locks = {name: asyncio.Lock() for name in _LOOP_NAMES}
     loop_specs: list[tuple[str, float, Callable[[], Awaitable[TickReport]]]] = [
         (
@@ -1312,6 +1671,17 @@ async def run_forever(store: Store, *, config: SchedulerConfig) -> None:
             ),
         ),
         (
+            "equity_signals",
+            float(config.equity_signal_interval_s),
+            lambda: _tick_equity_signals(
+                store,
+                config=config,
+                state=state,
+                status_lock=status_lock,
+                budget=equities_budget,
+            ),
+        ),
+        (
             "public_calibration",
             float(config.public_calibration_interval_s),
             lambda: _tick_public_calibration(
@@ -1322,6 +1692,13 @@ async def run_forever(store: Store, *, config: SchedulerConfig) -> None:
             "recalibration",
             float(config.recalibration_interval_s),
             lambda: _tick_recalibration(
+                store, config=config, state=state, status_lock=status_lock,
+            ),
+        ),
+        (
+            "quantitative",
+            float(config.quantitative_interval_s),
+            lambda: _tick_quantitative(
                 store, config=config, state=state, status_lock=status_lock,
             ),
         ),
@@ -1340,6 +1717,23 @@ async def run_forever(store: Store, *, config: SchedulerConfig) -> None:
         )
         for name, interval_s, runner in loop_specs
     ]
+    min_interval_s = min((interval_s for _, interval_s, _ in loop_specs), default=1.0)
+    heartbeat_interval_s = max(
+        HEARTBEAT_MIN_INTERVAL_S,
+        min(HEARTBEAT_MAX_INTERVAL_S, float(min_interval_s) / 2.0),
+    )
+    heartbeat_task = asyncio.create_task(
+        _heartbeat_loop(
+            store,
+            config=config,
+            state=state,
+            status_lock=status_lock,
+            interval_s=heartbeat_interval_s,
+            stop_event=stop_event,
+        ),
+        name="forecasts-heartbeat-loop",
+    )
+    tasks.append(heartbeat_task)
 
     log.info(
         "forecasts_scheduler_started",
@@ -1350,8 +1744,10 @@ async def run_forever(store: Store, *, config: SchedulerConfig) -> None:
         paper_bet_drain_interval_s=config.paper_bet_drain_interval_s,
         live_order_poll_interval_s=config.live_order_poll_interval_s,
         article_interval_s=config.article_interval_s,
+        equity_signal_interval_s=config.equity_signal_interval_s,
         public_calibration_interval_s=config.public_calibration_interval_s,
         recalibration_interval_s=config.recalibration_interval_s,
+        quantitative_interval_s=config.quantitative_interval_s,
         status_file=str(config.status_file),
         budget_file=str(config.budget_file),
         max_predictions_per_cycle=config.max_predictions_per_cycle,
@@ -1368,15 +1764,43 @@ async def run_forever(store: Store, *, config: SchedulerConfig) -> None:
                 timeout=SHUTDOWN_GRACE_SECONDS,
             )
         except TimeoutError:
+            log.warning(
+                "forecasts_scheduler_drain_timeout",
+                grace_s=SHUTDOWN_GRACE_SECONDS,
+            )
             for task in tasks:
                 task.cancel()
             await asyncio.gather(*tasks, return_exceptions=True)
-        budget.save()
+        state.shutdown_at = utc_now_iso()
+        state.last_tick_ts = state.shutdown_at
+        try:
+            payload = _status_payload(store, state)
+            write_status(payload, config.status_file)
+        except Exception as exc:
+            log.warning(
+                "forecasts_scheduler_final_status_failed",
+                error=f"{type(exc).__name__}: {exc}",
+            )
+        try:
+            budget.save()
+        except Exception as exc:
+            log.warning(
+                "forecasts_scheduler_budget_save_failed",
+                error=f"{type(exc).__name__}: {exc}",
+            )
+        try:
+            equities_budget.save()
+        except Exception as exc:
+            log.warning(
+                "forecasts_scheduler_equities_budget_save_failed",
+                error=f"{type(exc).__name__}: {exc}",
+            )
         restore_signal_handlers()
         log.info(
             "forecasts_scheduler_stopped",
             status_file=str(config.status_file),
             budget_file=str(config.budget_file),
+            shutdown_at=state.shutdown_at,
         )
 
 

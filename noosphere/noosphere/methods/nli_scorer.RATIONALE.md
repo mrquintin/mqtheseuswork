@@ -1,38 +1,73 @@
 # NLI Scorer — Rationale
 
-## What the method is trying to do
+## Purpose
 
-The NLI scorer evaluates the logical relationship between two textual claims
-using a Natural Language Inference cross-encoder model (DeBERTa-v3-base fine-tuned
-on NLI). Given a premise and a hypothesis, the model outputs a probability
-distribution over three categories: entailment, neutral, and contradiction.
-These probabilities drive the first layer (S1 — formal consistency) of the
-six-layer coherence engine. A contradiction probability above 0.55 that also
-exceeds the entailment probability yields a CONTRADICT verdict; an entailment
-probability above 0.55 yields COHERE; otherwise the pair is left UNRESOLVED.
-The S1 consistency score is derived as `1 - P(contradiction)`, giving a continuous
-signal even when the discrete verdict is unresolved.
+`nli_scorer` evaluates the logical relationship between two textual claims using
+a Natural Language Inference cross-encoder. It is the formal-consistency layer
+(S1) of the six-layer coherence engine: a fast, model-based read on whether a
+premise entails, contradicts, or is neutral toward a hypothesis.
 
-## Epistemic assumptions
+## Inputs
 
-The method assumes that a pre-trained NLI model, despite being trained on
-general-purpose NLI corpora (SNLI, MultiNLI), transfers meaningfully to the
-domain-specific claims in the Noosphere knowledge graph. It treats the
+`NLIInput`:
+
+- `premise` (str) — the premise side of the NLI pair.
+- `hypothesis` (str) — the hypothesis side.
+
+## Outputs
+
+`NLIScore` with the three softmax probabilities (`entailment`, `neutral`,
+`contradiction`), a discrete `verdict`, and `s1_consistency`. The
+`s1_consistency` score is `1 - P(contradiction)` — a continuous signal that
+stays useful even when the discrete verdict is UNRESOLVED.
+
+The method emits `COHERES_WITH` and `CONTRADICTS` cascade edges and declares no
+`depends_on` methods. It is registered `nondeterministic=False`: given loaded
+weights, the same pair yields the same scores.
+
+## Algorithm
+
+1. A lazy-loaded module singleton instantiates the legacy `NLIScorer`
+   (`cross-encoder/nli-deberta-v3-base`) on first use.
+2. `score_pair(premise, hypothesis)` returns the softmax distribution over
+   entailment / neutral / contradiction.
+3. Discrete verdict: a contradiction probability `≥ 0.55` that also exceeds the
+   entailment probability yields CONTRADICT; an entailment probability `≥ 0.55`
+   yields COHERE; otherwise the pair is UNRESOLVED.
+4. `s1_consistency = 1 - P(contradiction)`.
+
+The `0.55` threshold is a manually chosen heuristic with no formal calibration
+guarantee.
+
+## Domain
+
+The model is pre-trained on general-purpose NLI corpora (SNLI, MultiNLI); the
+method assumes that transfer to the domain-specific claims in the Noosphere
+knowledge graph is not catastrophic. It treats the
 entailment/neutral/contradiction trichotomy as exhaustive and assumes softmax
-calibration is reasonable. It further assumes that pairwise contradiction is a
-symmetric property (both orderings of a pair should yield similar results),
-though the cross-encoder architecture is inherently order-sensitive. The 0.55
-threshold for discrete verdicts is a manually chosen heuristic with no formal
-calibration guarantee.
+calibration is reasonable. It further assumes pairwise contradiction is roughly
+symmetric, although the cross-encoder architecture is order-sensitive. No
+machine-checkable `DomainBound` is declared.
 
-## Known failure modes
+## Failure Modes
 
-The model is known to struggle with claims that are pragmatically contradictory
-but syntactically compatible. Negation scope, especially in long sentences, can
-mislead the cross-encoder. Domain-specific jargon — particularly from economics,
-philosophy of science, and political theory — may produce poorly calibrated
-confidence scores because DeBERTa-v3-base was not fine-tuned on those registers.
-Batch scoring assumes independence between pairs, ignoring transitive coherence
-constraints (if A contradicts B and B entails C, A should contradict C). The
-lazy-loading singleton pattern means the first invocation incurs a multi-second
-model load; subsequent calls reuse the loaded weights but are not thread-safe.
+This method has no `FAILURES.yaml` catalog; its limits are documented inline.
+
+- **Pragmatic contradiction** — claims that are pragmatically contradictory but
+  syntactically compatible are routinely missed.
+- **Negation scope** — especially in long sentences, negation can mislead the
+  cross-encoder into flipping the verdict.
+- **Out-of-register jargon** — economics, philosophy of science, and political
+  theory produce poorly calibrated confidence scores; the base model was not
+  fine-tuned on those registers.
+- **Independence assumption** — batch scoring treats pairs as independent,
+  ignoring transitive coherence constraints.
+- **Lazy singleton** — the first invocation incurs a multi-second model load;
+  subsequent calls reuse the weights but are not thread-safe.
+
+## References
+
+- DeBERTa / DeBERTaV3, the cross-encoder backbone — [@he2021deberta],
+  [@he2023debertav3].
+- SNLI, a training corpus for the NLI head — [@bowman2015snli].
+- MultiNLI, a training corpus for the NLI head — [@williams2018multinli].

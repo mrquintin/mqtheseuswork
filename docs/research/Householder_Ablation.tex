@@ -8,16 +8,17 @@
 \usepackage{hyperref}
 \usepackage{xcolor}
 \usepackage{textcomp}
+\usepackage{seqsplit}
 \title{Householder Reflection Ablation\\\large QH Benchmark v1, Contradiction-Geometry Pipeline}
 \author{Theseus / Noosphere Research}
-\date{2026-05-08}
+\date{2026-05-14}
 \begin{document}
 \maketitle
 \begin{abstract}
-We ablate the Householder reflection step inside the firm's contradiction-geometry pipeline against the frozen QH-v1 benchmark (1567 evaluation items; 103 contradicting pairs held out to estimate the reflection direction). Five variants are compared via paired McNemar with effect-size and Wilson confidence bands. The control invokes the production registered method end-to-end; variants swap a single step. If the no-reflection variant is statistically indistinguishable from the control, the firm faces a documented choice: keep the step on principled grounds or remove it. This report does not pre-commit.
+\textbf{Recommendation: KEEP-WITH-FURTHER-WORK} (signed: Theseus / Noosphere Research — Methodology Review). The QH-v1 / hash-det ablation is inconclusive: the frozen sparsity threshold is saturated, so the label-level test has zero power to confirm or refute the Householder step. Keep the step pending a powered re-run; do not cut a production path on a zero-power result. We ablate the Householder reflection step inside the firm's contradiction-geometry pipeline against the frozen QH-v1 benchmark (1547 evaluation items; 127 contradicting pairs held out to estimate the reflection direction). Five variants are compared against the production control via paired McNemar, a percentile-bootstrap CI on the accuracy delta with Cohen's $h$ effect size, and a score-shift analysis. The control invokes the production registered method end-to-end; each variant swaps exactly one step. The body shows every number and the test details behind the recommendation above.
 \end{abstract}
 \section{Pipeline being ablated}
-The contradiction-geometry pipeline embeds (premise $a$, continuation $b$); estimates a learned reflection direction $\hat d$ from contradicting exemplars via uncentered local PCA on $b - a$ (production \texttt{estimate\_contradiction\_direction}); reflects $b$ across $\hat d$ via Householder ($b' = b - 2(b \cdot \hat d)\hat d$, production \texttt{IdeologyReflector.reflect}); computes Hoyer sparsity of the difference $b' - a$ (production registered method \texttt{contradiction\_geometry}); and thresholds with the frozen QH-v1 cuts to a three-way label. The reflection step is the firm's most distinctive claim and the one most likely to be inherited from an earlier prototype rather than carrying its own weight. This study asks whether it does.
+The contradiction-geometry pipeline embeds (premise $a$, continuation $b$); estimates a learned reflection direction $\hat d$ from contradicting exemplars via uncentered local PCA on $b - a$ (production \texttt{estimate\_contradiction\_direction}); reflects $b$ across $\hat d$ via Householder ($b' = b - 2(b \cdot \hat d)\hat d$, production \texttt{IdeologyReflector.reflect}); computes Hoyer sparsity of the difference $b' - a$ (production registered method \texttt{contradiction\_geometry}); and thresholds with the frozen QH-v1 cuts to a three-way label. The reflection step is the firm's most distinctive claim and the one most likely to be inherited from an earlier prototype rather than carrying its own weight. This study asks whether it does. The control variant is the production code path with no subtle variation.
 
 \section{Variants}
 \begin{description}
@@ -33,11 +34,11 @@ The contradiction-geometry pipeline embeds (premise $a$, continuation $b$); esti
 \toprule
 Variant & Accuracy \\
 \midrule
-\texttt{full} & 0.2897 \\
-\texttt{no\_reflection} & 0.2897 \\
-\texttt{random\_reflection} & 0.2897 \\
-\texttt{asym\_positive} & 0.2897 \\
-\texttt{raw\_embedding} & 0.2897 \\
+\texttt{full} & 0.2780 \\
+\texttt{no\_reflection} & 0.2780 \\
+\texttt{random\_reflection} & 0.2780 \\
+\texttt{asym\_positive} & 0.2780 \\
+\texttt{raw\_embedding} & 0.2780 \\
 \bottomrule
 \end{tabular}
 
@@ -53,14 +54,72 @@ Variant & $b$ (ctrl wins) & $c$ (var wins) & $p$ (exact) & OR ($b/c$) & OR 95\% 
 \bottomrule
 \end{tabular}
 
-\noindent\textit{Reading the table.} $b$ counts items the control got right and the variant got wrong; $c$ counts the reverse. $p$ is the exact two-sided binomial test on the discordant pairs (the standard exact form of McNemar). The odds ratio $b/c$ with Wald CI on the log scale is the effect-size estimate; values $> 1$ favour the control, values $< 1$ favour the variant. With $\sim 1{,}000$ items the firm should not over-interpret a marginal $p < 0.05$ without looking at the CI.
+\noindent\textit{Reading the table.} $b$ counts items the control got right and the variant got wrong; $c$ counts the reverse. $p$ is the exact two-sided binomial test on the discordant pairs (the standard exact form of McNemar). The odds ratio $b/c$ with Wald CI on the log scale is the effect-size estimate; values $> 1$ favour the control, values $< 1$ favour the variant. When $b + c = 0$ no item's label moved between control and variant, the odds ratio is undefined, and the test has no discriminative power --- a structural null, not a confirmed one.
+
+\section{Accuracy delta: bootstrap CI and effect size}
+\begin{tabular}{l r r r l r l}
+\toprule
+Variant & ctrl acc & var acc & $\Delta$ (pp) & 95\% CI (pp) & Cohen's $h$ & magnitude \\
+\midrule
+\texttt{no\_reflection} & 0.2780 & 0.2780 & 0.00 & [0.00, 0.00] & 0.000 & negligible \\
+\texttt{random\_reflection} & 0.2780 & 0.2780 & 0.00 & [0.00, 0.00] & 0.000 & negligible \\
+\texttt{asym\_positive} & 0.2780 & 0.2780 & 0.00 & [0.00, 0.00] & 0.000 & negligible \\
+\texttt{raw\_embedding} & 0.2780 & 0.2780 & 0.00 & [0.00, 0.00] & 0.000 & negligible \\
+\bottomrule
+\end{tabular}
+
+\noindent\textit{Reading the table.} $\Delta$ is the variant accuracy minus the control accuracy, in percentage points; the CI is a paired percentile bootstrap over 10000 resamples with shared resample indices across variants. Per the firm's standing rule, an effect size below one percentage point on accuracy is reported as \emph{indistinguishable in this dataset} --- never as a win for the variant.
+
+\section{Score-shift analysis}
+A null McNemar can mean the variant changes nothing, or it can mean the variant changes the underlying geometry but the frozen label threshold cannot see it. The score-shift analysis separates the two: it measures the variant-minus-control change in the Hoyer-sparsity score \emph{before} thresholding.
+
+\begin{tabular}{l r l r r r}
+\toprule
+Variant & mean shift & 95\% CI & excl.\ 0 & mean $|$shift$|$ & label flips \\
+\midrule
+\texttt{no\_reflection} & 0.0770 & [0.0739, 0.0801] & yes & 0.0770 & 0 \\
+\texttt{random\_reflection} & 0.0066 & [0.0018, 0.0114] & yes & 0.0722 & 0 \\
+\texttt{asym\_positive} & 0.0764 & [0.0734, 0.0796] & yes & 0.0764 & 0 \\
+\texttt{raw\_embedding} & 0.0439 & [0.0426, 0.0452] & yes & 0.0443 & 0 \\
+\bottomrule
+\end{tabular}
+
+\section{Threshold-saturation diagnostic}
+\begin{tabular}{l r}
+\toprule
+Quantity & Value \\
+\midrule
+QH-v1 \texttt{contradicting} sparsity cut & 0.40 \\
+QH-v1 \texttt{coherent} sparsity cut & 0.20 \\
+score min (all variants) & 0.4631 \\
+score max (all variants) & 0.8499 \\
+score range entirely above \texttt{contradicting} cut & true \\
+every variant predicts a single label & true \\
+label test has discriminative power & false \\
+\bottomrule
+\end{tabular}
+
+\noindent\textbf{Structural null.} Every variant constant-predicts the same three-way label because the entire Hoyer-sparsity range sits above the frozen \texttt{contradicting} cut. No score change can move a label, so McNemar returns $b + c = 0$ and $p = 1.0$ for every variant. This is the signature of a test with no power, not of a confirmed null: the ablation cannot, on this embedder, distinguish a Householder step that does real work from one that does not.
 
 \section{Decision rule and recommendation}
-\textbf{Status:} \texttt{indistinguishable}.
+The recommendation is one of \texttt{KEEP}, \texttt{REMOVE}, or \texttt{KEEP-WITH-FURTHER-WORK}, derived by an explicit rule from the \texttt{no\_reflection}-vs-control contrast (it isolates the Householder step). If the label test has no discriminative power, the run licenses neither \texttt{KEEP} nor \texttt{REMOVE} and the call is \texttt{KEEP-WITH-FURTHER-WORK}. Otherwise: a significant accuracy loss from removing the step ($\ge 1$ pp, $p < 0.05$) gives \texttt{KEEP}; a significant gain gives \texttt{REMOVE}; anything in between is indistinguishable in this dataset and gives \texttt{KEEP-WITH-FURTHER-WORK}, since a single null cannot justify cutting a production path.
 
-On this run, removing the Householder step changes accuracy by +0.0000 (full = 0.2897, no\_reflection = 0.2897). The paired McNemar test has p = 1.0000 on $b+c = 0$ discordant pairs. The firm cannot rule out the null that the reflection step is a no-op on this benchmark. \textbf{Recommendation:} pre-commit to one of two paths --- (a) keep the step and add a RATIONALE entry that names the principled reason (theory-of-meaning argument; a separate eval set on which it wins; ideological-reflection use case downstream), or (b) remove it in a follow-up prompt with a full review trail. This research prompt does not change production code.
+\noindent\textbf{Recommendation:} \texttt{KEEP-WITH-FURTHER-WORK}.\\
+\textbf{Signed:} Theseus / Noosphere Research — Methodology Review\\
+\texttt{noosphere-research:methodology-review} \textperiodcentered\ 2026-05-14T06:29:49Z
+
+Every one of the five variants --- including random-direction reflection and raw-embedding scoring, which change the pipeline substantially --- constant-predicts the same three-way label on QH-v1 under the hash-det embedder. The whole Hoyer-sparsity range sits above the frozen 0.40 'contradicting' cut, so no score change can move a label. McNemar therefore returns 0 discordant pairs and p = 1.0 for every variant: this is the signature of a zero-power test, not of a confirmed null. The score-shift analysis shows the reflection is not a numerical no-op --- it measurably moves the sparsity geometry --- but the frozen v1 threshold cannot see it. A REMOVE recommendation would require positive evidence the step is inert; this run supplies none. A KEEP recommendation would require evidence it earns its place; this run supplies none of that either. The honest call is to keep the production path unchanged and re-run the ablation where the label-level test actually has power.
+
+\noindent\textbf{Further work.}
+\begin{itemize}
+\item Re-run all five variants on the cross-model neural embedders (minilm-l6, bge-large) from the Round-17 cross-model study, whose sparsity ranges straddle the threshold, so McNemar has discriminative power.
+\item Re-fit the QH sparsity cut per-embedder on a held-out calibration split (the threshold-transfer experiment already queued in the cross-model findings memo) and re-measure the ablation against the re-calibrated label boundary.
+\item Promote the score-shift contrast to a primary endpoint: report AUROC of each variant against the gold labels, which scores the sparsity signal before the saturating threshold and is well-defined even when the label test is not.
+\end{itemize}
+
+\noindent This research prompt does not change production code. If the recommendation were \texttt{REMOVE}, the removal would be filed as a separate follow-up prompt for founder consideration, with the firm's normal review trail. Surgery is separate from research.
 
 \section{Reproducibility}
-Benchmark version \texttt{qh-v1}; embedder \texttt{hash-det-v1} (dim 192); git SHA \texttt{b69d7e0760efbe084a2743e933f4e2cab003c125}; timestamp 2026-05-08T08:05:55Z. Direction estimator: \texttt{uncentered\_local\_pca} on 103 held-out contradicting pairs (low\_confidence = false). Numbers in this PDF are regenerated from \texttt{ablation\_results.json}; no number is hand-edited.
+Run stamp \texttt{20260514T062948Z}; benchmark version \texttt{qh-v1}; embedder \texttt{hash-det-v1} (dim 192); git SHA \texttt{\seqsplit{0034929158a42e4e536d85efd41ab22721c7ca50}}; timestamp 2026-05-14T06:29:49Z. Direction estimator: \texttt{uncentered\_local\_pca} on 127 held-out contradicting pairs (low\_confidence = false). Bootstrap: 10000 resamples, paired percentile, seed 20259; random-reflection axis seed 1729. The seed/eval split is a fixed SHA-256 partition of item ids (holdout modulus 5), so it is reproducible across runs and Python processes. Numbers in this PDF are regenerated from the run-stamped \texttt{results.json}; no number is hand-edited.
 
 \end{document}

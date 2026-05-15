@@ -46,6 +46,20 @@ def _redact_sensitive_error(exc: Exception, *sensitive_values: Optional[str]) ->
     return message
 
 
+def _codex_error_payload(exc: Exception, codex_db_url: Optional[str]) -> dict[str, object]:
+    payload: dict[str, object] = {
+        "ok": False,
+        "error": _redact_sensitive_error(exc, codex_db_url),
+    }
+    try:
+        import noosphere.store as noosphere_store
+
+        payload["store_module"] = getattr(noosphere_store, "__file__", None)
+    except Exception:
+        pass
+    return payload
+
+
 def _orch():
     from noosphere.orchestrator import NoosphereOrchestrator
 
@@ -411,10 +425,7 @@ def codex_methodology_reanalyze_cmd(
         )
     except Exception as exc:
         typer.echo(
-            json.dumps(
-                {"ok": False, "error": _redact_sensitive_error(exc, codex_db_url)},
-                default=str,
-            ),
+            json.dumps(_codex_error_payload(exc, codex_db_url), default=str),
             err=True,
         )
         raise typer.Exit(1) from exc
@@ -477,10 +488,7 @@ def codex_transcript_enrich_cmd(
         )
     except Exception as exc:
         typer.echo(
-            json.dumps(
-                {"ok": False, "error": _redact_sensitive_error(exc, codex_db_url)},
-                default=str,
-            ),
+            json.dumps(_codex_error_payload(exc, codex_db_url), default=str),
             err=True,
         )
         raise typer.Exit(1) from exc
@@ -597,10 +605,7 @@ def codex_reanalyze_cmd(
                 }
     except Exception as exc:
         typer.echo(
-            json.dumps(
-                {"ok": False, "error": _redact_sensitive_error(exc, codex_db_url)},
-                default=str,
-            ),
+            json.dumps(_codex_error_payload(exc, codex_db_url), default=str),
             err=True,
         )
         raise typer.Exit(1) from exc

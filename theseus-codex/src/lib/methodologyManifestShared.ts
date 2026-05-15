@@ -1,3 +1,14 @@
+/**
+ * Methodology manifest schema version. Surfaced on
+ * `/api/public/methodology/manifest` as both `meta.schemaVersion` and
+ * the in-payload `v` field (the latter retained for legacy-alias
+ * consumers — see `docs/architecture/API_Envelope_Contract.md`).
+ *
+ * External consumers pin against this; bumps require a changelog entry
+ * in the envelope contract doc.
+ *
+ * v1 (2026-03): initial public release alongside the unified envelope.
+ */
 export const MANIFEST_SCHEMA_VERSION = 1;
 
 export type ManifestDriftState = "ok" | "warn" | "escalate";

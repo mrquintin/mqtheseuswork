@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 
+import { resolveUrlAlias } from "@/lib/urlAliases";
+
 /** Must match `COOKIE_NAME` in `src/lib/auth.ts` (middleware stays Edge-safe: no Node crypto). */
 const SESSION_COOKIE = "theseus_session";
 
@@ -73,6 +75,18 @@ function csrfSecret(): string | null {
  */
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
+
+  // Permanent (308) redirects for routes renamed by a naming-
+  // convention pass. Done *before* the auth check so an external
+  // visitor landing on an old path gets the rename even when they
+  // are unauthenticated. See `src/lib/urlAliases.ts`.
+  const aliasTarget = resolveUrlAlias(pathname);
+  if (aliasTarget !== null && aliasTarget !== pathname) {
+    const url = request.nextUrl.clone();
+    url.pathname = aliasTarget;
+    return NextResponse.redirect(url, 308);
+  }
+
   const needsAuth = PROTECTED_PREFIXES.some((p) => pathname.startsWith(p));
   if (!needsAuth) {
     return NextResponse.next();
@@ -113,19 +127,16 @@ export async function middleware(request: NextRequest) {
 }
 
 export const config = {
+  // The middleware now handles three concerns: (a) 308 aliases for
+  // renamed public routes, (b) auth gating on protected prefixes,
+  // (c) CSRF cookie minting. (a) means the matcher must cover the
+  // whole public surface, not just the protected prefixes — an
+  // external visitor following a stale `/methodology/[name]` link
+  // is unauthenticated and not under any protected prefix. Static
+  // assets, the Next.js framework paths, and API routes are
+  // excluded because (a) doesn't apply to them and (b/c) is
+  // enforced at the route handler.
   matcher: [
-    "/dashboard/:path*",
-    "/codex-ask/:path*",
-    "/upload/:path*",
-    "/founders/:path*",
-    "/conclusions/:path*",
-    "/contradictions/:path*",
-    "/research/:path*",
-    "/open-questions/:path*",
-    "/publication/:path*",
-    "/library/:path*",
-    "/account/:path*",
-    "/forecasts/operator/:path*",
-    "/q/:path*",
+    "/((?!_next/static|_next/image|favicon.ico|robots.txt|sitemap.xml|atom.xml|feed.xml|api/|assets/|.*\\.(?:png|jpg|jpeg|gif|svg|webp|ico|css|js|map|woff2?|ttf|eot)$).*)",
   ],
 };

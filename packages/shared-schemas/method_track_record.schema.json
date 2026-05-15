@@ -1,0 +1,41 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://theseus.dev/schemas/method_track_record.schema.json",
+  "title": "MethodTrackRecord",
+  "description": "One materialized row from `MethodTrackRecord`. The Prisma model is the canonical column shape on the codex side; this schema is the JSON wire-form used by the noosphere aggregator (noosphere/evaluation/method_track_record.py) and by /methods/<name>/<version>/track-record API responses. `nullable` fields collapse to `null` (not absent) so downstream typed clients don't have to discriminate.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "organization_id",
+    "method_name",
+    "method_version",
+    "domain",
+    "sample_size",
+    "computed_at"
+  ],
+  "properties": {
+    "organization_id": { "type": "string", "minLength": 1 },
+    "method_name": { "type": "string", "minLength": 1 },
+    "method_version": { "type": "string", "minLength": 1 },
+    "domain": {
+      "type": "string",
+      "description": "Empty string means 'no domain label'. Never smoothed across domains."
+    },
+    "sample_size": { "type": "integer", "minimum": 0 },
+    "weighted_brier": { "type": ["number", "null"] },
+    "calibration_slope": { "type": ["number", "null"] },
+    "calibration_slope_ci_low": { "type": ["number", "null"] },
+    "calibration_slope_ci_high": { "type": ["number", "null"] },
+    "severity_pass_rate": {
+      "type": ["number", "null"],
+      "minimum": 0.0,
+      "maximum": 1.0
+    },
+    "evidence": {
+      "type": "object",
+      "additionalProperties": true,
+      "default": {}
+    },
+    "computed_at": { "type": "string", "format": "date-time" }
+  }
+}

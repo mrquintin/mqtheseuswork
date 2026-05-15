@@ -34,8 +34,46 @@ Round 18 has three jobs simultaneously:
    methodology review week (44–48); accessibility review and final
    verification (49–50).
 
-The active runnable batch is exactly the top-level numbered prompt
-set 01–50.
+The active runnable batch is the top-level numbered prompt set
+01–72. Prompts 01–50 are the original Round 18 batch; 51–72 are
+the 2026-05-13 extension authored after the founder's product
+voice-memo (bug fixes, principle-first knowledge refactor,
+quantitative-from-principles bridge, equities portfolio
+integration, UI critique-and-apply pair, PDF user guides, SaaS
+template extraction with a VC preset, dev-workflow hardening,
+voice-memo capture pipeline, and a final verification pass).
+
+## Extension 51–72 — voice-memo product asks
+
+### Wave A (extension) — Bug fixes
+51. `51_published_article_rendering_bug.txt` — fix glitchy article rendering ("Real cost of growth" symptom); regression-test
+52. `52_public_homepage_article_surfacing.txt` — published articles appear on the public homepage within 60s
+53. `53_continuous_running_scheduler_stability.txt` — diagnose + fix the "continuous running is being weird" scheduler flakiness
+54. `54_dashboard_terminology_and_cleanup.txt` — remove Attention box; clarify Snooze/Dismiss/Open-Question; fix Library button font
+
+### Wave B (extension) — Performance + principle-first refactor
+55. `55_performance_audit_and_remediation.txt` — site-wide perf audit + remediation with measured baselines and a CI bundle budget
+56. `56_principle_first_claim_extraction.txt` — extractor emits PRINCIPLES (transferable decision rules), not first-person quotes
+57. `57_principle_to_quantitative_bridge.txt` — every principle gets a structured quantitative-formalisation spec (metrics, tests, null)
+58. `58_knowledge_dashboard_principle_first.txt` — Knowledge surfaces re-org around principles; conclusions become "evidence for/against"
+
+### Wave C (extension) — Equities track
+59. `59_stocks_portfolio_data_model.txt` — Equity instrument / signal / position / portfolio-state tables; shared eight-gate safety
+60. `60_alpaca_paper_integration.txt` — Alpaca official API for paper trading + market data (primary equity broker)
+61. `61_stocks_signal_generation_principle_grounded.txt` — equity signals must be grounded in firm principles, not technicals
+62. `62_robinhood_live_adapter_optional.txt` — optional Robinhood live adapter, off-by-default, with ToS-risk banner
+63. `63_unified_portfolio_dashboard.txt` — single `/portfolio` page across prediction markets + equities + decision-trace drawer
+
+### Wave D (extension) — Long-tail
+64. `64_quantitative_test_framework.txt` — runner that actually executes prompt 57's specs against real data, on cadence
+65. `65_ui_critique_via_designer_persona.txt` — SV-chief-designer persona produces structured UI critique (READ-ME-FIRST gate)
+66. `66_apply_ui_revision_plan.txt` — implementation pass that applies (or refuses) each revision from prompt 65
+67. `67_pdf_user_guides.txt` — six pdflatex-built user guides covering every founder-facing surface
+68. `68_theseus_template_extraction.txt` — separate `theseus-template/` repo for installing the platform in other organisations
+69. `69_vc_preset_configuration.txt` — VC firm preset with `/deals` surface and principle-alignment table
+70. `70_dev_workflow_branch_pr_private_audit.txt` — repo-privacy audit, optional branch-per-prompt mode, pre-commit test gate
+71. `71_audio_capture_to_principle_pipeline.txt` — founder-only quick-record button → transcript → principle queue
+72. `72_round18_extension_verification.txt` — final verification of prompts 51–71, regression report, README update
 
 ## Run
 
@@ -160,3 +198,40 @@ target lists for the founder to send.
   ```bash
   ./coding_prompts/ui_ux_round20/run_prompts.sh
   ```
+
+## Extension 51–72 (2026-05-13 → 2026-05-15)
+
+Twenty-two prompts numbered 51–72 extend the top-level Round 18 batch
+with the bug fixes, new surfaces, and integrations called out by the
+2026-05-13 founder walk. Verification artefacts live at
+`docs/verification/round18_ext_2026_05_13/` —
+[manifest.md](../docs/verification/round18_ext_2026_05_13/manifest.md)
+records per-file deliverable presence and
+[SUMMARY.md](../docs/verification/round18_ext_2026_05_13/SUMMARY.md)
+records per-prompt status, the test-suite roll-up, the seven invariant
+re-checks, the five biggest open questions, and the run cost.
+
+| # | Prompt | Verification |
+|---|---|---|
+| 51 | [Published-article rendering bug](51_published_article_rendering_bug.txt) | shipped — manifest §P51 |
+| 52 | [Public-homepage article surfacing](52_public_homepage_article_surfacing.txt) | shipped — manifest §P52 |
+| 53 | [Continuous-running scheduler stability](53_continuous_running_scheduler_stability.txt) | shipped — manifest §P53 (`status.py` inlined) |
+| 54 | [Dashboard terminology + cleanup](54_dashboard_terminology_and_cleanup.txt) | shipped — manifest §P54 (Playwright snapshot unverified — webServer issue) |
+| 55 | [Performance audit + remediation](55_performance_audit_and_remediation.txt) | shipped — manifest §P55 (`next.config` is `.ts`) |
+| 56 | [Principle-first claim extraction](56_principle_first_claim_extraction.txt) | shipped — manifest §P56 |
+| 57 | [Principle → quantitative bridge](57_principle_to_quantitative_bridge.txt) | shipped — manifest §P57 |
+| 58 | [Knowledge dashboard, principle-first](58_knowledge_dashboard_principle_first.txt) | shipped — manifest §P58 |
+| 59 | [Stocks portfolio data model](59_stocks_portfolio_data_model.txt) | shipped — alembic round-trip FAILS (open question 1) |
+| 60 | [Alpaca paper integration](60_alpaca_paper_integration.txt) | shipped — manifest §P60 |
+| 61 | [Stocks signal generation, principle-grounded](61_stocks_signal_generation_principle_grounded.txt) | shipped — verbatim-citation invariant verified |
+| 62 | [Robinhood live adapter (optional)](62_robinhood_live_adapter_optional.txt) | shipped — manifest §P62 |
+| 63 | [Unified portfolio dashboard](63_unified_portfolio_dashboard.txt) | shipped — pages live under `(authed)/` |
+| 64 | [Quantitative test framework](64_quantitative_test_framework.txt) | shipped — manifest §P64 |
+| 65 | [UI critique via designer persona](65_ui_critique_via_designer_persona.txt) | shipped — manifest §P65 |
+| 66 | [Apply UI revision plan](66_apply_ui_revision_plan.txt) | shipped — manifest §P66 |
+| 67 | [PDF user guides](67_pdf_user_guides.txt) | shipped — `screenshots/.gitkeep` missing |
+| 68 | [Theseus template extraction](68_theseus_template_extraction.txt) | shipped — manifest §P68 |
+| 69 | [VC-firm preset configuration](69_vc_preset_configuration.txt) | shipped — `test_vc_principle_alignment.py` skipped (jsonschema missing) |
+| 70 | [Dev workflow + privacy audit](70_dev_workflow_branch_pr_private_audit.txt) | shipped — manifest §P70 |
+| 71 | [Audio capture → principle pipeline](71_audio_capture_to_principle_pipeline.txt) | shipped — voice-memo queue invariant verified |
+| 72 | [Round 18 extension verification](72_round18_extension_verification.txt) | this prompt — see [SUMMARY.md](../docs/verification/round18_ext_2026_05_13/SUMMARY.md) (PARTIAL FAIL: pytest 8 failed, npm build broken) |

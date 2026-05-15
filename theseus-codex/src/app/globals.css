@@ -61,7 +61,7 @@
   --amber-deep:   #c1a670;   /* codex-origin light: disabled/subtle borders */
   --amber-glow:   rgba(122, 82, 24, 0.18);  /* codex-origin light: drop-shadows */
   --parchment:    #2a2318;   /* codex-origin light: primary foreground */
-  --parchment-dim:#5a4e3a;   /* codex-origin light: secondary foreground */
+  --parchment-dim:#5a4e3a;   /* codex-origin light: secondary foreground — 5.06:1 on --stone (was #6b5e48, 3.92:1; failed WCAG AA body text) */
   --gold:         var(--amber);      /* codex-origin light: legacy alias */
   --gold-dim:     var(--amber-dim);  /* codex-origin light: legacy alias */
   --ember:        #8b3a2a;   /* codex-origin light: error/action heat */
@@ -147,6 +147,73 @@ h1, h2, h3, h4 {
   letter-spacing: 0.05em;
 }
 
+/* ── Type scale (R-004) ──────────────────────────────────────────────────
+ * Founder-facing surfaces use this ladder. Each step is ≥ 1.25× the next
+ * so that adjacent levels are pre-attentively distinguishable inside a
+ * dense panel. Public-article pages (`.public-title`, `.public-section h2`)
+ * have their own bespoke scale and are intentionally not overridden here.
+ * Selector limited to `:where()` to keep specificity zero so any local
+ * override still wins.
+ */
+:where(h1) { font-size: 2.25rem; line-height: 1.15; }      /* 36 px */
+:where(h2) { font-size: 1.75rem; line-height: 1.2; }       /* 28 px */
+:where(h3) {
+  font-size: 1.375rem;                                      /* 22 px */
+  line-height: 1.25;
+}
+:where(h4) {
+  font-size: 1rem;                                          /* 16 px */
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  line-height: 1.3;
+}
+
+/* H3 prefixed with an amber-dim ❡ glyph so it is pre-attentively
+ * distinct from H2 (which carries the amber-deep underline rule on
+ * PageHeader). Opt out per element by setting `data-h3-glyph="off"`. */
+:where(h3:not([data-h3-glyph="off"])):before {
+  content: "❡  ";
+  color: var(--amber-dim);
+  letter-spacing: 0;
+}
+
+/* ── Queue row collapse (R-018) ──────────────────────────────────────────
+ * Triage rows that resolve fade and collapse over 150 ms so the eye
+ * has a target. Apply `data-collapsing="true"` to the `<li>` for one
+ * animation frame before unmounting it.
+ */
+@keyframes queue-row-collapse {
+  to {
+    opacity: 0;
+    max-height: 0;
+    margin-block: 0;
+    padding-block: 0;
+    border-width: 0;
+  }
+}
+[data-collapsing="true"] {
+  animation: queue-row-collapse 150ms ease-out forwards;
+  overflow: hidden;
+}
+@media (prefers-reduced-motion: reduce) {
+  [data-collapsing="true"] {
+    animation: none;
+    opacity: 0;
+  }
+}
+
+/* ── Prose column (R-006) ────────────────────────────────────────────────
+ * EB Garamond at 17 px / 1.7 was tuned for ~65 ch. At >85 ch the eye
+ * loses its return point on sweep. `.prose-column` clamps long-form
+ * surfaces (ArticleRenderer, ConclusionView, Currents long-form cards)
+ * to a single-column reading width while leaving the outer column free
+ * for the provenance gutter and metadata.
+ */
+.prose-column {
+  max-width: min(680px, 68ch);
+  margin-inline: auto;
+}
+
 /* ── Mono utility class for terminal-style text (timestamps, IDs, numbers) ── */
 .mono, code, pre, kbd {
   font-family: 'IBM Plex Mono', 'JetBrains Mono', Menlo, monospace;
@@ -195,7 +262,12 @@ input::placeholder, textarea::placeholder {
   background: transparent;
   color: var(--amber);
   cursor: pointer;
-  transition: all 0.2s;
+  transition:
+    background-color 0.16s ease,
+    border-color 0.16s ease,
+    box-shadow 0.16s ease,
+    color 0.16s ease,
+    text-shadow 0.16s ease;
   border-radius: 1px;
   text-shadow: 0 0 1px var(--amber-glow);
 }
@@ -276,7 +348,8 @@ input::placeholder, textarea::placeholder {
   hyphenate-limit-chars: 6 3 3;
   hyphenate-limit-lines: 2;
   text-wrap: pretty;
-  max-width: 70ch;
+  /* R-006: clamp the reading column for body face return-sweep. */
+  max-width: min(680px, 68ch);
 }
 
 .public-article-body :where(ul, ol, li, blockquote, pre, code, table) {
@@ -366,6 +439,19 @@ input::placeholder, textarea::placeholder {
   gap: 0.85rem;
   grid-template-columns: repeat(auto-fit, minmax(min(100%, 240px), 1fr));
   margin-top: 0.85rem;
+  /* ConclusionView renders this as a `<ul>` so the screen reader announces
+     a list of method profiles. Strip default list chrome so the visual
+     read is unchanged from the pre-semantic version. */
+  list-style: none;
+  padding-left: 0;
+}
+
+.public-method-card-wrapper {
+  /* The `<li>` is the grid item; the `<article>` inside lays out its
+     own content. No display:contents — that would skip the list-item
+     in older screen readers and lose the list count announcement. */
+  display: block;
+  min-width: 0;
 }
 
 .public-method-split {
@@ -1081,7 +1167,10 @@ input::placeholder, textarea::placeholder {
   border-radius: 2px;
   padding: 3rem 2rem;
   text-align: center;
-  transition: all 0.2s;
+  transition:
+    background-color 0.16s ease,
+    border-color 0.16s ease,
+    box-shadow 0.16s ease;
   cursor: pointer;
 }
 
@@ -1250,38 +1339,13 @@ input::placeholder, textarea::placeholder {
   .cursor::after,
   .fade-up,
   .gate-labyrinth,
-  .gate-pulse,
-  .crt-noise { animation: none !important; }
+  .gate-pulse { animation: none !important; }
   /* Note: .gate-leave / .gate-hairline / .codex-arrival /
      .codex-arrival-hairline are also disabled by the later @media block
      at the end of this section. Listed here for discoverability. */
 }
 
-/* ── Amber noise drift ──────────────────────────────────────────────────
- * The `<CRTOverlay />` amber-noise layer wallpapers a 256px tile across
- * the viewport and drifts the background-position very slowly (48s cycle
- * for 256px travel = ~5px/s). Slow enough to be subliminal; present enough
- * that the page feels alive rather than a flat render. */
-.crt-noise {
-  animation: crt-noise-drift 48s linear infinite;
-}
-
-/* ── Light-mode CRT overlay dampening ─────────────────────────────────────
- *
- * The CRT noise + darkening vignette are the signature "amber oracle"
- * effect in dark mode. In light mode they'd fight the bright
- * parchment background instead: the noise layer is a dark amber
- * pattern at mix-blend-mode `screen` (designed for a black base) —
- * over parchment it just muddies the page. And the vignette
- * darkens the rim of a page that's supposed to read as ink-on-paper.
- *
- * Both get suppressed here. If a user ever wants the CRT feel back
- * they can flip `data-theme` to dark.
- */
-[data-theme="light"] .crt-noise {
-  display: none;
-}
-
+/* ── Light-mode CRT overlay dampening ───────────────────────────────────── */
 [data-theme="light"] .crt-vignette {
   /* A whisper of darkening at the corners keeps the reading page
    * from feeling flat, without looking like an old monitor. */
@@ -1290,17 +1354,6 @@ input::placeholder, textarea::placeholder {
     transparent 70%,
     rgba(90, 78, 58, 0.10) 100%
   ) !important;
-}
-
-/* Dark mode is the default — explicit selector keeps the cascade
- * readable when we inspect in devtools. */
-[data-theme="dark"] .crt-noise {
-  display: block;
-}
-
-@keyframes crt-noise-drift {
-  0%   { background-position: 0 0; }
-  100% { background-position: 256px 256px; }
 }
 
 /* ── Gate (/) animations ─────────────────────────────────────────────────── */
@@ -2589,7 +2642,11 @@ input::placeholder, textarea::placeholder {
   padding: 0.4rem 0.9rem;
   text-decoration: none;
   text-transform: uppercase;
-  transition: all 0.18s ease;
+  transition:
+    background-color 0.16s ease,
+    border-color 0.16s ease,
+    box-shadow 0.16s ease,
+    color 0.16s ease;
 }
 
 .public-header-mobile {
@@ -2858,6 +2915,40 @@ input::placeholder, textarea::placeholder {
   .public-container,
   article {
     padding-bottom: 5rem;
+  }
+}
+
+/* ═════════════════════════════════════════════════════════════════════════
+ * Accessibility utilities + reduced-motion fallbacks.
+ *
+ * The `.visually-hidden` class is the standard pattern for content that
+ * should be read by screen readers but not painted. The reduced-motion
+ * block extends what already exists earlier in this file to cover the
+ * Round 17–18 animations (Currents pulse, forecasts shimmer, prob-bar
+ * width transition) that previously had no fallback.
+ * ═════════════════════════════════════════════════════════════════════════ */
+
+.visually-hidden {
+  border: 0;
+  clip: rect(0 0 0 0);
+  clip-path: inset(50%);
+  height: 1px;
+  margin: -1px;
+  overflow: hidden;
+  padding: 0;
+  position: absolute;
+  white-space: nowrap;
+  width: 1px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .currents-pulse,
+  .currents-fade-in,
+  .forecasts-prob-shimmer {
+    animation: none !important;
+  }
+  .forecasts-prob-bar > .fill {
+    transition: none !important;
   }
 }
 

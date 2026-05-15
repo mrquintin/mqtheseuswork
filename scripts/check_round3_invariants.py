@@ -23,6 +23,7 @@ CHECKS: list[dict] = [
     },
     {"name": "mip-versioning", "script": "scripts/check_mip_versioning.py"},
     {"name": "doc-drift", "script": "scripts/check_doc_drift.py"},
+    {"name": "rationale-structure", "script": "scripts/check_rationale_structure.py"},
     {"name": "no-phone-home", "script": "scripts/check_no_phone_home.py"},
     {"name": "signed-artifacts", "script": "scripts/check_signed_artifacts.py"},
     {"name": "ui-uses-gated-api", "script": "scripts/check_ui_uses_gated_api.py"},

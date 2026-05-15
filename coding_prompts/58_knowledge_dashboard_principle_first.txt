@@ -1,0 +1,87 @@
+You are operating in /Users/michaelquintin/Desktop/Theseus.
+
+Goal: re-organise the Knowledge surfaces so PRINCIPLES are the
+spine. Conclusions become "evidence for/against a principle".
+Claims become "raw source material that produced a principle".
+This expresses the founder's redirect: "extract principles that
+we can use then to judge and make decisions from".
+
+Depends on prompts 56 (principle-first extractor) and 57
+(quantitative formalisation) having landed.
+
+Before you start — read:
+1. `theseus-codex/src/app/(authed)/dashboard/page.tsx` — the
+   current dashboard.
+2. `theseus-codex/src/app/knowledge/...` — whatever Knowledge
+   surface currently exists (Round 12+ added a Knowledge hub;
+   verify present shape).
+3. `theseus-codex/src/app/methodology/principles/page.tsx` —
+   the existing principles index.
+
+Implement:
+
+A. New "Principles" top tab in primary nav, between Knowledge
+   and Currents. It is the primary entry point for browsing
+   the firm's principles. /principles/index.
+
+B. Principle index page (public, with deeper authed view):
+   list view, filterable by:
+   - `principle_kind` (RULE / CRITERION / MECHANISM /
+     HEURISTIC / DEFINITION / FORMULA / ALGORITHM, from
+     prompt 56).
+   - `domain_of_applicability` (faceted by domain tags).
+   - whether a `QuantitativeFormalisation` is APPROVED
+     (from prompt 57).
+   - conviction score (existing field).
+
+C. Principle detail page elements, top to bottom:
+   - Principle statement.
+   - `principle_kind` badge + domain.
+   - "What would update this": the APPROVED quantitative
+     formalisation, rendered per prompt 57.
+   - "Evidence FOR": conclusions citing this principle as
+     support.
+   - "Evidence AGAINST": conclusions or open questions that
+     would weaken it.
+   - "Decisions this informs": the `decision_examples` list,
+     each linkable to any concrete decision in the firm's
+     history that used the principle.
+   - "Source artifacts": the raw uploaded materials this
+     principle was extracted from (claims / quotes, with
+     `quoted_span` preserved per existing citation rules).
+   - "Lineage": link to Round 18 prompt 23's lineage view.
+
+D. Dashboard re-org. The authed dashboard's main rail becomes
+   "Active principles" — the principles the firm is currently
+   using to judge new evidence, ranked by recent decision
+   relevance. The previous "Attention" box (removed in
+   prompt 54) stays gone. The "Recent conclusions" rail
+   shrinks to a secondary panel.
+
+E. Search. Principle search becomes the primary search affordance.
+   Searching for a phrase returns matching principles first,
+   then matching conclusions, then matching claims. This is a
+   ranking change in existing search; no new search engine.
+
+F. Tests:
+   - Index page renders with three filter dimensions wired.
+   - Detail page renders all six sections when present, and
+     hides any section whose data is empty (no empty boxes).
+   - Search ranks principles first on a fixture corpus.
+
+Constraints
+- Do not break existing /methodology/principles deep links.
+  If you move the canonical URL, the old path 301s to the new.
+- Do not delete conclusion / claim surfaces. They are now a
+  layer beneath principles, not removed.
+- Do not modify how principles are extracted (prompt 56) or
+  formalised (prompt 57). This prompt is presentation only.
+
+SCOPE
+- `theseus-codex/src/app/principles/page.tsx` CREATE
+- `theseus-codex/src/app/principles/[id]/page.tsx` CREATE
+- `theseus-codex/src/app/(authed)/dashboard/page.tsx` MODIFY
+- `theseus-codex/src/components/nav/PrimaryNav.tsx` MODIFY
+- `theseus-codex/src/lib/search.ts` MODIFY
+- `theseus-codex/src/app/methodology/principles/page.tsx` MODIFY
+- `theseus-codex/src/__tests__/principles_pages.test.tsx` CREATE

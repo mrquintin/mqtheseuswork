@@ -50,6 +50,22 @@ const TOP_NAV_LINKS: ReadonlyArray<{
       pathname.startsWith("/library/") ||
       pathname.startsWith("/transcripts/"),
   },
+  // Principles is the firm's spine surface (Round 21): every other
+  // knowledge artifact is anchored to a principle. Sits between
+  // Knowledge and Currents so it reads as a peer of the Knowledge
+  // browser rather than a sub-section of it. Active on the canonical
+  // `/principles` tree AND on the retired `/methodology/principles`
+  // path (which 308s here) so the link still highlights when the
+  // founder lands via an old deep-link.
+  {
+    href: "/principles",
+    label: "Principles",
+    active: (pathname) =>
+      pathname === "/principles" ||
+      pathname.startsWith("/principles/") ||
+      pathname === "/methodology/principles" ||
+      pathname.startsWith("/methodology/principles/"),
+  },
   // `/codex-ask` is the LLM-grounded query surface — the central value
   // proposition of the Codex (ask the oracle a question, get an answer
   // grounded in the firm's recorded conclusions).

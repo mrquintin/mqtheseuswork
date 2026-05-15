@@ -1,45 +1,78 @@
 # Suggest Research — Rationale
 
-## What the method is trying to do
+## Purpose
 
-The suggest_research method analyses the output of a completed discussion episode
-and generates structured research material for the next conversation. It
-identifies 3–5 productive lines of inquiry by combining: novel principles
-articulated for the first time, unresolved contradictions detected via embedding
-geometry, high-conviction principles with unexplored consequences, and topics
-where the discussion petered out or changed abruptly. For each topic, it
-produces empirical anchors (concrete historical cases that make the question
-tangible) and a curated reading list mixing philosophical, historical, and
-adversarial sources.
+`suggest_research` analyses the output of a completed discussion episode and
+generates structured research material for the next conversation. It turns a
+compressed summary of an episode — principles, claims, contradictions — into
+3–5 productive lines of inquiry, each grounded with empirical anchors and a
+curated reading list.
 
-## Epistemic assumptions
+## Inputs
 
-The method assumes that an LLM can identify productive intellectual directions
-from a compressed summary of principles, claims, and contradictions. This is a
-strong assumption — the LLM sees a lossy representation of the discussion and
-must infer what would be most valuable to explore next. The priority ranking
-(high/medium/exploratory) is the LLM's judgment call, not derived from any
-quantitative signal. The empirical anchors and readings are requested to be
-"real" (not fabricated), but LLM hallucination of plausible-sounding but
-nonexistent sources is a known risk. The method caps at 5 topics and truncates
-input to 25 claims and 15 principles to manage LLM context windows, which means
-large discussions lose information.
+`SuggestResearchInput`:
 
-## Known failure modes
+- `episode_number` (int), `episode_title` (str) — the episode being followed up.
+- `claim_texts` (list[str]) — sample claims; truncated to the first 25.
+- `new_principle_texts` (list[str]) — newly articulated principles; truncated to
+  the first 15.
+- `contradiction_pairs` (list[list[str]]) — detected contradictions; truncated to
+  the first 8 pairs of length ≥ 2.
 
-The JSON parsing of LLM output is fragile — if the LLM produces malformed JSON
-or wraps the array in markdown code fences, the regex extraction may fail and
-return zero topics. The fallback text parser handles some structured-but-not-JSON
-output, but edge cases slip through. Readings are not validated against any
-bibliography database, so fabricated sources pass through undetected. The
-cross-cutting themes analysis makes an additional LLM call, which doubles the
-cost for marginal value when topics are thematically coherent. The method uses
-`_call_llm` which tries Anthropic first, then OpenAI, then returns a raw prompt
-dump — the fallback chain means behavior varies depending on which API keys are
-configured.
+## Outputs
 
-## Dependencies
+`SuggestResearchOutput`:
 
-- **External LLM**: Requires either an Anthropic API key (Claude) or an OpenAI
-  API key (GPT-4o). Uses `_call_llm` which dispatches to whichever is available,
-  with graceful degradation to a raw prompt dump if neither is configured.
+- `topics` — a list of `TopicItem`, each with a title, philosophical question,
+  connection to the discussion, ramifications, a priority label, empirical
+  anchors, and readings.
+- `cross_cutting_themes` — see the Drift correction below.
+
+The method emits no cascade edges, is non-deterministic
+(`nondeterministic=True`), and declares no `depends_on` methods.
+
+> **Drift correction (2026-05-14).** Earlier revisions of this rationale
+> described a cross-cutting-themes analysis that "makes an additional LLM call".
+> The registered `suggest_research` wrapper makes **one** LLM call and always
+> returns `cross_cutting_themes=[]` — the second-call analysis was not carried
+> into the wrapper. This rationale now describes the single-call behaviour; the
+> missing themes pass is tracked in
+> `coding_prompts/_proposed/suggest_research_cross_cutting_themes.txt`.
+
+## Algorithm
+
+1. Build prompt blocks from the truncated principles, claims, and contradiction
+   pairs.
+2. Call `_call_llm` once with a research-advisor system prompt asking for 3–5
+   topics in a JSON array, each with anchors and readings.
+3. Extract the first `[...]` block from the response and parse it; on malformed
+   JSON, return zero topics.
+4. Build `TopicItem`s (with nested `AnchorItem`s and `ReadingItem`s).
+
+`_call_llm` tries Anthropic first, then OpenAI, then returns a raw prompt dump —
+so behaviour varies with which API keys are configured.
+
+## Domain
+
+Built for the tail end of a discussion episode, where the input is a lossy
+summary the LLM must reason over. The priority ranking (high/medium/exploratory)
+is the LLM's judgment call, not a quantitative signal. Truncation to 25 claims
+and 15 principles bounds context cost, so large discussions lose information. No
+machine-checkable `DomainBound` is declared.
+
+## Failure Modes
+
+This method has no `FAILURES.yaml` catalog; its limits are documented inline.
+
+- **Fragile JSON parsing** — malformed JSON or markdown-fenced output makes the
+  regex extraction fail and return zero topics.
+- **Unvalidated readings** — readings and empirical anchors are requested to be
+  "real", but nothing checks them against a bibliography database, so fabricated
+  sources pass through undetected.
+- **Fallback-chain variance** — the `_call_llm` Anthropic→OpenAI→raw-dump chain
+  means the same input can produce different output depending on configured keys.
+
+## References
+
+No external research dependencies. The method is an LLM-driven advisory pass
+with no underlying paper it depends on.

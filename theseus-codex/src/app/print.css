@@ -29,6 +29,46 @@
   @page {
     size: Letter;
     margin: 0.85in 0.9in 0.95in;
+
+    /*
+     * Running header (article title) + numbered footer. These are CSS
+     * paged-media margin boxes: print engines that implement them
+     * (WeasyPrint, Prince — the path the batch export takes) render
+     * them; browsers that don't simply omit them, so the rules are
+     * purely additive and never regress a browser "Save as PDF".
+     *
+     * Footer numbering style — a small, plain arabic numeral, bottom
+     * aligned to the outside edge, no "page X of Y" — matches the
+     * firm's existing LaTeX PDFs in `docs/`, which set
+     * `\fancyhead[R]{\small\thepage}`.
+     */
+    @top-left {
+      content: string(doc-running-title);
+      font-family: "EB Garamond", "Iowan Old Style", Georgia, serif;
+      font-size: 8.5pt;
+      color: #555;
+      letter-spacing: 0.02em;
+    }
+    @bottom-right {
+      content: counter(page);
+      font-family: "EB Garamond", "Iowan Old Style", Georgia, serif;
+      font-size: 9pt;
+      color: #333;
+    }
+  }
+
+  /*
+   * Page 1 is the title page (the metadata block, below): it carries
+   * no running header and no page number. Numbering and the running
+   * header therefore both begin on page 2 — the first body page.
+   */
+  @page :first {
+    @top-left {
+      content: "";
+    }
+    @bottom-right {
+      content: "";
+    }
   }
 
   html,
@@ -188,29 +228,64 @@
     text-decoration: underline;
   }
 
-  /* ── Print-only metadata block (first page header) ─────────────────── */
+  /* ── Print-only metadata block — the title page ────────────────────── */
+  /*
+   * The metadata block owns page 1 by itself (`page-break-after:
+   * always`), turning it into a true title page: the article body
+   * then opens on page 2, which is where the running header + footer
+   * begin. Flex column layout lets the fingerprint/URL footer settle
+   * against the bottom of the page (`margin-top: auto`). The title is
+   * published into the `doc-running-title` named string consumed by
+   * the `@page` running header.
+   */
   .print-metadata-block {
-    border-bottom: 0.5pt solid #333;
+    border: none;
     color: #111;
+    display: flex;
+    flex-direction: column;
     font-family: "EB Garamond", "Iowan Old Style", Georgia, serif;
-    margin: 0 0 1.2em;
-    padding: 0 0 0.7em;
+    margin: 0;
+    min-height: 8.7in;
+    padding: 1.1in 0 0;
+    page-break-after: always;
+    break-after: page;
+  }
+  .print-metadata-block .print-metadata-imprint {
+    color: #555;
+    font-size: 9pt;
+    letter-spacing: 0.22em;
+    margin: 0 0 2.4em;
+    text-transform: uppercase;
   }
   .print-metadata-block .print-metadata-title {
-    font-size: 22pt;
+    font-size: 26pt;
     font-weight: 600;
-    line-height: 1.2;
-    margin: 0 0 0.35em;
+    line-height: 1.18;
+    margin: 0 0 0.4em;
+    string-set: doc-running-title content();
   }
   .print-metadata-block .print-metadata-byline {
-    font-size: 10.5pt;
-    margin: 0 0 0.5em;
+    font-size: 12pt;
+    font-style: italic;
+    margin: 0 0 1.3em;
   }
-  .print-metadata-block dl {
+  /* Methodology pill: a bordered, small-caps chip — the print-safe
+   * echo of the on-screen methodology pill. */
+  .print-metadata-block .print-metadata-pill {
+    align-self: flex-start;
+    border: 0.75pt solid #444;
+    border-radius: 999px;
+    font-size: 8.5pt;
+    font-variant: small-caps;
+    letter-spacing: 0.06em;
+    margin: 0 0 1.8em;
+    padding: 0.22em 0.9em;
+  }
+  .print-metadata-block dl.print-metadata-stats {
     display: grid;
-    font-size: 9.5pt;
+    font-size: 10pt;
     grid-column-gap: 1em;
-    grid-row-gap: 0.15em;
+    grid-row-gap: 0.2em;
     grid-template-columns: max-content 1fr;
     margin: 0;
   }
@@ -222,6 +297,23 @@
   }
   .print-metadata-block dd {
     margin: 0;
+  }
+  .print-metadata-block .print-metadata-foot {
+    border-top: 0.5pt solid #999;
+    margin-top: auto;
+    padding-top: 0.7em;
+  }
+  .print-metadata-block .print-metadata-row {
+    font-size: 9pt;
+    margin: 0 0 0.2em;
+  }
+  .print-metadata-block .print-metadata-key {
+    color: #444;
+    display: inline-block;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    min-width: 4.5em;
+    text-transform: uppercase;
   }
   .print-metadata-block .print-metadata-fingerprint {
     font-family: "IBM Plex Mono", "Menlo", monospace;
@@ -239,6 +331,9 @@
   .print-endnotes h2 {
     font-size: 13pt;
     margin: 0 0 0.5em;
+    /* The "Endnotes" heading must never strand alone at a page foot. */
+    page-break-after: avoid;
+    break-after: avoid;
   }
   .print-endnotes ol {
     counter-reset: endnote;
@@ -254,6 +349,11 @@
     padding-left: 2.2em;
     position: relative;
     text-indent: 0;
+    /* An endnote is short; keep each one whole so a source name never
+     * splits across a page boundary. The list itself still breaks
+     * freely *between* notes — only the individual note is atomic. */
+    page-break-inside: avoid;
+    break-inside: avoid;
   }
   .print-endnotes li::before {
     content: counter(endnote) ".";
@@ -263,15 +363,112 @@
     text-align: right;
     width: 1.8em;
   }
+  /* Source names render in small caps — the bibliographic convention
+   * for the author/source line of an endnote. */
+  .print-endnotes .print-endnote-title {
+    font-variant: small-caps;
+    letter-spacing: 0.01em;
+  }
+  /* Source-credibility score (Round 17 prompt 19) shown inline,
+   * directly after the source name. */
+  .print-endnotes .print-endnote-cred {
+    color: #555;
+    font-size: 8.5pt;
+    white-space: nowrap;
+  }
   .print-endnotes .print-endnote-url {
     color: #222 !important;
     font-family: "IBM Plex Mono", "Menlo", monospace;
     font-size: 9pt;
-    word-break: break-all;
+    /*
+     * Wrap long URLs at sensible characters. The component inserts
+     * <wbr> break opportunities after the structural characters
+     * (`/ . ? & = -`); `overflow-wrap` is the fallback for a single
+     * unbroken giant token. We deliberately do NOT use
+     * `word-break: break-all`, which would break mid-token at an
+     * arbitrary letter.
+     */
+    word-break: normal;
+    overflow-wrap: break-word;
   }
   .print-endnotes .print-endnote-meta {
     color: #555;
     font-size: 9pt;
     margin-left: 0.4em;
+  }
+
+  /* ── Print-only cover page (bound / multi-article print views) ─────── */
+  /*
+   * `PrintCover` renders this; it owns its own page. In a bound run
+   * the cover is page 1, so `@page :first` suppresses the running
+   * header + footer on it automatically.
+   */
+  .print-cover {
+    padding: 2.2in 0 0;
+    page-break-after: always;
+    break-after: page;
+    text-align: center;
+  }
+  .print-cover .print-cover-imprint {
+    color: #555;
+    font-size: 10pt;
+    letter-spacing: 0.26em;
+    margin: 0 0 3em;
+    text-transform: uppercase;
+  }
+  .print-cover .print-cover-title {
+    font-size: 30pt;
+    font-weight: 600;
+    line-height: 1.15;
+    margin: 0 0 0.4em;
+  }
+  .print-cover .print-cover-subtitle {
+    color: #333;
+    font-size: 13pt;
+    font-style: italic;
+    margin: 0 0 2.5em;
+  }
+  .print-cover .print-cover-meta {
+    color: #555;
+    font-size: 9.5pt;
+    line-height: 1.7;
+  }
+
+  /* ── Print-only table of contents (bound print views) ──────────────── */
+  .print-toc {
+    page-break-after: always;
+    break-after: page;
+  }
+  .print-toc h2 {
+    font-size: 16pt;
+    margin: 0 0 0.8em;
+  }
+  .print-toc ol {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+  }
+  .print-toc li {
+    font-size: 10.5pt;
+    margin: 0 0 0.4em;
+  }
+  .print-toc a {
+    color: #000 !important;
+    text-decoration: none;
+  }
+  /*
+   * In print engines that support paged-media target counters, the
+   * TOC entry gets a dotted leader to the destination page number.
+   * Browsers that don't support `target-counter` just drop the
+   * `::after`, leaving a plain (still clickable) link.
+   */
+  .print-toc a::after {
+    color: #555;
+    content: leader(". ") target-counter(attr(href), page);
+    font-size: 9.5pt;
+  }
+  .print-toc .print-toc-meta {
+    color: #777;
+    font-size: 9pt;
   }
 }

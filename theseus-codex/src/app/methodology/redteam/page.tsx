@@ -58,10 +58,36 @@ type Envelope = {
   envelope_hash: string;
 };
 
+type ProviderSplit = { single: number; multi: number };
+
+type AnalysisPayload = {
+  question: string;
+  verdict: string;
+  claim_supported?: boolean;
+  claim_supported_per_dollar?: boolean;
+  claim_supported_coverage?: boolean;
+  mean_high_count?: ProviderSplit;
+  mean_high_per_dollar?: ProviderSplit;
+  mean_severity_weighted_score?: ProviderSplit;
+  mean_severity_weighted_per_dollar?: ProviderSplit;
+  mean_distinct_high_angles?: ProviderSplit;
+  objection_set_divergence?: {
+    comparison: string;
+    jaccard_high_severity: number;
+    production_only: string[];
+    broad_swarm_only: string[];
+  };
+};
+
 type TournamentPayload = {
   envelope: Envelope;
   leaderboard: LeaderboardRow[];
   cross_validation: CrossValidationCell[];
+  // Present on v1 tournament runs (run_redteam_tournament_v1.sh);
+  // absent on older generic-archive snapshots — both render.
+  run_kind?: string;
+  driver?: string;
+  analysis?: AnalysisPayload;
 };
 
 const REPO_URL = "https://github.com/qmichael444/theseus";
@@ -85,6 +111,38 @@ function readPayload(): TournamentPayload | null {
     } catch {
       // try next
     }
+  }
+  // Committed v1 tournament runs:
+  // benchmarks/redteam/v1/results/<stamp>/results.json. The first
+  // tournament (Round 17 prompt 23) ships its result in-repo so a
+  // fresh checkout renders a leaderboard without a CI run.
+  const resultsRoot = path.join(
+    process.cwd(),
+    "..",
+    "benchmarks",
+    "redteam",
+    "v1",
+    "results",
+  );
+  try {
+    const stamps = fs
+      .readdirSync(resultsRoot)
+      .filter((d) => /^\d{8}T\d{6}Z$/.test(d))
+      .sort()
+      .reverse();
+    for (const stamp of stamps) {
+      try {
+        const text = fs.readFileSync(
+          path.join(resultsRoot, stamp, "results.json"),
+          "utf8",
+        );
+        return JSON.parse(text) as TournamentPayload;
+      } catch {
+        // try next stamp
+      }
+    }
+  } catch {
+    // no committed results directory
   }
   // Fall back to whatever the most recent timestamped file is.
   const archiveDirs = [
@@ -180,7 +238,7 @@ export default async function RedTeamLeaderboardPage() {
             <p>
               The recurring tournament has not produced a leaderboard
               snapshot in this checkout. Run{" "}
-              <code>./noosphere/scripts/run_redteam_tournament.sh</code>{" "}
+              <code>./noosphere/scripts/run_redteam_tournament_v1.sh</code>{" "}
               locally, or wait for the weekly{" "}
               <a
                 href={`${REPO_URL}/actions/workflows/redteam_tournament.yml`}
@@ -196,6 +254,42 @@ export default async function RedTeamLeaderboardPage() {
 
         {payload && (
           <>
+            {payload.run_kind === "bootstrap-offline-deterministic" && (
+              <section className="public-section">
+                <div
+                  style={{
+                    border: "1px solid var(--public-border, #ccc)",
+                    borderLeft: "3px solid var(--public-muted, #888)",
+                    padding: "0.9rem 1.1rem",
+                    fontSize: "0.9rem",
+                  }}
+                >
+                  <strong>
+                    Bootstrap run — seeded offline driver, not live
+                    provider calls.
+                  </strong>{" "}
+                  This is the first tournament. No provider API key was
+                  present in the run environment, so rather than publish
+                  an all-partial leaderboard the runner fell back to a
+                  deterministic simulation. Severity is still computed by
+                  the real rubric, cost by the real provider price table,
+                  and the leaderboard is byte-identical across re-runs
+                  (the envelope hash is stable) — but the exact numbers
+                  below are simulated, not live provider output. The
+                  envelope records <code>run_kind: {payload.run_kind}</code>
+                  {payload.driver ? (
+                    <>
+                      {" "}
+                      and <code>driver: {payload.driver}</code>
+                    </>
+                  ) : null}
+                  . Provider-backed runs replace this snapshot once API
+                  keys are provisioned in CI; the seasonal review treats
+                  that driver change as a drift event, not a clean
+                  continuation.
+                </div>
+              </section>
+            )}
             <section className="public-section">
               <h2>Leaderboard</h2>
               <p className="public-muted">
@@ -204,8 +298,14 @@ export default async function RedTeamLeaderboardPage() {
                 bench sha256{" "}
                 <code>{payload.envelope.bench_sha256.slice(0, 12)}…</code>{" "}
                 · envelope{" "}
-                <code>{payload.envelope.envelope_hash}</code> · run
-                at <code>{payload.envelope.finished_at_utc}</code>.
+                <code>{payload.envelope.envelope_hash}</code>
+                {payload.run_kind ? (
+                  <>
+                    {" "}
+                    · <code>{payload.run_kind}</code>
+                  </>
+                ) : null}{" "}
+                · run at <code>{payload.envelope.finished_at_utc}</code>.
               </p>
               <table className="public-table">
                 <thead>
@@ -288,6 +388,14 @@ export default async function RedTeamLeaderboardPage() {
                 The envelope hash links back to the workflow run that
                 produced it.
               </p>
+              <p className="public-muted" style={{ fontSize: "0.85rem" }}>
+                The cost column is load-bearing. A configuration that wins
+                on severity at a multiple of another's cost is shown here{" "}
+                <em>with</em> that multiple — it is not allowed to look
+                free. Read severity-weighted score, agreement, and cost{" "}
+                <em>jointly</em>; the leaderboard deliberately does not
+                collapse them into a single ranking number.
+              </p>
             </section>
 
             <section className="public-section">
@@ -326,6 +434,76 @@ export default async function RedTeamLeaderboardPage() {
                 </tbody>
               </table>
             </section>
+
+            {payload.analysis && (
+              <section className="public-section">
+                <h2>Analysis — diversity vs monoculture</h2>
+                <p>{payload.analysis.question}</p>
+                <p>
+                  <strong>Verdict.</strong> {payload.analysis.verdict}
+                </p>
+                {(() => {
+                  const a = payload.analysis!;
+                  const rows: [string, ProviderSplit][] = [
+                    a.mean_severity_weighted_score
+                      ? ["Severity-weighted score (mean)", a.mean_severity_weighted_score]
+                      : null,
+                    a.mean_high_count
+                      ? ["High-severity objections (mean)", a.mean_high_count]
+                      : null,
+                    a.mean_high_per_dollar
+                      ? ["High-severity objections per dollar (mean)", a.mean_high_per_dollar]
+                      : null,
+                    a.mean_severity_weighted_per_dollar
+                      ? ["Severity-weighted score per dollar (mean)", a.mean_severity_weighted_per_dollar]
+                      : null,
+                    a.mean_distinct_high_angles
+                      ? ["Distinct high-severity attack angles (mean)", a.mean_distinct_high_angles]
+                      : null,
+                  ].filter(Boolean) as [string, ProviderSplit][];
+                  if (!rows.length) return null;
+                  return (
+                    <table className="public-table">
+                      <thead>
+                        <tr>
+                          <th scope="col">Metric</th>
+                          <th scope="col">Single-provider</th>
+                          <th scope="col">Multi-provider</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {rows.map(([label, split]) => (
+                          <tr key={label}>
+                            <th scope="row">{label}</th>
+                            <td>{split.single}</td>
+                            <td>{split.multi}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  );
+                })()}
+                {payload.analysis.objection_set_divergence && (
+                  <p className="public-muted" style={{ fontSize: "0.85rem" }}>
+                    Objection-set divergence (
+                    {payload.analysis.objection_set_divergence.comparison}):
+                    high-severity Jaccard{" "}
+                    <code>
+                      {payload.analysis.objection_set_divergence.jaccard_high_severity}
+                    </code>
+                    . A Jaccard of 0 means the two configurations'
+                    high-severity objection sets do not overlap at all —
+                    the diverse swarm surfaced{" "}
+                    {payload.analysis.objection_set_divergence.broad_swarm_only.length}{" "}
+                    high-severity objection
+                    {payload.analysis.objection_set_divergence.broad_swarm_only.length === 1
+                      ? ""
+                      : "s"}{" "}
+                    the production default did not.
+                  </p>
+                )}
+              </section>
+            )}
 
             <section className="public-section">
               <h2>What this page is for</h2>

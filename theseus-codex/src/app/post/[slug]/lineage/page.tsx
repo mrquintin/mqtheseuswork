@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 
+import LineageTimeline from "@/components/LineageTimeline";
 import PublicHeader from "@/components/PublicHeader";
 import { getFounder } from "@/lib/auth";
 import { db } from "@/lib/db";
@@ -18,19 +19,14 @@ export const revalidate = 60;
  * unpublished methodology) are absent from the rendered list AND from
  * the JSON payload of the API endpoint that backs it; readers cannot
  * tell whether private steps exist.
+ *
+ * The view inherits the v2 layered swim-lane design via
+ * `LineageTimeline`, mounted with `publicMode` — which re-applies the
+ * strict visibility filter inside the component as a second guard, so a
+ * private event can never reach the DOM even as a "[redacted]" stub.
  */
 
 type PageProps = { params: Promise<{ slug: string }> };
-
-const KIND_LABELS: Record<string, string> = {
-  source: "Source",
-  claim: "Claim",
-  methodology: "Methodology",
-  method_invocation: "Method",
-  conclusion: "Conclusion",
-  publication: "Published",
-  citation: "Citation",
-};
 
 export default async function PublicLineagePage({ params }: PageProps) {
   const { slug } = await params;
@@ -90,10 +86,16 @@ export default async function PublicLineagePage({ params }: PageProps) {
   return (
     <main style={{ minHeight: "100vh" }}>
       <PublicHeader authed={Boolean(founder)} />
+      <style>{lineagePageCss}</style>
 
       <article
+        className="lineage-public-article"
         style={{
-          maxWidth: "780px",
+          // Wider than a prose page: the layered timeline needs room for
+          // its swim lanes on desktop. Below 720px the timeline reflows
+          // to a single column (see LineageTimeline) so no horizontal
+          // scroll is needed there — only the gutter padding shrinks.
+          maxWidth: "1080px",
           margin: "0 auto",
           padding: "3rem 1.75rem 5rem",
         }}
@@ -152,112 +154,16 @@ export default async function PublicLineagePage({ params }: PageProps) {
           </p>
         </header>
 
-        {lineage.nodes.length === 0 ? (
-          <p
-            style={{
-              color: "var(--parchment-dim)",
-              fontStyle: "italic",
-            }}
-          >
-            No public lineage steps have been recorded for this conclusion.
-          </p>
-        ) : (
-          <ol
-            style={{
-              listStyle: "none",
-              margin: 0,
-              padding: 0,
-              borderLeft: "1px solid var(--stroke)",
-            }}
-          >
-            {lineage.nodes.map((n) => (
-              <li
-                key={n.id}
-                style={{
-                  position: "relative",
-                  paddingLeft: "1.25rem",
-                  paddingTop: "0.6rem",
-                  paddingBottom: "0.9rem",
-                }}
-              >
-                <span
-                  aria-hidden
-                  style={{
-                    position: "absolute",
-                    left: -4,
-                    top: "0.85rem",
-                    width: 8,
-                    height: 8,
-                    borderRadius: "50%",
-                    background: "var(--amber)",
-                  }}
-                />
-                <div
-                  style={{ display: "flex", gap: "0.5rem", alignItems: "baseline" }}
-                >
-                  <span
-                    className="mono"
-                    style={{
-                      fontSize: "0.55rem",
-                      letterSpacing: "0.2em",
-                      textTransform: "uppercase",
-                      color: "var(--amber-dim)",
-                      minWidth: "9ch",
-                    }}
-                  >
-                    {KIND_LABELS[n.kind] ?? n.kind}
-                  </span>
-                  <span
-                    style={{
-                      fontFamily: "'EB Garamond', serif",
-                      fontSize: "1.05rem",
-                      color: "var(--parchment)",
-                    }}
-                  >
-                    {n.recordUrl ? (
-                      <Link
-                        href={n.recordUrl}
-                        style={{ color: "var(--amber)", textDecoration: "none" }}
-                      >
-                        {n.label}
-                      </Link>
-                    ) : (
-                      n.label
-                    )}
-                  </span>
-                </div>
-                <div
-                  className="mono"
-                  style={{
-                    fontSize: "0.6rem",
-                    color: "var(--parchment-dim)",
-                    marginTop: "0.2rem",
-                  }}
-                >
-                  {new Date(n.timestamp).toLocaleDateString(undefined, {
-                    year: "numeric",
-                    month: "long",
-                    day: "numeric",
-                  })}
-                </div>
-                {n.summary ? (
-                  <p
-                    style={{
-                      fontFamily: "'EB Garamond', serif",
-                      margin: "0.5rem 0 0",
-                      color: "var(--parchment)",
-                      fontSize: "0.95rem",
-                      lineHeight: 1.55,
-                    }}
-                  >
-                    {n.summary}
-                  </p>
-                ) : null}
-              </li>
-            ))}
-          </ol>
-        )}
+        <LineageTimeline lineage={lineage} publicMode />
       </article>
     </main>
   );
 }
+
+const lineagePageCss = `
+@media (max-width: 720px) {
+  .lineage-public-article {
+    padding: 2rem 1.05rem 3rem !important;
+  }
+}
+`;

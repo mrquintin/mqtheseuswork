@@ -1,0 +1,24 @@
+# Theseus — production overlay.
+#
+# Loaded after defaults.yaml when THESEUS_ENV=production. Tightens
+# logging, enables ingestion guardrails, and asserts the public CORS
+# allowlist used by the deployed site. Secrets remain env-only.
+
+log_level: INFO
+
+# Ingestion-guard / red-team guardrails ON in production. Adversarial
+# enforcement is still off until the human-review pass — flip via env
+# (THESEUS_ADVERSARIAL_ENFORCE=true) once approved.
+ingestion_guard_enabled: true
+adversarial_enforce: false
+adversarial_shadow: false
+
+# Public origins. Override via THESEUS_PUBLIC_SITE_ORIGIN if a single
+# deploy needs to differ from the canonical origin.
+public_site_origin: https://theseus.app
+currents_cors_origins: https://theseus.app
+
+# Live trading defaults stay false in YAML; the kill-switch-eligible
+# flip (FORECASTS_LIVE_TRADING_ENABLED) is env-only by contract so
+# no committed file can enable real-money trading.
+forecasts_live_trading_enabled: false

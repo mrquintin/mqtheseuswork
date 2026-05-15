@@ -1,50 +1,93 @@
 # Contradiction Geometry — Rationale
 
-## What the method is trying to do
+## Purpose
 
-The contradiction geometry method detects logical contradiction between two
-text spans by analyzing the geometric properties of their embedding vectors.
+The `contradiction_geometry` method detects logical contradiction between two
+text spans by analysing the geometric properties of their embedding vectors.
 The core insight — the Embedding Geometry Conjecture — is that contradiction
 does not manifest as opposite directions in raw embedding space (the "Cosine
-Paradox") but rather as sparse, dimension-concentrated structure in the
-difference space. Specifically, if `d = emb_b - emb_a` and the Hoyer sparsity
-of `d` exceeds a calibrated threshold (default 0.35), the pair is flagged as
-contradictory. The method also supports higher-level operations: PCA on a
-collection of contradiction difference vectors to learn the low-dimensional
-subspace where contradiction lives, logistic-regression-based training of a
-contradiction direction vector (`c_hat`), Householder reflection of embeddings
-across ideological concept axes ("Reverse Marxism" framework), and full
-geometric coherence reports including pairwise similarity, cluster dispersion,
-and contradiction scanning.
+Paradox") but as sparse, dimension-concentrated structure in the *difference*
+space. If two claims are contradictory, `emb_b - emb_a` concentrates its mass in
+a small number of coordinates.
 
-## Epistemic assumptions
+> **Scope note (narrowed 2026-05-14).** Earlier revisions of this rationale also
+> described PCA subspace learning, logistic-regression training of a
+> contradiction direction (`c_hat`), Householder reflection across ideological
+> concept axes ("Reverse Marxism"), and full geometric coherence reports. Those
+> operations exist on the legacy `EmbeddingAnalyzer` class but are **not**
+> exposed by the registered `contradiction_geometry` method. The registered
+> contract is the single pairwise check documented below; the broader analyzer
+> surface is reached directly, not through this method.
 
-The method assumes that sentence-level embedding models (e.g., SBERT) encode
-contradiction information in the difference vector, and that this information
-is concentrated in a small number of embedding dimensions. This is an empirical
-hypothesis validated on specific corpora but not guaranteed to hold universally.
-The Hoyer sparsity threshold of 0.35 was tuned on curated ideological
-contradiction datasets and may not generalize to all domains — particularly
-highly technical or mathematical claims where contradiction can be subtle. The
-concept axis reflection framework assumes that ideological dimensions are
-approximately linear in embedding space, a strong geometric assumption. The
-PCA subspace analysis assumes that contradiction occupies a consistent
-low-dimensional manifold across different claim pairs, which may not hold when
-the embedding model represents different types of contradiction in different
-parts of the space.
+## Inputs
 
-## Known failure modes
+- `embedding_a` (list[float]) — embedding of the first span.
+- `embedding_b` (list[float]) — embedding of the second span.
+- `threshold` (float, default `0.35`) — Hoyer sparsity cut-off above which the
+  pair is flagged contradictory.
 
-High cosine similarity between contradictory statements is the motivating
-failure case: the Cosine Paradox means that naive cosine-based methods miss
-contradiction. The Hoyer sparsity approach addresses this but introduces its
-own failure modes. Very short texts (under ~5 words) produce embeddings with
-insufficient geometric structure for reliable sparsity measurement. Claims
-that are contradictory through implicit reasoning (e.g., "All swans are white"
-vs. "I saw a black bird in the swan pond") may not produce sparse difference
-vectors because the contradiction is pragmatic rather than lexical. The
-calibration thresholds are loaded from a JSON file if available, falling back
-to hardcoded defaults — this means the method's behavior can silently change
-if the calibration file is present in some environments but not others. The
-batch contradiction check is O(n²) in the number of embeddings, making it
-impractical for large claim sets without sampling.
+## Outputs
+
+`ContradictionGeometryOutput` with:
+
+- `is_contradiction` (bool) — `sparsity > threshold`.
+- `sparsity` (float) — Hoyer sparsity of the difference vector.
+- `cosine_similarity` (float) — raw cosine of the two embeddings, surfaced so a
+  caller can see the Cosine Paradox directly.
+
+The method emits a `CONTRADICTS` cascade edge and declares no `depends_on`
+methods.
+
+## Algorithm
+
+1. Coerce both inputs to float arrays.
+2. Delegate to the legacy `EmbeddingAnalyzer`: `d = emb_b - emb_a`, then compute
+   the Hoyer sparsity of `d`.
+3. Flag `is_contradiction` when sparsity exceeds `threshold`.
+4. Compute `cosine_similarity` separately for diagnostics.
+
+The default `threshold` of `0.35` was tuned on curated ideological-contradiction
+datasets. Calibration thresholds may be loaded from an optional JSON file when
+present, falling back to the hardcoded default otherwise — see the
+`silent_calibration_drift_from_optional_file` failure mode.
+
+## Domain
+
+Validated on sentence-level embeddings (e.g. SBERT) of ideological and
+argumentative claims. The method assumes contradiction information lives in the
+difference vector and is concentrated in a small number of dimensions — an
+empirical hypothesis, not a guarantee. It generalises poorly to highly technical
+or mathematical claims, where contradiction can be subtle, and to very short
+spans, where the difference vector carries too little structure.
+
+No machine-checkable `DomainBound` (see `domain_bounds.py`) is declared; the
+applicability limits are enforced only by the prose above and the failure
+catalog.
+
+## Failure Modes
+
+Curated, machine-readable failure modes live in
+[`contradiction_geometry.FAILURES.yaml`](contradiction_geometry.FAILURES.yaml).
+Do not trust a verdict when:
+
+- **`short_text_collapses_sparsity`** — spans under ~5 tokens produce unstable
+  sparsity; verdicts flip on whitespace or casing alone.
+- **`implicit_pragmatic_contradiction_missed`** — contradictions that hinge on
+  world knowledge or enthymematic reasoning do not produce a sparse difference
+  vector. The motivating case (high cosine similarity between contradictory
+  statements) is addressed, but pragmatic contradiction is not.
+- **`silent_calibration_drift_from_optional_file`** — the threshold loads from an
+  optional JSON file, so two environments can return different verdicts on
+  identical inputs with no visible code change.
+
+The batch contradiction check is O(n²) in the number of embeddings, which makes
+it impractical for large claim sets without sampling.
+
+## References
+
+- Hoyer sparsity of the difference vector — [@hoyer2004nmf].
+- Sentence-level embedding model (SBERT family) the method is validated on —
+  [@reimers2019sbert].
+- The Embedding Geometry Conjecture and the Cosine Paradox are firm-internal;
+  the empirical case lives in the `ideologicalOntology/Embedding_Geometry_Conjecture/`
+  experiments and `docs/research/Householder_Ablation.pdf`.

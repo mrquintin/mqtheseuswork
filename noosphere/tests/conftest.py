@@ -295,3 +295,121 @@ def forecasts_seed():
         "predictions": [poly_prediction, kalshi_prediction],
         "bets": [poly_bet, kalshi_bet],
     }
+
+
+@pytest.fixture
+def equities_seed():
+    """Test-only Equities corpus: 1 STOCK, 1 ETF, 3 price ticks, 1 PUBLISHED signal, 1 PAPER position."""
+    from datetime import datetime, timedelta, timezone
+    from decimal import Decimal
+
+    from noosphere.models import (
+        EquityAssetClass,
+        EquityInstrument,
+        EquityPortfolioState,
+        EquityPosition,
+        EquityPositionMode,
+        EquityPositionSide,
+        EquityPositionStatus,
+        EquityPriceSource,
+        EquityPriceTick,
+        EquitySignal,
+        EquitySignalDirection,
+        EquitySignalStatus,
+    )
+    from noosphere.store import Store
+
+    st = Store.from_database_url("sqlite:///:memory:")
+    now = datetime(2026, 5, 15, 12, 0, tzinfo=timezone.utc)
+    org_id = "org_equities"
+
+    stock = EquityInstrument(
+        id="equity_instr_aapl",
+        symbol="AAPL",
+        exchange="NASDAQ",
+        asset_class=EquityAssetClass.STOCK,
+        name="Apple Inc.",
+        last_price=Decimal("182.500000"),
+        last_price_at=now - timedelta(minutes=5),
+    )
+    etf = EquityInstrument(
+        id="equity_instr_spy",
+        symbol="SPY",
+        exchange="NYSE",
+        asset_class=EquityAssetClass.ETF,
+        name="SPDR S&P 500 ETF Trust",
+        last_price=Decimal("520.000000"),
+        last_price_at=now - timedelta(minutes=5),
+    )
+    st.put_equity_instrument(stock)
+    st.put_equity_instrument(etf)
+
+    ticks = []
+    for i in range(3):
+        tick = EquityPriceTick(
+            id=f"equity_tick_aapl_{i}",
+            instrument_id=stock.id,
+            ts=now - timedelta(minutes=15 - 5 * i),
+            open=Decimal("181.000000") + Decimal(i),
+            high=Decimal("182.500000") + Decimal(i),
+            low=Decimal("180.500000") + Decimal(i),
+            close=Decimal("182.000000") + Decimal(i),
+            volume=Decimal("1500000.0000"),
+            source=EquityPriceSource.ALPACA,
+        )
+        st.put_equity_price_tick(tick)
+        ticks.append(tick)
+
+    signal = EquitySignal(
+        id="equity_signal_aapl_long",
+        instrument_id=stock.id,
+        organization_id=org_id,
+        direction=EquitySignalDirection.BULLISH,
+        confidence_low=Decimal("0.580000"),
+        confidence_high=Decimal("0.720000"),
+        target_price_low=Decimal("195.000000"),
+        target_price_high=Decimal("210.000000"),
+        horizon_days=30,
+        headline="Sources imply Apple's services tailwind is underpriced",
+        reasoning="Fixture reasoning grounded in a source-citation path.",
+        model_name="fixture-model",
+        status=EquitySignalStatus.PUBLISHED,
+        created_at=now,
+    )
+    st.put_equity_signal(signal)
+
+    position = EquityPosition(
+        id="equity_position_aapl_paper",
+        signal_id=signal.id,
+        instrument_id=stock.id,
+        organization_id=org_id,
+        mode=EquityPositionMode.PAPER,
+        side=EquityPositionSide.LONG,
+        qty=Decimal("10.000000"),
+        entry_price=Decimal("182.000000"),
+        entry_at=now + timedelta(minutes=1),
+        status=EquityPositionStatus.OPEN,
+        created_at=now + timedelta(minutes=1),
+    )
+    st.put_equity_position(position)
+
+    portfolio = EquityPortfolioState(
+        organization_id=org_id,
+        paper_balance_usd=Decimal("10000.00"),
+        live_balance_usd=Decimal("0.00"),
+        daily_loss_usd=Decimal("0.00"),
+        daily_loss_window_reset_at=now,
+        updated_at=now,
+    )
+    st.set_equity_portfolio_state(portfolio)
+
+    return {
+        "store": st,
+        "organization_id": org_id,
+        "now": now,
+        "instruments": [stock, etf],
+        "ticks": ticks,
+        "signals": [signal],
+        "positions": [position],
+        "portfolio": portfolio,
+    }

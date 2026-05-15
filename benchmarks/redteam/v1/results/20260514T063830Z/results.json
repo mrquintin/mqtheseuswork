@@ -1,0 +1,521 @@
+{
+  "analysis": {
+    "claim_supported": false,
+    "claim_supported_coverage": true,
+    "claim_supported_per_dollar": false,
+    "config_stats": {
+      "cfg-3598c98d63b9564c": {
+        "cost_usd": 0.092167,
+        "distinct_high_angles": 1,
+        "high_count": 1,
+        "high_per_dollar": 10.85,
+        "label": "all-providers",
+        "providers": 4,
+        "severity_weighted_per_dollar": 191.35,
+        "severity_weighted_score": 17.6357
+      },
+      "cfg-35f06609e41d9c7f": {
+        "cost_usd": 0.02835,
+        "distinct_high_angles": 0,
+        "high_count": 0,
+        "high_per_dollar": 0.0,
+        "label": "openai-only",
+        "providers": 1,
+        "severity_weighted_per_dollar": 159.55,
+        "severity_weighted_score": 4.5233
+      },
+      "cfg-62d1d2eff6260a3d": {
+        "cost_usd": 0.049737,
+        "distinct_high_angles": 0,
+        "high_count": 0,
+        "high_per_dollar": 0.0,
+        "label": "anthropic-only",
+        "providers": 1,
+        "severity_weighted_per_dollar": 99.85,
+        "severity_weighted_score": 4.9663
+      },
+      "cfg-6513d1cd2a9cdfdd": {
+        "cost_usd": 0.01408,
+        "distinct_high_angles": 1,
+        "high_count": 1,
+        "high_per_dollar": 71.02,
+        "label": "gemini-only",
+        "providers": 1,
+        "severity_weighted_per_dollar": 280.26,
+        "severity_weighted_score": 3.9461
+      },
+      "cfg-a4e1e04930f69d0b": {
+        "cost_usd": 0.091972,
+        "distinct_high_angles": 1,
+        "high_count": 2,
+        "high_per_dollar": 21.75,
+        "label": "all-providers/seeded-v2",
+        "providers": 4,
+        "severity_weighted_per_dollar": 179.89,
+        "severity_weighted_score": 16.5451
+      },
+      "cfg-b048c444daf5c4b5": {
+        "cost_usd": 0.078087,
+        "distinct_high_angles": 0,
+        "high_count": 0,
+        "high_per_dollar": 0.0,
+        "label": "anthropic+openai",
+        "providers": 2,
+        "severity_weighted_per_dollar": 121.53,
+        "severity_weighted_score": 9.4897
+      }
+    },
+    "mean_distinct_high_angles": {
+      "multi": 0.667,
+      "single": 0.333
+    },
+    "mean_high_count": {
+      "multi": 1.0,
+      "single": 0.333
+    },
+    "mean_high_per_dollar": {
+      "multi": 10.867,
+      "single": 23.673
+    },
+    "mean_severity_weighted_per_dollar": {
+      "multi": 164.257,
+      "single": 179.887
+    },
+    "mean_severity_weighted_score": {
+      "multi": 14.557,
+      "single": 4.479
+    },
+    "multi_provider_config_ids": [
+      "cfg-b048c444daf5c4b5",
+      "cfg-3598c98d63b9564c",
+      "cfg-a4e1e04930f69d0b"
+    ],
+    "objection_set_divergence": {
+      "broad_swarm_only": [
+        "redteam-v1-coh-001:specification-search"
+      ],
+      "comparison": "anthropic-only vs all-providers",
+      "jaccard_high_severity": 0.0,
+      "production_only": []
+    },
+    "question": "Do multi-provider configurations surface more high-severity objections per dollar, and a meaningfully different objection set, than single-provider monocultures?",
+    "single_provider_config_ids": [
+      "cfg-62d1d2eff6260a3d",
+      "cfg-35f06609e41d9c7f",
+      "cfg-6513d1cd2a9cdfdd"
+    ],
+    "verdict": "Mixed \u2014 and the split is the finding. On COVERAGE the firm's claim holds clearly: the diverse swarms produce a far higher severity-weighted score (14.557 vs 4.479) and a wider distinct-attack-angle set than any monoculture. On strict PER-DOLLAR high-severity yield the claim does NOT hold on this run (10.867 vs 23.673): per-dollar is dominated by token price, so the cheapest monoculture (gemini-only) wins almost tautologically \u2014 one lucky high-severity draw on a $0.014 run beats everything. Run #1's honest reading: 'monoculture review is bad' is a coverage argument, not a per-dollar one, and the v1 bench is underpowered on the binary high-severity axis \u2014 only two of ten items can structurally reach the high bracket. The leaderboard must be read on severity-weighted score, agreement, and cost jointly, never on a single ratio."
+  },
+  "cross_validation": [
+    {
+      "config_a": "cfg-62d1d2eff6260a3d",
+      "config_b": "cfg-35f06609e41d9c7f",
+      "reproduced": 0,
+      "score": 1.0,
+      "targets": 0
+    },
+    {
+      "config_a": "cfg-62d1d2eff6260a3d",
+      "config_b": "cfg-6513d1cd2a9cdfdd",
+      "reproduced": 0,
+      "score": 1.0,
+      "targets": 0
+    },
+    {
+      "config_a": "cfg-62d1d2eff6260a3d",
+      "config_b": "cfg-b048c444daf5c4b5",
+      "reproduced": 0,
+      "score": 1.0,
+      "targets": 0
+    },
+    {
+      "config_a": "cfg-62d1d2eff6260a3d",
+      "config_b": "cfg-3598c98d63b9564c",
+      "reproduced": 0,
+      "score": 1.0,
+      "targets": 0
+    },
+    {
+      "config_a": "cfg-62d1d2eff6260a3d",
+      "config_b": "cfg-a4e1e04930f69d0b",
+      "reproduced": 0,
+      "score": 1.0,
+      "targets": 0
+    },
+    {
+      "config_a": "cfg-35f06609e41d9c7f",
+      "config_b": "cfg-62d1d2eff6260a3d",
+      "reproduced": 0,
+      "score": 1.0,
+      "targets": 0
+    },
+    {
+      "config_a": "cfg-35f06609e41d9c7f",
+      "config_b": "cfg-6513d1cd2a9cdfdd",
+      "reproduced": 0,
+      "score": 1.0,
+      "targets": 0
+    },
+    {
+      "config_a": "cfg-35f06609e41d9c7f",
+      "config_b": "cfg-b048c444daf5c4b5",
+      "reproduced": 0,
+      "score": 1.0,
+      "targets": 0
+    },
+    {
+      "config_a": "cfg-35f06609e41d9c7f",
+      "config_b": "cfg-3598c98d63b9564c",
+      "reproduced": 0,
+      "score": 1.0,
+      "targets": 0
+    },
+    {
+      "config_a": "cfg-35f06609e41d9c7f",
+      "config_b": "cfg-a4e1e04930f69d0b",
+      "reproduced": 0,
+      "score": 1.0,
+      "targets": 0
+    },
+    {
+      "config_a": "cfg-6513d1cd2a9cdfdd",
+      "config_b": "cfg-62d1d2eff6260a3d",
+      "reproduced": 0,
+      "score": 0.0,
+      "targets": 1
+    },
+    {
+      "config_a": "cfg-6513d1cd2a9cdfdd",
+      "config_b": "cfg-35f06609e41d9c7f",
+      "reproduced": 0,
+      "score": 0.0,
+      "targets": 1
+    },
+    {
+      "config_a": "cfg-6513d1cd2a9cdfdd",
+      "config_b": "cfg-b048c444daf5c4b5",
+      "reproduced": 0,
+      "score": 0.0,
+      "targets": 1
+    },
+    {
+      "config_a": "cfg-6513d1cd2a9cdfdd",
+      "config_b": "cfg-3598c98d63b9564c",
+      "reproduced": 1,
+      "score": 1.0,
+      "targets": 1
+    },
+    {
+      "config_a": "cfg-6513d1cd2a9cdfdd",
+      "config_b": "cfg-a4e1e04930f69d0b",
+      "reproduced": 1,
+      "score": 1.0,
+      "targets": 1
+    },
+    {
+      "config_a": "cfg-b048c444daf5c4b5",
+      "config_b": "cfg-62d1d2eff6260a3d",
+      "reproduced": 0,
+      "score": 1.0,
+      "targets": 0
+    },
+    {
+      "config_a": "cfg-b048c444daf5c4b5",
+      "config_b": "cfg-35f06609e41d9c7f",
+      "reproduced": 0,
+      "score": 1.0,
+      "targets": 0
+    },
+    {
+      "config_a": "cfg-b048c444daf5c4b5",
+      "config_b": "cfg-6513d1cd2a9cdfdd",
+      "reproduced": 0,
+      "score": 1.0,
+      "targets": 0
+    },
+    {
+      "config_a": "cfg-b048c444daf5c4b5",
+      "config_b": "cfg-3598c98d63b9564c",
+      "reproduced": 0,
+      "score": 1.0,
+      "targets": 0
+    },
+    {
+      "config_a": "cfg-b048c444daf5c4b5",
+      "config_b": "cfg-a4e1e04930f69d0b",
+      "reproduced": 0,
+      "score": 1.0,
+      "targets": 0
+    },
+    {
+      "config_a": "cfg-3598c98d63b9564c",
+      "config_b": "cfg-62d1d2eff6260a3d",
+      "reproduced": 0,
+      "score": 0.0,
+      "targets": 1
+    },
+    {
+      "config_a": "cfg-3598c98d63b9564c",
+      "config_b": "cfg-35f06609e41d9c7f",
+      "reproduced": 0,
+      "score": 0.0,
+      "targets": 1
+    },
+    {
+      "config_a": "cfg-3598c98d63b9564c",
+      "config_b": "cfg-6513d1cd2a9cdfdd",
+      "reproduced": 1,
+      "score": 1.0,
+      "targets": 1
+    },
+    {
+      "config_a": "cfg-3598c98d63b9564c",
+      "config_b": "cfg-b048c444daf5c4b5",
+      "reproduced": 0,
+      "score": 0.0,
+      "targets": 1
+    },
+    {
+      "config_a": "cfg-3598c98d63b9564c",
+      "config_b": "cfg-a4e1e04930f69d0b",
+      "reproduced": 1,
+      "score": 1.0,
+      "targets": 1
+    },
+    {
+      "config_a": "cfg-a4e1e04930f69d0b",
+      "config_b": "cfg-62d1d2eff6260a3d",
+      "reproduced": 0,
+      "score": 0.0,
+      "targets": 1
+    },
+    {
+      "config_a": "cfg-a4e1e04930f69d0b",
+      "config_b": "cfg-35f06609e41d9c7f",
+      "reproduced": 0,
+      "score": 0.0,
+      "targets": 1
+    },
+    {
+      "config_a": "cfg-a4e1e04930f69d0b",
+      "config_b": "cfg-6513d1cd2a9cdfdd",
+      "reproduced": 1,
+      "score": 1.0,
+      "targets": 1
+    },
+    {
+      "config_a": "cfg-a4e1e04930f69d0b",
+      "config_b": "cfg-b048c444daf5c4b5",
+      "reproduced": 0,
+      "score": 0.0,
+      "targets": 1
+    },
+    {
+      "config_a": "cfg-a4e1e04930f69d0b",
+      "config_b": "cfg-3598c98d63b9564c",
+      "reproduced": 1,
+      "score": 1.0,
+      "targets": 1
+    }
+  ],
+  "driver": "offline_deterministic_driver",
+  "envelope": {
+    "bench_path": "/Users/michaelquintin/Desktop/Theseus/benchmarks/redteam/v1/conclusion_bench.jsonl",
+    "bench_sha256": "a8c1bb2d315736d11e583b33835729294f08982f1eebfb894be5288e8a3570a8",
+    "config_ids": [
+      "cfg-62d1d2eff6260a3d",
+      "cfg-35f06609e41d9c7f",
+      "cfg-6513d1cd2a9cdfdd",
+      "cfg-b048c444daf5c4b5",
+      "cfg-3598c98d63b9564c",
+      "cfg-a4e1e04930f69d0b"
+    ],
+    "envelope_hash": "env-01ed7510995f7e3b",
+    "finished_at_utc": "2026-05-14T06:45:29.325181+00:00",
+    "platform": "macOS-26.2-arm64-arm-64bit-Mach-O",
+    "python_version": "3.13.7",
+    "started_at_utc": "2026-05-14T06:45:29.323088+00:00",
+    "tournament_version": "redteam-tournament-v1"
+  },
+  "leaderboard": [
+    {
+      "agreement": 1.0,
+      "bench_items_reviewed": 10,
+      "config_id": "cfg-b048c444daf5c4b5",
+      "cost_usd": 0.078087,
+      "description": "Two-provider rotation: the closed-weights frontier pair.",
+      "envelope_hash": "env-01ed7510995f7e3b",
+      "high_count": 0,
+      "label": "anthropic+openai",
+      "latency_ms": 4112.36,
+      "low_count": 3,
+      "medium_count": 17,
+      "objections_total": 20,
+      "partial_runs": 0,
+      "reproducible": true,
+      "severity_weighted_score": 9.4897
+    },
+    {
+      "agreement": 1.0,
+      "bench_items_reviewed": 10,
+      "config_id": "cfg-62d1d2eff6260a3d",
+      "cost_usd": 0.049737,
+      "description": "Production default. Single-provider Anthropic, low temperature.",
+      "envelope_hash": "env-01ed7510995f7e3b",
+      "high_count": 0,
+      "label": "anthropic-only",
+      "latency_ms": 2327.14,
+      "low_count": 1,
+      "medium_count": 9,
+      "objections_total": 10,
+      "partial_runs": 0,
+      "reproducible": true,
+      "severity_weighted_score": 4.9663
+    },
+    {
+      "agreement": 1.0,
+      "bench_items_reviewed": 10,
+      "config_id": "cfg-35f06609e41d9c7f",
+      "cost_usd": 0.02835,
+      "description": "Single-provider OpenAI, low temperature. Monoculture probe.",
+      "envelope_hash": "env-01ed7510995f7e3b",
+      "high_count": 0,
+      "label": "openai-only",
+      "latency_ms": 1785.22,
+      "low_count": 2,
+      "medium_count": 8,
+      "objections_total": 10,
+      "partial_runs": 0,
+      "reproducible": true,
+      "severity_weighted_score": 4.5233
+    },
+    {
+      "agreement": 0.4,
+      "bench_items_reviewed": 10,
+      "config_id": "cfg-3598c98d63b9564c",
+      "cost_usd": 0.092167,
+      "description": "Four-provider rotation: every frontier vendor plus an open-weights voice.",
+      "envelope_hash": "env-01ed7510995f7e3b",
+      "high_count": 1,
+      "label": "all-providers",
+      "latency_ms": 6557.91,
+      "low_count": 10,
+      "medium_count": 29,
+      "objections_total": 40,
+      "partial_runs": 0,
+      "reproducible": false,
+      "severity_weighted_score": 17.6357
+    },
+    {
+      "agreement": 0.4,
+      "bench_items_reviewed": 10,
+      "config_id": "cfg-a4e1e04930f69d0b",
+      "cost_usd": 0.091972,
+      "description": "Four-provider rotation, seeded prompt variant, higher temperature.",
+      "envelope_hash": "env-01ed7510995f7e3b",
+      "high_count": 2,
+      "label": "all-providers/seeded-v2",
+      "latency_ms": 6405.59,
+      "low_count": 14,
+      "medium_count": 24,
+      "objections_total": 40,
+      "partial_runs": 0,
+      "reproducible": false,
+      "severity_weighted_score": 16.5451
+    },
+    {
+      "agreement": 0.4,
+      "bench_items_reviewed": 10,
+      "config_id": "cfg-6513d1cd2a9cdfdd",
+      "cost_usd": 0.01408,
+      "description": "Single-provider Gemini, low temperature. Monoculture probe.",
+      "envelope_hash": "env-01ed7510995f7e3b",
+      "high_count": 1,
+      "label": "gemini-only",
+      "latency_ms": 1497.5,
+      "low_count": 5,
+      "medium_count": 4,
+      "objections_total": 10,
+      "partial_runs": 0,
+      "reproducible": false,
+      "severity_weighted_score": 3.9461
+    }
+  ],
+  "roster": [
+    {
+      "config_id": "cfg-62d1d2eff6260a3d",
+      "description": "Production default. Single-provider Anthropic, low temperature.",
+      "label": "anthropic-only",
+      "prompt_variant": "default",
+      "provider_mix": [
+        "anthropic"
+      ],
+      "seed": 42,
+      "temperature": 0.2
+    },
+    {
+      "config_id": "cfg-35f06609e41d9c7f",
+      "description": "Single-provider OpenAI, low temperature. Monoculture probe.",
+      "label": "openai-only",
+      "prompt_variant": "default",
+      "provider_mix": [
+        "openai"
+      ],
+      "seed": 42,
+      "temperature": 0.2
+    },
+    {
+      "config_id": "cfg-6513d1cd2a9cdfdd",
+      "description": "Single-provider Gemini, low temperature. Monoculture probe.",
+      "label": "gemini-only",
+      "prompt_variant": "default",
+      "provider_mix": [
+        "gemini"
+      ],
+      "seed": 42,
+      "temperature": 0.2
+    },
+    {
+      "config_id": "cfg-b048c444daf5c4b5",
+      "description": "Two-provider rotation: the closed-weights frontier pair.",
+      "label": "anthropic+openai",
+      "prompt_variant": "default",
+      "provider_mix": [
+        "anthropic",
+        "openai"
+      ],
+      "seed": 42,
+      "temperature": 0.2
+    },
+    {
+      "config_id": "cfg-3598c98d63b9564c",
+      "description": "Four-provider rotation: every frontier vendor plus an open-weights voice.",
+      "label": "all-providers",
+      "prompt_variant": "default",
+      "provider_mix": [
+        "anthropic",
+        "openai",
+        "gemini",
+        "mistral_oss"
+      ],
+      "seed": 42,
+      "temperature": 0.2
+    },
+    {
+      "config_id": "cfg-a4e1e04930f69d0b",
+      "description": "Four-provider rotation, seeded prompt variant, higher temperature.",
+      "label": "all-providers/seeded-v2",
+      "prompt_variant": "seeded-v2",
+      "provider_mix": [
+        "anthropic",
+        "openai",
+        "gemini",
+        "mistral_oss"
+      ],
+      "seed": 1337,
+      "temperature": 0.3
+    }
+  ],
+  "run_kind": "bootstrap-offline-deterministic",
+  "stamp": "20260514T063830Z"
+}

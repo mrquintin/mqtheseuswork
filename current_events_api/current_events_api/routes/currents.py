@@ -8,6 +8,7 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import desc, func
+from sqlalchemy.exc import SQLAlchemyError
 from sqlmodel import select
 
 from current_events_api.deps import enforce_read_rate_limit, get_metrics, get_store
@@ -144,21 +145,40 @@ def _count_recent(store: Store, model: object, timestamp_field: object) -> int:
 @router.get("/health")
 def currents_health(store: Annotated[Store, Depends(get_store)]) -> dict[str, object]:
     cfg = IngestorConfig.from_env()
+    disabled_reasons = list(cfg.disabled_reasons)
+    db_ok = True
+    db_error: str | None = None
+    last_event_at: str | None = None
+    last_opinion_at: str | None = None
+    events_last_24h = 0
+    opinions_last_24h = 0
+    try:
+        last_event_at = _last_event_at(store)
+        last_opinion_at = _last_opinion_at(store)
+        events_last_24h = _count_recent(store, CurrentEvent, CurrentEvent.created_at)
+        opinions_last_24h = _count_recent(
+            store,
+            EventOpinion,
+            EventOpinion.generated_at,
+        )
+    except SQLAlchemyError as exc:
+        db_ok = False
+        db_error = str(exc).splitlines()[0][:500]
+        disabled_reasons.append("database_unreachable")
+
     return {
         "x_bearer_present": bool(cfg.bearer_token),
         "curated_count": len(cfg.curated_accounts),
         "search_count": len(cfg.search_queries),
         "last_cycle_at": _last_cycle_at(),
-        "last_event_at": _last_event_at(store),
-        "last_opinion_at": _last_opinion_at(store),
-        "events_last_24h": _count_recent(store, CurrentEvent, CurrentEvent.created_at),
-        "opinions_last_24h": _count_recent(
-            store,
-            EventOpinion,
-            EventOpinion.generated_at,
-        ),
-        "disabled_reasons": cfg.disabled_reasons,
+        "last_event_at": last_event_at,
+        "last_opinion_at": last_opinion_at,
+        "events_last_24h": events_last_24h,
+        "opinions_last_24h": opinions_last_24h,
+        "disabled_reasons": disabled_reasons,
         "last_cycle": _last_cycle_summary(),
+        "db_ok": db_ok,
+        "db_error": db_error,
     }
 
 
@@ -191,35 +211,43 @@ def list_currents(
                 "invalid_stance",
             ) from exc
         stmt = stmt.where(EventOpinion.stance == parsed)
-    with store.session() as db:
-        rows = list(
-            db.exec(stmt.order_by(desc(EventOpinion.generated_at)).limit(limit)).all()
-        )
-        opinion_ids = [row.id for row in rows]
-        event_ids = [row.event_id for row in rows]
-        citations_by_opinion: dict[str, list[OpinionCitation]] = {
-            opinion_id: [] for opinion_id in opinion_ids
-        }
-        events_by_id: dict[str, CurrentEvent] = {}
-        if opinion_ids:
-            citations = list(
+    try:
+        with store.session() as db:
+            rows = list(
                 db.exec(
-                    select(OpinionCitation).where(
-                        OpinionCitation.opinion_id.in_(opinion_ids),
-                    )
+                    stmt.order_by(desc(EventOpinion.generated_at)).limit(limit),
                 ).all()
             )
-            for citation in citations:
-                citations_by_opinion.setdefault(citation.opinion_id, []).append(
-                    citation,
+            opinion_ids = [row.id for row in rows]
+            event_ids = [row.event_id for row in rows]
+            citations_by_opinion: dict[str, list[OpinionCitation]] = {
+                opinion_id: [] for opinion_id in opinion_ids
+            }
+            events_by_id: dict[str, CurrentEvent] = {}
+            if opinion_ids:
+                citations = list(
+                    db.exec(
+                        select(OpinionCitation).where(
+                            OpinionCitation.opinion_id.in_(opinion_ids),
+                        )
+                    ).all()
                 )
-        if event_ids:
-            events = list(
-                db.exec(
-                    select(CurrentEvent).where(CurrentEvent.id.in_(event_ids)),
-                ).all()
-            )
-            events_by_id = {event.id: event for event in events}
+                for citation in citations:
+                    citations_by_opinion.setdefault(citation.opinion_id, []).append(
+                        citation,
+                    )
+            if event_ids:
+                events = list(
+                    db.exec(
+                        select(CurrentEvent).where(CurrentEvent.id.in_(event_ids)),
+                    ).all()
+                )
+                events_by_id = {event.id: event for event in events}
+    except SQLAlchemyError as exc:
+        raise HTTPException(
+            status.HTTP_503_SERVICE_UNAVAILABLE,
+            {"error": "database_unreachable", "detail": str(exc).splitlines()[0][:500]},
+        ) from exc
     metrics.inc("currents_read_requests_total", {"route": "list_currents"})
     return {
         "items": [

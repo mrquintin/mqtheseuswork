@@ -1,8 +1,43 @@
 import { NextResponse } from "next/server";
+import { revalidatePath, revalidateTag } from "next/cache";
 
 import { getFounder } from "@/lib/auth";
 import { applyPublicationReviewAction, type PublicationReviewAction } from "@/lib/publicationService";
+import {
+  PUBLIC_HOME_ARTICLES_TAG,
+  PUBLIC_HOME_CONCLUSIONS_TAG,
+} from "@/lib/publicSurface";
 import { canWrite, WRITE_FORBIDDEN_RESPONSE } from "@/lib/roles";
+
+// Homepage SLO: every published article / conclusion shows up on `/`
+// within 60 seconds. Publication review is the only path that mints a
+// new PublishedConclusion row, so this is where we tell Next.js to
+// blow away its homepage cache. Documented in
+// `docs/operator/public_surfacing.md`.
+function revalidateHomepageAfterPublish(slug: string | undefined) {
+  try {
+    revalidatePath("/");
+  } catch {
+    /* best-effort */
+  }
+  if (slug) {
+    try {
+      revalidatePath(`/c/${slug}`);
+    } catch {
+      /* best-effort */
+    }
+  }
+  try {
+    revalidateTag(PUBLIC_HOME_ARTICLES_TAG, "default");
+  } catch {
+    /* best-effort */
+  }
+  try {
+    revalidateTag(PUBLIC_HOME_CONCLUSIONS_TAG, "default");
+  } catch {
+    /* best-effort */
+  }
+}
 
 export async function POST(req: Request, ctx: { params: Promise<{ id: string }> }) {
   const founder = await getFounder();
@@ -31,6 +66,10 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
       reviewId: id,
       body,
     });
+    if (body.action === "publish") {
+      const slug = typeof result.slug === "string" ? result.slug : undefined;
+      revalidateHomepageAfterPublish(slug);
+    }
     return NextResponse.json(result);
   } catch (e) {
     const message = e instanceof Error ? e.message : "review action failed";

@@ -14,6 +14,7 @@ import RigorGatePage from "../rigor-gate/page";
 import RigorGateDetailPage from "../rigor-gate/[submissionId]/page";
 import ScoreboardPage from "../scoreboard/page";
 import TraceDrillDown from "@/components/TraceDrillDown";
+import TraceFlamegraph from "@/components/TraceFlamegraph";
 import {
   getCostBurndown,
   getErrorSparkline,
@@ -28,6 +29,29 @@ import HealthConsole from "./HealthConsole";
 import { loadOpsHealth } from "./healthLoader";
 
 export const dynamic = "force-dynamic";
+
+/**
+ * Cross-links from the operator dashboard back to the firm's runbook.
+ *
+ * The runbook entries (`docs/operations/Runbook.md`) carry the
+ * first-five-minute response for every configured alert and the
+ * recovery procedure for every scheduled job. The console links here
+ * point an operator who's already looking at the alert/in-flight row
+ * straight at the relevant procedure rather than asking them to know
+ * the anchor by heart. A consistency check
+ * (`scripts/check_runbook_completeness.py`) prevents these links from
+ * pointing at headings that no longer exist on the runbook side.
+ */
+const RUNBOOK_URL =
+  "https://github.com/mrquintin/mqtheseuswork/blob/main/docs/operations/Runbook.md";
+const RUNBOOK_ANCHOR_BY_RULE: Record<string, string> = {
+  method_error_rate_high: "method_error_rate_high",
+  method_p95_slow: "method_p95_slow",
+};
+
+function runbookHref(anchor?: string): string {
+  return anchor ? `${RUNBOOK_URL}#${anchor}` : RUNBOOK_URL;
+}
 
 type OpsSearchParams = {
   panel?: string;
@@ -203,6 +227,27 @@ async function ObservabilityPanel() {
           }}
         >
           Pipeline traces · Method latency · Cost burndown
+        </p>
+        <p
+          style={{
+            marginTop: "0.5rem",
+            fontSize: "0.78rem",
+            color: "var(--parchment-dim)",
+          }}
+        >
+          On call?{" "}
+          <a
+            href={runbookHref()}
+            target="_blank"
+            rel="noreferrer"
+            style={{ color: "var(--gold)" }}
+          >
+            Operations runbook ↗
+          </a>{" "}
+          — alert response procedures &amp; recovery steps per job.{" "}
+          <Link href="/ops/ci" style={{ color: "var(--gold)" }}>
+            CI health →
+          </Link>
         </p>
       </header>
 
@@ -399,29 +444,51 @@ async function ObservabilityPanel() {
             Recent alerts
           </h2>
           <div className="portal-card" style={{ padding: "0.75rem" }}>
-            {alerts.map((a) => (
-              <div
-                key={a.id}
-                style={{
-                  display: "flex",
-                  justifyContent: "space-between",
-                  padding: "0.4rem 0",
-                  borderTop: "1px solid var(--rule, rgba(200,166,74,0.15))",
-                  fontSize: "0.82rem",
-                }}
-              >
-                <span style={{ color: a.acknowledgedAt ? "var(--parchment-dim)" : "var(--ember, #cc4a3a)" }}>
-                  {a.ruleName}
-                </span>
-                <span>{a.method}</span>
-                <span className="mono" style={{ fontSize: "0.72rem" }}>
-                  {a.metric} = {a.value.toFixed(3)} (&gt;{a.threshold})
-                </span>
-                <span className="mono" style={{ fontSize: "0.72rem", color: "var(--parchment-dim)" }}>
-                  {a.firedAt.toISOString().replace("T", " ").slice(0, 19)}
-                </span>
-              </div>
-            ))}
+            {alerts.map((a) => {
+              const anchor = RUNBOOK_ANCHOR_BY_RULE[a.ruleName];
+              return (
+                <div
+                  key={a.id}
+                  style={{
+                    display: "flex",
+                    justifyContent: "space-between",
+                    alignItems: "baseline",
+                    gap: "0.5rem",
+                    padding: "0.4rem 0",
+                    borderTop: "1px solid var(--rule, rgba(200,166,74,0.15))",
+                    fontSize: "0.82rem",
+                  }}
+                >
+                  <span style={{ color: a.acknowledgedAt ? "var(--parchment-dim)" : "var(--ember, #cc4a3a)" }}>
+                    {a.ruleName}
+                  </span>
+                  <span>{a.method}</span>
+                  <span className="mono" style={{ fontSize: "0.72rem" }}>
+                    {a.metric} = {a.value.toFixed(3)} (&gt;{a.threshold})
+                  </span>
+                  <span className="mono" style={{ fontSize: "0.72rem", color: "var(--parchment-dim)" }}>
+                    {a.firedAt.toISOString().replace("T", " ").slice(0, 19)}
+                  </span>
+                  <a
+                    href={runbookHref(anchor)}
+                    target="_blank"
+                    rel="noreferrer"
+                    style={{
+                      fontSize: "0.72rem",
+                      color: "var(--gold)",
+                      whiteSpace: "nowrap",
+                    }}
+                    title={
+                      anchor
+                        ? `Runbook: alert response for ${a.ruleName}`
+                        : "Operations runbook"
+                    }
+                  >
+                    runbook ↗
+                  </a>
+                </div>
+              );
+            })}
           </div>
         </section>
       )}
@@ -438,7 +505,22 @@ async function ObservabilityTracePanel({ traceId }: { traceId: string }) {
           ← back to observability
         </Link>
       </div>
-      <TraceDrillDown spans={spans} />
+      <section style={{ marginBottom: "1.5rem" }}>
+        <TraceFlamegraph spans={spans} />
+      </section>
+      <details>
+        <summary
+          style={{
+            cursor: "pointer",
+            fontSize: "0.78rem",
+            color: "var(--amber-dim)",
+            marginBottom: "0.5rem",
+          }}
+        >
+          Span tree (parent chain)
+        </summary>
+        <TraceDrillDown spans={spans} />
+      </details>
     </main>
   );
 }

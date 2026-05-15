@@ -1,0 +1,173 @@
+\documentclass[11pt]{article}
+\input{_preamble}
+
+\title{\sffamily\bfseries The Oracle\\[2pt]\large Guide 3 of 6}
+\date{}
+\author{}
+
+\begin{document}
+\maketitle
+\thispagestyle{empty}
+
+\begin{tldr}
+The Oracle is Theseus' question-answering surface. It does not run a
+free chat against a foundation model; it answers from the firm corpus
+and refuses --- or warns --- when the corpus is too thin. This guide
+explains what counts as a citation, what the hallucination warning
+actually means, and what to do with a low-confidence answer.
+\end{tldr}
+
+\begin{youwillneed}
+\begin{itemize}[leftmargin=*,itemsep=0.2em,topsep=0.2em]
+  \item A signed-in Codex session.
+  \item A working corpus --- at minimum a handful of uploads and a
+        few accepted principles, otherwise the Oracle will mostly
+        abstain.
+\end{itemize}
+\end{youwillneed}
+
+\begin{notcovered}
+\begin{itemize}[leftmargin=*,itemsep=0.2em,topsep=0.2em]
+  \item How claims get into the corpus --- Guide 2.
+  \item Currents opinions, which use a different (event-grounded)
+        prompt path --- Guide 4.
+  \item Operator overrides of the Oracle's safety rails --- Guide 6.
+\end{itemize}
+\end{notcovered}
+
+\section{What the Oracle is}
+
+The Oracle lives at \route{/(authed)/ask}. It accepts a question in
+natural language and returns:
+
+\begin{itemize}[leftmargin=*,itemsep=0.2em]
+  \item an answer, written in the firm's voice;
+  \item a list of inline citations to claims, conclusions, principles,
+        or uploads;
+  \item a confidence band: \texttt{high}, \texttt{medium}, \texttt{low},
+        or \texttt{abstain};
+  \item a hallucination-risk badge when the answer contains material
+        the citation chain does not unambiguously support.
+\end{itemize}
+
+It does not return: free-form essays not grounded in the corpus,
+opinions on outside events (that is Currents' job), or speculative
+projections (that is the forecasts portfolio's job).
+
+\screenshot{03_oracle_answer.png}{An Oracle answer with inline citations, confidence band, and hallucination badge.}{or-answer}
+
+\section{What counts as a citation}
+
+A citation is a structured reference back to one of:
+
+\begin{itemize}[leftmargin=*,itemsep=0.2em]
+  \item \textbf{Claim} --- an extracted statement from an upload. The
+        most granular citation. Click-through lands on the source span.
+  \item \textbf{Conclusion} --- a synthesized firm position, possibly
+        published as an article (\texttt{kind='ARTICLE'}) or as a
+        reviewed conclusion (\texttt{kind='CONCLUSION'}). Citing one
+        means the Oracle is leaning on a vetted firm output, not a raw
+        extracted claim.
+  \item \textbf{Principle} --- a distilled, reusable position. The
+        Oracle treats principles as soft constraints, not hard rules.
+  \item \textbf{Upload} --- a direct quote or paraphrase from an
+        uploaded document, attached with offset and page number.
+\end{itemize}
+
+Every citation is clickable. If a citation does not click through, the
+Oracle has produced a broken reference --- treat it as a hallucination
+warning even if no explicit badge is shown, and report it through
+\page{Critiques}.
+
+\section{Confidence bands}
+
+The Oracle assigns each answer a band based on the strength and breadth
+of the citation chain:
+
+\begin{itemize}[leftmargin=*,itemsep=0.2em]
+  \item \texttt{high} --- the answer is supported by multiple
+        independent citations, including at least one conclusion or
+        principle.
+  \item \texttt{medium} --- the answer is supported by at least one
+        citation that directly addresses the question.
+  \item \texttt{low} --- citations exist but only weakly support the
+        answer. Treat as a starting point, not as a finished position.
+  \item \texttt{abstain} --- the corpus is too thin or off-topic to
+        answer. The Oracle returns no answer text and explains which
+        material it would have needed.
+\end{itemize}
+
+Abstention is the correct outcome for a sparse corpus. It is not a
+failure. The Oracle was deliberately designed to refuse where it would
+otherwise fabricate.
+
+\section{The hallucination warning}
+
+A hallucination badge appears when post-hoc verification finds the
+answer text contains a span that the cited sources do not unambiguously
+support. The badge does not necessarily mean the answer is wrong; it
+means the support is weaker than the prose makes it sound. Standard
+response:
+
+\begin{enumerate}[leftmargin=*,itemsep=0.2em]
+  \item Read the cited sources. Decide whether the unsupported span is
+        a paraphrase that survives or an actual overreach.
+  \item If it is an overreach, rephrase the question to be narrower
+        and re-ask. The Oracle's narrower answer is usually correct.
+  \item If you find the Oracle consistently overreaching on a topic,
+        log a critique --- the critiques pipeline feeds back into
+        prompt and policy tuning.
+\end{enumerate}
+
+\section{What to do with low-confidence answers}
+
+Low confidence does not mean ``probably wrong.'' It means ``the corpus
+will not let me commit to a sharper answer.'' Useful responses:
+
+\begin{itemize}[leftmargin=*,itemsep=0.2em]
+  \item \textbf{Add corpus.} Upload one or two documents that directly
+        address the question. Re-ask. The same question with denser
+        material usually moves up a band.
+  \item \textbf{Narrow the question.} A low-confidence answer to a
+        broad question often becomes a high-confidence answer to a
+        more specific sub-question.
+  \item \textbf{Promote a principle.} If the topic recurs and the
+        firm has a working position, draft and accept a principle
+        (Guide 2). The Oracle will start citing it.
+  \item \textbf{Accept abstention.} For genuinely outside-corpus
+        questions, the right answer is ``the firm does not have a
+        position on this'' --- the Oracle will say so.
+\end{itemize}
+
+\section{What the Oracle will not do}
+
+\begin{itemize}[leftmargin=*,itemsep=0.2em]
+  \item It will not answer from general world knowledge alone. If the
+        corpus does not contain relevant material, it abstains.
+  \item It will not generate predictions, market opinions, or trade
+        suggestions. Those routes are gated behind the operator
+        confirmation flow described in Guide 5.
+  \item It will not assert a firm position that contradicts an
+        accepted principle without an explicit flag in the answer
+        signalling the conflict.
+  \item It will not surface private uploads in answers visible to
+        readers outside the firm.
+\end{itemize}
+
+\section{Where the docs are}
+
+\begin{itemize}[leftmargin=*,itemsep=0.2em]
+  \item \file{docs/methods/MQS\_Specification.md} --- citation contract.
+  \item \file{docs/security/Threat\_Model.md} --- what the Oracle is
+        and is not allowed to reveal.
+  \item \file{docs/operator/public\_surfacing.md} --- which corpus
+        rows are eligible to back a publicly visible answer.
+\end{itemize}
+
+\begin{nextup}
+Continue with \href{04_Currents.pdf}{Guide 4 --- Currents} for the
+firm's outward-facing live commentary surface, which uses a related
+but distinct citation contract.
+\end{nextup}
+
+\end{document}

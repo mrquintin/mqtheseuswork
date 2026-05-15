@@ -78,9 +78,21 @@ export default async function ContradictionGeometryMethodPage() {
             an asymmetric variant that reflects only the antagonistic half
             (cosine &lt; 0), and a variant that scores the reflected raw
             embedding rather than the difference vector. Per-item
-            correctness was compared via paired McNemar with effect-size
-            and Wilson confidence bands; the report does not pre-commit to a
-            decision, it surfaces what the numbers say.
+            correctness was compared via paired McNemar, a bootstrap
+            confidence interval on the accuracy delta with a Cohen&apos;s{" "}
+            <em>h</em> effect size, and a score-shift analysis; the
+            recommendation is then derived from those numbers by an
+            explicit rule.
+          </p>
+          <p>
+            <strong>Finding (QH-v1, hash-det embedder):</strong> the
+            ablation is a structural null — the frozen v1 sparsity
+            threshold is saturated, so every variant constant-predicts the
+            same label and the label-level test has zero power to confirm
+            or refute the reflection step.{" "}
+            <strong>Recommendation: KEEP-WITH-FURTHER-WORK</strong> — the
+            production path is left unchanged pending a powered re-run on
+            embedders whose sparsity range straddles the threshold.
           </p>
           <p>
             <a
@@ -95,16 +107,14 @@ export default async function ContradictionGeometryMethodPage() {
             className="public-muted"
             style={{ fontSize: "0.78rem", marginTop: "0.4rem" }}
           >
-            Numbers in the PDF are regenerated from{" "}
-            <span style={{ fontFamily: "monospace" }}>
-              ablation_results.json
-            </span>{" "}
-            on every run; no number is hand-edited. If the no-reflection
-            variant is statistically indistinguishable from the control
-            here and on the firm's internal eval, the firm faces a
-            documented choice: keep the step on principled grounds with a
-            new RATIONALE entry, or remove it in a follow-up prompt with
-            a full review trail. This research output is not a refactor.
+            Numbers in the PDF are regenerated from the run-stamped{" "}
+            <span style={{ fontFamily: "monospace" }}>results.json</span>{" "}
+            on every run; no number is hand-edited. The recommendation is
+            signed by an author identifier and is a conclusion the firm
+            publishes. A <span style={{ fontFamily: "monospace" }}>REMOVE</span>{" "}
+            recommendation would not itself change production code — it
+            would file a follow-up prompt for founder consideration with a
+            full review trail. This research output is not a refactor.
           </p>
         </section>
 

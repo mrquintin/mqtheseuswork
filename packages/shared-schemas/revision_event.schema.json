@@ -1,0 +1,115 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://theseus.dev/schemas/revision_event.schema.json",
+  "title": "RevisionEvent",
+  "description": "Belief-revision payloads shared between noosphere/cascade/revision.py (canonical algorithm) and theseus-codex/src/lib/revisionApi.ts (UI + persistence). The event row in Prisma stores `inputsJson` / `planJson` / `preConfidenceSnapshot` as TEXT — this schema is what those blobs decode to.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "event_id",
+    "plan_id",
+    "inputs",
+    "plan",
+    "pre_confidence_snapshot",
+    "affected_conclusion_ids",
+    "typed_confirmation",
+    "created_at"
+  ],
+  "properties": {
+    "event_id": { "type": "string", "minLength": 1 },
+    "plan_id": { "type": "string", "minLength": 1 },
+    "inputs": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/RevisionInput" }
+    },
+    "plan": { "$ref": "#/$defs/RevisionPlan" },
+    "pre_confidence_snapshot": {
+      "type": "object",
+      "additionalProperties": { "type": "number" }
+    },
+    "affected_conclusion_ids": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "typed_confirmation": { "type": "boolean" },
+    "created_at": { "type": "string", "format": "date-time" },
+    "reverted_at": {
+      "type": ["string", "null"],
+      "format": "date-time",
+      "default": null
+    }
+  },
+  "$defs": {
+    "RevisionInput": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["claim_id", "new_evidence", "weight"],
+      "properties": {
+        "claim_id": { "type": "string", "minLength": 1 },
+        "new_evidence": { "type": "string" },
+        "weight": { "type": "number", "minimum": -1.0, "maximum": 1.0 }
+      }
+    },
+    "ConfidenceShift": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["conclusion_id", "before", "after", "classification"],
+      "properties": {
+        "conclusion_id": { "type": "string", "minLength": 1 },
+        "before": { "type": "number" },
+        "after": { "type": "number" },
+        "delta": { "type": "number" },
+        "classification": {
+          "type": "string",
+          "enum": [
+            "changed",
+            "newly_contradicted",
+            "newly_supported",
+            "stable"
+          ]
+        }
+      }
+    },
+    "RevisionPlan": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "plan_id",
+        "inputs",
+        "changed",
+        "newly_contradicted",
+        "newly_supported",
+        "stable_count",
+        "delta",
+        "theta"
+      ],
+      "properties": {
+        "plan_id": { "type": "string", "minLength": 1 },
+        "inputs": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/RevisionInput" }
+        },
+        "changed": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/ConfidenceShift" }
+        },
+        "newly_contradicted": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/ConfidenceShift" }
+        },
+        "newly_supported": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/ConfidenceShift" }
+        },
+        "stable_count": { "type": "integer", "minimum": 0 },
+        "consulted_edge_ids": {
+          "type": "array",
+          "items": { "type": "string" },
+          "default": []
+        },
+        "delta": { "type": "number" },
+        "theta": { "type": "number" }
+      }
+    }
+  }
+}

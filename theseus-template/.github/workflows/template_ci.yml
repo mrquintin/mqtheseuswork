@@ -1,0 +1,104 @@
+name: Template CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  build-frontend:
+    name: Frontend build
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: theseus-codex
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: theseus-codex/package-lock.json
+      - run: npm ci
+      - run: npm run build
+
+  backend-tests:
+    name: Backend tests
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: theseus_template_ci
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/theseus_template_ci
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+      - run: pip install -r requirements.txt
+      - run: pytest noosphere current_events_api -q
+
+  empty-dashboard-smoke:
+    name: Empty dashboard reachable at localhost:3000
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: theseus_template_ci
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/theseus_template_ci
+      SEED_FOUNDER_A_EMAIL: admin@example.invalid
+      SEED_FOUNDER_A_PASSWORD: ci-bootstrap-pass
+      SEED_FOUNDER_B_EMAIL: admin@example.invalid
+      SEED_FOUNDER_B_PASSWORD: ci-bootstrap-pass
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: theseus-codex/package-lock.json
+      - name: Run bootstrap in non-interactive mode
+        run: |
+          ./scripts/bootstrap.sh --non-interactive --force || true
+      - name: Install Codex dependencies
+        working-directory: theseus-codex
+        run: npm ci
+      - name: Prisma migrate
+        working-directory: theseus-codex
+        run: npx prisma migrate deploy
+      - name: Seed empty tenant
+        working-directory: theseus-codex
+        run: npx tsx prisma/seed.ts
+      - name: Start dev server
+        working-directory: theseus-codex
+        run: |
+          (npm run dev &) ; echo $! > server.pid
+          for i in $(seq 1 60); do
+            if curl -fsS http://localhost:3000/ >/dev/null; then
+              echo "dashboard reachable"
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "dashboard never became reachable" >&2
+          exit 1

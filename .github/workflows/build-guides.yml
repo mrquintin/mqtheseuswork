@@ -1,0 +1,58 @@
+name: build-guides
+
+on:
+  pull_request:
+    paths:
+      - 'docs/guides/**'
+      - '.github/workflows/build-guides.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'docs/guides/**'
+      - '.github/workflows/build-guides.yml'
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out
+        uses: actions/checkout@v4
+
+      - name: Install TeX Live (pdflatex + required packages)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            texlive-latex-base \
+            texlive-latex-recommended \
+            texlive-latex-extra \
+            texlive-fonts-recommended \
+            texlive-fonts-extra \
+            lmodern
+
+      - name: Install codespell (optional spellcheck)
+        run: |
+          python3 -m pip install --user codespell || true
+
+      - name: Spell-check .tex sources
+        run: |
+          if command -v codespell >/dev/null 2>&1 \
+              || [ -x "$HOME/.local/bin/codespell" ]; then
+            CS=$(command -v codespell || echo "$HOME/.local/bin/codespell")
+            # Quiet level 3 + ignore latex command tokens. Do not fail
+            # the CI run on a spell finding --- log and continue, since
+            # codespell on .tex flags command tokens as words. The
+            # guide-author is expected to spot-check.
+            "$CS" docs/guides/*.tex || true
+          fi
+
+      - name: Build PDFs
+        working-directory: docs/guides
+        run: ./build_pdfs.sh
+
+      - name: Upload PDF artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: theseus-user-guides
+          path: docs/guides/*.pdf
+          if-no-files-found: error
+          retention-days: 30

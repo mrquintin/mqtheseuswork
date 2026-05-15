@@ -1,0 +1,78 @@
+You are operating in /Users/michaelquintin/Desktop/Theseus.
+
+Goal: every published article and every published conclusion
+surfaces on the public-facing homepage within 60 seconds of
+publication. Today, articles do not appear. Make them appear.
+
+This prompt is the homepage half of the bug fixed in prompt 51.
+Prompt 51 fixes the rendering of an individual article; this
+prompt makes sure the public homepage shows them.
+
+Before you start — read:
+1. `theseus-codex/src/app/page.tsx` — the public homepage.
+2. Every "what gets shown on the public homepage" data source.
+   At minimum: conclusions, articles, Currents.
+3. The publish actions for each of those entities. Confirm what
+   table column flips, and what its "is public" semantics are.
+   Variants worth checking: `publishedAt IS NOT NULL`, status
+   enum reaching `PUBLISHED`, an `isPublic` boolean.
+
+Implement:
+
+A. Source-of-truth audit. Produce
+   `docs/operator/public_surfacing.md` enumerating, for each
+   public surface item (article, conclusion, currents item,
+   forecast, principle): the table, the column that means
+   "publicly visible", the route that lists them, and the
+   homepage component that consumes that route. One row per
+   item type. This is a living document; future surfaces must
+   add a row.
+
+B. Homepage layout — three rails:
+   - Articles rail (long-form): latest 5 published articles,
+     `publishedAt DESC, id ASC` for tie-break. Card has title,
+     subtitle, publishedAt, author display name (per Round 16
+     prompt 04 — not "Founder Alpha"), reading-time estimate.
+     Each card links to the article detail page from prompt 51.
+   - Conclusions rail: latest 8 surfaceable conclusions.
+   - Currents rail: live opinion feed (already exists; verify
+     it still works).
+   If a rail is empty, render a one-line "X will appear here
+   once Y are published" hint, not an empty box and not the
+   word "undefined".
+
+C. Cache invalidation. On any publish action, the homepage's
+   data revalidates within 60s. Use Next's `revalidatePath`,
+   `revalidateTag`, or SSE; do NOT use a long static cache.
+   Document the chosen mechanism in
+   `docs/operator/public_surfacing.md`.
+
+D. SSR. The first paint of the homepage shows the published
+   content from the server — not a client-side fetch that
+   shows an empty rail for 1.5s then pops items in. SEO
+   crawlers need to see the content.
+
+E. Tests:
+   - Integration: publish an article fixture, hit
+     `GET /`, assert HTTP 200 and the article title appears in
+     the response body within 60s of publish.
+   - Same test for a conclusion publish.
+   - Snapshot test for the empty-state copy of each rail (so
+     no one accidentally surfaces "undefined" again).
+
+Constraints
+- Do not break the existing Currents rail.
+- Do not introduce a new "homepage CMS". The homepage is a
+  composition of the existing entity tables.
+- If an entity type's "is public" semantics is ambiguous (more
+  than one column or one column AND an enum disagree), this
+  prompt MUST resolve the ambiguity in
+  `docs/operator/public_surfacing.md`, not paper over it.
+
+SCOPE
+- `docs/operator/public_surfacing.md` CREATE
+- `theseus-codex/src/app/page.tsx` MODIFY
+- `theseus-codex/src/components/home/ArticlesRail.tsx` CREATE
+- `theseus-codex/src/components/home/ConclusionsRail.tsx` CREATE-OR-MODIFY
+- `theseus-codex/src/lib/publicSurface.ts` CREATE
+- `theseus-codex/src/__tests__/publicSurface.test.tsx` CREATE

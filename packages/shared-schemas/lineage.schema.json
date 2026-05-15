@@ -1,0 +1,68 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://theseus.dev/schemas/lineage.schema.json",
+  "title": "Lineage",
+  "description": "Provenance graph for a single Conclusion. Assembled on both sides — noosphere/temporal/lineage.py from the Store; theseus-codex/src/lib/lineage.ts from Prisma rows. The JSON shape must be byte-stable across implementations so the public route can serve either source.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["conclusion_id", "assembled_at", "nodes", "edges"],
+  "properties": {
+    "conclusion_id": { "type": "string", "minLength": 1 },
+    "assembled_at": { "type": "string", "format": "date-time" },
+    "nodes": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/LineageNode" }
+    },
+    "edges": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/LineageEdge" }
+    }
+  },
+  "$defs": {
+    "LineageNodeKind": {
+      "type": "string",
+      "enum": [
+        "source",
+        "claim",
+        "methodology",
+        "method_invocation",
+        "peer_review",
+        "revision",
+        "drift",
+        "calibration",
+        "conclusion",
+        "publication",
+        "citation"
+      ]
+    },
+    "LineageNode": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "kind", "label", "timestamp"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "kind": { "$ref": "#/$defs/LineageNodeKind" },
+        "label": { "type": "string" },
+        "timestamp": { "type": "string", "format": "date-time" },
+        "summary": { "type": "string", "default": "" },
+        "payload": {
+          "type": "object",
+          "additionalProperties": true,
+          "default": {}
+        },
+        "public_visible": { "type": "boolean", "default": false },
+        "record_url": { "type": "string", "default": "" }
+      }
+    },
+    "LineageEdge": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["src", "dst", "relation"],
+      "properties": {
+        "src": { "type": "string", "minLength": 1 },
+        "dst": { "type": "string", "minLength": 1 },
+        "relation": { "type": "string", "minLength": 1 }
+      }
+    }
+  }
+}

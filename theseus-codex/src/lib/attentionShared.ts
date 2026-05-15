@@ -1,3 +1,5 @@
+import { DASHBOARD_COPY } from "./copy/dashboard";
+
 export const ATTENTION_QUEUES = [
   "drift",
   "peer_review",
@@ -11,12 +13,20 @@ export const ATTENTION_QUEUES = [
 
 export type AttentionQueueId = (typeof ATTENTION_QUEUES)[number];
 
+/**
+ * Display labels for each queue. The schema id (`open_question` etc.)
+ * is unchanged; only what the founder reads moves. The
+ * `open_question` queue uses the canonical phrase from
+ * `DASHBOARD_COPY.unresolvedResearchThread` — see
+ * `docs/operator/dashboard_terminology.md` for the rationale.
+ */
+
 export const ATTENTION_QUEUE_LABELS: Record<AttentionQueueId, string> = {
   drift: "Drift",
   peer_review: "Peer review",
   source_triage: "Source triage",
   response_triage: "Response triage",
-  open_question: "Open questions",
+  open_question: DASHBOARD_COPY.unresolvedResearchThread,
   citation_verdict: "Citation verdicts",
   retraction_propagation: "Retraction propagation",
   calibration_breach: "Calibration breach",

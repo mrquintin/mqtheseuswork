@@ -1,25 +1,35 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
-import Link from "next/link";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 
 import ExplorerCanvas, {
   type ExplorerEdge,
   type ExplorerPoint,
 } from "@/components/ExplorerCanvas";
+import ExplorerEmptyState, {
+  type ExplorerIndexStatus,
+} from "@/components/ExplorerEmptyState";
+import ExplorerSavedViews from "@/components/ExplorerSavedViews";
 import ExplorerSelectionPane from "@/components/ExplorerSelectionPane";
 import ExplorerToolbar from "@/components/ExplorerToolbar";
 import PageKeymap from "@/components/PageKeymap";
 import { type HotkeyBinding } from "@/lib/hotkeys";
-import { reduce, type ReducedPoint, type Reducer } from "@/lib/dimReduce";
+import { clearReduceCache, reduce, type ReducedPoint } from "@/lib/dimReduce";
 import {
+  DEFAULT_VIEWPORT,
+  ZOOM_MAX,
+  ZOOM_MIN,
+  clampViewport,
   decodeExplorerState,
   deleteSavedView,
   encodeExplorerState,
   loadSavedViews,
   saveView,
+  updateSavedView,
+  viewportsEqual,
   type ExplorerState,
+  type ExplorerViewport,
   type SavedView,
 } from "@/lib/explorerState";
 
@@ -41,6 +51,7 @@ interface RawIndex {
   embeddedCount?: number;
   totalCount?: number;
   error?: string | null;
+  canRebuild?: boolean;
 }
 
 interface LegacyProjection {
@@ -57,6 +68,7 @@ interface LegacyProjection {
   embeddedCount?: number;
   totalCount?: number;
   error?: string | null;
+  canRebuild?: boolean;
 }
 
 function adaptLegacyProjection(legacy: LegacyProjection): {
@@ -76,6 +88,8 @@ function adaptLegacyProjection(legacy: LegacyProjection): {
   };
 }
 
+const ZOOM_STEP = 1.4;
+
 export default function ExplorerPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -87,16 +101,43 @@ export default function ExplorerPage() {
   const [loadingState, setLoadingState] = useState<
     "loading" | "ready" | "warming" | "error"
   >("loading");
-  const [warmupStats, setWarmupStats] = useState<{ embedded: number; total: number } | null>(null);
+  const [indexStats, setIndexStats] = useState<{ embedded: number; total: number }>({
+    embedded: 0,
+    total: 0,
+  });
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [canRebuild, setCanRebuild] = useState(false);
+  const [rebuilding, setRebuilding] = useState(false);
   const [savedViews, setSavedViews] = useState<SavedView[]>([]);
   const [recenterTo, setRecenterTo] = useState<string[] | null>(null);
 
   // ── Decode URL state ────────────────────────────────────────────-
-  const state: ExplorerState = useMemo(() => {
+  const decoded: ExplorerState = useMemo(() => {
     const params = new URLSearchParams(searchParams?.toString() ?? "");
     return decodeExplorerState(params);
   }, [searchParams]);
+
+  // The viewport is held in local state during a gesture so a wheel-
+  // zoom doesn't spam router.replace; it's flushed to the URL once the
+  // gesture settles (see the debounce effect below). Every other field
+  // round-trips through the URL directly.
+  const [liveViewport, setLiveViewport] = useState<ExplorerViewport>(
+    decoded.viewport,
+  );
+  const urlViewportKey = `${decoded.viewport.cx},${decoded.viewport.cy},${decoded.viewport.scale}`;
+  useEffect(() => {
+    // Adopt the URL viewport whenever it changes from outside this
+    // component (paste, back button, saved-view selection).
+    setLiveViewport(decoded.viewport);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [urlViewportKey]);
+
+  // The state every handler reads: URL-decoded, but with the live
+  // viewport patched in so it's never stale mid-gesture.
+  const state: ExplorerState = useMemo(
+    () => ({ ...decoded, viewport: liveViewport }),
+    [decoded, liveViewport],
+  );
 
   const selectionSet = useMemo(() => new Set(state.selection), [state.selection]);
 
@@ -111,86 +152,111 @@ export default function ExplorerPage() {
     [router],
   );
 
+  // Debounced viewport → URL flush. Keeps the gesture smooth, then
+  // makes the resting view linkable ~220ms after it settles.
+  useEffect(() => {
+    if (viewportsEqual(liveViewport, decoded.viewport)) return;
+    const timer = setTimeout(() => {
+      writeState({ ...decoded, viewport: liveViewport });
+    }, 220);
+    return () => clearTimeout(timer);
+  }, [liveViewport, decoded, writeState]);
+
   // ── Load saved views ────────────────────────────────────────────
   useEffect(() => {
     setSavedViews(loadSavedViews());
   }, []);
 
   // ── Fetch index ──────────────────────────────────────────────────
-  useEffect(() => {
-    let cancelled = false;
-    async function load() {
-      setLoadingState("loading");
-      try {
-        const res = await fetch("/api/conclusions/embeddings");
-        if (!res.ok) {
-          const body = await res.json().catch(() => ({}));
-          throw new Error(body.error || `HTTP ${res.status}`);
-        }
-        const json = (await res.json()) as Partial<RawIndex> & Partial<LegacyProjection>;
-        if (cancelled) return;
-
-        if (json.status === "warming-up") {
-          setLoadingState("warming");
-          setWarmupStats({
-            embedded: json.embeddedCount ?? 0,
-            total: json.totalCount ?? 0,
-          });
-          return;
-        }
-
-        if (Array.isArray(json.points)) {
-          // New richer payload.
-          const indexed = json.points;
-          const hasRawEmbeddings = indexed.every(
-            (p) => Array.isArray(p.embedding) && p.embedding.length > 0,
-          );
-          setPoints(
-            indexed.map((p) => ({
-              id: p.id,
-              text: p.text,
-              topicHint: p.topicHint || "",
-              confidenceTier: p.confidenceTier || "open",
-              methods: Array.isArray(p.methods) ? p.methods : [],
-              isPrivate: Boolean(p.isPrivate),
-            })),
-          );
-          if (hasRawEmbeddings) {
-            setEmbeddings(indexed.map((p) => p.embedding as number[]));
-            setPreProjected(null);
-          } else {
-            setEmbeddings([]);
-            setPreProjected(
-              indexed.map((p) => ({ x: p.x ?? 0, y: p.y ?? 0 })),
-            );
-          }
-          setEdges(Array.isArray(json.edges) ? json.edges : []);
-        } else if (Array.isArray(json.conclusions)) {
-          // Legacy payload. Carry the projection through verbatim — we
-          // can't switch reducers, but the UI degrades gracefully.
-          const adapted = adaptLegacyProjection(json as LegacyProjection);
-          setPoints(adapted.points);
-          setEmbeddings([]);
-          setPreProjected(adapted.preProjected);
-          setEdges([]);
-        } else {
-          setPoints([]);
-          setEmbeddings([]);
-          setPreProjected(null);
-          setEdges([]);
-        }
-        setLoadingState("ready");
-      } catch (err) {
-        if (cancelled) return;
-        setErrorMessage((err as Error).message);
-        setLoadingState("error");
+  const cancelledRef = useRef(false);
+  const fetchIndex = useCallback(async () => {
+    setLoadingState("loading");
+    try {
+      const res = await fetch("/api/conclusions/embeddings", { cache: "no-store" });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body.error || `HTTP ${res.status}`);
       }
+      const json = (await res.json()) as Partial<RawIndex> & Partial<LegacyProjection>;
+      if (cancelledRef.current) return;
+
+      setCanRebuild(Boolean(json.canRebuild));
+      setIndexStats({
+        embedded: json.embeddedCount ?? 0,
+        total: json.totalCount ?? 0,
+      });
+
+      if (json.status === "warming-up") {
+        setLoadingState("warming");
+        return;
+      }
+
+      if (Array.isArray(json.points)) {
+        // New richer payload.
+        const indexed = json.points;
+        const hasRawEmbeddings = indexed.every(
+          (p) => Array.isArray(p.embedding) && p.embedding.length > 0,
+        );
+        setPoints(
+          indexed.map((p) => ({
+            id: p.id,
+            text: p.text,
+            topicHint: p.topicHint || "",
+            confidenceTier: p.confidenceTier || "open",
+            methods: Array.isArray(p.methods) ? p.methods : [],
+            isPrivate: Boolean(p.isPrivate),
+          })),
+        );
+        if (hasRawEmbeddings) {
+          setEmbeddings(indexed.map((p) => p.embedding as number[]));
+          setPreProjected(null);
+        } else {
+          setEmbeddings([]);
+          setPreProjected(indexed.map((p) => ({ x: p.x ?? 0, y: p.y ?? 0 })));
+        }
+        setEdges(Array.isArray(json.edges) ? json.edges : []);
+      } else if (Array.isArray(json.conclusions)) {
+        // Legacy payload. Carry the projection through verbatim — we
+        // can't switch reducers, but the UI degrades gracefully.
+        const adapted = adaptLegacyProjection(json as LegacyProjection);
+        setPoints(adapted.points);
+        setEmbeddings([]);
+        setPreProjected(adapted.preProjected);
+        setEdges([]);
+      } else {
+        setPoints([]);
+        setEmbeddings([]);
+        setPreProjected(null);
+        setEdges([]);
+      }
+      setLoadingState("ready");
+    } catch (err) {
+      if (cancelledRef.current) return;
+      setErrorMessage((err as Error).message);
+      setLoadingState("error");
     }
-    void load();
-    return () => {
-      cancelled = true;
-    };
   }, []);
+
+  useEffect(() => {
+    cancelledRef.current = false;
+    void fetchIndex();
+    return () => {
+      cancelledRef.current = true;
+    };
+  }, [fetchIndex]);
+
+  // Rebuild = drop the client-side projection cache (the part of the
+  // "index" the Explorer owns) and re-fetch. Gated to founders by
+  // `canRebuild`; the API re-checks regardless.
+  const onRebuild = useCallback(async () => {
+    setRebuilding(true);
+    try {
+      clearReduceCache();
+      await fetchIndex();
+    } finally {
+      if (!cancelledRef.current) setRebuilding(false);
+    }
+  }, [fetchIndex]);
 
   // ── Project ──────────────────────────────────────────────────────
   const projection = useMemo<ReducedPoint[]>(() => {
@@ -199,13 +265,21 @@ export default function ExplorerPage() {
     return reduce(embeddings, state.reducer).points;
   }, [preProjected, embeddings, state.reducer]);
 
-  // ── Toolbar handlers ────────────────────────────────────────────-
+  // ── Handlers ────────────────────────────────────────────────────-
   const onChangeState = useCallback(
     (next: ExplorerState) => {
+      // A state change that also moves the viewport must keep the
+      // live-viewport mirror in sync, or the debounce effect will
+      // immediately revert it.
+      setLiveViewport(next.viewport);
       writeState(next);
     },
     [writeState],
   );
+
+  const onViewportChange = useCallback((next: ExplorerViewport) => {
+    setLiveViewport(next);
+  }, []);
 
   const onLassoSelect = useCallback(
     (ids: string[]) => {
@@ -244,9 +318,8 @@ export default function ExplorerPage() {
   );
 
   const onSaveView = useCallback(
-    (label: string) => {
-      const updated = saveView(label, state);
-      setSavedViews(updated);
+    (label: string, description?: string) => {
+      setSavedViews(saveView(label, state, description));
     },
     [state],
   );
@@ -254,20 +327,26 @@ export default function ExplorerPage() {
   const onSelectSavedView = useCallback(
     (view: SavedView) => {
       const next = decodeExplorerState(new URLSearchParams(view.query));
-      writeState(next);
+      onChangeState(next);
     },
-    [writeState],
+    [onChangeState],
   );
 
   const onDeleteSavedView = useCallback((id: string) => {
     setSavedViews(deleteSavedView(id));
   }, []);
 
+  const onRenameSavedView = useCallback(
+    (id: string, patch: { label?: string; description?: string }) => {
+      setSavedViews(updateSavedView(id, patch));
+    },
+    [],
+  );
+
   // ── Page keymap ──────────────────────────────────────────────────
-  // l = lasso (canvas drag is the only way today; we surface a toast
-  // explaining the tool when l is pressed, and prep for a future
-  // canvas-driven hotkey selection mode). s = save view. o = toggle
-  // the contradicts overlay (the most-used overlay).
+  // Canvas interactions all have a keyboard equivalent so the Explorer
+  // stays usable without a mouse: l = lasso hint, s = save view,
+  // o = contradicts overlay, = / - = zoom, 0 = reset view.
   const explorerBindings = useMemo<HotkeyBinding[]>(
     () => [
       {
@@ -275,9 +354,6 @@ export default function ExplorerPage() {
         description: "Lasso (drag on the canvas to select a region)",
         handler: () => {
           if (typeof window === "undefined") return;
-          // We surface a status hint; the canvas itself responds to
-          // mouse drags. A future iteration can drive a keyboard-only
-          // marquee — wiring is in place via the canvas ref.
           window.dispatchEvent(new CustomEvent("explorer:lasso-hint"));
         },
       },
@@ -300,69 +376,89 @@ export default function ExplorerPage() {
           });
         },
       },
+      {
+        chord: "=",
+        description: "Zoom in",
+        handler: () => {
+          onChangeState({
+            ...state,
+            viewport: clampViewport({
+              ...state.viewport,
+              scale: Math.min(ZOOM_MAX, state.viewport.scale * ZOOM_STEP),
+            }),
+          });
+        },
+      },
+      {
+        chord: "-",
+        description: "Zoom out",
+        handler: () => {
+          onChangeState({
+            ...state,
+            viewport: clampViewport({
+              ...state.viewport,
+              scale: Math.max(ZOOM_MIN, state.viewport.scale / ZOOM_STEP),
+            }),
+          });
+        },
+      },
+      {
+        chord: "0",
+        description: "Reset zoom and pan",
+        handler: () => {
+          onChangeState({ ...state, viewport: { ...DEFAULT_VIEWPORT } });
+        },
+      },
     ],
     [onSaveView, onChangeState, state],
   );
 
   // ── Render guards ────────────────────────────────────────────────
-  if (loadingState === "loading") {
-    return (
-      <main style={pageStyle}>
-        <Header />
-        <HealthPanel
-          status="loading"
-          embedded={warmupStats?.embedded ?? 0}
-          total={warmupStats?.total ?? 0}
-        />
-      </main>
-    );
-  }
-  if (loadingState === "error") {
-    return (
-      <main style={pageStyle}>
-        <Header />
-        <HealthPanel
-          status="error"
-          embedded={0}
-          total={0}
-          message={errorMessage}
-        />
-      </main>
-    );
-  }
-  if (loadingState === "warming") {
-    return (
-      <main style={pageStyle}>
-        <Header />
-        <HealthPanel
-          status="warming"
-          embedded={warmupStats?.embedded ?? 0}
-          total={warmupStats?.total ?? 0}
-        />
-      </main>
-    );
-  }
-  if (points.length < 3) {
-    return (
-      <main style={pageStyle}>
-        <Header />
-        <HealthPanel status="empty" embedded={points.length} total={points.length} />
-      </main>
-    );
-  }
+  const indexDiagnostic = (status: ExplorerIndexStatus) => (
+    <main style={pageStyle}>
+      <Header />
+      <ExplorerEmptyState
+        status={status}
+        embedded={indexStats.embedded}
+        total={indexStats.total}
+        message={errorMessage}
+        canRebuild={canRebuild}
+        onRebuild={onRebuild}
+        rebuilding={rebuilding}
+      />
+    </main>
+  );
+
+  if (loadingState === "loading") return indexDiagnostic("loading");
+  if (loadingState === "error") return indexDiagnostic("error");
+  if (loadingState === "warming") return indexDiagnostic("warming");
+  if (points.length < 3) return indexDiagnostic("empty");
+
+  // Ready, but the index lags the conclusion count — show a non-
+  // blocking stale banner above the canvas rather than hiding it.
+  const isStale =
+    indexStats.total > 0 && indexStats.embedded < indexStats.total;
 
   return (
     <main style={pageStyle}>
       <PageKeymap bindings={explorerBindings} label="Explorer" />
       <Header />
+      {isStale ? (
+        <div style={{ marginBottom: "0.75rem" }}>
+          <ExplorerEmptyState
+            status="stale"
+            embedded={indexStats.embedded}
+            total={indexStats.total}
+            canRebuild={canRebuild}
+            onRebuild={onRebuild}
+            rebuilding={rebuilding}
+          />
+        </div>
+      ) : null}
       <ExplorerToolbar
         state={state}
         onChange={onChangeState}
-        onSaveView={onSaveView}
         onClearSelection={onClearSelection}
-        savedViews={savedViews}
-        onSelectSavedView={onSelectSavedView}
-        onDeleteSavedView={onDeleteSavedView}
         selectionCount={selectionSet.size}
         totalCount={points.length}
       />
@@ -385,16 +481,27 @@ export default function ExplorerPage() {
           onClearSelection={onClearSelection}
           onPointClick={onPointClick}
           recenterTo={recenterTo}
+          viewport={state.viewport}
+          onViewportChange={onViewportChange}
         />
-        <ExplorerSelectionPane
-          selection={selectionSet}
-          points={points}
-          projection={projection}
-          edges={edges}
-          focusedId={state.focused}
-          onSelectFocus={onSelectFocus}
-          onShowNeighborhood={onShowNeighborhood}
-        />
+        <div style={{ display: "flex", flexDirection: "column", gap: "0.85rem" }}>
+          <ExplorerSelectionPane
+            selection={selectionSet}
+            points={points}
+            projection={projection}
+            edges={edges}
+            focusedId={state.focused}
+            onSelectFocus={onSelectFocus}
+            onShowNeighborhood={onShowNeighborhood}
+          />
+          <ExplorerSavedViews
+            savedViews={savedViews}
+            onSave={onSaveView}
+            onSelect={onSelectSavedView}
+            onDelete={onDeleteSavedView}
+            onRename={onRenameSavedView}
+          />
+        </div>
       </div>
     </main>
   );
@@ -425,187 +532,11 @@ function Header() {
         }}
       >
         A 2-D projection of the firm&apos;s conclusion embeddings. Drag a
-        lasso to select a region, toggle overlays for contradictions or
-        supports, click a point to open the conclusion. Every view is a URL.
+        lasso to select a region, scroll to zoom and shift-drag to pan,
+        toggle overlays for contradictions or supports, click a point to open
+        the conclusion. Every view — selection, overlays, zoom, pan — is a URL.
       </p>
     </>
-  );
-}
-
-function HealthPanel({
-  status,
-  embedded,
-  total,
-  message,
-}: {
-  status: "loading" | "warming" | "empty" | "error";
-  embedded: number;
-  total: number;
-  message?: string | null;
-}) {
-  const pct =
-    total > 0 ? Math.max(0, Math.min(100, Math.round((embedded / total) * 100))) : 0;
-  const tone =
-    status === "error"
-      ? "var(--ember)"
-      : status === "loading"
-        ? "var(--info)"
-        : "var(--amber)";
-  const heading =
-    status === "loading"
-      ? "Loading projection…"
-      : status === "error"
-        ? "Projection failed to load"
-        : status === "warming"
-          ? "Waiting for embeddings"
-          : "Not enough embedded conclusions";
-
-  return (
-    <section
-      className="portal-card"
-      style={{
-        padding: "1rem 1.1rem",
-        borderLeft: `3px solid ${tone}`,
-      }}
-    >
-      <div
-        className="mono"
-        style={{
-          fontSize: "0.6rem",
-          letterSpacing: "0.2em",
-          textTransform: "uppercase",
-          color: tone,
-          marginBottom: "0.4rem",
-        }}
-      >
-        Embedding health
-      </div>
-      <h3
-        style={{
-          margin: 0,
-          fontFamily: "'EB Garamond', serif",
-          fontSize: "1.05rem",
-          color: "var(--parchment)",
-          fontWeight: 500,
-        }}
-      >
-        {heading}
-      </h3>
-      {status !== "loading" ? (
-        <p
-          style={{
-            margin: "0.45rem 0 0",
-            fontSize: "0.85rem",
-            color: "var(--parchment-dim)",
-            lineHeight: 1.5,
-          }}
-        >
-          {status === "error" ? (
-            <>The embeddings API returned an error: {message || "unknown"}.</>
-          ) : status === "warming" ? (
-            <>
-              The Explorer activates once the firm has at least 3 embedded
-              conclusions. The data shown elsewhere may look empty because
-              embeddings have not yet been populated for these conclusions.
-            </>
-          ) : (
-            <>
-              The Explorer needs at least 3 conclusions to project. Add more
-              uploads, or wait for the next ingest pass to embed existing
-              conclusions.
-            </>
-          )}
-        </p>
-      ) : null}
-      <div
-        className="mono"
-        style={{
-          marginTop: "0.6rem",
-          fontSize: "0.7rem",
-          color: "var(--parchment)",
-          letterSpacing: "0.08em",
-          display: "flex",
-          gap: "0.5rem",
-          flexWrap: "wrap",
-          alignItems: "center",
-        }}
-      >
-        <span>
-          embedded {embedded}/{total}
-          {total > 0 ? ` (${pct}%)` : ""}
-        </span>
-        {total > 0 ? (
-          <span
-            aria-hidden="true"
-            style={{
-              flex: "1 1 8rem",
-              minWidth: "6rem",
-              maxWidth: "12rem",
-              height: 4,
-              background: "var(--stone-mid)",
-              borderRadius: 2,
-              overflow: "hidden",
-            }}
-          >
-            <span
-              style={{
-                display: "block",
-                width: `${pct}%`,
-                height: "100%",
-                background: tone,
-              }}
-            />
-          </span>
-        ) : null}
-      </div>
-      {status === "warming" || status === "empty" ? (
-        <div
-          style={{
-            marginTop: "0.75rem",
-            display: "flex",
-            gap: "0.5rem",
-            flexWrap: "wrap",
-          }}
-        >
-          <Link
-            href="/upload"
-            className="btn"
-            style={{
-              fontSize: "0.62rem",
-              padding: "0.3rem 0.65rem",
-              textDecoration: "none",
-            }}
-          >
-            Add an upload
-          </Link>
-          <Link
-            href="/ops"
-            className="btn"
-            style={{
-              fontSize: "0.62rem",
-              padding: "0.3rem 0.65rem",
-              textDecoration: "none",
-            }}
-          >
-            Open ops console
-          </Link>
-        </div>
-      ) : null}
-      {status === "error" ? (
-        <div style={{ marginTop: "0.75rem" }}>
-          <button
-            type="button"
-            className="btn"
-            onClick={() => {
-              if (typeof window !== "undefined") window.location.reload();
-            }}
-            style={{ fontSize: "0.62rem", padding: "0.3rem 0.65rem" }}
-          >
-            Retry
-          </button>
-        </div>
-      ) : null}
-    </section>
   );
 }
 

@@ -1,0 +1,103 @@
+You are operating in /Users/michaelquintin/Desktop/Theseus.
+
+Goal: build the bridge the founder described — "quantitative
+models are effectively numerical versions of the logical
+principles". For each principle in the knowledge base, generate
+a structured quantitative-formalisation spec: what metrics, what
+data sets, what regressions / trends would operationalise that
+principle. This prompt produces the SPEC layer. Prompt 64
+implements running the specs against real data.
+
+Before you start — read:
+1. `noosphere/noosphere/conclusions.py` (post-prompt-56). Each
+   principle now carries `quantifiable_proxies` as a list of
+   metric/data-set name strings — this prompt elaborates those
+   stubs into runnable specs.
+2. The firm's existing principle pages —
+   `theseus-codex/src/app/methodology/principles/page.tsx`,
+   any principle-detail page.
+
+Implement:
+
+A. Spec schema. A `QuantitativeFormalisation` entity per
+   Principle, carrying:
+   - `principle_id` FK.
+   - `null_hypothesis`: what would be true if the principle is
+     FALSE. Falsifiability is required; no formalisation can
+     ship without a stated null.
+   - `metrics`: list of structured metric specs.
+     Each metric: `name`, `definition` (precise enough that two
+     analysts would compute the same number), `unit`,
+     `source_dataset`, `update_cadence`.
+   - `tests`: list of statistical tests. Each test:
+     `kind` (`regression | classification | event_study |
+     correlation | hazard | ks_test | ab`),
+     `dependent`, `independents`, `controls`,
+     `dataset_filter`, `expected_sign_or_magnitude`,
+     `expected_p_threshold`.
+   - `data_sources`: list of dataset names with provenance
+     (URL or internal table name), license, refresh cadence.
+   - `decision_thresholds`: what numerical reading from the
+     tests would update the firm's confidence in the
+     principle (`if R^2 < 0.05 → principle weakens`).
+   - `status`: enum `DRAFT | PENDING_REVIEW | APPROVED |
+     RETIRED`.
+
+B. LLM drafter. For every principle without a formalisation,
+   an LLM-assisted drafter proposes a `QuantitativeFormalisation`
+   row. The drafter:
+   - Reads the principle, its citations, and the firm's
+     existing approved formalisations as few-shot examples.
+   - Outputs JSON matching the schema.
+   - Refuses (and writes a structured `UNFORMALISABLE` reason)
+     when the principle cannot be quantified — for example,
+     pure-normative principles, or those whose only operational
+     test would require data the firm cannot access.
+   The drafter never marks a row APPROVED. Founder review is
+   required.
+
+C. Founder triage UI. A queue under
+   `theseus-codex/src/app/(authed)/principles/[id]/quantitative/page.tsx`
+   showing one principle at a time with: principle text,
+   the drafter's proposed formalisation, an edit pane, and
+   accept/reject/edit-then-accept actions. Approve writes
+   `status=APPROVED` and surfaces the formalisation on the
+   public principle page.
+
+D. Public surface. The public principle page renders any
+   APPROVED formalisation as a "How we test this principle"
+   section, with: null hypothesis, the test list, the
+   data sources, and the decision thresholds. This is the
+   firm's institutional honesty signal — readers can see
+   exactly what would update its mind.
+
+E. Tests:
+   - Drafter generates valid JSON against the schema on a
+     fixture of 5 principles, including 2 expected-refusal
+     cases.
+   - Schema-conformance: every APPROVED formalisation has
+     non-empty `null_hypothesis`, ≥ 1 metric, ≥ 1 test.
+   - Triage UI workflow renders the proposal and accept-edit
+     round-trips correctly.
+
+Constraints
+- Do not auto-approve. Every APPROVED formalisation has a
+  recorded founder approval row.
+- Do not invent data sources. If the drafter cannot name a
+  real, accessible dataset, it refuses; it does not fabricate.
+- Do not commit the same formalisation for a principle twice;
+  drafter is idempotent per principle.
+
+SCOPE
+- `noosphere/noosphere/quantitative/__init__.py` CREATE
+- `noosphere/noosphere/quantitative/formalisation.py` CREATE
+- `noosphere/noosphere/quantitative/drafter.py` CREATE
+- `noosphere/noosphere/quantitative/_prompts/drafter_system.md` CREATE
+- `noosphere/noosphere/models.py` MODIFY
+- `noosphere/noosphere/store.py` MODIFY
+- `theseus-codex/prisma/schema.prisma` MODIFY
+- `theseus-codex/prisma/migrations/<ts>_quantitative_formalisation/migration.sql` CREATE
+- `noosphere/alembic/versions/<rev>_quantitative_formalisation.py` CREATE
+- `theseus-codex/src/app/(authed)/principles/[id]/quantitative/page.tsx` CREATE
+- `theseus-codex/src/app/methodology/principles/[id]/page.tsx` MODIFY
+- `noosphere/tests/test_quantitative_drafter.py` CREATE

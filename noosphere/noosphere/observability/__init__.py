@@ -30,6 +30,12 @@ from noosphere.observability.spans import (
     set_recorder,
     start_span,
     start_trace,
+    traced,
+)
+from noosphere.observability.external_api import (
+    ExternalCallSpan,
+    external_call,
+    traced_request,
 )
 from noosphere.observability.metrics import (
     AlertRule,
@@ -126,6 +132,7 @@ def get_logger(name: str | None = None) -> Any:
 
 __all__ = [
     "AlertRule",
+    "ExternalCallSpan",
     "MethodMetrics",
     "Span",
     "SpanRecorder",
@@ -134,10 +141,13 @@ __all__ = [
     "current_span",
     "current_trace",
     "evaluate_alerts",
+    "external_call",
     "get_logger",
     "get_recorder",
     "rollup_method_metrics",
     "set_recorder",
     "start_span",
     "start_trace",
+    "traced",
+    "traced_request",
 ]

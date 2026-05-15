@@ -1,0 +1,138 @@
+{
+  "conclusion": {
+    "id": "conc_01",
+    "text": "Markets clear when prices reflect all known constraints.",
+    "reasoning": "From the equilibrium definition.",
+    "rationale": "From the equilibrium definition.",
+    "kind": "firm",
+    "confidence_tier": "moderate",
+    "principles_used": ["p1"],
+    "claims_used": ["c1", "c2"],
+    "supporting_principle_ids": ["p1"],
+    "evidence_chain_claim_ids": ["c1"],
+    "dissent_claim_ids": [],
+    "confidence": 0.72,
+    "disciplines": ["economics"],
+    "freshness": "fresh",
+    "created_at": "2026-05-01T10:00:00Z",
+    "updated_at": "2026-05-01T10:00:00Z",
+    "superseded_at": null,
+    "last_validated_at": null
+  },
+  "mqs": {
+    "schema": "theseus.mqs.v1",
+    "conclusion_id": "conc_01",
+    "progressivity": {
+      "score": 0.85,
+      "evidence": { "forecast_count": 3 }
+    },
+    "severity": { "score": 0.6, "evidence": {} },
+    "aim_method_fit": { "score": 0.7, "evidence": {} },
+    "compressibility": { "score": 0.5, "evidence": {} },
+    "domain_sensitivity": { "score": 0.9, "evidence": {} },
+    "composite": 0.585,
+    "composite_formula": "domain_sensitivity * mean(progressivity, severity, aim_method_fit, compressibility)",
+    "model_name": "stub",
+    "prompt_version": "mqs-prompt-v1.0",
+    "scored_at": "2026-05-01T10:05:00Z"
+  },
+  "method_track_record": {
+    "organization_id": "org_1",
+    "method_name": "yield-curve-watcher",
+    "method_version": "1.0.0",
+    "domain": "macro",
+    "sample_size": 12,
+    "weighted_brier": 0.18,
+    "calibration_slope": 0.95,
+    "calibration_slope_ci_low": 0.62,
+    "calibration_slope_ci_high": 1.28,
+    "severity_pass_rate": 0.66,
+    "evidence": { "bootstrap_iterations": 200 },
+    "computed_at": "2026-05-01T11:00:00Z"
+  },
+  "revision_event": {
+    "event_id": "rev_evt_42",
+    "plan_id": "plan_42",
+    "inputs": [
+      {
+        "claim_id": "claim_A",
+        "new_evidence": "Counterfactual from Bayes table.",
+        "weight": -0.5
+      }
+    ],
+    "plan": {
+      "plan_id": "plan_42",
+      "inputs": [
+        {
+          "claim_id": "claim_A",
+          "new_evidence": "Counterfactual from Bayes table.",
+          "weight": -0.5
+        }
+      ],
+      "changed": [
+        {
+          "conclusion_id": "conc_01",
+          "before": 0.72,
+          "after": 0.61,
+          "delta": -0.11,
+          "classification": "changed"
+        }
+      ],
+      "newly_contradicted": [],
+      "newly_supported": [],
+      "stable_count": 4,
+      "consulted_edge_ids": ["edge_1", "edge_2"],
+      "delta": 0.05,
+      "theta": 0.3
+    },
+    "pre_confidence_snapshot": { "conc_01": 0.72 },
+    "affected_conclusion_ids": ["conc_01"],
+    "typed_confirmation": false,
+    "created_at": "2026-05-02T09:00:00Z",
+    "reverted_at": null
+  },
+  "citation_verdict": {
+    "citation_kind": "conclusion_source",
+    "citation_id": "cite_99",
+    "source_id": "src_hash_abc",
+    "relation": "supports",
+    "relation_holds": "entails",
+    "confidence": 0.84,
+    "excerpt_used": "...prices reflect all known constraints...",
+    "stated_claim": "Markets clear when prices reflect all known constraints.",
+    "cascade_weight": 0.5,
+    "model_version": "deberta-v3-nli",
+    "computed_at": "2026-05-01T10:10:00Z",
+    "overridden_by": null,
+    "override_reason": null
+  },
+  "lineage": {
+    "conclusion_id": "conc_01",
+    "assembled_at": "2026-05-01T10:00:00Z",
+    "nodes": [
+      {
+        "id": "conclusion:conc_01",
+        "kind": "conclusion",
+        "label": "Markets clear …",
+        "timestamp": "2026-05-01T10:00:00Z",
+        "summary": "",
+        "payload": { "confidence": 0.72 },
+        "public_visible": true,
+        "record_url": "/conclusions/conc_01"
+      },
+      {
+        "id": "source:upload_77",
+        "kind": "source",
+        "label": "Field Notes vol. 3",
+        "timestamp": "2026-04-20T12:00:00Z",
+        "summary": "",
+        "payload": { "uploadId": "upload_77" },
+        "public_visible": false,
+        "record_url": ""
+      }
+    ],
+    "edges": [
+      { "src": "source:upload_77", "dst": "conclusion:conc_01", "relation": "source_of" }
+    ]
+  }
+}

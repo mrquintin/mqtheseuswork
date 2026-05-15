@@ -18,11 +18,37 @@
  *     resolving rather than silently reappearing on a later publish.
  */
 import { NextResponse } from "next/server";
+import { revalidatePath, revalidateTag } from "next/cache";
 import { getFounderFromAuth } from "@/lib/apiKeyAuth";
 import { db } from "@/lib/db";
+import { PUBLIC_HOME_ARTICLES_TAG } from "@/lib/publicSurface";
 import { canWrite, WRITE_FORBIDDEN_RESPONSE } from "@/lib/roles";
 import { sanitizeAndCap } from "@/lib/sanitizeText";
 import { pickAvailableSlug } from "@/lib/slugify";
+
+function revalidatePublicSurfaces(slug: string | null | undefined) {
+  // Force the homepage Articles rail to re-query within one render
+  // cycle so a publish surfaces immediately (well inside the 60s SLO).
+  // The tag here matches the one consumed by `listHomepageArticles`
+  // — see `docs/operator/public_surfacing.md`.
+  try {
+    revalidatePath("/");
+  } catch {
+    /* revalidate is a best-effort hint */
+  }
+  if (slug) {
+    try {
+      revalidatePath(`/post/${slug}`);
+    } catch {
+      /* ignore */
+    }
+  }
+  try {
+    revalidateTag(PUBLIC_HOME_ARTICLES_TAG, "default");
+  } catch {
+    /* best-effort */
+  }
+}
 
 export async function POST(req: Request) {
   try {
@@ -145,6 +171,7 @@ export async function POST(req: Request) {
           },
         })
         .catch(() => {});
+      revalidatePublicSurfaces(updated.slug);
       return NextResponse.json({
         ok: true,
         slug: updated.slug,
@@ -169,6 +196,7 @@ export async function POST(req: Request) {
         },
       })
       .catch(() => {});
+    revalidatePublicSurfaces(existing.slug);
     return NextResponse.json({
       ok: true,
       slug: null,

@@ -35,6 +35,12 @@ from current_events_api.routes.forecasts_stream import router as forecasts_strea
 from current_events_api.routes.followup import router as followup_router
 from current_events_api.routes.operator import router as operator_router
 from current_events_api.routes.portfolio import router as portfolio_router
+from current_events_api.routes.portfolio_equities import (
+    router as portfolio_equities_router,
+)
+from current_events_api.routes.decision_trace import (
+    router as decision_trace_router,
+)
 from current_events_api.routes.stream import router as stream_router
 from noosphere.currents.budget import PersistentHourlyBudgetGuard
 from noosphere.currents.status import status_path_from_env
@@ -130,6 +136,8 @@ if _cors_origins:
 # Static stream paths must be registered before dynamic detail routes.
 app.include_router(forecasts_stream_router)
 app.include_router(forecasts_followup_router)
+app.include_router(portfolio_equities_router)
+app.include_router(decision_trace_router)
 app.include_router(portfolio_router)
 app.include_router(operator_router)
 app.include_router(forecasts_router)

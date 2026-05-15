@@ -1,0 +1,128 @@
+You are operating in /Users/michaelquintin/Desktop/Theseus.
+
+Goal: a turn-key VC-firm preset on top of the template from
+prompt 68. The founder named VCs as the most applicable customer:
+"a VC firm with a lot of data on its founders, let's say they've
+put out a lot of work, they've done a couple podcasts, they've
+talked about their beliefs … infrastructure for capitalizing
+and capitalizing on those beliefs in a variety of ways".
+
+A VC preset is the template + opinionated configuration +
+opinionated example workflows. Bootstrapping a new VC tenant
+should produce a system that can ingest founder essays /
+podcasts / interview transcripts and surface principles those
+founders would apply to a new deal.
+
+Depends on prompt 68's template extraction having landed.
+
+Before you start — read:
+1. `theseus-template/scripts/bootstrap.sh` (from prompt 68).
+2. `noosphere/noosphere/ingestion/` (or wherever ingestion
+   adapters live) for current input formats: text / PDF /
+   markdown / audio transcript.
+3. `noosphere/noosphere/conclusions.py` post-prompt-56 for the
+   principle schema.
+
+Implement:
+
+A. Preset descriptor `theseus-template/presets/vc_firm.yml`:
+   - `name: "VC firm"`.
+   - `default_principle_domains`: enumeration of common VC
+     decision domains: `market_size`, `founder_quality`,
+     `timing`, `moats`, `unit_economics`, `competition`,
+     `team`, `regulatory`. The principle extractor (prompt 56)
+     will preferentially tag against this set.
+   - `seed_artifacts`: a list of placeholder slots for the
+     tenant to populate — `founder_a_essays/`,
+     `founder_a_podcasts_transcripts/`,
+     `firm_memos/`, `partner_meeting_notes/`. The
+     bootstrap CLI creates these directories empty with a
+     README in each explaining what to drop there.
+   - `modules`:
+     - `forecasts: false` by default (VCs typically do not
+       care about Polymarket).
+     - `equities: false` by default (VCs invest privately;
+       public equity signal is rarely on critical path; can
+       be toggled later).
+     - `oracle: true`.
+     - `currents: true` (firms benefit from grounded opinion
+       on current events).
+     - `principles: true` (the load-bearing module).
+   - `decision_surface`: opinionated UI configuration —
+     surfaces a `/deals` page (built in step B) as the
+     primary daily-driver, with `/principles` and `/oracle`
+     adjacent. Forecasts and Equities pages are hidden until
+     re-enabled.
+
+B. The `/deals` page is a new VC-specific surface. Each Deal
+   row models an investment opportunity:
+   - `name`, `description`, `stage`, `sector`, `geo`.
+   - `source_documents`: list of uploaded files — pitch deck,
+     founder bio, market reports, the firm's own notes.
+   - `principle_alignment`: agent-generated table — for each
+     of the firm's published principles relevant to the
+     deal's `sector` + `stage`, the agent emits a
+     `match | conflict | unclear` verdict with citations.
+   - `decision_status`: `EXPLORING | NEXT_MEETING |
+     COMMITTED | PASSED | EXITED`.
+   - `notes`: append-only log of partner-meeting notes,
+     auto-linkable to specific principles.
+
+C. The Deal detail page renders the principle-alignment
+   table, the source documents, and a "Sketch a memo"
+   action that drafts an investment-committee memo from the
+   alignment table. The memo is a DRAFT — the partner reads,
+   edits, signs.
+
+D. Onboarding flow. The bootstrap CLI, when run with
+   `--preset vc_firm`, additionally:
+   - Asks for each founding partner's name.
+   - For each partner, creates a `founders/<slug>/` folder
+     in the tenant's data directory.
+   - Walks the operator through uploading the first batch of
+     materials (PDF essays, podcast transcripts) per partner.
+   - Runs the principle-first extractor (prompt 56) over the
+     uploads.
+   - Triggers the principle distillation pass (prompt 17 +
+     prompt 56).
+   - Surfaces the principle queue for triage.
+
+E. Tests:
+   - Preset descriptor validates against the preset schema.
+   - Bootstrap with `--preset vc_firm` produces a tenant
+     with `/deals` reachable, `/forecasts` hidden,
+     `/principles` ready for triage.
+   - Deal-creation round-trip persists, and the principle-
+     alignment job runs idempotently on re-trigger.
+
+F. Documentation. `docs/presets/vc_firm.md` explains the
+   intended workflow:
+   "Drop your partners' writing in `founders/`. Wait for
+   principle distillation. Triage the queue. Create a deal.
+   Watch the principle-alignment table populate. Draft a
+   memo. Hold the meeting."
+
+Constraints
+- The preset is OPINIONATED, not LOCKED. A VC tenant can flip
+  any module flag back on later.
+- The preset does not enable any external trading. Public
+  equity / prediction-market trading remain OFF unless
+  explicitly toggled.
+- Do not invent investment-decision LOGIC. The agent's job
+  is to surface which firm principles apply to a deal; the
+  partner makes the decision.
+
+SCOPE
+- `theseus-template/presets/vc_firm.yml` CREATE
+- `theseus-template/presets/schema/preset.schema.json` CREATE
+- `theseus-template/scripts/bootstrap.sh` MODIFY
+- `theseus-codex/src/app/(authed)/deals/page.tsx` CREATE
+- `theseus-codex/src/app/(authed)/deals/[id]/page.tsx` CREATE
+- `theseus-codex/src/components/deals/PrincipleAlignmentTable.tsx` CREATE
+- `theseus-codex/src/components/deals/MemoDrafter.tsx` CREATE
+- `noosphere/noosphere/vc/principle_alignment.py` CREATE
+- `theseus-codex/prisma/schema.prisma` MODIFY
+- `theseus-codex/prisma/migrations/<ts>_deals_table/migration.sql` CREATE
+- `noosphere/alembic/versions/<rev>_deals_table.py` CREATE
+- `docs/presets/vc_firm.md` CREATE
+- `noosphere/tests/test_vc_principle_alignment.py` CREATE

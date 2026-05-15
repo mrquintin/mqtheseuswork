@@ -4,6 +4,9 @@ A computational system for extracting, representing, and reasoning from the inte
 
 ## Architecture
 
+The pipeline is unchanged from Round 17, but Round 19 grouped the
+top-level modules into a layered hierarchy. The dataflow now reads:
+
 ```
 Weekly 4-Hour Podcast Transcript
             │
@@ -47,6 +50,63 @@ Weekly 4-Hour Podcast Transcript
 │                          │  Output: Evolution reports, conviction trajectories
 └──────────────────────────┘
 ```
+
+### Module layering (Round 19)
+
+```
+                 ┌───────────────────────────────┐
+                 │   noosphere.cli   (leaf)      │   Typer + Click, runbook entry
+                 └──────────────┬────────────────┘
+                                │
+        ┌───────────────┬───────┴────────┬──────────────┬──────────────┐
+        ▼               ▼                ▼              ▼              ▼
+ ┌─────────────┐  ┌─────────────┐  ┌────────────┐  ┌───────────┐  ┌──────────┐
+ │ benchmarks  │  │ currents /  │  │ forecasts  │  │ literature│  │  docgen  │
+ └──────┬──────┘  │ dialectic   │  └─────┬──────┘  └─────┬─────┘  └────┬─────┘
+        │         └──────┬──────┘        │               │             │
+        └────────────────┴──────┬────────┴───────────────┴─────────────┘
+                                ▼
+                ┌───────────────────────────────┐
+                │   noosphere.inquiry           │   coherence, evaluation,
+                │   noosphere.temporal          │   peer_review, redteam, mitigations
+                └──────────────┬────────────────┘
+                                │
+                ┌───────────────▼────────────────┐
+                │   noosphere.methods            │   registry, composition, every method
+                └──────────────┬────────────────┘
+                                │
+                ┌───────────────▼────────────────┐
+                │   noosphere.io                 │   storage_client, codex_bridge,
+                │                                │   ingester, ingest_artifacts
+                └──────────────┬────────────────┘
+                                │
+                ┌───────────────▼────────────────┐
+                │   noosphere.core   (leaf)     │   models, store, ledger,
+                │                                │   orchestrator, observability,
+                │                                │   ids, config
+                └────────────────────────────────┘
+```
+
+Every facade package (``core``, ``inquiry``, ``io``, ``cli``) re-exports
+from the existing flat modules so this rollout is non-breaking. The full
+contract is documented in
+[``docs/architecture/Noosphere_Module_Map.md``](../docs/architecture/Noosphere_Module_Map.md)
+and enforced in CI by ``lint-imports --config noosphere/.import-linter``;
+``noosphere/tests/test_module_hierarchy.py`` re-runs the same check from
+pytest.
+
+Preferred import paths going forward:
+
+```python
+from noosphere.core import Store, OntologyGraph, NoosphereOrchestrator, get_logger
+from noosphere.inquiry import coherence, evaluation, peer_review
+from noosphere.io import codex_bridge, storage_client
+from noosphere.cli import app as typer_app, cli as click_cli
+```
+
+Legacy paths (``noosphere.store``, ``noosphere.coherence``, …) continue
+to work; they become deprecation shims when the implementations are
+physically relocated in a follow-up prompt.
 
 ## Key Design Decisions
 

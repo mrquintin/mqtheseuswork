@@ -1,0 +1,191 @@
+{
+  "slug": "2026_Q2_Review",
+  "window": {
+    "year": 2026,
+    "quarter": 2,
+    "label": "2026 Q2",
+    "start": "2026-04-01T00:00:00+00:00",
+    "end": "2026-07-01T00:00:00+00:00"
+  },
+  "generated_at": "2026-06-30T12:00:00+00:00",
+  "structured": {
+    "window": {
+      "year": 2026,
+      "quarter": 2,
+      "label": "2026 Q2",
+      "slug": "2026_Q2_Review",
+      "start": "2026-04-01T00:00:00+00:00",
+      "end": "2026-07-01T00:00:00+00:00"
+    },
+    "generated_at": "2026-06-30T12:00:00+00:00",
+    "methods": {
+      "status": {
+        "data_available": true,
+        "note": ""
+      },
+      "active_count": 4,
+      "deprecated_count": 1,
+      "retired_count": 1,
+      "active": [
+        {
+          "method_id": "m_six_layer",
+          "name": "Six-layer coherence",
+          "version": "1.0",
+          "status": "active"
+        },
+        {
+          "method_id": "m_adversarial",
+          "name": "Adversarial probing",
+          "version": "1.0",
+          "status": "active"
+        },
+        {
+          "method_id": "m_calibration",
+          "name": "Calibration-aware confidence",
+          "version": "1.0",
+          "status": "active"
+        },
+        {
+          "method_id": "m_geometry",
+          "name": "Representational geometry",
+          "version": "1.0",
+          "status": "experimental"
+        }
+      ],
+      "deprecated": [
+        {
+          "method_id": "m_legacy_heuristic",
+          "name": "Legacy domain heuristic",
+          "version": "1.0",
+          "status": "deprecated"
+        }
+      ],
+      "retired": [
+        {
+          "method_id": "m_naive_priors",
+          "name": "Naive priors",
+          "version": "1.0",
+          "status": "retired"
+        }
+      ]
+    },
+    "drift": {
+      "status": {
+        "data_available": true,
+        "note": ""
+      },
+      "event_count": 2,
+      "events": [
+        {
+          "target_id": "m_geometry",
+          "drift_score": 0.42,
+          "observed_at": "2026-04-21",
+          "notes": "cross-domain transfer regression after embedder swap"
+        },
+        {
+          "target_id": "m_calibration",
+          "drift_score": 0.275,
+          "observed_at": "2026-05-04",
+          "notes": "bucket-12 reliability slipped"
+        }
+      ]
+    },
+    "calibration": {
+      "status": {
+        "data_available": true,
+        "note": ""
+      },
+      "resolved_count": 4,
+      "mean_brier": 0.1375,
+      "mean_log_loss": 0.33999999999999997
+    },
+    "open_questions": {
+      "status": {
+        "data_available": false,
+        "note": "data not available"
+      },
+      "resolved_count": 0,
+      "added_count": 0
+    },
+    "articles": {
+      "status": {
+        "data_available": true,
+        "note": ""
+      },
+      "article_count": 2,
+      "articles": [
+        {
+          "slug": "calibrated-narrowing",
+          "title": "A calibrated narrow claim beats a confident broad one",
+          "published_at": "2026-04-15T12:00:00+00:00"
+        },
+        {
+          "slug": "adversarial-first",
+          "title": "Adversarial review surfaces the buried assumption",
+          "published_at": "2026-05-03T12:00:00+00:00"
+        }
+      ]
+    },
+    "principles": {
+      "status": {
+        "data_available": true,
+        "note": ""
+      },
+      "drafted_count": 2,
+      "drafted": [
+        {
+          "text": "Cross-domain coherence beats single-domain depth when the firm must commit under uncertainty.",
+          "domain_breadth": 3,
+          "conviction_score": 0.74
+        },
+        {
+          "text": "Adversarial review precedes friendly review; the friendly read leaves load-bearing assumptions buried.",
+          "domain_breadth": 2,
+          "conviction_score": 0.68
+        }
+      ]
+    },
+    "edited_conclusions": {
+      "status": {
+        "data_available": false,
+        "note": "no conclusions edited in window"
+      },
+      "row_count": 0,
+      "rows": []
+    },
+    "self_critique": {
+      "status": {
+        "data_available": true,
+        "note": ""
+      },
+      "finding_count": 2,
+      "findings": [
+        {
+          "review_item_id": "review_self_crit_one",
+          "article_id": "calibrated-narrowing",
+          "reason": "Self-critique on 'A calibrated narrow claim beats a confident broad one' \u2014 verdict: weakened. The supporting forecast resolved YES, but the claim's narrowing was tighter than the resolved bucket licensed.",
+          "created_at": "2026-04-15T12:00:00+00:00"
+        },
+        {
+          "review_item_id": "review_self_crit_two",
+          "article_id": "adversarial-first",
+          "reason": "Self-critique on 'Adversarial review surfaces the buried assumption' \u2014 verdict: scope-overreach. The supporting evidence covered methodology and forecasting, not all transfer targets the article implied.",
+          "created_at": "2026-05-06T12:00:00+00:00"
+        }
+      ]
+    }
+  },
+  "narrative": {
+    "overview": "The firm closed 2026 Q2 with 4 active method(s), 1 deprecated, and 1 retired. 2 drift event(s) entered the ledger; 4 forecast(s) resolved. The firm published 2 article(s) and the self-critique pass surfaced 2 finding(s).",
+    "methods": "The register carries 4 active method(s) at quarter close. The firm marked 1 method(s) deprecated and retired 1. Retirement is the firm's standing acknowledgement that a method no longer earns its place in the register.",
+    "drift": "The firm observed 2 drift event(s) in window. The highest-scoring event was against target m_geometry at score 0.420; the firm treats the score as evidence of a regime shift to be investigated, not an automatic retirement trigger.",
+    "calibration": "Across 4 resolved forecast(s), the firm posted a mean Brier of 0.138, and mean log-loss 0.340. The firm reads the score as a calibration check, not a performance leaderboard.",
+    "open_questions": "Open-questions data was not available this quarter \u2014 the firm has no per-window resolved/added feed yet and refuses to estimate it.",
+    "articles": "The firm published 2 article(s) in the quarter. Each carries the machine-drafted, founder-reviewed disclosure non-removably; the firm speaks as the firm, never as a single voice.",
+    "principles": "The firm distilled 2 principle(s) in the quarter; the strongest reached conviction 0.74 across 3 domain(s). Conviction earns its place in the register; the firm does not auto-promote a draft.",
+    "edited_conclusions": "No conclusions were edited in window. The firm records the absence; an edit-light quarter is evidence, not silence.",
+    "self_critique": "The self-critique pass surfaced 2 finding(s) the firm got wrong this quarter. Each finding is named \u2014 the firm does not soften a self-critique."
+  },
+  "disclosure": "machine-drafted, founder-reviewed",
+  "review_state": "pending"
+}

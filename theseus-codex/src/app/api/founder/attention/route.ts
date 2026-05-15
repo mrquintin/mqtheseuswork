@@ -1,4 +1,5 @@
-import { NextResponse } from "next/server";
+import { ApiError } from "@/lib/api/envelope";
+import { withApiHandler } from "@/lib/api/handler";
 import { db } from "@/lib/db";
 import { requireTenantContext } from "@/lib/tenant";
 import {
@@ -14,34 +15,57 @@ import {
  * GET  /api/founder/attention  → ranked list across every queue.
  * POST /api/founder/attention  → record a snooze or dismiss action.
  *
- * The dashboard renders the GET payload as its primary surface; the
- * Snooze and Dismiss affordances on each row POST to this same route.
+ * Responses use the standard envelope:
+ *   `{ ok: true, data: ..., meta: { generatedAt } }`
+ *
  * Snoozes longer than 14 days are rewritten as dismissals with reason
  * "deferred indefinitely" — see `resolveSnoozeRequest` in
  * `src/lib/attention.ts`.
  */
 
-export async function GET() {
+type AttentionListing = {
+  generatedAt: string;
+  items: Array<{
+    queue: string;
+    queueLabel: string;
+    itemId: string;
+    severity: string;
+    ageMs: number;
+    createdAt: string;
+    preview: string;
+    link: string;
+  }>;
+  dismissalRates: Awaited<ReturnType<typeof listAttentionForFounder>>["dismissalRates"];
+};
+
+export const GET = withApiHandler<AttentionListing>(async () => {
   const tenant = await requireTenantContext();
   if (!tenant) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    throw new ApiError("unauthorized", "Unauthorized");
   }
   const listing = await listAttentionForFounder(tenant);
-  return NextResponse.json({
-    generatedAt: listing.generatedAt.toISOString(),
-    items: listing.items.map((item) => ({
-      queue: item.queue,
-      queueLabel: item.queueLabel,
-      itemId: item.itemId,
-      severity: item.severity,
-      ageMs: listing.generatedAt.getTime() - item.createdAt.getTime(),
-      createdAt: item.createdAt.toISOString(),
-      preview: item.preview,
-      link: item.link,
-    })),
+  const generatedAt = listing.generatedAt.toISOString();
+  const items = listing.items.map((item) => ({
+    queue: item.queue,
+    queueLabel: item.queueLabel,
+    itemId: item.itemId,
+    severity: item.severity,
+    ageMs: listing.generatedAt.getTime() - item.createdAt.getTime(),
+    createdAt: item.createdAt.toISOString(),
+    preview: item.preview,
+    link: item.link,
+  }));
+  const data: AttentionListing = {
+    generatedAt,
+    items,
     dismissalRates: listing.dismissalRates,
-  });
-}
+  };
+  return {
+    data,
+    meta: { generatedAt },
+    legacy: data,
+  };
+});
 
 type ActionBody = {
   queue?: string;
@@ -51,17 +75,22 @@ type ActionBody = {
   reason?: string;
 };
 
-export async function POST(req: Request) {
+type AttentionAction =
+  | { action: "dismiss"; rewrittenFromSnooze?: boolean; reason?: string }
+  | { action: "snooze"; snoozedUntil: string }
+  | { action: "unsnooze" };
+
+export const POST = withApiHandler<AttentionAction>(async (req) => {
   const tenant = await requireTenantContext();
   if (!tenant) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    throw new ApiError("unauthorized", "Unauthorized");
   }
 
   let body: ActionBody;
   try {
     body = (await req.json()) as ActionBody;
   } catch {
-    return NextResponse.json({ error: "invalid_json" }, { status: 400 });
+    throw new ApiError("bad_json", "invalid_json");
   }
 
   const queue = (body.queue ?? "").trim() as AttentionQueueId;
@@ -70,14 +99,14 @@ export async function POST(req: Request) {
   const reason = (body.reason ?? "").toString();
 
   if (!itemId || !(ATTENTION_QUEUES as readonly string[]).includes(queue)) {
-    return NextResponse.json({ error: "invalid_queue_or_item" }, { status: 400 });
+    throw new ApiError("validation_error", "invalid_queue_or_item");
   }
 
   const now = new Date();
 
   if (action === "dismiss") {
     if (!reason.trim()) {
-      return NextResponse.json({ error: "reason_required" }, { status: 400 });
+      throw new ApiError("validation_error", "reason_required");
     }
     await db.attentionAction.create({
       data: {
@@ -90,7 +119,8 @@ export async function POST(req: Request) {
         reason: reason.trim(),
       },
     });
-    return NextResponse.json({ ok: true, action: "dismiss" });
+    const payload: AttentionAction = { action: "dismiss" };
+    return { data: payload, legacy: { ok: true, ...payload } };
   }
 
   if (action === "unsnooze") {
@@ -105,13 +135,14 @@ export async function POST(req: Request) {
         reason: "",
       },
     });
-    return NextResponse.json({ ok: true, action: "unsnooze" });
+    const payload: AttentionAction = { action: "unsnooze" };
+    return { data: payload, legacy: { ok: true, ...payload } };
   }
 
   if (action === "snooze") {
     const requestedUntil = body.snoozedUntil ? new Date(body.snoozedUntil) : null;
     if (!requestedUntil || Number.isNaN(requestedUntil.getTime())) {
-      return NextResponse.json({ error: "snoozedUntil_required" }, { status: 400 });
+      throw new ApiError("validation_error", "snoozedUntil_required");
     }
     const resolved = resolveSnoozeRequest(requestedUntil, now);
     if (resolved.kind === "dismiss") {
@@ -126,12 +157,12 @@ export async function POST(req: Request) {
           reason: resolved.reason,
         },
       });
-      return NextResponse.json({
-        ok: true,
+      const payload: AttentionAction = {
         action: "dismiss",
         rewrittenFromSnooze: true,
         reason: resolved.reason,
-      });
+      };
+      return { data: payload, legacy: { ok: true, ...payload } };
     }
     await db.attentionAction.create({
       data: {
@@ -144,12 +175,12 @@ export async function POST(req: Request) {
         reason: reason.trim(),
       },
     });
-    return NextResponse.json({
-      ok: true,
+    const payload: AttentionAction = {
       action: "snooze",
       snoozedUntil: resolved.snoozedUntil.toISOString(),
-    });
+    };
+    return { data: payload, legacy: { ok: true, ...payload } };
   }
 
-  return NextResponse.json({ error: "unknown_action" }, { status: 400 });
-}
+  throw new ApiError("validation_error", "unknown_action");
+});

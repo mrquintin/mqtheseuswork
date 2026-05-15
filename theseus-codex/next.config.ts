@@ -41,6 +41,10 @@ export const legacyNavRedirects = [
 
 export const retiredPublicRouteRedirects = [
   { source: "/responses", destination: "/", permanent: true },
+  // Round 24 prompt 63: the forecasts portfolio is now one tab inside the
+  // unified `/portfolio` surface. Old URL is preserved as a permanent
+  // redirect so any deep link still resolves.
+  { source: "/forecasts/portfolio", destination: "/portfolio", permanent: true },
 ] as const;
 
 export const appRedirects = [
@@ -50,6 +54,13 @@ export const appRedirects = [
 
 const nextConfig: NextConfig = {
   ...(isVercel ? {} : { output: "standalone" }),
+  // Drop the server-identification header — it adds nothing useful and
+  // costs ~30 bytes per response. The compress: true default stays.
+  poweredByHeader: false,
+  // Build-time source maps for the client bundle are off in production
+  // (and were never on; making it explicit prevents an accidental flag
+  // flip from doubling the deployed asset size).
+  productionBrowserSourceMaps: false,
   async redirects() {
     return [...appRedirects];
   },
@@ -60,6 +71,12 @@ const nextConfig: NextConfig = {
       // large files must use direct-to-storage uploads (pre-signed URLs).
       bodySizeLimit: "50mb",
     },
+    // Tree-shake icon + utility packages that ship a deep module tree.
+    // Without this, importing a single `lucide-react` icon pulls the
+    // whole icon set into the client chunk; `optimizePackageImports`
+    // rewrites the import so only the named export survives bundling.
+    // Documented in https://nextjs.org/docs/app/api-reference/next-config-js/optimizePackageImports.
+    optimizePackageImports: ["lucide-react"],
   },
 };
 

@@ -1,0 +1,7 @@
+config_id,label,description,severity_weighted_score,high_count,medium_count,low_count,objections_total,agreement,cost_usd,latency_ms,high_per_dollar,partial_runs,bench_items_reviewed,reproducible,envelope_hash
+cfg-b048c444daf5c4b5,anthropic+openai,Two-provider rotation: the closed-weights frontier pair.,9.4897,0,17,3,20,1.0,0.078087,4112.36,0.0,0,10,True,env-01ed7510995f7e3b
+cfg-62d1d2eff6260a3d,anthropic-only,"Production default. Single-provider Anthropic, low temperature.",4.9663,0,9,1,10,1.0,0.049737,2327.14,0.0,0,10,True,env-01ed7510995f7e3b
+cfg-35f06609e41d9c7f,openai-only,"Single-provider OpenAI, low temperature. Monoculture probe.",4.5233,0,8,2,10,1.0,0.02835,1785.22,0.0,0,10,True,env-01ed7510995f7e3b
+cfg-3598c98d63b9564c,all-providers,Four-provider rotation: every frontier vendor plus an open-weights voice.,17.6357,1,29,10,40,0.4,0.092167,6557.91,10.85,0,10,False,env-01ed7510995f7e3b
+cfg-a4e1e04930f69d0b,all-providers/seeded-v2,"Four-provider rotation, seeded prompt variant, higher temperature.",16.5451,2,24,14,40,0.4,0.091972,6405.59,21.75,0,10,False,env-01ed7510995f7e3b
+cfg-6513d1cd2a9cdfdd,gemini-only,"Single-provider Gemini, low temperature. Monoculture probe.",3.9461,1,4,5,10,0.4,0.01408,1497.5,71.02,0,10,False,env-01ed7510995f7e3b

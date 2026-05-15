@@ -1,16 +1,27 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import { Prisma } from "@prisma/client";
 
+import MethodCrossLinks, { ReaderTrail } from "@/components/MethodCrossLinks";
 import MethodTabs from "@/components/MethodTabs";
 import PublicHeader from "@/components/PublicHeader";
+import RetirementBanner, {
+  type RetirementInfo,
+  type RetirementState,
+} from "@/components/RetirementBanner";
 import SubscribeForm from "@/components/SubscribeForm";
 import { getCatalog, publicModesForMethod } from "@/lib/failureModes";
 import { getFounder } from "@/lib/auth";
+import { db } from "@/lib/db";
+import { resolvePublicOrganizationId } from "@/lib/conclusionsRead";
+import { loadPublicOpenQuestions } from "@/lib/openQuestionsApi";
+import { listPublicPrinciples } from "@/lib/principlesApi";
 import {
+  buildMethodologyManifest,
   driftColor,
   driftLabel,
-  methodEntry,
+  type ManifestMethod,
 } from "@/lib/methodologyManifest";
 
 export async function generateMetadata({
@@ -20,7 +31,7 @@ export async function generateMetadata({
 }): Promise<Metadata> {
   const { method } = await params;
   const methodName = decodeURIComponent(method);
-  const entry = await methodEntry(methodName);
+  const entry = await methodEntryFromManifest(methodName);
 
   // OG card text: a one-liner an outside reader can scan in a feed.
   // Slope + domain + drift is the firm's most informative summary.
@@ -57,10 +68,25 @@ export async function generateMetadata({
   };
 }
 
+/** Single manifest entry for a method. */
+async function methodEntryFromManifest(
+  methodName: string,
+): Promise<ManifestMethod | null> {
+  const manifest = await buildMethodologyManifest();
+  return manifest.methods.find((m) => m.name === methodName) ?? null;
+}
+
 /**
- * Method overview tab — the default landing for `/methodology/[method]`.
- * Failure-mode listing has moved to the dedicated `/failures` sub-route
- * so it is independently shareable; this page summarizes and links.
+ * Method overview page — v2.
+ *
+ * The Round 17 tabs were a linear strip; a reader had to walk them to
+ * learn anything. v2 front-loads what an outsider actually needs on
+ * first load — a one-line description, then three pills that jump
+ * straight to what we tested, the track record, and how to challenge
+ * the method — and demotes the tab strip to a secondary "detailed
+ * sections" nav. The cross-link block puts every adjacent method,
+ * question, and principle one click away. All of it is server-rendered
+ * and works with JavaScript disabled.
  */
 export default async function PublicMethodologyMethodPage({
   params,
@@ -74,7 +100,35 @@ export default async function PublicMethodologyMethodPage({
 
   const publicModes = publicModesForMethod(methodName);
   const founder = await getFounder();
-  const entry = await methodEntry(methodName);
+  const manifest = await buildMethodologyManifest();
+  const entry = manifest.methods.find((m) => m.name === methodName) ?? null;
+
+  // Cross-link inputs. Composition is read straight off the manifest
+  // edges; "composes" is what this method is built from, "depended on
+  // by" is what builds on it. Open questions and principles touch the
+  // database, so both are wrapped to degrade to an empty group rather
+  // than fail the page.
+  const composes = manifest.edges
+    .filter((e) => e.src === methodName)
+    .map((e) => e.dst)
+    .sort();
+  const dependedOnBy = manifest.edges
+    .filter((e) => e.dst === methodName)
+    .map((e) => e.src)
+    .sort();
+  const [openQuestions, principles, retirement] = await Promise.all([
+    openQuestionsForMethod(methodName),
+    principlesForMethod(methodName),
+    retirementForMethod(methodName),
+  ]);
+
+  // Retired methods do not vanish from the public record — they render
+  // with tombstone styling so a reader can see what the firm has
+  // stopped trusting.
+  const tombstoned =
+    retirement?.state === "deprecated" || retirement?.state === "retired";
+
+  const enc = encodeURIComponent(methodName);
 
   return (
     <>
@@ -87,24 +141,90 @@ export default async function PublicMethodologyMethodPage({
         >
           ← Methodology
         </Link>
-        <h1 className="public-title" style={{ marginTop: "0.5rem" }}>
+        <h1
+          className="public-title"
+          style={{
+            marginTop: "0.5rem",
+            ...(tombstoned
+              ? {
+                  textDecoration: "line-through",
+                  textDecorationThickness: "1px",
+                  color: "var(--parchment-dim, #b8ad95)",
+                  filter: "grayscale(0.4)",
+                }
+              : {}),
+          }}
+        >
+          {tombstoned ? (
+            <span aria-hidden style={{ marginRight: "0.4rem" }}>
+              †
+            </span>
+          ) : null}
           <span style={{ fontFamily: "monospace" }}>{methodName}</span>
         </h1>
         <p className="public-muted" style={{ marginTop: "-0.4rem", fontSize: "0.85rem" }}>
           v{entry?.version ?? "—"} · {catalog.method}
+          {retirement && retirement.state !== "active"
+            ? ` · ${retirement.state.replace("_", " ")}`
+            : ""}
+        </p>
+        <ReaderTrail current={methodName} />
+
+        <RetirementBanner info={retirement} variant="public" />
+
+        {/* One-line description — the first thing an outsider reads. */}
+        <p
+          style={{
+            fontSize: "1.05rem",
+            lineHeight: 1.55,
+            margin: "1rem 0 1.25rem",
+          }}
+        >
+          {entry?.description ||
+            "This method is part of Theseus's published methodology."}
         </p>
 
-        <MethodTabs method={methodName} active="overview" />
+        {/* Three pills: what we tested, track record, how to challenge. */}
+        <nav
+          aria-label="Method essentials"
+          style={{
+            display: "flex",
+            flexWrap: "wrap",
+            gap: "0.6rem",
+            marginBottom: "0.5rem",
+          }}
+        >
+          <Pill
+            href="/methodology/benchmark/qh"
+            label="What we tested"
+            detail="The firm's first-run benchmark"
+          />
+          <Pill
+            href={`/methodology/${enc}/track-record`}
+            label="Track record"
+            detail={
+              entry?.calibration
+                ? `Calibration slope ${entry.calibration.slope.toFixed(2)} · n=${entry.calibration.sampleSize}`
+                : "Calibration once the sample clears the publish gate"
+            }
+          />
+          <Pill
+            href="/critiques"
+            label="How to challenge"
+            detail="Targeted critique, with a bounty for severe ones"
+          />
+        </nav>
 
-        <section className="public-section">
-          <h2>Overview</h2>
-          <p>
-            {entry?.description ||
-              "This method is part of Theseus's published methodology."}
-          </p>
-        </section>
+        <MethodCrossLinks
+          method={methodName}
+          composes={composes}
+          dependedOnBy={dependedOnBy}
+          openQuestions={openQuestions}
+          principles={principles}
+        />
 
         <section className="public-section" aria-label="At-a-glance metrics">
+          <h2>At a glance</h2>
           <div
             style={{
               display: "grid",
@@ -186,33 +306,39 @@ export default async function PublicMethodologyMethodPage({
           </section>
         ) : null}
 
+        {/* Tabs are now secondary: the full per-section detail, below
+            the essentials and the cross-links. */}
         <section className="public-section">
-          <h2>What is on the other tabs</h2>
+          <h2>Detailed sections</h2>
+          <p className="public-muted" style={{ marginTop: 0, fontSize: "0.85rem" }}>
+            Each section has its own shareable URL.
+          </p>
+          <MethodTabs method={methodName} active="overview" />
           <ul style={{ listStyle: "none", padding: 0, margin: 0 }}>
             <NextTab
-              href={`/methodology/${encodeURIComponent(methodName)}/track-record`}
+              href={`/methodology/${enc}/track-record`}
               label="Track record"
               body="Calibration slope, weighted Brier, severity-pass rate, with a 90% bootstrap confidence band. Only published once the sample clears the publish gate."
             />
             <NextTab
-              href={`/methodology/${encodeURIComponent(methodName)}/domain`}
+              href={`/methodology/${enc}/domain`}
               label="Domain"
               body="Where the method is judged in-bounds, edge-case, or out-of-bounds, based on the recorded domain bound verdicts."
             />
             <NextTab
-              href={`/methodology/composition#${encodeURIComponent(methodName)}`}
+              href={`/methodology/composition#${enc}`}
               label="Composition"
               body="Where this method sits in the public-visible dependency graph — what it composes, what composes it."
             />
             <NextTab
-              href={`/methodology/${encodeURIComponent(methodName)}/failures`}
+              href={`/methodology/${enc}/failures`}
               label="Failure modes"
               body={`${publicModes.length} of ${
                 catalog.failures === "deliberately-empty" ? 0 : catalog.modes.length
               } modes published. Triggers, worked examples, mitigations, and citations.`}
             />
             <NextTab
-              href={`/c?method=${encodeURIComponent(methodName)}`}
+              href={`/c?method=${enc}`}
               label="Conclusions produced"
               body={`Public conclusions linked to this method. Currently ${
                 entry?.conclusionsProduced ?? 0
@@ -230,6 +356,163 @@ export default async function PublicMethodologyMethodPage({
         </section>
       </main>
     </>
+  );
+}
+
+/**
+ * Open questions for which this method is a recorded candidate. Wrapped
+ * so a database hiccup degrades to an empty cross-link group instead of
+ * failing the whole page.
+ */
+async function openQuestionsForMethod(
+  methodName: string,
+): Promise<{ id: string; summary: string }[]> {
+  try {
+    const organizationId = await resolvePublicOrganizationId();
+    if (!organizationId) return [];
+    const rows = await loadPublicOpenQuestions(organizationId, { limit: 80 });
+    return rows
+      .filter((r) => r.candidateMethodNames.includes(methodName))
+      .map((r) => ({ id: r.id, summary: r.summary }));
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Principles whose evidence cluster includes a public conclusion this
+ * method produced. The link is method → public conclusions →
+ * principle clusters; both hops stay inside the public surface.
+ */
+async function principlesForMethod(
+  methodName: string,
+): Promise<{ id: string; text: string }[]> {
+  try {
+    const conclusionIds = await publicConclusionIdsForMethod(methodName);
+    if (conclusionIds.length === 0) return [];
+    const idSet = new Set(conclusionIds);
+    const principles = await listPublicPrinciples();
+    return principles
+      .filter(
+        (p) =>
+          p.clusterConclusionIds.some((cid) => idSet.has(cid)) ||
+          p.citedConclusionIds.some((cid) => idSet.has(cid)),
+      )
+      .map((p) => ({ id: p.id, text: p.text }));
+  } catch {
+    return [];
+  }
+}
+
+/** Public-visible conclusion ids that used this method. */
+async function publicConclusionIdsForMethod(
+  methodName: string,
+): Promise<string[]> {
+  try {
+    const rows = await db.$queryRaw<{ conclusionId: string }[]>(
+      Prisma.sql`SELECT DISTINCT cm."conclusionId" AS "conclusionId"
+                   FROM "ConclusionMethod" cm
+                   JOIN "PublishedConclusion" pc
+                     ON pc."sourceConclusionId" = cm."conclusionId"
+                    AND pc."organizationId" = cm."organizationId"
+                  WHERE cm."methodName" = ${methodName}`,
+    );
+    return rows.map((r) => r.conclusionId);
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Retirement state for this method, for the public methodology surface.
+ * Wrapped in try/catch so the page degrades to "no retirement record"
+ * on a DB without the `MethodRetirement` table — retired methods are
+ * part of the firm's record, but a missing mirror table must not blank
+ * the page.
+ */
+async function retirementForMethod(
+  methodName: string,
+): Promise<RetirementInfo | null> {
+  try {
+    const organizationId = await resolvePublicOrganizationId();
+    if (!organizationId) return null;
+    const rows = await db.$queryRaw<
+      Array<{
+        state: string;
+        replacement: string | null;
+        rationale: string | null;
+        reviewOpenedAt: Date | string | null;
+        deprecatedAt: Date | string | null;
+        retiredAt: Date | string | null;
+        sunsetAt: Date | string | null;
+      }>
+    >(
+      Prisma.sql`SELECT state, replacement, rationale,
+                        "reviewOpenedAt", "deprecatedAt", "retiredAt", "sunsetAt"
+                   FROM "MethodRetirement"
+                  WHERE "organizationId" = ${organizationId}
+                    AND "methodName" = ${methodName}
+                  LIMIT 1`,
+    );
+    if (rows.length === 0) return null;
+    const r = rows[0];
+    const iso = (v: Date | string | null) =>
+      v == null ? null : v instanceof Date ? v.toISOString() : String(v);
+    const allowed = ["active", "under_review", "deprecated", "retired"] as const;
+    const state = (allowed as readonly string[]).includes(r.state)
+      ? (r.state as RetirementState)
+      : "active";
+    return {
+      state,
+      replacement: r.replacement || null,
+      rationale: r.rationale || "",
+      reviewOpenedAt: iso(r.reviewOpenedAt),
+      deprecatedAt: iso(r.deprecatedAt),
+      retiredAt: iso(r.retiredAt),
+      sunsetAt: iso(r.sunsetAt),
+    };
+  } catch {
+    return null;
+  }
+}
+
+function Pill({
+  href,
+  label,
+  detail,
+}: {
+  href: string;
+  label: string;
+  detail: string;
+}) {
+  return (
+    <Link
+      href={href}
+      className="public-card public-method-card"
+      style={{
+        display: "block",
+        flex: "1 1 200px",
+        textDecoration: "none",
+        color: "inherit",
+        padding: "0.7rem 0.95rem",
+      }}
+    >
+      <div
+        className="mono"
+        style={{
+          fontSize: "0.6rem",
+          letterSpacing: "0.2em",
+          textTransform: "uppercase",
+          color: "var(--amber, #d4a017)",
+          marginBottom: "0.3rem",
+        }}
+      >
+        {label} →
+      </div>
+      <div className="public-muted" style={{ fontSize: "0.8rem", lineHeight: 1.4 }}>
+        {detail}
+      </div>
+    </Link>
   );
 }
 
@@ -319,4 +602,3 @@ function NextTab({
     </li>
   );
 }
-

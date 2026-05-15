@@ -2,20 +2,42 @@
 
 Each Currents opinion is paired with at least one canonical counter-claim
 drawn from the firm's own graph plus a worked-out reconciliation (or an
-explicit "we cannot reconcile" note). The retrieval is geometric: it uses
-the contradiction-direction probe to predict where, in embedding space, an
-opposing claim would live, then surfaces the firm's nearest endorsed
-non-revoked claim to that location.
+explicit "we cannot reconcile" note).
+
+Retrieval is a three-signal hybrid gate (Round 17 prompt 27). The first
+version of this engine surfaced a counter-claim on embedding similarity to
+the predicted contradiction location alone, and that admitted a steady
+stream of false positives: claims that *sound* opposed but, on inspection,
+do not actually contradict the firm's opinion. A candidate now has to
+clear all three of:
+
+  1. embedding similarity to the predicted contradiction location, above
+     the calibrated floor (necessary, but the audit showed not sufficient);
+  2. an NLI judgment that the candidate *actually contradicts* the firm's
+     opinion — "opposes in tone" is not enough; and
+  3. cascade-graph evidence — the candidate must be backed by at least one
+     source the firm has previously taken seriously, not a floating claim.
+
+All three must hold. The bar is intentionally high: a false-positive
+counter-claim erodes trust faster than a missed one, so every gate fails
+closed. The thresholds live in the unified config
+(``noosphere.core.config`` -> ``Thresholds.dialectic``), calibrated against
+the sample audit in ``docs/research/internal/Currents_Dialectic_Audit_*``.
 
 The reconciliation pass is severity-weighted, not diplomatic. The prompt
 forbids strawmanning the counter-claim, requires the strongest available
 form of it, and accepts an explicit unresolved tension over a forced
+reconciliation. After generation, the strawman detector
+(``noosphere.currents.strawman_detector``) verifies the reconciliation's
+restatement faithfully carries the retrieved counter-claim's actual text;
+a softening paraphrase forces regeneration, and a repeated strawman
+collapses to the honest no-counter note rather than persisting a soft
 reconciliation.
 
 Counter-claims must resolve to existing firm Conclusions or Claims. The
 generator never fabricates a counter-claim out of thin air; if no candidate
-clears the similarity threshold, the opinion is published with an honest
-"no canonical counter-claim found in firm history" marker rather than a
+clears all three gates, the opinion is published with an honest "no
+canonical counter-claim found in firm history" marker rather than a
 strawman.
 """
 
@@ -32,6 +54,7 @@ try:
 except ImportError:  # pragma: no cover - fallback for broken local wheels.
     np = None  # type: ignore[assignment]
 
+from noosphere.currents import strawman_detector
 from noosphere.currents._llm_client import LLMResponse, make_client
 from noosphere.currents.budget import BudgetExhausted
 
@@ -39,10 +62,70 @@ NO_COUNTER_FOUND_NOTE = "no canonical counter-claim found in firm history"
 NO_COUNTER_UNCERTAINTY_TAG = "no_canonical_counter_claim_found"
 RECONCILIATION_ROLE = "counter_claim"
 RECONCILIATION_MAX_TOKENS = 700
+# Documented fallbacks, used only when the unified config layer is
+# unavailable. They MUST mirror ``DialecticThresholds`` in
+# ``noosphere.core.config`` — the live values are read from there.
 DEFAULT_COUNTER_SIMILARITY_FLOOR = 0.55
+DEFAULT_COUNTER_NLI_CONTRADICTION_FLOOR = 0.60
+DEFAULT_COUNTER_NLI_ENTAILMENT_MARGIN = 0.10
+DEFAULT_COUNTER_CASCADE_WEIGHT_FLOOR = 0.25
 DEFAULT_COUNTER_K = 32
+DEFAULT_RECONCILIATION_MAX_ATTEMPTS = 2
 COUNTER_QUOTED_SPAN_CHARS = 160
-_TOKEN_RE = re.compile(r"[A-Za-z0-9]{3,}")
+
+
+@dataclass(frozen=True)
+class _DialecticThresholdsView:
+    """Resolved threshold snapshot for one retrieval / reconciliation pass.
+
+    Built from ``noosphere.core.config`` when available; falls back to the
+    documented module constants above so the engine still runs (fail-closed)
+    if the config layer cannot be loaded.
+    """
+
+    counter_similarity_floor: float = DEFAULT_COUNTER_SIMILARITY_FLOOR
+    counter_nli_contradiction_floor: float = DEFAULT_COUNTER_NLI_CONTRADICTION_FLOOR
+    counter_nli_entailment_margin: float = DEFAULT_COUNTER_NLI_ENTAILMENT_MARGIN
+    counter_cascade_weight_floor: float = DEFAULT_COUNTER_CASCADE_WEIGHT_FLOOR
+    counter_top_k: int = DEFAULT_COUNTER_K
+    strawman_content_coverage_floor: float = (
+        strawman_detector.FALLBACK_CONTENT_COVERAGE_FLOOR
+    )
+    strawman_length_ratio_floor: float = (
+        strawman_detector.FALLBACK_LENGTH_RATIO_FLOOR
+    )
+    reconciliation_max_attempts: int = DEFAULT_RECONCILIATION_MAX_ATTEMPTS
+
+
+def _dialectic_thresholds() -> _DialecticThresholdsView:
+    """Read the dialectic thresholds from the unified config.
+
+    Centralizing the magic numbers in ``noosphere.core.config`` is the
+    Round 17 discipline; this helper is the one place the dialectic engine
+    reads them. A config-layer failure degrades to the documented fallback
+    constants rather than crashing the opinion pipeline.
+    """
+
+    try:
+        from noosphere.core.config import get_settings
+
+        cfg = get_settings().thresholds.dialectic
+        return _DialecticThresholdsView(
+            counter_similarity_floor=float(cfg.counter_similarity_floor),
+            counter_nli_contradiction_floor=float(
+                cfg.counter_nli_contradiction_floor
+            ),
+            counter_nli_entailment_margin=float(cfg.counter_nli_entailment_margin),
+            counter_cascade_weight_floor=float(cfg.counter_cascade_weight_floor),
+            counter_top_k=int(cfg.counter_top_k),
+            strawman_content_coverage_floor=float(
+                cfg.strawman_content_coverage_floor
+            ),
+            strawman_length_ratio_floor=float(cfg.strawman_length_ratio_floor),
+            reconciliation_max_attempts=int(cfg.reconciliation_max_attempts),
+        )
+    except Exception:  # pragma: no cover - exercised only on a broken config.
+        return _DialecticThresholdsView()
 
 
 @dataclass(frozen=True)
@@ -50,12 +133,20 @@ class CounterClaim:
     """A canonical opposing claim drawn from the firm's own graph.
 
     Both `source_kind` and `source_id` resolve to an existing firm Conclusion
-    or Claim — never a fabrication. `similarity` is the cosine similarity
-    between the predicted contradiction location and the candidate's
-    embedding (higher = closer to where an opposing claim should live).
-    `cascade_weight` snapshots the firm's load-bearing weight on the
-    counter-claim at the time the reconciliation was written, so later
-    revisions can propagate.
+    or Claim — never a fabrication. A `CounterClaim` only exists if it cleared
+    all three hybrid-retrieval gates:
+
+    - `similarity` is the cosine similarity between the predicted
+      contradiction location and the candidate's embedding (gate 1).
+    - `nli_contradiction` / `nli_entailment` are the NLI probabilities for
+      "(opinion headline) -> (this claim)"; the candidate cleared the gate by
+      scoring contradiction above the floor *and* above entailment by the
+      configured margin (gate 2 — "actually contradicts", not just opposes
+      in tone).
+    - `cascade_weight` snapshots the firm's load-bearing weight on the
+      counter-claim; the candidate cleared gate 3 by having at least this
+      much cascade backing, so later revisions can propagate and the
+      counter-claim is provably one the firm has taken seriously.
     """
 
     source_kind: str
@@ -66,6 +157,8 @@ class CounterClaim:
     direction_method: str = "unknown"
     direction_low_confidence: bool = True
     exemplar_count: int = 0
+    nli_contradiction: float = 0.0
+    nli_entailment: float = 0.0
 
 
 @dataclass(frozen=True)
@@ -169,10 +262,61 @@ def _opinion_query_text(opinion_payload: dict[str, Any]) -> str:
     return "\n".join(part for part in parts if part).strip()
 
 
+def _opinion_assertion_text(opinion_payload: dict[str, Any]) -> str:
+    """The firm's assertion, as an NLI premise.
+
+    The embedding query uses headline + body so the geometric probe sees
+    the whole opinion, but the NLI gate wants the firm's *claim* in a form
+    a cross-encoder can hold in one pass. We use the headline (the firm's
+    one-sentence position) and prepend the stance so a counter-claim is
+    judged against what the firm actually asserts, not against neutral
+    topic text.
+    """
+
+    headline = str(opinion_payload.get("headline", "") or "").strip()
+    stance = str(opinion_payload.get("stance", "") or "").strip()
+    body = str(opinion_payload.get("body_markdown", "") or "").strip()
+    assertion = headline or body[:280]
+    if stance and assertion:
+        return f"The firm's position ({stance}): {assertion}"
+    return assertion
+
+
 def _embed(text: str) -> Any:
     from noosphere.currents import enrich
 
     return enrich.embed_text(text)
+
+
+# Cross-encoder NLI scorer is loaded lazily and cached: the model load is
+# expensive, but the same scorer serves every counter-claim candidate in a
+# process. Tests monkeypatch `_nli_scores` directly rather than load it.
+_NLI_SCORER: Any | None = None
+
+
+def _get_nli_scorer() -> Any:
+    global _NLI_SCORER
+    if _NLI_SCORER is None:
+        from noosphere.coherence.nli import NLIScorer
+
+        _NLI_SCORER = NLIScorer()
+    return _NLI_SCORER
+
+
+def _nli_scores(premise: str, hypothesis: str) -> tuple[float, float]:
+    """Return ``(contradiction_prob, entailment_prob)`` for premise -> hypothesis.
+
+    This is the gate-2 seam: it answers "does this candidate *actually
+    contradict* the firm's opinion" rather than the geometry probe's "does
+    it live where an opposing claim would live". Raises on scorer failure;
+    `find_counter_claim` treats a raise as fail-closed (the candidate is
+    skipped), because surfacing a counter-claim we could not verify is
+    exactly the false positive this engine exists to suppress.
+    """
+
+    scorer = _get_nli_scorer()
+    nli, _partial, _verdict = scorer.score_pair(premise, hypothesis)
+    return float(nli.contradiction), float(nli.entailment)
 
 
 def _conclusion_iter(store: Any) -> Iterable[Any]:
@@ -299,17 +443,64 @@ def find_counter_claim(
     *,
     opinion_payload: dict[str, Any],
     excluded_source_ids: Iterable[str] = (),
-    similarity_floor: float = DEFAULT_COUNTER_SIMILARITY_FLOOR,
-    top_k: int = DEFAULT_COUNTER_K,
+    similarity_floor: float | None = None,
+    nli_contradiction_floor: float | None = None,
+    nli_entailment_margin: float | None = None,
+    cascade_weight_floor: float | None = None,
+    top_k: int | None = None,
 ) -> CounterClaim | None:
-    """Surface the firm's nearest endorsed opposing claim, or None.
+    """Surface the firm's strongest *genuine* counter-claim, or None.
 
-    Geometric: we predict where, in embedding space, the opinion's logical
-    negation would lie (contradiction-direction probe), then select the
-    firm's own non-revoked, non-private endorsed Conclusion or Claim closest
-    to that predicted location. Citations already used by the opinion are
-    excluded so the counter-claim is genuinely a different node.
+    Three-signal hybrid gate. We predict where, in embedding space, the
+    opinion's logical negation would lie (contradiction-direction probe),
+    score the firm's own non-revoked, non-private endorsed Conclusions and
+    Claims by cosine to that predicted location, then walk the candidates
+    from most- to least-similar and return the first that clears **all
+    three** gates:
+
+    1. **Embedding similarity** at or above ``similarity_floor`` — the
+       candidate lives where an opposing claim should live.
+    2. **NLI contradiction** — an NLI judgment that the candidate *actually
+       contradicts* the firm's opinion (contradiction probability at or
+       above ``nli_contradiction_floor`` *and* exceeding entailment by at
+       least ``nli_entailment_margin``). This is the gate that rejects
+       "opposes in tone but does not actually contradict" false positives.
+    3. **Cascade-graph evidence** — the candidate's incident cascade weight
+       is at or above ``cascade_weight_floor``, i.e. it is backed by at
+       least one source the firm has previously taken seriously, not a
+       floating claim.
+
+    Any gate that cannot be evaluated (NLI scorer raises, store exposes no
+    cascade graph, candidate has no embedding) fails **closed**: that
+    candidate is skipped. Surfacing a counter-claim the engine could not
+    verify is the false positive this design exists to suppress.
+
+    Citations already used by the opinion are excluded so the counter-claim
+    is genuinely a different node. Thresholds default to the unified config
+    (``noosphere.core.config`` -> ``Thresholds.dialectic``); callers may
+    override per-call, which the test fixtures and the audit script do.
     """
+
+    cfg = _dialectic_thresholds()
+    similarity_floor = (
+        cfg.counter_similarity_floor if similarity_floor is None else similarity_floor
+    )
+    nli_contradiction_floor = (
+        cfg.counter_nli_contradiction_floor
+        if nli_contradiction_floor is None
+        else nli_contradiction_floor
+    )
+    nli_entailment_margin = (
+        cfg.counter_nli_entailment_margin
+        if nli_entailment_margin is None
+        else nli_entailment_margin
+    )
+    cascade_weight_floor = (
+        cfg.counter_cascade_weight_floor
+        if cascade_weight_floor is None
+        else cascade_weight_floor
+    )
+    top_k = cfg.counter_top_k if top_k is None else top_k
 
     query_text = _opinion_query_text(opinion_payload)
     if not query_text:
@@ -373,22 +564,47 @@ def find_counter_claim(
         return None
 
     candidates.sort(key=lambda row: row[0], reverse=True)
-    top = candidates[: max(1, int(top_k))]
-    best = top[0]
-    if best[0] < similarity_floor:
-        return None
+    assertion_text = _opinion_assertion_text(opinion_payload)
 
-    cascade_weight = _cascade_weight_for(store, best[1], best[2])
-    return CounterClaim(
-        source_kind=best[1],
-        source_id=best[2],
-        text=best[3],
-        similarity=best[0],
-        cascade_weight=cascade_weight,
-        direction_method=method,
-        direction_low_confidence=low_confidence,
-        exemplar_count=exemplar_count,
-    )
+    for sim, kind, cid, text in candidates[: max(1, int(top_k))]:
+        # Gate 1 — embedding similarity. Candidates are sorted descending,
+        # so the first below the floor means every remaining one is too.
+        if sim < similarity_floor:
+            break
+        if not text.strip():
+            continue
+
+        # Gate 3 — cascade-graph evidence. Cheaper than NLI, so check it
+        # first; a candidate with no recorded backing is rejected outright.
+        cascade_weight = _cascade_weight_for(store, kind, cid)
+        if cascade_weight is None or cascade_weight < cascade_weight_floor:
+            continue
+
+        # Gate 2 — NLI "actually contradicts". A scorer failure fails
+        # closed: we skip the candidate rather than surface it unverified.
+        try:
+            nli_contradiction, nli_entailment = _nli_scores(assertion_text, text)
+        except Exception:
+            continue
+        if nli_contradiction < nli_contradiction_floor:
+            continue
+        if nli_contradiction < nli_entailment + nli_entailment_margin:
+            continue
+
+        return CounterClaim(
+            source_kind=kind,
+            source_id=cid,
+            text=text,
+            similarity=sim,
+            cascade_weight=cascade_weight,
+            direction_method=method,
+            direction_low_confidence=low_confidence,
+            exemplar_count=exemplar_count,
+            nli_contradiction=nli_contradiction,
+            nli_entailment=nli_entailment,
+        )
+
+    return None
 
 
 def _extract_json_object(raw: str) -> dict[str, Any]:
@@ -410,28 +626,6 @@ def _references_counter(text: str, counter_id: str) -> bool:
     if not counter_id:
         return False
     return f"[C:{counter_id}]" in text
-
-
-def _strawman_check(strongest_form: str, counter_text: str) -> bool:
-    """Reject reconciliations whose 'strongest form' is shorter than the
-    firm's prior text on the counter-claim or that drops every meaningful
-    content token. This is the peer-review swarm's veto: a reconciliation
-    that down-weights the counter-claim's force is the cardinal failure
-    mode and must not be persisted.
-    """
-
-    if not strongest_form.strip():
-        return False
-    counter_tokens = {match.group(0).lower() for match in _TOKEN_RE.finditer(counter_text)}
-    counter_tokens = {tok for tok in counter_tokens if len(tok) > 3}
-    if not counter_tokens:
-        return True
-    strongest_tokens = {
-        match.group(0).lower() for match in _TOKEN_RE.finditer(strongest_form)
-    }
-    overlap = len(counter_tokens & strongest_tokens)
-    coverage = overlap / max(1, len(counter_tokens))
-    return coverage >= 0.35
 
 
 def no_counter_reconciliation(
@@ -462,148 +656,250 @@ def no_counter_reconciliation(
     )
 
 
+def _regeneration_directive(verdict: strawman_detector.StrawmanVerdict) -> str:
+    """The reinforcement appended to the user prompt on a strawman retry.
+
+    A bare retry at temperature 0 would reproduce the rejected response
+    verbatim, so the retry has to *change the prompt*: it tells the model
+    exactly which softening signal the strawman detector caught and demands
+    the counter-claim be restated at full force.
+    """
+
+    return "\n\n".join(
+        [
+            "PRIOR ATTEMPT REJECTED — STRAWMAN DETECTED",
+            (
+                "The previous reconciliation softened the counter-claim. "
+                f"Reason: {verdict.reason}."
+            ),
+            (
+                "Regenerate. State the counter-claim in its strongest form "
+                "using the counter-claim's own load-bearing terms — do not "
+                "paraphrase it weaker, do not shorten it to a gesture, do "
+                "not introduce hedges ('arguably', 'to some extent', 'a "
+                "minor', 'on balance') the firm's prior text never used. "
+                "The strongest_form_of_counter_claim field must carry the "
+                "full force of the counter_claim_text below."
+            ),
+        ]
+    )
+
+
 async def generate_reconciliation(
     *,
     opinion_payload: dict[str, Any],
     counter_claim: CounterClaim,
     budget: Any | None = None,
     client: Any | None = None,
+    max_attempts: int | None = None,
 ) -> Reconciliation:
     """Run the strongest-objection prompt against (opinion, counter-claim).
 
-    The pass is one-shot — the system prompt forbids strawmanning, requires
-    the strongest form of the counter-claim, and accepts unresolved tension.
-    A peer-review-style strawman check rejects responses whose 'strongest
-    form' drops the counter-claim's content; failures fall back to the
-    no-counter honest note rather than publishing a soft reconciliation.
+    The system prompt forbids strawmanning, requires the strongest form of
+    the counter-claim, and accepts unresolved tension. After each
+    generation the strawman detector
+    (``noosphere.currents.strawman_detector``) verifies the response's
+    ``strongest_form_of_counter_claim`` faithfully carries the retrieved
+    counter-claim's actual text. A softening paraphrase forces
+    regeneration — up to ``max_attempts`` total tries, the prompt reinforced
+    each round with the specific signal that was caught. If every attempt
+    strawmans, the pass collapses to the honest no-counter note rather than
+    persisting a soft reconciliation. Malformed responses (empty,
+    unparseable, missing the inline counter reference) are not retried —
+    they fall straight back to the honest note.
     """
 
-    system_prompt = read_reconciliation_prompt()
-    user_prompt = _reconciliation_user_prompt(opinion_payload, counter_claim)
-    if budget is not None:
-        authorize = getattr(budget, "authorize", None)
-        if callable(authorize):
-            try:
-                authorize(
-                    max(1, (len(system_prompt) + len(user_prompt)) // 4 + 1),
-                    RECONCILIATION_MAX_TOKENS,
-                )
-            except BudgetExhausted:
-                return no_counter_reconciliation(
-                    audit={
-                        "skipped": "budget_exhausted",
-                        "counter_claim_id": counter_claim.source_id,
-                    }
-                )
+    cfg = _dialectic_thresholds()
+    if max_attempts is None:
+        max_attempts = cfg.reconciliation_max_attempts
+    max_attempts = max(1, int(max_attempts))
 
+    system_prompt = read_reconciliation_prompt()
     if client is None:
         client = make_client()
-    response: LLMResponse = await client.complete(
-        system=system_prompt,
-        user=user_prompt,
-        max_tokens=RECONCILIATION_MAX_TOKENS,
-        temperature=0.0,
+
+    prompt_tokens_charged = 0
+    completion_tokens_charged = 0
+    last_strawman: strawman_detector.StrawmanVerdict | None = None
+    regeneration_note = ""
+
+    for attempt in range(1, max_attempts + 1):
+        user_prompt = _reconciliation_user_prompt(
+            opinion_payload, counter_claim, regeneration_note=regeneration_note
+        )
+        if budget is not None:
+            authorize = getattr(budget, "authorize", None)
+            if callable(authorize):
+                try:
+                    authorize(
+                        max(1, (len(system_prompt) + len(user_prompt)) // 4 + 1),
+                        RECONCILIATION_MAX_TOKENS,
+                    )
+                except BudgetExhausted:
+                    if last_strawman is not None:
+                        return _strawman_rejected_reconciliation(
+                            counter_claim, last_strawman, attempt - 1
+                        )
+                    return no_counter_reconciliation(
+                        audit={
+                            "skipped": "budget_exhausted",
+                            "counter_claim_id": counter_claim.source_id,
+                        }
+                    )
+
+        response: LLMResponse = await client.complete(
+            system=system_prompt,
+            user=user_prompt,
+            max_tokens=RECONCILIATION_MAX_TOKENS,
+            temperature=0.0,
+        )
+        if budget is not None:
+            charge = getattr(budget, "charge", None)
+            if callable(charge):
+                charge(response.prompt_tokens, response.completion_tokens)
+        prompt_tokens_charged += int(response.prompt_tokens or 0)
+        completion_tokens_charged += int(response.completion_tokens or 0)
+
+        raw_text = (response.text or "").strip()
+        if not raw_text:
+            return no_counter_reconciliation(
+                audit={
+                    "skipped": "empty_reconciliation_response",
+                    "counter_claim_id": counter_claim.source_id,
+                    "attempts": attempt,
+                }
+            )
+
+        try:
+            payload = _extract_json_object(raw_text)
+        except (ValueError, json.JSONDecodeError):
+            return no_counter_reconciliation(
+                audit={
+                    "skipped": "unparseable_reconciliation_response",
+                    "counter_claim_id": counter_claim.source_id,
+                    "attempts": attempt,
+                }
+            )
+
+        paragraph = str(payload.get("reconciliation_markdown") or "").strip()
+        strongest = str(payload.get("strongest_form_of_counter_claim") or "").strip()
+        unresolved = bool(payload.get("unresolved_tension"))
+        needed = str(payload.get("what_we_would_need_to_know") or "").strip()
+
+        if not paragraph or not _references_counter(
+            paragraph, counter_claim.source_id
+        ):
+            return no_counter_reconciliation(
+                audit={
+                    "skipped": "missing_counter_reference",
+                    "counter_claim_id": counter_claim.source_id,
+                    "attempts": attempt,
+                }
+            )
+
+        verdict = strawman_detector.detect_strawman(
+            counter_text=counter_claim.text,
+            strongest_form=strongest,
+            reconciliation_markdown=paragraph,
+            content_coverage_floor=cfg.strawman_content_coverage_floor,
+            length_ratio_floor=cfg.strawman_length_ratio_floor,
+        )
+        if verdict.is_strawman:
+            last_strawman = verdict
+            regeneration_note = _regeneration_directive(verdict)
+            continue
+
+        if unresolved and not needed:
+            needed = (
+                "Specific firm-internal evidence that would close this tension "
+                "has not yet been articulated."
+            )
+
+        audit = {
+            "counter_claim_kind": counter_claim.source_kind,
+            "counter_claim_id": counter_claim.source_id,
+            "counter_claim_similarity": counter_claim.similarity,
+            "counter_claim_cascade_weight": counter_claim.cascade_weight,
+            "counter_claim_nli_contradiction": counter_claim.nli_contradiction,
+            "counter_claim_nli_entailment": counter_claim.nli_entailment,
+            "direction_method": counter_claim.direction_method,
+            "direction_low_confidence": counter_claim.direction_low_confidence,
+            "exemplar_count": counter_claim.exemplar_count,
+            "reconciliation_attempts": attempt,
+            "strawman_check": verdict.as_audit_dict(),
+        }
+
+        return Reconciliation(
+            counter_claim=counter_claim,
+            reconciliation_markdown=paragraph,
+            unresolved_tension=unresolved,
+            what_we_would_need_to_know=needed,
+            strongest_form_of_counter_claim=strongest,
+            no_counter_found=False,
+            model_name=response.model or "",
+            prompt_tokens=prompt_tokens_charged,
+            completion_tokens=completion_tokens_charged,
+            audit=audit,
+        )
+
+    # Every attempt strawmanned the counter-claim. The honest no-counter
+    # note is more truthful than a persisted soft reconciliation.
+    return _strawman_rejected_reconciliation(
+        counter_claim, last_strawman, max_attempts
     )
-    if budget is not None:
-        charge = getattr(budget, "charge", None)
-        if callable(charge):
-            charge(response.prompt_tokens, response.completion_tokens)
 
-    raw_text = (response.text or "").strip()
-    if not raw_text:
-        return no_counter_reconciliation(
-            audit={
-                "skipped": "empty_reconciliation_response",
-                "counter_claim_id": counter_claim.source_id,
-            }
-        )
 
-    try:
-        payload = _extract_json_object(raw_text)
-    except (ValueError, json.JSONDecodeError):
-        return no_counter_reconciliation(
-            audit={
-                "skipped": "unparseable_reconciliation_response",
-                "counter_claim_id": counter_claim.source_id,
-            }
-        )
+def _strawman_rejected_reconciliation(
+    counter_claim: CounterClaim,
+    verdict: strawman_detector.StrawmanVerdict | None,
+    attempts: int,
+) -> Reconciliation:
+    """Honest no-counter note for a counter-claim the model kept softening."""
 
-    paragraph = str(payload.get("reconciliation_markdown") or "").strip()
-    strongest = str(payload.get("strongest_form_of_counter_claim") or "").strip()
-    unresolved = bool(payload.get("unresolved_tension"))
-    needed = str(payload.get("what_we_would_need_to_know") or "").strip()
-
-    if not paragraph or not _references_counter(paragraph, counter_claim.source_id):
-        return no_counter_reconciliation(
-            audit={
-                "skipped": "missing_counter_reference",
-                "counter_claim_id": counter_claim.source_id,
-            }
-        )
-
-    if not _strawman_check(strongest, counter_claim.text):
-        return no_counter_reconciliation(
-            audit={
-                "skipped": "strawman_rejected",
-                "counter_claim_id": counter_claim.source_id,
-            }
-        )
-
-    if unresolved and not needed:
-        needed = (
-            "Specific firm-internal evidence that would close this tension "
-            "has not yet been articulated."
-        )
-
-    audit = {
-        "counter_claim_kind": counter_claim.source_kind,
+    audit: dict[str, Any] = {
+        "skipped": "strawman_rejected",
         "counter_claim_id": counter_claim.source_id,
-        "counter_claim_similarity": counter_claim.similarity,
-        "counter_claim_cascade_weight": counter_claim.cascade_weight,
-        "direction_method": counter_claim.direction_method,
-        "direction_low_confidence": counter_claim.direction_low_confidence,
-        "exemplar_count": counter_claim.exemplar_count,
+        "attempts": attempts,
     }
-
-    return Reconciliation(
-        counter_claim=counter_claim,
-        reconciliation_markdown=paragraph,
-        unresolved_tension=unresolved,
-        what_we_would_need_to_know=needed,
-        strongest_form_of_counter_claim=strongest,
-        no_counter_found=False,
-        model_name=response.model or "",
-        prompt_tokens=int(response.prompt_tokens or 0),
-        completion_tokens=int(response.completion_tokens or 0),
-        audit=audit,
-    )
+    if verdict is not None:
+        audit["strawman_reason"] = verdict.reason
+        audit["strawman_check"] = verdict.as_audit_dict()
+    return no_counter_reconciliation(audit=audit)
 
 
 def _reconciliation_user_prompt(
-    opinion_payload: dict[str, Any], counter: CounterClaim
+    opinion_payload: dict[str, Any],
+    counter: CounterClaim,
+    *,
+    regeneration_note: str = "",
 ) -> str:
-    return "\n\n".join(
-        [
-            "FIRM OPINION JUST PUBLISHED",
-            f"headline: {opinion_payload.get('headline', '')}",
-            f"stance: {opinion_payload.get('stance', '')}",
-            "body_markdown:",
-            str(opinion_payload.get("body_markdown", "") or ""),
-            "CANONICAL COUNTER-CLAIM FROM FIRM HISTORY",
-            f"counter_claim_id: {counter.source_id}",
-            f"counter_claim_kind: {counter.source_kind}",
-            f"counter_claim_similarity: {counter.similarity:.6f}",
-            "counter_claim_text:",
-            counter.text,
-            "TASK",
-            (
-                "Write the firm's strongest-objection reconciliation against "
-                "this exact counter-claim. Do not invent a different "
-                "counter-claim. Strawmanning is the cardinal failure mode."
-            ),
-            "Return only the JSON object specified in the system prompt.",
-        ]
-    )
+    sections = [
+        "FIRM OPINION JUST PUBLISHED",
+        f"headline: {opinion_payload.get('headline', '')}",
+        f"stance: {opinion_payload.get('stance', '')}",
+        "body_markdown:",
+        str(opinion_payload.get("body_markdown", "") or ""),
+        "CANONICAL COUNTER-CLAIM FROM FIRM HISTORY",
+        f"counter_claim_id: {counter.source_id}",
+        f"counter_claim_kind: {counter.source_kind}",
+        f"counter_claim_similarity: {counter.similarity:.6f}",
+        f"counter_claim_nli_contradiction: {counter.nli_contradiction:.6f}",
+        "counter_claim_text:",
+        counter.text,
+        "TASK",
+        (
+            "Write the firm's strongest-objection reconciliation against "
+            "this exact counter-claim. Do not invent a different "
+            "counter-claim. Strawmanning is the cardinal failure mode: the "
+            "strongest_form_of_counter_claim field must carry the full "
+            "force of counter_claim_text — same substance, no softening "
+            "paraphrase, no introduced hedges."
+        ),
+    ]
+    if regeneration_note:
+        sections.append(regeneration_note)
+    sections.append("Return only the JSON object specified in the system prompt.")
+    return "\n\n".join(sections)
 
 
 def counter_quoted_span(counter: CounterClaim) -> str:
@@ -652,6 +948,12 @@ def reconciliation_metadata(reconciliation: Reconciliation) -> dict[str, Any]:
         "counter_claim_similarity": counter.similarity if counter else 0.0,
         "counter_claim_cascade_weight": (
             counter.cascade_weight if counter else None
+        ),
+        "counter_claim_nli_contradiction": (
+            counter.nli_contradiction if counter else 0.0
+        ),
+        "counter_claim_nli_entailment": (
+            counter.nli_entailment if counter else 0.0
         ),
         "direction_method": (
             counter.direction_method if counter else "no_counter"

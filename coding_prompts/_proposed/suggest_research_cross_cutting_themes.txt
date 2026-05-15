@@ -1,0 +1,52 @@
+You are operating in /Users/michaelquintin/Desktop/Theseus.
+
+Status: PROPOSED. Filed by the RATIONALE documentation-rot repair pass
+(Round 17 follow-up). Method-side gap surfaced while aligning
+`suggest_research.RATIONALE.md` to the code.
+
+Goal: implement the cross-cutting-themes analysis the
+`suggest_research` output schema reserves a field for — or remove the
+field.
+
+The gap: `SuggestResearchOutput` has a `cross_cutting_themes:
+list[str]` field, and the old rationale described "a cross-cutting
+themes analysis [that] makes an additional LLM call". The registered
+method in `noosphere/noosphere/methods/suggest_research.py` makes ONE
+LLM call and always returns `cross_cutting_themes=[]`. The field is
+dead weight in the schema and the second-call analysis was never
+carried into the wrapper.
+
+Why it matters: consumers of `SuggestResearchOutput` see a field that
+is structurally always empty. Either the analysis is worth doing (it
+was specced) or the field should not exist.
+
+Before you start — read:
+1. `noosphere/noosphere/methods/suggest_research.py` (the wrapper).
+2. The legacy `ResearchAdvisor` and its `_call_llm` helper under
+   `noosphere/noosphere/methods/_legacy/research_advisor.py` — check
+   whether a cross-cutting-themes pass exists there to lift.
+3. `noosphere/noosphere/methods/suggest_research.RATIONALE.md` — the
+   "Drift correction (2026-05-14)" note that points here.
+4. Callers of `suggest_research` — grep for `cross_cutting_themes` to
+   see if anything reads it.
+
+Implement ONE of:
+
+A. Implement the second pass. After the topics are parsed, make a
+   second `_call_llm` call that takes the topic titles + questions and
+   returns 2–4 cross-cutting themes; populate the field. Gate it so a
+   single-topic or thematically-trivial result skips the extra call
+   (the old rationale flagged the cost/value trade-off).
+
+B. Remove `cross_cutting_themes` from `SuggestResearchOutput` if no
+   caller reads it and the analysis is not worth the extra LLM call.
+   This is a schema change — bump the method version and check the
+   doc-drift gate.
+
+Update `suggest_research.RATIONALE.md` to match the landed contract and
+remove the drift-correction note.
+
+Constraints:
+- Do not change the primary topic-extraction prompt in this prompt.
+- If option B, follow the method-versioning rules — see
+  `scripts/check_mip_versioning.py`.

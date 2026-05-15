@@ -1,0 +1,11 @@
+%% Theseus publication and signing pipeline.
+%% Embedded in docs/architecture/Theseus_Architecture.md section 6.
+flowchart LR
+  A["Reviewed conclusion / article candidate"] --> B["Citation-chain validation"]
+  B --> C{"Public-citable sources only?"}
+  C -->|no| X["Held — founder source-triage queue"]
+  C -->|yes| D["Canonicalize preimage"]
+  D --> E["Ed25519 sign — ledger/publication_signing"]
+  E --> F["PublicationSignature row"]
+  F --> G["Public render + /api/public/signature/[slug]"]
+  G --> H["Self-critique pass -> Addendum (dated)"]

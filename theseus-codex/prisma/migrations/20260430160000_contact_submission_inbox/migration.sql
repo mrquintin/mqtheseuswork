@@ -26,6 +26,9 @@ ALTER TABLE "ContactSubmission"
 ALTER COLUMN "fromName" SET NOT NULL,
 ALTER COLUMN "ipHash" SET NOT NULL;
 
+-- JUSTIFY: sourcePath was the pre-inbox referral hint; the inbox redesign
+-- replaces it with userAgent + ipHash, which carry strictly more information
+-- and are populated above. No reader consumes sourcePath after this migration.
 ALTER TABLE "ContactSubmission"
 DROP COLUMN "sourcePath";
 

@@ -14,6 +14,7 @@ import type {
   PortfolioSummary,
   PublicForecast,
 } from "@/lib/forecastsTypes";
+import EquityBetsPanel from "@/components/operator/EquityBetsPanel";
 import { canWrite } from "@/lib/roles";
 
 import KillSwitchPanel from "./KillSwitchPanel";
@@ -302,6 +303,23 @@ export default async function ForecastsOperatorPage() {
           predictionsById={predictionsById}
         />
       </OperatorSection>
+
+      <EquityBetsPanel
+        alpacaConfigured={Boolean(
+          process.env.ALPACA_API_KEY_ID?.trim() &&
+            process.env.ALPACA_API_SECRET_KEY?.trim(),
+        )}
+        liveBalanceUsd={liveBalanceUsd || null}
+        liveTradingEnabled={
+          envFlag("EQUITIES_LIVE_TRADING_ENABLED") || liveTradingEnabled
+        }
+        maxDailyLossUsd={
+          envNumber("EQUITIES_MAX_DAILY_LOSS_USD") ?? maxDailyLossUsd
+        }
+        maxStakeUsd={envNumber("EQUITIES_MAX_STAKE_USD") ?? maxStakeUsd}
+        primaryBroker={(process.env.EQUITIES_PRIMARY_BROKER || "ALPACA").trim().toUpperCase()}
+        robinhoodEnabled={envFlag("ROBINHOOD_ENABLED")}
+      />
     </main>
   );
 }

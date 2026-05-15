@@ -1,0 +1,116 @@
+{
+  "violations": [
+    {
+      "expected": "snake_case.py",
+      "kind": "python_file",
+      "line": null,
+      "name": "hook-noosphere.py",
+      "path": "noosphere/scripts/build_hooks/hook-noosphere.py",
+      "requires_founder_approval": false
+    },
+    {
+      "expected": "PascalCase",
+      "kind": "python_class",
+      "line": 141,
+      "name": "Any_",
+      "path": "noosphere/noosphere/decay/policies.py",
+      "requires_founder_approval": false
+    },
+    {
+      "expected": "PascalCase",
+      "kind": "python_class",
+      "line": 151,
+      "name": "All_",
+      "path": "noosphere/noosphere/decay/policies.py",
+      "requires_founder_approval": false
+    },
+    {
+      "expected": "PascalCase",
+      "kind": "python_class",
+      "line": 152,
+      "name": "_block_network",
+      "path": "noosphere/noosphere/evaluation/counterfactual.py",
+      "requires_founder_approval": false
+    },
+    {
+      "expected": "camelCase or SCREAMING_SNAKE (PascalCase for components)",
+      "kind": "ts_const",
+      "line": 126,
+      "name": "score_100",
+      "path": "theseus-codex/src/lib/sourceCredibility.ts",
+      "requires_founder_approval": false
+    },
+    {
+      "expected": "camelCase or SCREAMING_SNAKE (PascalCase for components)",
+      "kind": "ts_const",
+      "line": 129,
+      "name": "n_updates",
+      "path": "theseus-codex/src/lib/sourceCredibility.ts",
+      "requires_founder_approval": false
+    },
+    {
+      "expected": "camelCase or SCREAMING_SNAKE (PascalCase for components)",
+      "kind": "ts_const",
+      "line": 130,
+      "name": "n_confirmations",
+      "path": "theseus-codex/src/lib/sourceCredibility.ts",
+      "requires_founder_approval": false
+    },
+    {
+      "expected": "camelCase or SCREAMING_SNAKE (PascalCase for components)",
+      "kind": "ts_const",
+      "line": 133,
+      "name": "n_failures",
+      "path": "theseus-codex/src/lib/sourceCredibility.ts",
+      "requires_founder_approval": false
+    },
+    {
+      "expected": "camelCase or SCREAMING_SNAKE (PascalCase for components)",
+      "kind": "ts_const",
+      "line": 134,
+      "name": "min_updates_for_confidence",
+      "path": "theseus-codex/src/lib/sourceCredibility.ts",
+      "requires_founder_approval": false
+    },
+    {
+      "expected": "camelCase or SCREAMING_SNAKE (PascalCase for components)",
+      "kind": "ts_const",
+      "line": 57,
+      "name": "request_",
+      "path": "theseus-codex/src/app/api/deletion-requests/[id]/route.ts",
+      "requires_founder_approval": false
+    },
+    {
+      "expected": "camelCase or SCREAMING_SNAKE (PascalCase for components)",
+      "kind": "ts_const",
+      "line": 226,
+      "name": "request_",
+      "path": "theseus-codex/src/app/api/deletion-requests/[id]/route.ts",
+      "requires_founder_approval": false
+    },
+    {
+      "expected": "camelCase or SCREAMING_SNAKE (PascalCase for components)",
+      "kind": "ts_const",
+      "line": 51,
+      "name": "cy_",
+      "path": "theseus-codex/src/components/DashboardHearth.tsx",
+      "requires_founder_approval": false
+    },
+    {
+      "expected": "camelCase or SCREAMING_SNAKE (PascalCase for components)",
+      "kind": "ts_const",
+      "line": 58,
+      "name": "cy_",
+      "path": "theseus-codex/src/components/UploadScroll.tsx",
+      "requires_founder_approval": false
+    },
+    {
+      "expected": "camelCase or SCREAMING_SNAKE (PascalCase for components)",
+      "kind": "ts_const",
+      "line": 59,
+      "name": "sy_",
+      "path": "theseus-codex/src/components/UploadScroll.tsx",
+      "requires_founder_approval": false
+    }
+  ]
+}

@@ -37,8 +37,14 @@ export {
  * Visibility rule: every numeric field is derived from rows that are
  * already public (PublishedConclusion present, failure mode public,
  * sample size at or above the publish gate). Private rows do not enter
- * any aggregate. The schema is versioned via `MANIFEST_SCHEMA_VERSION`
- * so external consumers can pin against breaking changes.
+ * any aggregate.
+ *
+ * Schema version: the manifest payload carries the version as the
+ * top-level `v` field; the public API route additionally surfaces it
+ * as `meta.schemaVersion` on the envelope. Both flow from
+ * `MANIFEST_SCHEMA_VERSION` in `methodologyManifestShared.ts`. Bumps
+ * are a published-contract change — see
+ * `docs/architecture/API_Envelope_Contract.md` for the rules.
  */
 type GraphSnapshot = {
   schema?: string;

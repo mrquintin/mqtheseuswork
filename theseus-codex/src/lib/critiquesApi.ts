@@ -67,6 +67,12 @@ export type CreateCritiqueInput = {
   publicUrl?: string;
   bio?: string;
   orcid?: string;
+  /** Round-17 prompt 44 pilot tag (empty for non-pilot rows). */
+  pilotTag?: string;
+  /** Per-reviewer slug (empty for non-pilot rows). */
+  pilotReviewerSlug?: string;
+  /** Explicit consent for the critic to appear on the public hall-of-fame. */
+  hallOfFameConsent?: boolean;
 };
 
 export type CritiqueRecord = {
@@ -91,6 +97,9 @@ export type CritiqueRecord = {
   decidedAt: Date | null;
   triggeredRevisionId: string | null;
   addendumId: string | null;
+  pilotTag: string;
+  pilotReviewerSlug: string;
+  hallOfFameConsent: boolean;
   createdAt: Date;
   updatedAt: Date;
 };
@@ -136,6 +145,9 @@ type RawCritiqueRow = {
   decidedAt: Date | null;
   triggeredRevisionId: string | null;
   addendumId: string | null;
+  pilotTag: string;
+  pilotReviewerSlug: string;
+  hallOfFameConsent: boolean;
   createdAt: Date;
   updatedAt: Date;
 };
@@ -221,6 +233,9 @@ export async function createCritique(input: CreateCritiqueInput): Promise<Critiq
       bio: (input.bio ?? "").trim(),
       orcid: (input.orcid ?? "").trim(),
       status: "pending",
+      pilotTag: (input.pilotTag ?? "").trim(),
+      pilotReviewerSlug: (input.pilotReviewerSlug ?? "").trim(),
+      hallOfFameConsent: Boolean(input.hallOfFameConsent),
     },
   })) as RawCritiqueRow;
   return toCritique(row);
@@ -239,6 +254,39 @@ export async function listCritiqueQueue(organizationId: string): Promise<Critiqu
   }));
 }
 
+/**
+ * Pilot-aware queue ordering. While the pilot window is open, pilot
+ * rows (those bearing the given pilot tag) sort to the top of the
+ * pending bucket regardless of severity. Non-pilot rows keep the
+ * existing severity-first ordering. Decided rows (accepted/partial/
+ * rejected) keep their natural order in the underlying query so the
+ * founder still sees the most-severe decided rows first.
+ *
+ * The transformation is in-memory: ordering is a UI concern, not a
+ * persistence concern, and we want it to be cheap to flip on / off
+ * without a migration.
+ */
+export function applyPilotPriority<T extends { status: string; pilotTag: string; createdAt: Date }>(
+  rows: T[],
+  pilotTag: string,
+  pilotWindowOpen: boolean,
+): T[] {
+  if (!pilotTag || !pilotWindowOpen) return rows;
+  const pilotPending: T[] = [];
+  const otherPending: T[] = [];
+  const decided: T[] = [];
+  for (const row of rows) {
+    if (row.status !== "pending") {
+      decided.push(row);
+      continue;
+    }
+    if (row.pilotTag === pilotTag) pilotPending.push(row);
+    else otherPending.push(row);
+  }
+  pilotPending.sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime());
+  return [...pilotPending, ...otherPending, ...decided];
+}
+
 /** Single critique for the detail view. */
 export async function getCritique(
   organizationId: string,
@@ -252,24 +300,54 @@ export async function getCritique(
   return { ...toCritique(row), bounty: row.bounty ? toBounty(row.bounty) : null };
 }
 
-/** Public hall-of-fame: accepted critiques only. */
+/**
+ * Public hall-of-fame: accepted critiques only, AND only those whose
+ * critic has opted in (`hallOfFameConsent = true`). The opt-in gate
+ * is a load-bearing pilot constraint — pilot reviewers' identities
+ * are public only with their explicit consent.
+ */
 export async function listAcceptedCritiques(): Promise<CritiqueRecord[]> {
   const rows = (await db.critiqueSubmission.findMany({
-    where: { status: "accepted" },
+    where: { status: "accepted", hallOfFameConsent: true },
     orderBy: { decidedAt: "desc" },
   })) as RawCritiqueRow[];
   return rows.map(toCritique);
 }
 
-/** Accepted critiques for a single article (rendered alongside the post). */
+/**
+ * Accepted critiques for a single article (rendered alongside the
+ * post). Filtered by `hallOfFameConsent` so non-consenting critics
+ * never appear publicly even when their critique was accepted.
+ */
 export async function listAcceptedCritiquesForArticle(
   articleSlug: string,
 ): Promise<CritiqueRecord[]> {
   const rows = (await db.critiqueSubmission.findMany({
-    where: { articleSlug, status: "accepted" },
+    where: { articleSlug, status: "accepted", hallOfFameConsent: true },
     orderBy: { decidedAt: "desc" },
   })) as RawCritiqueRow[];
   return rows.map(toCritique);
+}
+
+/**
+ * Pilot debrief: every pilot submission, including rejected ones.
+ * The pilot must NOT cherry-pick favorable findings — this helper is
+ * the canonical "what came in via the pilot" enumeration.
+ */
+export async function listPilotCritiques(
+  organizationId: string,
+  pilotTag: string,
+): Promise<CritiqueWithBounty[]> {
+  if (!pilotTag) return [];
+  const rows = (await db.critiqueSubmission.findMany({
+    where: { organizationId, pilotTag },
+    orderBy: { createdAt: "asc" },
+    include: { bounty: true },
+  })) as Array<RawCritiqueRow & { bounty: RawBountyRow | null }>;
+  return rows.map((r) => ({
+    ...toCritique(r),
+    bounty: r.bounty ? toBounty(r.bounty) : null,
+  }));
 }
 
 export type AcceptCritiqueInput = {

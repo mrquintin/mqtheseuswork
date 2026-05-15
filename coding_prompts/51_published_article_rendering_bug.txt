@@ -1,0 +1,97 @@
+You are operating in /Users/michaelquintin/Desktop/Theseus.
+
+Goal: published articles render correctly. The founder observed
+that "Real cost of growth. 8x, one argument." renders broken and
+glitchy on the published-article page, and articles that have been
+"published" do not surface on the public-facing homepage. Both are
+bugs. Diagnose, fix, regression-test.
+
+Before you start — read:
+1. `theseus-codex/src/app/articles/[slug]/page.tsx` (or wherever
+   the article detail page lives — confirm via routing).
+2. The article markdown/MDX renderer pipeline: locate the
+   component(s) that transform the stored article body into the
+   rendered HTML. There may be a sanitiser between source and DOM
+   that is mangling formatting.
+3. The publish action — wherever an article transitions from
+   draft to public. Note exactly which DB column flips, which
+   route surfaces published articles, and which homepage section
+   queries that route.
+4. The homepage source — `theseus-codex/src/app/page.tsx` and any
+   "Latest" / "Articles" / "Publications" rail it renders.
+
+Implement:
+
+A. Reproduce. Load the "Real cost of growth" article in dev and
+   capture: (1) the raw DB body, (2) the rendered HTML, (3) the
+   visual screenshot of the broken state. Save the artifacts
+   under `docs/bugs/2026-05-13_article_rendering/` so this is
+   an audited fix, not a hand-wave.
+
+B. Root-cause. From the artifacts, identify the failure mode.
+   Likely candidates (rank-order, do not assume):
+   - markdown-to-HTML pipeline dropping headings or splitting on
+     bare numerics ("8x" being lexed as a heading marker, etc.);
+   - a sanitiser stripping required tags;
+   - a typography component applying CSS that collapses
+     paragraphs into one line;
+   - SSR/CSR mismatch causing a flash of broken layout that
+     never recovers;
+   - the published-article path using a different renderer than
+     the draft-preview path.
+   Write the diagnosis to
+   `docs/bugs/2026-05-13_article_rendering/diagnosis.md`.
+
+C. Fix. The fix must:
+   - render the article body identically in draft preview and
+     in published view (one renderer, one set of components);
+   - preserve every heading level, list, code block, quote,
+     emphasis, and citation that the source declares;
+   - handle MDX-in-markdown gracefully if the source mixes them;
+   - not silently drop content. If the renderer cannot parse a
+     section, it must render an inline error block naming the
+     line and offset, NOT skip the section.
+
+D. Public homepage surfacing. Whatever section is supposed to
+   surface published articles must:
+   - query the same definition of "published" that the publish
+     action sets (no skew);
+   - paginate or limit-and-link if the list grows;
+   - render in stable order (publishedAt desc; secondary key id
+     asc to avoid race-condition reorder);
+   - update within 60 seconds of a publish action (revalidate
+     paths or use a fresh query).
+
+E. Regression tests:
+   - Component test: a fixture article with every supported
+     markdown feature renders without error and without dropping
+     any element. Run against the same renderer the public path
+     uses.
+   - Integration: publish a fixture article, hit the homepage,
+     assert the article appears in the rail within 60s.
+   - Visual: a Playwright (or whatever harness already exists)
+     screenshot diff against an approved baseline. The baseline
+     is committed; future regressions show up as diffs.
+
+F. The "Real cost of growth" article in the live DB MUST render
+   correctly after this fix. Verify by re-loading and capturing
+   a post-fix screenshot in
+   `docs/bugs/2026-05-13_article_rendering/post_fix.png`.
+
+Constraints
+- Do not modify the article's source body to make the renderer
+  pass. The source is authoritative; the renderer must handle it.
+- Do not introduce a second markdown library. If two are present,
+  consolidate to one and document the choice.
+- Do not add `dangerouslySetInnerHTML` without a sanitiser. If
+  you sanitise, your tests must include adversarial input
+  (script tag, event handler attribute, javascript: URL).
+
+SCOPE
+- `docs/bugs/2026-05-13_article_rendering/diagnosis.md` CREATE
+- `docs/bugs/2026-05-13_article_rendering/post_fix.png` CREATE
+- `theseus-codex/src/app/articles/[slug]/page.tsx` MODIFY
+- `theseus-codex/src/components/article/ArticleRenderer.tsx` CREATE-OR-MODIFY
+- `theseus-codex/src/app/page.tsx` MODIFY
+- `theseus-codex/src/__tests__/ArticleRenderer.test.tsx` CREATE
+- `theseus-codex/playwright/article-rendering.smoke.spec.ts` CREATE

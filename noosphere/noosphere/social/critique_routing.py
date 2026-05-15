@@ -87,6 +87,13 @@ class CritiqueSubmission:
     Mirrors the columns of the Prisma ``CritiqueSubmission`` row. We
     keep this Prisma-free so the noosphere test harness stays fast and
     Node-free.
+
+    The Round-17 prompt-44 pilot fields (``pilot_tag``,
+    ``pilot_reviewer_slug``, ``hall_of_fame_consent``) are empty /
+    ``False`` for ordinary inbound critique. They are set by the
+    codex-side submit route when the per-reviewer pre-shared link is
+    used, and the public hall-of-fame requires
+    ``hall_of_fame_consent=True`` before any name is shown publicly.
     """
 
     submission_id: str
@@ -102,6 +109,9 @@ class CritiqueSubmission:
     bio: str = ""
     orcid: str = ""
     published_conclusion_id: Optional[str] = None
+    pilot_tag: str = ""
+    pilot_reviewer_slug: str = ""
+    hall_of_fame_consent: bool = False
     received_at: datetime = field(
         default_factory=lambda: datetime.now(timezone.utc)
     )
@@ -118,6 +128,11 @@ class CritiqueSubmission:
             return "Anonymous"
         local, _, _ = self.submitter_email.partition("@")
         return local or "Anonymous"
+
+    def is_pilot(self) -> bool:
+        """True iff this submission arrived through the pilot channel."""
+
+        return bool(self.pilot_tag and self.pilot_reviewer_slug)
 
 
 @dataclass(frozen=True)
@@ -523,6 +538,159 @@ def _ensure_lineage(
     )
 
 
+# ── flow: open-critique pilot (Round-17 prompt 44) ──────────────────
+
+
+@dataclass(frozen=True)
+class PilotWindow:
+    """Inclusive start/end of the pilot window.
+
+    Either side may be ``None`` for open-ended. Mirrors the codex-side
+    config in ``theseus-codex/src/lib/critiquePilot.ts``.
+    """
+
+    starts_at: Optional[datetime] = None
+    ends_at: Optional[datetime] = None
+
+    def is_open(self, now: Optional[datetime] = None) -> bool:
+        moment = now or datetime.now(timezone.utc)
+        if self.starts_at and moment < self.starts_at:
+            return False
+        if self.ends_at and moment > self.ends_at:
+            return False
+        return True
+
+
+def pilot_priority_sort(
+    submissions: Iterable[CritiqueSubmission],
+    decisions_by_submission: dict[str, CritiqueDecision],
+    *,
+    pilot_tag: str,
+    window: PilotWindow,
+    now: Optional[datetime] = None,
+) -> list[CritiqueSubmission]:
+    """Order the founder queue with pilot rows first.
+
+    When the pilot window is open, pilot pending rows sort to the top
+    (oldest first — pilot reviewers shouldn't be made to wait), then
+    non-pilot pending rows (by severity desc, falling back to recency
+    of receipt), then decided rows. When the window is closed, the
+    ordering reduces to severity-first.
+
+    The function is pure — it never mutates the inputs — so a debrief
+    pass can reuse it without disturbing live queue state.
+    """
+
+    submissions = list(submissions)
+    window_open = window.is_open(now)
+
+    def decision_for(sub: CritiqueSubmission) -> Optional[CritiqueDecision]:
+        return decisions_by_submission.get(sub.submission_id)
+
+    def is_pending(sub: CritiqueSubmission) -> bool:
+        decision = decision_for(sub)
+        return decision is None or decision.status == "pending"
+
+    def severity_rank(sub: CritiqueSubmission) -> float:
+        decision = decision_for(sub)
+        return decision.severity_value if decision else 0.0
+
+    pilot_pending: list[CritiqueSubmission] = []
+    other_pending: list[CritiqueSubmission] = []
+    decided: list[CritiqueSubmission] = []
+    for sub in submissions:
+        if not is_pending(sub):
+            decided.append(sub)
+            continue
+        if window_open and pilot_tag and sub.pilot_tag == pilot_tag:
+            pilot_pending.append(sub)
+        else:
+            other_pending.append(sub)
+
+    pilot_pending.sort(key=lambda s: s.received_at)
+    other_pending.sort(
+        key=lambda s: (-severity_rank(s), s.received_at)
+    )
+    decided.sort(key=lambda s: -severity_rank(s))
+
+    return pilot_pending + other_pending + decided
+
+
+@dataclass(frozen=True)
+class PilotDebrief:
+    """Roll-up of a pilot's intake. Honest: rejected rows count too.
+
+    The debrief is the basis for
+    ``docs/external/Critique_Pilot_Debrief_<stamp>.md``. The pilot
+    constraint is that every pilot submission is recorded — no
+    cherry-picking of favorable findings — so this dataclass exposes
+    counters across every status, not just ``accepted``.
+    """
+
+    pilot_tag: str
+    total_submissions: int
+    by_status: dict[str, int]
+    by_reviewer: dict[str, int]
+    accept_rate: float
+    severity_distribution: dict[str, int]
+    bounty_eligible: int
+
+
+def build_pilot_debrief(
+    submissions: Iterable[CritiqueSubmission],
+    decisions_by_submission: dict[str, CritiqueDecision],
+    *,
+    pilot_tag: str,
+) -> PilotDebrief:
+    """Compile the pilot debrief over a recorded set of submissions.
+
+    Counts every row whose ``pilot_tag`` matches — pending, accepted,
+    partial, rejected, archived. The accept rate denominator is the
+    full set (so an unworked pilot inbox is correctly visible as a
+    low-accept-rate state, not a high-quality one).
+    """
+
+    by_status: dict[str, int] = {}
+    by_reviewer: dict[str, int] = {}
+    severity_distribution: dict[str, int] = {
+        "low": 0,
+        "medium": 0,
+        "high": 0,
+        "unscored": 0,
+    }
+    accepted = 0
+    bounty_eligible = 0
+    total = 0
+    for sub in submissions:
+        if not pilot_tag or sub.pilot_tag != pilot_tag:
+            continue
+        total += 1
+        decision = decisions_by_submission.get(sub.submission_id)
+        status = decision.status if decision else "pending"
+        by_status[status] = by_status.get(status, 0) + 1
+        slug = sub.pilot_reviewer_slug or "unattributed"
+        by_reviewer[slug] = by_reviewer.get(slug, 0) + 1
+        if decision and decision.status == "accepted":
+            accepted += 1
+            label = decision.severity_label or "unscored"
+            if label not in severity_distribution:
+                severity_distribution[label] = 0
+            severity_distribution[label] += 1
+            if is_bounty_eligible(decision):
+                bounty_eligible += 1
+
+    accept_rate = (accepted / total) if total > 0 else 0.0
+    return PilotDebrief(
+        pilot_tag=pilot_tag,
+        total_submissions=total,
+        by_status=by_status,
+        by_reviewer=by_reviewer,
+        accept_rate=accept_rate,
+        severity_distribution=severity_distribution,
+        bounty_eligible=bounty_eligible,
+    )
+
+
 def credits_for_article(
     lineages: Iterable[CritiqueLineage],
     *,
@@ -560,12 +728,16 @@ __all__ = [
     "InMemoryCritiqueWriter",
     "LineageEntry",
     "PayoutMode",
+    "PilotDebrief",
+    "PilotWindow",
     "accept_critique",
+    "build_pilot_debrief",
     "cancel_bounty",
     "confirm_bounty",
     "credits_for_article",
     "is_bounty_eligible",
     "mark_partial",
+    "pilot_priority_sort",
     "record_later_revision",
     "record_revision_in_lineage",
     "reject_critique",

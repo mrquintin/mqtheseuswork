@@ -19,9 +19,11 @@ what the generator should pull, never mutating store state.
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
-from dataclasses import dataclass, field
+import re
+from dataclasses import dataclass, field, replace
 from typing import Any, Iterable, Optional
 
 from sqlmodel import select
@@ -320,3 +322,175 @@ def select_cluster(
         methodology_root=methodology,
         resolved_forecasts=tuple(resolved),
     )
+
+
+# ── Maturity ranking ─────────────────────────────────────────────────────────
+#
+# The auto-paper generator drafts the *most mature* clusters first. A
+# cluster's maturity is a weighted sum of three signals, in descending
+# order of how much they say the firm has actually pressure-tested the
+# claim:
+#
+#   1. resolved forecast count — the cluster's claims have been settled
+#      against reality, not just asserted. The strongest signal.
+#   2. principle backing — the firm keeps re-deriving the cluster's
+#      conclusions into standing principles. A durability signal.
+#   3. size — raw conclusion count. A breadth signal, weakest of the
+#      three: a big cluster of untested claims is not mature.
+#
+# The weights below are pinned by test_auto_paper_integration.py.
+_MATURITY_W_RESOLVED_FORECASTS = 3.0
+_MATURITY_W_PRINCIPLE_BACKING = 2.0
+_MATURITY_W_SIZE = 1.0
+
+
+@dataclass(frozen=True)
+class ClusterMaturity:
+    """The maturity signal that ranks a candidate cluster."""
+
+    size: int
+    resolved_forecast_count: int
+    principle_backing: int
+    score: float
+
+
+@dataclass(frozen=True)
+class ClusterRanking:
+    """A ranked paper-cluster candidate: the cluster plus its maturity."""
+
+    cluster: PaperCluster
+    maturity: ClusterMaturity
+
+
+def derive_cluster_id(cluster: PaperCluster) -> str:
+    """Stable, readable cluster id for a selected cluster.
+
+    Derived from the shared methodology root (so the artifact slug
+    reads sensibly) plus a short hash of the conclusion-id set (so two
+    clusters that happen to share a pattern type never collide). Pure
+    function of the cluster — re-running the selector yields the same
+    id, which keeps the on-disk ``docs/research/auto/<slug>`` directory
+    stable across runs.
+    """
+    base = (
+        cluster.methodology_root.pattern_type
+        or cluster.methodology_root.title
+        or "cluster"
+    )
+    base = re.sub(r"[^a-z0-9]+", "-", base.lower()).strip("-") or "cluster"
+    digest = hashlib.sha1(
+        "|".join(sorted(cluster.conclusion_ids)).encode("utf-8")
+    ).hexdigest()[:8]
+    return f"{base}-{digest}"
+
+
+def _principle_backing(store: Any, conclusion_ids: Iterable[str]) -> int:
+    """Count the distinct standing principles backing a conclusion set."""
+    seen: set[str] = set()
+    for cid in conclusion_ids:
+        c = store.get_conclusion(cid)
+        if c is None:
+            continue
+        for pid in getattr(c, "supporting_principle_ids", None) or []:
+            if isinstance(pid, str) and pid:
+                seen.add(pid)
+        for entry in getattr(c, "principles_used", None) or []:
+            if isinstance(entry, str) and entry:
+                seen.add(entry)
+            elif isinstance(entry, dict):
+                val = (
+                    entry.get("principleId")
+                    or entry.get("principle_id")
+                    or entry.get("id")
+                )
+                if isinstance(val, str) and val:
+                    seen.add(val)
+    return len(seen)
+
+
+def score_maturity(
+    *, size: int, resolved_forecast_count: int, principle_backing: int
+) -> float:
+    """Weighted maturity score. See the module-level weight rationale."""
+    return (
+        _MATURITY_W_RESOLVED_FORECASTS * max(0, int(resolved_forecast_count))
+        + _MATURITY_W_PRINCIPLE_BACKING * max(0, int(principle_backing))
+        + _MATURITY_W_SIZE * max(0, int(size))
+    )
+
+
+def rank_clusters(
+    store: Any,
+    *,
+    max_size: int = 8,
+    top_n: Optional[int] = 3,
+    seed_conclusion_ids: Optional[Iterable[str]] = None,
+) -> list[ClusterRanking]:
+    """Enumerate every valid paper-cluster reachable in the store and
+    rank them by maturity.
+
+    Each conclusion in the store (or ``seed_conclusion_ids`` if given)
+    is tried as a cluster seed. Seeds that land in the same connected
+    component collapse to one cluster (deduplicated by conclusion-id
+    set). Seeds that do not form a valid cluster — no shared
+    methodology root, no resolved forecast touching them — are skipped,
+    not raised on.
+
+    The returned list is sorted by descending maturity score, ties
+    broken by ``lead_conclusion_id`` so the ordering is deterministic.
+    ``top_n`` truncates the list (``None`` returns every candidate).
+    Read-only: never mutates store state.
+    """
+    if seed_conclusion_ids is None:
+        seeds = [c.id for c in store.list_conclusions()]
+    else:
+        seeds = list(seed_conclusion_ids)
+    seeds = sorted({s for s in seeds if s})
+
+    seen_components: dict[frozenset[str], PaperCluster] = {}
+    for seed in seeds:
+        try:
+            cluster = select_cluster(
+                store, seed_conclusion_id=seed, max_size=max_size
+            )
+        except ClusterSelectionError:
+            continue
+        except Exception:  # pragma: no cover - defensive
+            logger.exception("cluster selection failed for seed %s", seed)
+            continue
+        key = frozenset(cluster.conclusion_ids)
+        if key in seen_components:
+            continue
+        # Re-key every selected cluster onto a stable, readable id so the
+        # ranking, the artifact slug, and the founder memo all agree.
+        seen_components[key] = replace(
+            cluster, cluster_id=derive_cluster_id(cluster)
+        )
+
+    rankings: list[ClusterRanking] = []
+    for cluster in seen_components.values():
+        size = len(cluster.conclusion_ids)
+        resolved = len(cluster.resolved_forecasts)
+        backing = _principle_backing(store, cluster.conclusion_ids)
+        rankings.append(
+            ClusterRanking(
+                cluster=cluster,
+                maturity=ClusterMaturity(
+                    size=size,
+                    resolved_forecast_count=resolved,
+                    principle_backing=backing,
+                    score=score_maturity(
+                        size=size,
+                        resolved_forecast_count=resolved,
+                        principle_backing=backing,
+                    ),
+                ),
+            )
+        )
+
+    rankings.sort(
+        key=lambda r: (-r.maturity.score, r.cluster.lead_conclusion_id)
+    )
+    if top_n is not None and top_n >= 0:
+        return rankings[:top_n]
+    return rankings

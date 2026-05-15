@@ -3,12 +3,18 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { PublicOpinion } from "@/lib/currentsTypes";
-import type { PublishedConclusion } from "@/lib/conclusionsRead";
+import type {
+  HomepagePublishedArticle,
+  PublishedConclusion,
+} from "@/lib/conclusionsRead";
 
 const mocks = vi.hoisted(() => ({
   getFounder: vi.fn(),
   listCurrents: vi.fn(),
-  listPublishedArticles: vi.fn(),
+  listHomepagePublishedArticles: vi.fn(),
+  listHomepageArticles: vi.fn(),
+  listHomepageConclusions: vi.fn(),
+  getCurrentsHealth: vi.fn(),
 }));
 
 vi.mock("next/link", () => ({
@@ -59,10 +65,25 @@ vi.mock("@/lib/auth", () => ({
 
 vi.mock("@/lib/currentsApi", () => ({
   listCurrents: mocks.listCurrents,
+  getCurrentsHealth: mocks.getCurrentsHealth,
 }));
 
 vi.mock("@/lib/conclusionsRead", () => ({
-  listPublishedArticles: mocks.listPublishedArticles,
+  listHomepagePublishedArticles: mocks.listHomepagePublishedArticles,
+}));
+
+vi.mock("@/lib/publicSurface", () => ({
+  ARTICLES_EMPTY_COPY:
+    "Long-form articles will appear here once the firm publishes them.",
+  CONCLUSIONS_EMPTY_COPY:
+    "Reviewed conclusions will appear here once the firm publishes them.",
+  CURRENTS_EMPTY_COPY:
+    "Live opinions will appear here once events cross the firm's significance floor.",
+  PUBLIC_HOME_ARTICLES_TAG: "public-home-articles",
+  PUBLIC_HOME_CONCLUSIONS_TAG: "public-home-conclusions",
+  PUBLIC_HOME_CURRENTS_TAG: "public-home-currents",
+  listHomepageArticles: mocks.listHomepageArticles,
+  listHomepageConclusions: mocks.listHomepageConclusions,
 }));
 
 vi.mock("@/lib/methodologyManifest", () => ({
@@ -179,10 +200,33 @@ function renderConclusion(row: PublishedConclusion): string {
   return renderToStaticMarkup(<ConclusionView row={row} allVersions={[row]} responses={[]} />);
 }
 
+function homepageArticle(
+  overrides: Partial<HomepagePublishedArticle> = {},
+): HomepagePublishedArticle {
+  return {
+    id: "article-1",
+    href: "/c/intellectual-capital-is-recorded-reasoning",
+    title: "Intellectual capital is recorded reasoning under pressure.",
+    excerpt:
+      "The memo argues that intellectual capital is not merely expertise, but a reusable record of judgment.",
+    publishedAt: "2026-04-30T14:00:00.000Z",
+    source: "conclusion",
+    ...overrides,
+  };
+}
+
 function resetPublicMocks() {
   mocks.getFounder.mockResolvedValue(null);
   mocks.listCurrents.mockResolvedValue({ items: [] });
-  mocks.listPublishedArticles.mockResolvedValue([]);
+  mocks.listHomepagePublishedArticles.mockResolvedValue([]);
+  mocks.listHomepageArticles.mockResolvedValue([]);
+  mocks.listHomepageConclusions.mockResolvedValue([]);
+  mocks.getCurrentsHealth.mockResolvedValue({
+    items_total: 0,
+    items_24h: 0,
+    last_publish_at: null,
+    disabled_reasons: [],
+  });
 }
 
 describe("PublicHomePage", () => {
@@ -193,9 +237,14 @@ describe("PublicHomePage", () => {
 
     expect(html).toMatchSnapshot();
     expect(html).toContain("A working system for recording firm reasoning");
+    // Three-rail empty-state copy (prompt 52).
     expect(html).toContain(
-      "The firm has not yet published anything publicly. Reach out:",
+      "Long-form articles will appear here once the firm publishes them.",
     );
+    expect(html).toContain(
+      "Reviewed conclusions will appear here once the firm publishes them.",
+    );
+    expect(html).not.toMatch(/>undefined</);
     expect(html).not.toContain("/responses");
   });
 
@@ -216,27 +265,53 @@ describe("PublicHomePage", () => {
         }),
       ],
     });
-    mocks.listPublishedArticles.mockResolvedValue([
-      article(),
-      article({
+    mocks.listHomepagePublishedArticles.mockResolvedValue([
+      homepageArticle(),
+      homepageArticle({
         id: "article-2",
-        slug: "capital-decisions-need-a-reasoning-ledger",
-        payload: {
-          ...article().payload,
-          conclusionText: "Capital decisions need a reasoning ledger.",
-        },
+        href: "/c/capital-decisions-need-a-reasoning-ledger",
+        title: "Capital decisions need a reasoning ledger.",
       }),
+    ]);
+    // The three-rail layout (prompt 52) populates Articles and
+    // Conclusions through `publicSurface.ts` rather than through
+    // `conclusionsRead`. Drive them directly here.
+    mocks.listHomepageArticles.mockResolvedValue([
+      {
+        id: "art-1",
+        href: "/c/intellectual-capital-is-recorded-reasoning",
+        title: "Intellectual capital is recorded reasoning under pressure.",
+        subtitle:
+          "The memo argues that intellectual capital is not merely expertise.",
+        publishedAt: "2026-04-30T14:00:00.000Z",
+        authorDisplayName: "Michael Quintin",
+        readingTimeMin: 4,
+        source: "conclusion",
+      },
+    ]);
+    mocks.listHomepageConclusions.mockResolvedValue([
+      {
+        id: "concl-1",
+        href: "/c/capital-decisions-need-a-reasoning-ledger",
+        title: "Capital decisions need a reasoning ledger.",
+        subtitle: "Recorded reasoning compounds.",
+        publishedAt: "2026-04-29T14:00:00.000Z",
+        version: 1,
+      },
     ]);
 
     const html = await renderHomepage();
 
     expect(html).toMatchSnapshot();
     expect(html).toContain("Currents from the firm");
-    expect(html).toContain("Publications");
+    expect(html).toContain("Articles");
+    expect(html).toContain("Conclusions");
     expect(html).not.toContain("LATEST FROM THE FIRM · CURRENTS");
     expect(html).not.toContain("PUBLICATIONS · ESSAYS &amp; MEMOS");
     expect(html).not.toContain("font-family:&#x27;Cinzel&#x27;, serif;font-size:1.05rem");
     expect(html).toContain('data-testid="homepage-current-card"');
+    expect(html).toContain('data-testid="homepage-article-card"');
+    expect(html).toContain('data-testid="homepage-conclusion-card"');
     expect(html).not.toContain("/responses");
   });
 
@@ -264,7 +339,7 @@ describe("Public methodology surfaces", () => {
     const html = await renderMethodologyPage();
 
     expect(html).toContain("The reusable part of inquiry");
-    expect(html).toContain("Method index");
+    expect(html).toContain("The methods catalog");
     expect(html).toContain("Public failure modes");
     expect(html).toContain("does not expose raw deliberation");
     expect(html).toContain("Five-criterion rubric");

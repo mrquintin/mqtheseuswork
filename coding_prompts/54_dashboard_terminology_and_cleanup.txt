@@ -1,0 +1,83 @@
+You are operating in /Users/michaelquintin/Desktop/Theseus.
+
+Goal: act on the founder's specific dashboard complaints. He could
+not tell what "Attention", "Open Question", "Snooze", or "Dismiss"
+mean. The Library button uses a different font from the others.
+The Attention box should be removed entirely. This is the targeted
+"things the founder pointed at" pass — small, concrete, audited.
+
+This is NOT a general redesign (prompt 67 handles that). This is
+the urgent terminology/cleanup pass.
+
+Before you start — read:
+1. `theseus-codex/src/app/(authed)/dashboard/page.tsx` and every
+   component it composes (Attention box, Open Questions panel,
+   Snooze/Dismiss controls, primary nav, Library link).
+2. The schema models behind Attention, Open Questions, Snooze,
+   Dismiss — figure out what they MEAN before deciding what to
+   remove vs. rename. A removed column with active rows
+   elsewhere is technical debt; a renamed column with stale
+   API contract is a regression.
+3. Any analytics/event names that mention these terms (in
+   case logging would break).
+
+Implement:
+
+A. Remove the Attention box from the dashboard. If the entity
+   behind it (`Attention` table, `attention_items`, etc.) is
+   still used elsewhere, keep the entity but delete the
+   dashboard-side surface and its rendering component. If
+   nothing else uses it, deprecate the entity (mark
+   `@deprecated` in the schema comment, do NOT drop the table
+   in this prompt — Round 18 prompt 33 owns retirements).
+
+B. Terminology pass. Replace every founder-facing string for:
+   - "Snooze" → "Hide for now (returns in 7 days)"
+   - "Dismiss" → "Hide permanently"
+   - "Open Question" → "Unresolved research thread"
+   - "Attention" → remove (per A).
+   These are tentative defaults; pick whatever the founder's
+   prior documents call them if there is a more idiomatic
+   term in the firm's existing language. Document the chosen
+   wording in `docs/operator/dashboard_terminology.md`. Every
+   new founder-facing string must show up exactly once in the
+   codebase (centralised copy module, not scattered).
+
+C. Library button: re-style to use the same typography family,
+   weight, and size as the other primary nav buttons. Do not
+   special-case it. The fix lives in the shared button
+   primitive, not as a per-instance override. If Round 18
+   prompt 06 (design-system extraction) has not yet supplied a
+   shared button primitive, this prompt creates a small one
+   inline and documents it.
+
+D. Visual regression test. A Playwright snapshot of the dashboard
+   header + primary nav. The baseline is committed. Future PRs
+   that change the nav typography will surface a diff for
+   human review.
+
+E. Founder-string centralisation. All four strings above live
+   in `theseus-codex/src/lib/copy/dashboard.ts`. Components
+   import from there. A lint rule (or test) verifies no
+   component file contains the strings inline.
+
+F. Smoke test: the dashboard loads with no console errors, no
+   missing-component errors, no "Attention" string anywhere on
+   the page.
+
+Constraints
+- Do not silently delete a column. If the Attention entity has
+  rows, leave the data; only the UI surface is removed.
+- Do not rename a column the API still serves. If you rename a
+  column, you must update the API contract in the same commit.
+- The Library button is part of the primary nav. Its fix must
+  not break any other nav item.
+
+SCOPE
+- `docs/operator/dashboard_terminology.md` CREATE
+- `theseus-codex/src/lib/copy/dashboard.ts` CREATE
+- `theseus-codex/src/app/(authed)/dashboard/page.tsx` MODIFY
+- `theseus-codex/src/components/dashboard/AttentionBox.tsx` MODIFY-OR-DELETE
+- `theseus-codex/src/components/nav/PrimaryNav.tsx` MODIFY
+- `theseus-codex/playwright/dashboard-nav.snapshot.spec.ts` CREATE
+- `theseus-codex/src/__tests__/dashboard-copy.test.ts` CREATE

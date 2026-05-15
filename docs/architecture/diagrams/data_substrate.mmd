@@ -1,0 +1,22 @@
+%% Theseus data substrate — Postgres + filesystem + embeddings manifest.
+%% Embedded in docs/architecture/Theseus_Architecture.md section 3.
+flowchart LR
+  subgraph PG["Postgres — Codex DB (Supabase)"]
+    PG1["Conclusion / Claim / Upload"]
+    PG2["Round-17 method & calibration models"]
+    PG3["Span / AlertRule / AlertEvent"]
+    PG4["PublicationSignature (ledger)"]
+  end
+  subgraph FS["Filesystem — THESEUS_DATA_DIR"]
+    FS1["graph.json — cascade snapshot"]
+    FS2["embeddings/*.npy"]
+    FS3["registries, synthesis output"]
+  end
+  subgraph MAN["Embeddings manifest"]
+    MAN1["manifest.json — model, dims, checksums"]
+  end
+  NOO["Noosphere"] -->|"codex_bridge (Pydantic)"| PG
+  NOO -->|"storage_client"| FS
+  FS2 --- MAN1
+  COD["Codex"] -->|"Prisma client"| PG
+  COD -.->|"reads"| MAN1

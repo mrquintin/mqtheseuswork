@@ -1,0 +1,57 @@
+You are operating in /Users/michaelquintin/Desktop/Theseus.
+
+Status: PROPOSED. Filed by the RATIONALE documentation-rot repair pass
+(Round 17 follow-up). This is a method-side gap surfaced while aligning
+`extract_claims.RATIONALE.md` to the code; the repair pass corrected the
+doc and filed this rather than silently changing method behavior.
+
+Goal: decide whether the registered `extract_claims` method should
+chunk-cache its results, and either implement caching or document the
+omission as deliberate.
+
+The gap:
+- `extract_claims.RATIONALE.md` used to claim "Results are cached by
+  chunk ID when a store is available, so re-processing the same chunk
+  returns identical claims without a redundant LLM call."
+- The registered wrapper `noosphere/noosphere/methods/extract_claims.py`
+  does NOT cache. It calls the LLM on every invocation. `chunk_id` and
+  `chunk_metadata` are accepted on the input schema but only carried for
+  provenance — nothing reads them as a cache key.
+- The legacy `ClaimExtractor` it "wraps" had chunk-keyed caching; the
+  registered method did not inherit it.
+
+Why it matters: `extract_claims` is non-deterministic. Without caching,
+re-running ingestion on the same transcript can produce a different
+claim set each time, which churns downstream cascade edges and makes
+reanalysis non-reproducible. That is either a real regression to fix or
+an intentional trade-off to write down.
+
+Before you start — read:
+1. `noosphere/noosphere/methods/extract_claims.py` (the registered wrapper).
+2. The legacy `ClaimExtractor` it wraps — find it under
+   `noosphere/noosphere/methods/_legacy/` and confirm whether its caching
+   was keyed on chunk id + prompt version.
+3. `noosphere/noosphere/methods/extract_claims.RATIONALE.md` — the
+   "Drift correction (2026-05-14)" note that points here.
+4. How other registered methods reach a store (e.g.
+   `extract_from_corpus.py` uses `Store.from_database_url`).
+
+Implement ONE of:
+
+A. Restore chunk-keyed caching in the registered wrapper. Key on
+   `(chunk_id, prompt_hash)` so a changed extraction prompt invalidates
+   stale entries — the old rationale flagged exactly that failure mode.
+   Degrade gracefully when no store is configured. Update
+   `extract_claims.RATIONALE.md` to restore the caching description and
+   remove the drift-correction note.
+
+B. Decide caching is intentionally omitted from the registered surface.
+   Document why in the RATIONALE's Algorithm section, drop the
+   `chunk_id`/`chunk_metadata` fields if they are genuinely unused, and
+   close this prompt with the rationale recorded.
+
+Constraints:
+- If you implement caching, add a test under `noosphere/tests/` that a
+  second call with the same chunk id returns byte-identical claims and
+  makes no second LLM call.
+- Do not change the claim-extraction prompt or schema in this prompt.

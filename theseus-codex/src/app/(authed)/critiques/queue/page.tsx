@@ -10,10 +10,12 @@
 import Link from "next/link";
 
 import {
+  applyPilotPriority,
   critiqueDisplayName,
   listCritiqueQueue,
   type CritiqueWithBounty,
 } from "@/lib/critiquesApi";
+import { isPilotWindowOpen, loadPilotConfig } from "@/lib/critiquePilot";
 import { requireTenantContext } from "@/lib/tenant";
 
 export const dynamic = "force-dynamic";
@@ -22,7 +24,13 @@ export default async function CritiqueQueuePage() {
   const tenant = await requireTenantContext();
   if (!tenant) return null;
 
-  const rows = await listCritiqueQueue(tenant.organizationId);
+  const raw = await listCritiqueQueue(tenant.organizationId);
+  const pilotConfig = loadPilotConfig();
+  const pilotOpen = isPilotWindowOpen(pilotConfig.window);
+  const rows = applyPilotPriority(raw, pilotConfig.tag, pilotOpen);
+  const pilotPending = rows.filter(
+    (r) => r.status === "pending" && r.pilotTag === pilotConfig.tag,
+  );
   const groups = groupByStatus(rows);
   const order: Array<keyof typeof groups> = ["pending", "accepted", "partial", "rejected"];
 
@@ -62,6 +70,27 @@ export default async function CritiqueQueuePage() {
           <Link href="/responses/queue">← Reader response triage</Link>
           <Link href="/critiques">Public hall of fame</Link>
         </nav>
+        {pilotOpen && pilotConfig.reviewers.length > 0 ? (
+          <div
+            style={{
+              border: "1px solid var(--amber)",
+              borderRadius: "0.3rem",
+              color: "var(--amber)",
+              fontSize: "0.7rem",
+              letterSpacing: "0.08em",
+              marginTop: "0.9rem",
+              padding: "0.55rem 0.8rem",
+            }}
+          >
+            <p className="mono" style={{ margin: 0 }}>
+              Pilot active · tag <code>{pilotConfig.tag}</code> ·{" "}
+              {pilotConfig.reviewers.length} reviewer
+              {pilotConfig.reviewers.length === 1 ? "" : "s"} configured ·{" "}
+              {pilotPending.length} pilot row{pilotPending.length === 1 ? "" : "s"} awaiting
+              triage (routed to top).
+            </p>
+          </div>
+        ) : null}
       </header>
 
       {rows.length === 0 ? (
@@ -92,6 +121,9 @@ export default async function CritiqueQueuePage() {
 }
 
 function groupByStatus(rows: CritiqueWithBounty[]): Record<string, CritiqueWithBounty[]> {
+  // `rows` arrives already ordered (pilot rows first when the window is
+  // open, severity-desc otherwise). We preserve insertion order so the
+  // founder sees pilot pending rows at the top of the pending bucket.
   const out: Record<string, CritiqueWithBounty[]> = {
     pending: [],
     accepted: [],
@@ -127,6 +159,7 @@ function QueueCard({ row }: { row: CritiqueWithBounty }) {
         <div>
           <p className="mono" style={cardTagStyle}>
             {row.status} · severity {row.severityLabel || "—"}
+            {row.pilotTag ? ` · pilot ${row.pilotReviewerSlug || row.pilotTag}` : ""}
             {row.bounty
               ? ` · bounty ${row.bounty.status} ($${row.bounty.amountUsd}, ${row.bounty.payoutMode})`
               : ""}
