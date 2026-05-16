@@ -66,6 +66,8 @@ trap 'rc=$?; cleanup_secret_tmp_files; if [ $rc -ne 0 ]; then banner_failed "Scr
 #   The generated password is written to an encrypted, gitignored local archive
 #   before Supabase is touched. If the process is interrupted after the password
 #   reset, this archive is the recovery path.
+#   In OpenSSL mode the script prompts for a fresh archive password, verifies it
+#   itself, decrypt-checks the archive, and aborts before rotation on any mismatch.
 #
 # Controls:
 #   SYNC_SKIP_DB_ROTATION=1              emergency bypass
@@ -127,14 +129,24 @@ write_db_password_recovery_archive() {
   local mode="${SYNC_DB_PASSWORD_ARCHIVE_MODE:-auto}"
   local ts plain archive
   ts="$(date -u +%Y%m%dT%H%M%SZ)"
-  mkdir -p "$secret_dir"
+  if ! mkdir -p "$secret_dir"; then
+    echo "ERROR: failed to create DB password recovery archive directory: $secret_dir" >&2
+    return 1
+  fi
   chmod 700 ".theseus-secrets" "$secret_dir" 2>/dev/null || true
 
-  plain="$(mktemp /tmp/theseus-db-password-report.XXXXXX.txt)"
-  chmod 600 "$plain"
+  if ! plain="$(mktemp /tmp/theseus-db-password-report.XXXXXX.txt)"; then
+    echo "ERROR: failed to create temporary DB password recovery report." >&2
+    return 1
+  fi
+  if ! chmod 600 "$plain"; then
+    echo "ERROR: failed to secure temporary DB password recovery report." >&2
+    rm -f "$plain"
+    return 1
+  fi
   SECRET_TMP_FILES+=("$plain")
 
-  {
+  if ! {
     echo "Theseus Supabase database password rotation"
     echo "Created UTC: $ts"
     echo "Repository: $(git remote get-url origin 2>/dev/null || pwd)"
@@ -154,7 +166,11 @@ write_db_password_recovery_archive() {
     echo "- GitHub Actions secret CODEX_DATABASE_URL"
     echo "- Vercel DATABASE_URL and DIRECT_URL in production, preview, development"
     echo "- external Currents API/scheduler if CURRENTS_BACKEND_REFRESH_CMD is set"
-  } > "$plain"
+  } > "$plain"; then
+    echo "ERROR: failed to write temporary DB password recovery report." >&2
+    rm -f "$plain"
+    return 1
+  fi
 
   if [ "$mode" = "auto" ]; then
     if command -v gpg >/dev/null 2>&1; then
@@ -170,23 +186,108 @@ write_db_password_recovery_archive() {
     gpg)
       archive="${secret_dir}/supabase-db-password-${ts}.txt.gpg"
       if [ -n "${SYNC_DB_PASSWORD_GPG_RECIPIENT:-}" ]; then
-        gpg --batch --yes --trust-model always \
+        if ! gpg --batch --yes --trust-model always \
           --recipient "$SYNC_DB_PASSWORD_GPG_RECIPIENT" \
-          --output "$archive" --encrypt "$plain"
+          --output "$archive" --encrypt "$plain"; then
+          echo "ERROR: failed to encrypt DB password recovery archive with GPG recipient ${SYNC_DB_PASSWORD_GPG_RECIPIENT}." >&2
+          rm -f "$archive" "$plain"
+          return 1
+        fi
       else
-        gpg --symmetric --cipher-algo AES256 --output "$archive" "$plain"
+        if ! gpg --symmetric --cipher-algo AES256 --output "$archive" "$plain"; then
+          echo "ERROR: failed to encrypt DB password recovery archive with GPG symmetric encryption." >&2
+          rm -f "$archive" "$plain"
+          return 1
+        fi
+      fi
+      if [ ! -s "$archive" ]; then
+        echo "ERROR: encrypted DB password recovery archive is missing or empty." >&2
+        rm -f "$archive" "$plain"
+        return 1
       fi
       ;;
     openssl)
       archive="${secret_dir}/supabase-db-password-${ts}.txt.openssl.enc"
-      openssl enc -aes-256-cbc -salt -pbkdf2 -iter 210000 \
-        -in "$plain" -out "$archive"
+      local archive_tmp pass_file pass_one pass_two
+      archive_tmp="${archive}.tmp.$$"
+      pass_file="$(mktemp /tmp/theseus-db-archive-pass.XXXXXX)"
+      chmod 600 "$pass_file"
+      SECRET_TMP_FILES+=("$pass_file" "$archive_tmp")
+
+      if [ ! -r /dev/tty ]; then
+        echo "ERROR: OpenSSL archive mode requires an interactive terminal for the recovery-archive password." >&2
+        echo "Use SYNC_DB_PASSWORD_ARCHIVE_MODE=gpg with SYNC_DB_PASSWORD_GPG_RECIPIENT, or set SYNC_DB_PASSWORD_ARCHIVE_MODE=plain only for an emergency local-only recovery file." >&2
+        rm -f "$archive_tmp" "$pass_file" "$plain"
+        return 1
+      fi
+
+      printf "Choose DB password recovery archive encryption password: " >/dev/tty
+      IFS= read -r -s pass_one </dev/tty || {
+        echo "" >/dev/tty
+        echo "ERROR: failed to read recovery archive password." >&2
+        rm -f "$archive_tmp" "$pass_file" "$plain"
+        return 1
+      }
+      echo "" >/dev/tty
+      printf "Verify DB password recovery archive encryption password: " >/dev/tty
+      IFS= read -r -s pass_two </dev/tty || {
+        echo "" >/dev/tty
+        echo "ERROR: failed to read recovery archive password verification." >&2
+        rm -f "$archive_tmp" "$pass_file" "$plain"
+        return 1
+      }
+      echo "" >/dev/tty
+
+      if [ -z "$pass_one" ]; then
+        echo "ERROR: recovery archive encryption password cannot be empty." >&2
+        rm -f "$archive_tmp" "$pass_file" "$plain"
+        return 1
+      fi
+      if [ "$pass_one" != "$pass_two" ]; then
+        echo "ERROR: recovery archive encryption passwords did not match." >&2
+        echo "Database password rotation was not started; run the sync script again and choose a new archive password." >&2
+        rm -f "$archive_tmp" "$pass_file" "$plain"
+        return 1
+      fi
+
+      printf '%s' "$pass_one" > "$pass_file"
+      unset pass_one pass_two
+
+      if ! openssl enc -aes-256-cbc -salt -pbkdf2 -iter 210000 \
+        -pass "file:${pass_file}" -in "$plain" -out "$archive_tmp"; then
+        echo "ERROR: failed to encrypt the DB password recovery archive." >&2
+        echo "Database password rotation was not started." >&2
+        rm -f "$archive_tmp" "$pass_file" "$plain"
+        return 1
+      fi
+
+      if [ ! -s "$archive_tmp" ]; then
+        echo "ERROR: encrypted DB password recovery archive is empty." >&2
+        echo "Database password rotation was not started." >&2
+        rm -f "$archive_tmp" "$pass_file" "$plain"
+        return 1
+      fi
+
+      if ! openssl enc -d -aes-256-cbc -pbkdf2 -iter 210000 \
+        -pass "file:${pass_file}" -in "$archive_tmp" >/dev/null; then
+        echo "ERROR: encrypted DB password recovery archive failed verification." >&2
+        echo "Database password rotation was not started." >&2
+        rm -f "$archive_tmp" "$pass_file" "$plain"
+        return 1
+      fi
+
+      mv "$archive_tmp" "$archive"
+      rm -f "$pass_file"
       ;;
     plain)
       archive="${secret_dir}/supabase-db-password-${ts}.txt"
-      cp "$plain" "$archive"
+      if ! cp "$plain" "$archive"; then
+        echo "ERROR: failed to write plaintext DB password recovery archive." >&2
+        rm -f "$archive" "$plain"
+        return 1
+      fi
       chmod 600 "$archive"
-      echo "${C_YELLOW}WARNING: password archive was stored in plaintext because SYNC_DB_PASSWORD_ARCHIVE_MODE=plain.${C_RESET}"
+      echo "${C_YELLOW}WARNING: password archive was stored in plaintext because SYNC_DB_PASSWORD_ARCHIVE_MODE=plain.${C_RESET}" >&2
       ;;
     none)
       echo "ERROR: no supported encryption tool found for password recovery archive." >&2
@@ -230,7 +331,11 @@ rotate_db_password_for_sync() {
   generate_db_password > "$password_file"
 
   project_ref="$(infer_supabase_project_ref_for_sync)"
-  archive="$(write_db_password_recovery_archive "$password_file" "$project_ref")"
+  if ! archive="$(write_db_password_recovery_archive "$password_file" "$project_ref")"; then
+    echo "ERROR: DB password recovery archive setup failed." >&2
+    echo "No Supabase, GitHub, Vercel, or local dotenv password rotation was attempted." >&2
+    return 1
+  fi
   echo "Encrypted DB password recovery archive: $archive"
 
   rotation_args=(--yes --password-file "$password_file")
