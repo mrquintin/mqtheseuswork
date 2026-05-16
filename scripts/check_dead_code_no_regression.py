@@ -29,6 +29,7 @@ import re
 import shutil
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parent.parent
@@ -63,20 +64,43 @@ def _run_ts_prune() -> int:
     if shutil.which("node") is None:
         print("check_dead_code: 'node' not on PATH.", file=sys.stderr)
         sys.exit(2)
-    proc = subprocess.run(
-        ["npx", "-y", "ts-prune@0.10.3", "-p", "tsconfig.json"],
-        cwd=TC,
-        capture_output=True,
-        text=True,
-        check=False,
+    tracked = set(
+        subprocess.run(
+            ["git", "ls-files"],
+            cwd=TC,
+            capture_output=True,
+            text=True,
+            check=True,
+        ).stdout.splitlines()
     )
+    next_dir = TC / ".next"
+    with tempfile.TemporaryDirectory(prefix="theseus-dead-code-") as tmp:
+        hidden_next = Path(tmp) / ".next"
+        moved_next = False
+        if next_dir.exists():
+            shutil.move(str(next_dir), str(hidden_next))
+            moved_next = True
+        try:
+            proc = subprocess.run(
+                ["npx", "-y", "ts-prune@0.10.3", "-p", "tsconfig.json"],
+                cwd=TC,
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+        finally:
+            if moved_next and hidden_next.exists() and not next_dir.exists():
+                shutil.move(str(hidden_next), str(next_dir))
     lines = []
     for raw in proc.stdout.splitlines():
-        if raw.startswith(".next/"):
+        file = raw.split(":", 1)[0]
+        if file.startswith(".next/"):
             continue
         if raw.endswith("(used in module)"):
             continue
         if not raw.strip():
+            continue
+        if file not in tracked:
             continue
         lines.append(raw)
     return len(lines)

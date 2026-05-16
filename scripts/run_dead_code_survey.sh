@@ -56,15 +56,48 @@ if ! python3 -m vulture --version >/dev/null 2>&1; then
   }
 fi
 
+TMP_TS_RAW="$(mktemp)"
 TMP_TS="$(mktemp)"
 TMP_PY="$(mktemp)"
-trap 'rm -f "$TMP_TS" "$TMP_PY"' EXIT
+TMP_NEXT_PARENT=""
+
+cleanup() {
+  if [ -n "$TMP_NEXT_PARENT" ] && [ -d "$TMP_NEXT_PARENT/.next" ] && [ ! -e "$TC_DIR/.next" ]; then
+    mv "$TMP_NEXT_PARENT/.next" "$TC_DIR/.next"
+  fi
+  rm -f "$TMP_TS_RAW" "$TMP_TS" "$TMP_PY"
+  if [ -n "$TMP_NEXT_PARENT" ]; then
+    rmdir "$TMP_NEXT_PARENT" 2>/dev/null || true
+  fi
+}
+trap cleanup EXIT
+
+# Next.js generated type files make app/page route exports look "used" on
+# machines that have run `next build`, while CI runs this survey from a fresh
+# checkout. Hide `.next` during the scan so local and CI baselines match.
+if [ -d "$TC_DIR/.next" ]; then
+  TMP_NEXT_PARENT="$(mktemp -d)"
+  mv "$TC_DIR/.next" "$TMP_NEXT_PARENT/.next"
+fi
+
+filter_tracked_ts_prune_rows() {
+  while IFS= read -r line; do
+    file="${line%%:*}"
+    case "$file" in
+      .next/*) continue ;;
+    esac
+    if git -C "$TC_DIR" ls-files --error-unmatch -- "$file" >/dev/null 2>&1; then
+      printf '%s\n' "$line"
+    fi
+  done
+}
 
 echo "==> ts-prune over theseus-codex/" >&2
 (
   cd "$TC_DIR"
   npx -y ts-prune@0.10.3 -p tsconfig.json 2>/dev/null \
-    | grep -v '^\.next/' \
+    > "$TMP_TS_RAW" || true
+  filter_tracked_ts_prune_rows < "$TMP_TS_RAW" \
     | grep -v '(used in module)$' \
     > "$TMP_TS" || true
 )
