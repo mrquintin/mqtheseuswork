@@ -67,7 +67,7 @@ function Chip({
     >
       <span>{label}</span>
       {count !== undefined ? (
-        <span style={{ color: "#7a6d55" }}>n={count}</span>
+        <span style={{ color: "#5a4e3a" }}>n={count}</span>
       ) : null}
     </Link>
   );
@@ -87,7 +87,7 @@ function ChipRow({
           fontSize: "0.66rem",
           letterSpacing: "0.16em",
           textTransform: "uppercase",
-          color: "#7a6d55",
+          color: "#5a4e3a",
           marginBottom: "0.3rem",
         }}
       >
@@ -239,7 +239,7 @@ export default function CalibrationSliceFilter({
       manifest.methods.length === 0 &&
       manifest.venues.length === 0 &&
       manifest.horizons.length === 0 ? (
-        <p style={{ fontSize: "0.78rem", color: "#7a6d55", marginTop: "0.5rem" }}>
+        <p style={{ fontSize: "0.78rem", color: "#5a4e3a", marginTop: "0.5rem" }}>
           No slices available yet — chips populate as forecasts resolve across
           domains, methods and venues.
         </p>
@@ -251,7 +251,7 @@ export default function CalibrationSliceFilter({
             href="/calibration"
             style={{
               fontSize: "0.76rem",
-              color: "#5a5247",
+              color: "#4b4234",
               textDecoration: "underline",
             }}
           >

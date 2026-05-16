@@ -331,7 +331,12 @@ function ContactSection({ contactEmail }: { contactEmail: string }) {
         {theseusIdentity.contactSection.line}{" "}
         <a
           href={`mailto:${contactEmail}`}
-          style={{ color: "var(--amber)", textDecoration: "none" }}
+          style={{
+            color: "var(--amber)",
+            textDecoration: "underline",
+            textDecorationThickness: "0.08em",
+            textUnderlineOffset: "0.16em",
+          }}
         >
           {contactEmail}
         </a>

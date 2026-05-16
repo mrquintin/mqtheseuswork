@@ -17,7 +17,10 @@ export const metadata: Metadata = {
 export default async function ProofPage() {
   const [founder, activeFingerprint] = await Promise.all([
     getFounder(),
-    activePublicationKeyFingerprint(),
+    activePublicationKeyFingerprint().catch((error) => {
+      console.error("proof_active_key_fetch_failed", error);
+      return null;
+    }),
   ]);
 
   return (
@@ -25,7 +28,7 @@ export default async function ProofPage() {
       <PublicHeader authed={Boolean(founder)} />
       <main className="mx-auto max-w-3xl px-4 py-10 leading-relaxed">
         <h1 className="text-2xl font-semibold">Proof</h1>
-        <p className="mt-2 text-sm opacity-80">
+        <p className="mt-2 text-sm" style={{ color: "var(--public-muted)" }}>
           Every public Theseus publication carries a cryptographic provenance trail. A reader who
           asks <em>"is this what Theseus actually said, on this date, with this evidence base?"</em>{" "}
           should be able to answer it without taking our word for it. This page is the contract.
@@ -49,7 +52,7 @@ export default async function ProofPage() {
           and the signature are persisted alongside the published row, and served verbatim from
           a public endpoint:
         </p>
-        <pre className="mt-2 overflow-x-auto rounded bg-stone-900/10 p-3 font-mono text-xs">
+        <pre className="mt-2 overflow-x-auto rounded bg-stone-900/10 p-3 font-mono text-xs" tabIndex={0}>
           <code>GET /api/public/signature/&lt;slug&gt;?version=&lt;n&gt;</code>
         </pre>
 
@@ -82,9 +85,9 @@ export default async function ProofPage() {
           publications signed before it remain valid (the historical record stays trustworthy).
         </p>
         <div className="mt-3 rounded border border-stone-500/40 bg-stone-500/5 p-3 text-xs">
-          <div className="opacity-70">Active publication key fingerprint</div>
+          <div style={{ color: "var(--public-muted)" }}>Active publication key fingerprint</div>
           <div className="font-mono text-sm">
-            {activeFingerprint ?? <span className="opacity-50">not yet generated</span>}
+            {activeFingerprint ?? <span style={{ color: "var(--public-muted)" }}>not yet generated</span>}
           </div>
         </div>
 
@@ -92,7 +95,7 @@ export default async function ProofPage() {
         <p className="mt-2 text-sm">
           Install the noosphere CLI from the firm's package, then run:
         </p>
-        <pre className="mt-2 overflow-x-auto rounded bg-stone-900/10 p-3 font-mono text-xs">
+        <pre className="mt-2 overflow-x-auto rounded bg-stone-900/10 p-3 font-mono text-xs" tabIndex={0}>
           <code>{`noosphere ledger verify-publication <slug>
 noosphere ledger verify-publication <slug> --from-url https://<host>/api/public/signature/<slug>`}</code>
         </pre>
@@ -119,8 +122,8 @@ noosphere ledger verify-publication <slug> --from-url https://<host>/api/public/
           <code className="font-mono text-xs">theseus-codex/src/lib/publicationService.ts</code>
         </p>
 
-        <p className="mt-8 text-xs opacity-60">
-          <Link className="underline" href="/">
+        <p className="mt-8 text-xs" style={{ color: "var(--public-muted)" }}>
+          <Link className="underline" href="/" style={{ color: "var(--amber)" }}>
             ← Back to the firm's published record
           </Link>
         </p>

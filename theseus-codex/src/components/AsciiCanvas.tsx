@@ -549,7 +549,12 @@ export default function AsciiCanvas({
     typeof window !== "undefined" ? window.devicePixelRatio || 1 : 1;
 
   return (
-    <div className={className} style={style} aria-label={ariaLabel}>
+    <div
+      className={className}
+      style={style}
+      role={ariaLabel ? "img" : undefined}
+      aria-label={ariaLabel}
+    >
       <canvas
         ref={outputRef}
         width={width * dpr}

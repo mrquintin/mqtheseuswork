@@ -48,9 +48,9 @@ function overrideLabel(p: RetentionPolicy): string {
 
 export default function PrivacyPage() {
   return (
-    <main className="mx-auto max-w-3xl px-6 py-12 leading-relaxed">
+    <main className="public-container mx-auto max-w-3xl px-6 py-12 leading-relaxed">
       <h1 className="text-3xl font-semibold mb-2">Privacy & Data Retention</h1>
-      <p className="text-sm text-gray-500 mb-8">
+      <p className="text-sm mb-8" style={{ color: "var(--public-muted)" }}>
         Generated from the firm&apos;s machine-readable retention policy.
         Behavior in code is bound to the prose below.
       </p>
@@ -62,7 +62,7 @@ export default function PrivacyPage() {
           shows the retention period, what happens at the end of that
           period, and the founder&apos;s authority to override it.
         </p>
-        <div className="overflow-x-auto">
+        <div className="overflow-x-auto" tabIndex={0}>
           <table className="w-full border-collapse text-sm" data-testid="retention-table">
             <thead>
               <tr className="border-b border-gray-300 text-left">
@@ -104,7 +104,7 @@ export default function PrivacyPage() {
             <p className="text-sm text-gray-700" data-field="summary">
               {p.privacySummary}
             </p>
-            <p className="text-xs text-gray-500 mt-1">
+            <p className="text-xs mt-1" style={{ color: "var(--public-muted)" }}>
               Basis: {p.legalBasis}.
             </p>
           </div>
@@ -129,7 +129,7 @@ export default function PrivacyPage() {
         </p>
       </section>
 
-      <p className="text-xs text-gray-500 mt-12">
+      <p className="text-xs mt-12" style={{ color: "var(--public-muted)" }}>
         This page is generated from{" "}
         <code>noosphere/decay/retention_policies.py</code>. If the
         machine-readable policy and this page disagree, the deploy

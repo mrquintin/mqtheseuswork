@@ -256,7 +256,7 @@ function IdentityStrip() {
             background: "var(--amber)",
             border: "1px solid var(--amber)",
             borderRadius: "3px",
-            color: "#120d08",
+            color: "var(--on-amber)",
             display: "inline-flex",
             fontSize: "0.68rem",
             fontWeight: 700,
@@ -580,7 +580,12 @@ function ContactLine({ email }: { email: string }) {
       Reach the firm at{" "}
       <a
         href={`mailto:${email}`}
-        style={{ color: "var(--amber)", textDecoration: "none" }}
+        style={{
+          color: "var(--amber)",
+          textDecoration: "underline",
+          textDecorationThickness: "0.08em",
+          textUnderlineOffset: "0.16em",
+        }}
       >
         {email}
       </a>
@@ -650,7 +655,12 @@ function EmptyPublicOutput({
         {detail} Reach the firm at{" "}
         <a
           href={`mailto:${email}`}
-          style={{ color: "var(--amber)", textDecoration: "none" }}
+          style={{
+            color: "var(--amber)",
+            textDecoration: "underline",
+            textDecorationThickness: "0.08em",
+            textUnderlineOffset: "0.16em",
+          }}
         >
           {email}
         </a>

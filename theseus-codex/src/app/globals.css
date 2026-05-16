@@ -34,11 +34,16 @@
   --stone-light:  #120f0b;   /* codex-origin: card surfaces */
   --stone-mid:    #1b1612;   /* codex-origin: raised/input surfaces */
   --amber:        #e9a338;   /* codex-origin: links, active nav, highlights */
-  --amber-dim:    #a8762a;   /* codex-origin: metadata and quiet accents */
+  --on-amber:     #08070a;   /* codex-origin: readable text on amber fills */
+  --amber-dim:    #c8913d;   /* codex-origin: metadata and quiet accents */
   --amber-deep:   #5e4617;   /* codex-origin: disabled/subtle borders */
   --amber-glow:   rgba(233, 163, 56, 0.35);  /* codex-origin: drop-shadows */
   --parchment:    #efe2c7;   /* codex-origin: primary readable foreground */
-  --parchment-dim:#9c8f72;   /* codex-origin: secondary readable foreground */
+  --parchment-dim:#c3b28d;   /* codex-origin: secondary readable foreground */
+  --public-fg:    var(--parchment);
+  --public-muted: var(--parchment-dim);
+  --public-bg-soft: var(--stone-light);
+  --public-rule: var(--border);
   --gold:         var(--amber);      /* codex-origin: legacy alias */
   --gold-dim:     var(--amber-dim);  /* codex-origin: legacy alias */
   --ember:        #c94a1f;   /* codex-origin: error/action heat */
@@ -57,7 +62,8 @@
   --stone-light:  #ede0cc;   /* codex-origin light: card surfaces */
   --stone-mid:    #e4d4ba;   /* codex-origin light: raised/input surfaces */
   --amber:        #7a5218;   /* codex-origin light: links and highlights */
-  --amber-dim:    #9a6c28;   /* codex-origin light: metadata and quiet accents */
+  --on-amber:     #f2e8d9;   /* codex-origin light: readable text on amber fills */
+  --amber-dim:    #725019;   /* codex-origin light: metadata and quiet accents */
   --amber-deep:   #c1a670;   /* codex-origin light: disabled/subtle borders */
   --amber-glow:   rgba(122, 82, 24, 0.18);  /* codex-origin light: drop-shadows */
   --parchment:    #2a2318;   /* codex-origin light: primary foreground */
@@ -329,6 +335,13 @@ input::placeholder, textarea::placeholder {
   color: var(--amber);
 }
 
+.public-container :where(p, li) a,
+main :where(p, li) a[href^="mailto:"] {
+  text-decoration: underline;
+  text-decoration-thickness: 0.08em;
+  text-underline-offset: 0.16em;
+}
+
 .public-title {
   font-family: 'EB Garamond', 'Iowan Old Style', Georgia, serif;
   font-size: clamp(1.85rem, 4.4vw, 2.6rem);
@@ -368,6 +381,14 @@ input::placeholder, textarea::placeholder {
   color: var(--parchment-dim);
 }
 
+.public-eyebrow,
+.public-card-kicker {
+  color: var(--amber-dim);
+  font-size: 0.68rem;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+}
+
 .public-kicker {
   margin-top: 0;
   font-size: 0.85rem;
@@ -392,8 +413,49 @@ input::placeholder, textarea::placeholder {
   margin: 0.65rem 0 0;
 }
 
+.public-card-grid {
+  display: grid;
+  gap: 0.85rem;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 16rem), 1fr));
+  margin-top: 0.9rem;
+}
+
+.public-card-link {
+  color: inherit;
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+  text-decoration: none;
+}
+
+.public-card-link:hover,
+.public-card-link:focus-visible {
+  border-color: var(--amber);
+}
+
+.public-card strong {
+  color: var(--parchment);
+}
+
+.public-card span:not(.public-card-kicker) {
+  color: var(--parchment-dim);
+}
+
 .public-section {
   margin-top: 1.25rem;
+}
+
+.public-section-title {
+  color: var(--amber);
+  font-size: 1rem;
+  margin: 0;
+}
+
+.public-inline-link {
+  color: var(--amber);
+  text-decoration: underline;
+  text-decoration-thickness: 0.08em;
+  text-underline-offset: 0.16em;
 }
 
 .public-section-heading {
@@ -2951,4 +3013,3 @@ input::placeholder, textarea::placeholder {
     transition: none !important;
   }
 }
-

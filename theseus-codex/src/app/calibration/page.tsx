@@ -123,7 +123,7 @@ function Hero({ manifest }: { manifest: PublicCalibrationManifest }) {
             fontSize: "0.68rem",
             letterSpacing: "0.16em",
             textTransform: "uppercase",
-            color: "#7a6d55",
+            color: "#5a4e3a",
           }}
         >
           All-time Brier score
@@ -145,7 +145,7 @@ function Hero({ manifest }: { manifest: PublicCalibrationManifest }) {
               style={{
                 fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace",
                 fontSize: "0.8rem",
-                color: "#5a5247",
+                color: "#4b4234",
                 marginTop: "0.25rem",
               }}
             >
@@ -171,7 +171,7 @@ function Hero({ manifest }: { manifest: PublicCalibrationManifest }) {
             <p
               style={{
                 fontSize: "0.82rem",
-                color: "#5a5247",
+                color: "#4b4234",
                 marginTop: "0.4rem",
                 marginBottom: 0,
                 lineHeight: 1.5,
@@ -191,7 +191,7 @@ function Hero({ manifest }: { manifest: PublicCalibrationManifest }) {
           marginTop: "0.8rem",
           fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace",
           fontSize: "0.76rem",
-          color: "#5a5247",
+          color: "#4b4234",
         }}
       >
         n_resolved={manifest.counts.resolvedBinary} · withdrawn rate=
@@ -241,17 +241,17 @@ function Disclaimer({ manifest }: { manifest: PublicCalibrationManifest }) {
         resolution_set_hash:{" "}
         <code style={{ wordBreak: "break-all" }}>{manifest.resolutionSetHash || "—"}</code>
       </p>
-      <p style={{ marginTop: "0.4rem", marginBottom: 0, color: "#5a5247" }}>
+      <p style={{ marginTop: "0.4rem", marginBottom: 0, color: "#4b4234" }}>
         pinned {formatDate(manifest.generatedAt)} ·{" "}
         <Link href="#how-to-verify" style={{ color: "#7a5b0d" }}>
           what this hash means →
         </Link>
       </p>
-      <p style={{ marginTop: "0.4rem", marginBottom: 0, color: "#5a5247" }}>
+      <p style={{ marginTop: "0.4rem", marginBottom: 0, color: "#4b4234" }}>
         published_at: {manifest.generatedAt} · source: {manifest.source} · schema_v=
         {manifest.schemaVersion}
       </p>
-      <p style={{ marginTop: "0.4rem", marginBottom: 0, color: "#5a5247" }}>
+      <p style={{ marginTop: "0.4rem", marginBottom: 0, color: "#4b4234" }}>
         alternative-method analysis available privately
       </p>
     </section>
@@ -307,7 +307,7 @@ function PlotSection({ manifest }: { manifest: PublicCalibrationManifest }) {
           <li>n = {manifest.calibrationSlope.sampleSize}</li>
         </ul>
         {manifest.continuousQuadraticLoss !== null ? (
-          <p style={{ marginTop: "1rem", fontSize: "0.8rem", color: "#5a5247" }}>
+          <p style={{ marginTop: "1rem", fontSize: "0.8rem", color: "#4b4234" }}>
             Continuous-market forecasts are scored separately as{" "}
             <code>{manifest.continuousMetricName}</code>:{" "}
             {fmt(manifest.continuousQuadraticLoss)}. Not folded into the binary
@@ -342,7 +342,7 @@ function BrierWindows({ windows }: { windows: BrierWindow[] }) {
               background: "#fffdf7",
             }}
           >
-            <div style={{ fontSize: "0.7rem", letterSpacing: "0.15em", textTransform: "uppercase", color: "#7a6d55" }}>
+            <div style={{ fontSize: "0.7rem", letterSpacing: "0.15em", textTransform: "uppercase", color: "#5a4e3a" }}>
               {w.label}
             </div>
             <div
@@ -354,7 +354,7 @@ function BrierWindows({ windows }: { windows: BrierWindow[] }) {
             >
               {fmt(w.meanBrier)}
             </div>
-            <div style={{ fontSize: "0.72rem", color: "#7a6d55", marginTop: "0.2rem" }}>
+            <div style={{ fontSize: "0.72rem", color: "#5a4e3a", marginTop: "0.2rem" }}>
               n = {w.n} · log loss = {fmt(w.meanLogLoss)}
             </div>
           </div>
@@ -415,7 +415,7 @@ function Honesty({ manifest }: { manifest: PublicCalibrationManifest }) {
             marginTop: "0.6rem",
             paddingLeft: "1.2rem",
             fontSize: "0.78rem",
-            color: "#5a5247",
+            color: "#4b4234",
           }}
         >
           {manifest.notes.map((note, i) => (
@@ -463,7 +463,7 @@ function DecileColumn({
         {title}
       </h3>
       {entries.length === 0 ? (
-        <p style={{ fontSize: "0.82rem", color: "#7a6d55" }}>No entries match this slice.</p>
+        <p style={{ fontSize: "0.82rem", color: "#5a4e3a" }}>No entries match this slice.</p>
       ) : (
         <ul style={{ listStyle: "none", padding: 0, margin: 0 }}>
           {entries.map((e) => (
@@ -487,7 +487,7 @@ function DecileColumn({
                   {e.brier.toFixed(3)}
                 </span>
               </div>
-              <div style={{ color: "#7a6d55", fontSize: "0.74rem", marginTop: "0.15rem" }}>
+              <div style={{ color: "#5a4e3a", fontSize: "0.74rem", marginTop: "0.15rem" }}>
                 p={e.probabilityYes.toFixed(3)} · resolved {e.outcome}
                 {e.methodName ? (
                   <>
@@ -562,7 +562,7 @@ function ResolutionAudit({ manifest }: { manifest: PublicCalibrationManifest }) 
         </p>
       ) : null}
       {entries.length === 0 ? (
-        <p style={{ fontSize: "0.82rem", color: "#7a6d55" }}>
+        <p style={{ fontSize: "0.82rem", color: "#5a4e3a" }}>
           No resolved forecasts yet — the audit list populates as predictions
           resolve.
         </p>
@@ -577,7 +577,7 @@ function ResolutionAudit({ manifest }: { manifest: PublicCalibrationManifest }) 
             }}
           >
             <thead>
-              <tr style={{ textAlign: "left", color: "#7a6d55" }}>
+              <tr style={{ textAlign: "left", color: "#5a4e3a" }}>
                 <th style={{ padding: "0.35rem 0.5rem 0.35rem 0" }}>Forecast</th>
                 <th style={{ padding: "0.35rem 0.5rem" }}>p(YES)</th>
                 <th style={{ padding: "0.35rem 0.5rem" }}>Outcome</th>
@@ -652,7 +652,7 @@ function Methods({
       <h2 id="methods-title" style={{ fontSize: "0.92rem", letterSpacing: "0.18em", textTransform: "uppercase" }}>
         Per-method drill-down
       </h2>
-      <p style={{ fontSize: "0.82rem", color: "#5a5247", marginTop: "0.4rem" }}>
+      <p style={{ fontSize: "0.82rem", color: "#4b4234", marginTop: "0.4rem" }}>
         Click a method to slice the scorecard to predictions linked through it. The
         method's full track record (calibration slope, severity gate, domain
         bounds) lives on the methodology pages.
@@ -692,7 +692,7 @@ function Methods({
               >
                 {m.name}
               </Link>
-              <div style={{ fontSize: "0.72rem", color: "#7a6d55", marginTop: "0.2rem" }}>
+              <div style={{ fontSize: "0.72rem", color: "#5a4e3a", marginTop: "0.2rem" }}>
                 v{m.version} · n={m.n} ·{" "}
                 <Link
                   href={`/methodology/${encodeURIComponent(m.name)}/track-record`}
@@ -713,14 +713,14 @@ function ManifestPointer({ manifest }: { manifest: PublicCalibrationManifest }) 
   return (
     <section
       id="how-to-verify"
-      style={{ borderTop: "1px solid #ece8de", paddingTop: "1rem", color: "#5a5247", fontSize: "0.78rem" }}
+      style={{ borderTop: "1px solid #ece8de", paddingTop: "1rem", color: "#4b4234", fontSize: "0.78rem" }}
     >
       <h2
         style={{
           fontSize: "0.82rem",
           letterSpacing: "0.16em",
           textTransform: "uppercase",
-          color: "#5a5247",
+          color: "#4b4234",
         }}
       >
         How to verify this hash

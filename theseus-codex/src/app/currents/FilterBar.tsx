@@ -80,7 +80,7 @@ const rowStyle: CSSProperties = {
 };
 
 const inputStyle: CSSProperties = {
-  background: "rgba(20, 18, 16, 0.86)",
+  background: "var(--stone-mid)",
   border: "1px solid var(--currents-border)",
   borderRadius: "4px",
   color: "var(--currents-parchment)",

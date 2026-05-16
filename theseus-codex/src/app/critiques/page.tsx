@@ -160,7 +160,7 @@ export default async function PublicCritiquesPage() {
 }
 
 const card = {
-  background: "rgba(20, 20, 26, 0.45)",
+  background: "var(--stone-light)",
   border: "1px solid var(--border)",
   borderRadius: "0.4rem",
   margin: "1.4rem 0 0",
@@ -168,7 +168,7 @@ const card = {
 };
 
 const cardHeading = {
-  color: "var(--amber-dim)",
+  color: "var(--amber)",
   fontSize: "0.7rem",
   letterSpacing: "0.18em",
   margin: "0 0 0.6rem",

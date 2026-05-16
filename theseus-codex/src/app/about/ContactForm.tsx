@@ -236,7 +236,12 @@ export default function ContactForm({
         or email us directly at{" "}
         <a
           href={`mailto:${contactEmail}`}
-          style={{ color: "var(--amber)", textDecoration: "none" }}
+          style={{
+            color: "var(--amber)",
+            textDecoration: "underline",
+            textDecorationThickness: "0.08em",
+            textUnderlineOffset: "0.16em",
+          }}
         >
           {contactEmail}
         </a>

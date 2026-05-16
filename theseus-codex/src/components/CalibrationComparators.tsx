@@ -170,7 +170,7 @@ export default function CalibrationComparators({
                 style={{
                   margin: "0.4rem 0 0",
                   fontSize: "0.76rem",
-                  color: "#5a5247",
+                  color: "#4b4234",
                   lineHeight: 1.5,
                 }}
               >
@@ -184,7 +184,7 @@ export default function CalibrationComparators({
         style={{
           marginTop: "0.6rem",
           fontSize: "0.72rem",
-          color: "#7a6d55",
+          color: "#5a4e3a",
           fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace",
         }}
       >

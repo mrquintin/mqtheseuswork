@@ -214,7 +214,7 @@ const primaryButtonStyle: React.CSSProperties = {
   textTransform: "uppercase",
   border: "1px solid var(--amber, #d4a017)",
   background: "var(--amber, #d4a017)",
-  color: "#120d08",
+  color: "var(--on-amber)",
   cursor: "pointer",
 };
 

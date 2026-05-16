@@ -59,7 +59,7 @@ export default function CalibrationPlot({
       <svg
         viewBox={`0 0 ${width} ${height}`}
         role="img"
-        aria-hidden="false"
+        aria-label="Reliability diagram plot"
         xmlns="http://www.w3.org/2000/svg"
         style={{ width: "100%", height: "auto", maxWidth: width }}
       >

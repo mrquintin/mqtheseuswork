@@ -700,9 +700,14 @@ export async function evaluatePublicationSignatureStatus(
 }
 
 export async function activePublicationKeyFingerprint(): Promise<string | null> {
-  const latest = await db.publicationSignature.findFirst({
-    orderBy: { createdAt: "desc" },
-    select: { keyFingerprint: true },
-  });
-  return latest?.keyFingerprint ?? null;
+  try {
+    const latest = await db.publicationSignature.findFirst({
+      orderBy: { createdAt: "desc" },
+      select: { keyFingerprint: true },
+    });
+    return latest?.keyFingerprint ?? null;
+  } catch (error) {
+    console.error("publication_key_fingerprint_fetch_failed", error);
+    return null;
+  }
 }

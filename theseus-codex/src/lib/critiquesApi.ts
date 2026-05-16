@@ -307,11 +307,16 @@ export async function getCritique(
  * are public only with their explicit consent.
  */
 export async function listAcceptedCritiques(): Promise<CritiqueRecord[]> {
-  const rows = (await db.critiqueSubmission.findMany({
-    where: { status: "accepted", hallOfFameConsent: true },
-    orderBy: { decidedAt: "desc" },
-  })) as RawCritiqueRow[];
-  return rows.map(toCritique);
+  try {
+    const rows = (await db.critiqueSubmission.findMany({
+      where: { status: "accepted", hallOfFameConsent: true },
+      orderBy: { decidedAt: "desc" },
+    })) as RawCritiqueRow[];
+    return rows.map(toCritique);
+  } catch (error) {
+    console.error("accepted_critiques_fetch_failed", error);
+    return [];
+  }
 }
 
 /**

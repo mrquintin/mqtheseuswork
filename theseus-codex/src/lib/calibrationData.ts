@@ -932,8 +932,36 @@ export async function loadPublicCalibrationManifest(
 ): Promise<PublicCalibrationManifest> {
   const fromDisk = readManifestFromDisk();
   if (fromDisk) return applyFilter(fromDisk, filter);
-  const live = await buildLiveManifest(filter);
-  return live;
+  try {
+    const live = await buildLiveManifest(filter);
+    return live;
+  } catch (error) {
+    console.error("[public calibration] live manifest fallback failed:", error);
+    return normalizeManifest(
+      {
+        generated_at: new Date().toISOString(),
+        source: "live",
+        counts: {
+          total: 0,
+          resolved_binary: 0,
+          withdrawn: 0,
+          stale_unresolved: 0,
+          continuous: 0,
+        },
+        filter: {
+          domain: filter.domain ?? null,
+          method_name: filter.methodName ?? null,
+          method_version: filter.methodVersion ?? null,
+          venue: filter.venue ?? null,
+          horizon: filter.horizon ?? null,
+        },
+        notes: [
+          "Calibration data is temporarily unavailable. The public page is rendering the empty auditable shell rather than hiding the failure behind a server error.",
+        ],
+      },
+      "live",
+    );
+  }
 }
 
 export function manifestPathForTests(): string {
