@@ -1,0 +1,159 @@
+You are operating in /Users/michaelquintin/Desktop/Theseus.
+
+Goal: an LLM-assisted drafter that proposes LogicalAlgorithms from
+clusters of related principles. Output is structured (matches the
+schema from prompt 01). Drafts go into a founder triage queue;
+the founder accepts, edits, or rejects. Never auto-promotes to
+ACTIVE.
+
+The drafter's job is the founder's hardest job done at draft
+quality: looking at a cluster of related principles and asking
+"what observable inputs would these jointly let us predict
+outputs for?" The drafter produces candidates the founder either
+sharpens or discards.
+
+What the drafter SHOULD propose — concrete shape:
+
+Cluster: [
+  "States in mutual threat perception engage in security-dilemma
+   escalation absent credible commitment devices.",
+  "Domestic political incentives reinforce external escalation once
+   initiated; reversal requires elite cost.",
+  "Arms races are predicted by the second derivative of military
+   spending, not the first."
+]
+→ Drafter proposes "Arms-Race Escalation Predictor" algorithm with
+  inputs (spending YoY delta per side, rhetoric escalation index,
+  mediator presence), reasoning chain (detect → apply each
+  principle → synthesize), output (per-side projected spending
+  increase, horizon, confidence band).
+
+What the drafter MUST REFUSE:
+
+- Cluster of principles that are normative-only (no observable
+  inputs) → drafter emits UNFORMALISABLE with a reason.
+- Cluster too small (< 2 principles) → defers.
+- Cluster whose principles have already produced an ACTIVE
+  algorithm in the last 30 days → flagged as duplicate, awaiting
+  founder review.
+- Principles whose `domain_of_applicability` does not overlap →
+  drafter does NOT manufacture a cross-domain algorithm. It
+  emits NO_DOMAIN_OVERLAP.
+
+Before you start — read:
+1. `noosphere/noosphere/distillation/principle_distillation.py`
+   from Round 18 prompt 17 — the principle clustering machinery
+   you reuse.
+2. `noosphere/noosphere/algorithms/schemas.py` from prompt 01.
+3. `noosphere/noosphere/quantitative/drafter.py` from Round 18
+   prompt 57 — same drafter shape; copy the no-fabrication
+   discipline.
+
+Implement:
+
+A. `noosphere/noosphere/algorithms/drafter.py`:
+   - `class AlgorithmDrafter`:
+     - `async draft_from_cluster(store, principle_ids, *,
+                                  budget) -> DraftResult`:
+       1. Load the principles. Validate cluster size and domain
+          overlap.
+       2. Compose LLM prompt with the cluster + the three
+          worked examples from this prompt's preamble (the
+          arms-race / hyperstition / founder-quality shapes)
+          as few-shot.
+       3. Demand strict JSON output matching
+          LogicalAlgorithm's structure (inputs, output, reasoning
+          chain, trigger predicate).
+       4. Validate the trigger predicate via the validator
+          from prompt 01.
+       5. Validate that every step in the reasoning chain
+          references a principle from the input cluster.
+       6. Validate that every input has an `observability_source`
+          that is either a known Currents/Upload provider
+          identifier OR explicitly marked "manual.operator.entered".
+       7. Persist as DRAFT.
+   - `class DraftResult`:
+       outcome ∈ DRAFTED | UNFORMALISABLE | NO_DOMAIN_OVERLAP |
+                  CLUSTER_TOO_SMALL | DUPLICATE_RECENT |
+                  ABSTAINED_BUDGET | ABSTAINED_FABRICATION
+       algorithm_id (nullable)
+       reason (text)
+
+B. System prompt at
+   `noosphere/noosphere/algorithms/_prompts/drafter_system.md`:
+   - Explicitly forbids inventing principles. The drafter is a
+     SYNTHESIZER, not a generator of new ideas.
+   - Explicitly forbids inventing inputs. Every input must be
+     observable from a real, named source.
+   - Requires the trigger predicate to be a Boolean over the
+     declared input names only.
+   - Requires the reasoning chain to invoke at least one principle
+     per step (except DETECT and OUTPUT steps).
+   - Required output JSON schema is embedded verbatim.
+
+C. Few-shot examples in
+   `noosphere/noosphere/algorithms/_prompts/drafter_few_shot.md`:
+   - The three worked examples from prompt 01's preamble.
+   - One DELIBERATE negative example: a cluster of three
+     normative principles with no observable inputs → drafter
+     emits UNFORMALISABLE with a specific reason. This teaches
+     the drafter when to refuse.
+
+D. Triage queue UI
+   `theseus-codex/src/app/(authed)/algorithms/queue/page.tsx`:
+   - Lists DRAFT and UNDER_REVIEW algorithms.
+   - Each card shows: name, description, source principles
+     (clickable to `/principles/[id]`), inputs (with their
+     observability sources), output, the full reasoning chain
+     rendered as numbered steps, the trigger predicate, the
+     drafter's confidence note.
+   - Per-row actions: ACCEPT (promotes to ACTIVE),
+     ACCEPT-WITH-EDIT (opens an editor), REJECT (with reason),
+     MERGE-WITH-EXISTING (selects another algorithm to merge
+     into).
+   - Keyboard-navigable; bulk-accept-with-individual-gate-check.
+   - The agent's draft is advisory; the founder publishes.
+
+E. CLI:
+   - `noosphere algorithms draft --cluster <principle_ids,...>`
+   - `noosphere algorithms draft --auto` — iterate all
+     principle clusters that have no recent draft and propose one
+     each, up to `ALGORITHMS_MAX_DRAFTS_PER_RUN` (default 6).
+   - `noosphere algorithms list --status DRAFT|ACTIVE|...`
+
+F. Budget. Reuse `HourlyBudgetGuard` with persistence file
+   `algorithms_budget.json` and env-driven ceilings
+   `ALGORITHMS_BUDGET_HOURLY_PROMPT_TOKENS`,
+   `ALGORITHMS_BUDGET_HOURLY_COMPLETION_TOKENS`.
+
+G. Tests:
+   - Drafter happy-path on a 3-principle cluster modeled after the
+     arms-race example. Produces a DRAFT row with the right shape.
+   - Negative-example fixture: cluster of normative-only
+     principles → UNFORMALISABLE.
+   - Cluster too small → CLUSTER_TOO_SMALL.
+   - Cross-domain cluster → NO_DOMAIN_OVERLAP.
+   - Adversarial trigger-predicate fabrication → drafter rejects
+     its own output and abstains.
+   - Triage UI accept-with-edit flow round-trips the edit through
+     persistence.
+
+Constraints
+- No auto-promotion. The agent NEVER moves an algorithm to ACTIVE.
+- The drafter is bounded by budget; over-budget runs emit
+  ABSTAINED_BUDGET and persist nothing.
+- The drafter does not modify principles. It only reads them.
+- Drafts that fail validation are NOT persisted as drafts —
+  they're abandoned. Founders should never see broken drafts.
+
+SCOPE
+- `noosphere/noosphere/algorithms/drafter.py` CREATE
+- `noosphere/noosphere/algorithms/_prompts/drafter_system.md` CREATE
+- `noosphere/noosphere/algorithms/_prompts/drafter_few_shot.md` CREATE
+- `noosphere/noosphere/algorithms/budget.py` CREATE
+- `noosphere/noosphere/cli.py` MODIFY
+- `theseus-codex/src/app/(authed)/algorithms/queue/page.tsx` CREATE
+- `theseus-codex/src/app/(authed)/algorithms/queue/QueueClient.tsx` CREATE
+- `theseus-codex/src/lib/algorithmsApi.ts` CREATE
+- `noosphere/tests/test_algorithm_drafter.py` CREATE
+- `theseus-codex/__tests__/algorithms_queue.test.tsx` CREATE

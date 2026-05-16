@@ -73,6 +73,12 @@ trap 'rc=$?; cleanup_secret_tmp_files; if [ $rc -ne 0 ]; then banner_failed "Scr
 #   SYNC_SKIP_DB_ROTATION=1              emergency bypass
 #   SYNC_DB_PASSWORD_ARCHIVE_MODE=auto   auto|gpg|openssl|plain
 #   SYNC_DB_PASSWORD_GPG_RECIPIENT=...   use public-key GPG instead of passphrase
+#   SYNC_DB_PASSWORD_KEYCHAIN_SERVICE=... default theseus-sync-db-password-archive
+#   SYNC_DB_PASSWORD_KEYCHAIN_ACCOUNT=... default mqtheseuswork
+#   SYNC_DB_PASSWORD_ARCHIVE_PROMPT=1    fallback to terminal prompt if Keychain
+#                                        is unavailable (off by default because
+#                                        Cursor/VS Code tasks often cannot
+#                                        handle hidden prompt input reliably)
 #   SYNC_DB_PASSWORD_SECRET_DIR=...      default .theseus-secrets/db-password-rotations
 #   SYNC_DB_ROTATE_REDEPLOY=1            also redeploy current Vercel prod deployment
 #   CURRENTS_BACKEND_REFRESH_CMD=...     command that updates/restarts the
@@ -120,6 +126,65 @@ for (const file of candidates) {
 }
 process.stdout.write("unknown");
 NODE
+}
+
+db_password_archive_keychain_service() {
+  printf '%s' "${SYNC_DB_PASSWORD_KEYCHAIN_SERVICE:-theseus-sync-db-password-archive}"
+}
+
+db_password_archive_keychain_account() {
+  printf '%s' "${SYNC_DB_PASSWORD_KEYCHAIN_ACCOUNT:-mqtheseuswork}"
+}
+
+prompt_db_password_archive_password() {
+  local pass_one pass_two
+  if [ ! -r /dev/tty ]; then
+    return 1
+  fi
+
+  printf "Choose DB password recovery archive encryption password: " >/dev/tty
+  IFS= read -r -s pass_one </dev/tty || {
+    echo "" >/dev/tty
+    return 1
+  }
+  echo "" >/dev/tty
+  printf "Verify DB password recovery archive encryption password: " >/dev/tty
+  IFS= read -r -s pass_two </dev/tty || {
+    echo "" >/dev/tty
+    return 1
+  }
+  echo "" >/dev/tty
+
+  if [ -z "$pass_one" ]; then
+    echo "ERROR: recovery archive encryption password cannot be empty." >&2
+    return 1
+  fi
+  if [ "$pass_one" != "$pass_two" ]; then
+    echo "ERROR: recovery archive encryption passwords did not match." >&2
+    return 1
+  fi
+
+  printf '%s' "$pass_one"
+}
+
+read_db_password_archive_password() {
+  local password
+  if command -v security >/dev/null 2>&1; then
+    if password="$(security find-generic-password \
+      -a "$(db_password_archive_keychain_account)" \
+      -s "$(db_password_archive_keychain_service)" \
+      -w 2>/dev/null)" && [ -n "$password" ]; then
+      printf '%s' "$password"
+      return 0
+    fi
+  fi
+
+  if [ "${SYNC_DB_PASSWORD_ARCHIVE_PROMPT:-0}" = "1" ]; then
+    prompt_db_password_archive_password
+    return $?
+  fi
+
+  return 1
 }
 
 write_db_password_recovery_archive() {
@@ -208,50 +273,29 @@ write_db_password_recovery_archive() {
       ;;
     openssl)
       archive="${secret_dir}/supabase-db-password-${ts}.txt.openssl.enc"
-      local archive_tmp pass_file pass_one pass_two
+      local archive_tmp pass_file archive_password
       archive_tmp="${archive}.tmp.$$"
-      pass_file="$(mktemp /tmp/theseus-db-archive-pass.XXXXXX)"
+      if ! pass_file="$(mktemp /tmp/theseus-db-archive-pass.XXXXXX)"; then
+        echo "ERROR: failed to create temporary OpenSSL password file." >&2
+        rm -f "$archive_tmp" "$plain"
+        return 1
+      fi
       chmod 600 "$pass_file"
       SECRET_TMP_FILES+=("$pass_file" "$archive_tmp")
 
-      if [ ! -r /dev/tty ]; then
-        echo "ERROR: OpenSSL archive mode requires an interactive terminal for the recovery-archive password." >&2
-        echo "Use SYNC_DB_PASSWORD_ARCHIVE_MODE=gpg with SYNC_DB_PASSWORD_GPG_RECIPIENT, or set SYNC_DB_PASSWORD_ARCHIVE_MODE=plain only for an emergency local-only recovery file." >&2
+      if ! archive_password="$(read_db_password_archive_password)"; then
+        echo "ERROR: DB password recovery archive password is not set." >&2
+        echo "Run this once, then rerun sync:" >&2
+        echo "  ./scripts/setup-sync-db-archive-password.sh --reset" >&2
+        echo "If you intentionally want an interactive terminal prompt instead, run:" >&2
+        echo "  SYNC_DB_PASSWORD_ARCHIVE_PROMPT=1 ./scripts/sync-to-github.sh" >&2
+        echo "No database password rotation was attempted." >&2
         rm -f "$archive_tmp" "$pass_file" "$plain"
         return 1
       fi
 
-      printf "Choose DB password recovery archive encryption password: " >/dev/tty
-      IFS= read -r -s pass_one </dev/tty || {
-        echo "" >/dev/tty
-        echo "ERROR: failed to read recovery archive password." >&2
-        rm -f "$archive_tmp" "$pass_file" "$plain"
-        return 1
-      }
-      echo "" >/dev/tty
-      printf "Verify DB password recovery archive encryption password: " >/dev/tty
-      IFS= read -r -s pass_two </dev/tty || {
-        echo "" >/dev/tty
-        echo "ERROR: failed to read recovery archive password verification." >&2
-        rm -f "$archive_tmp" "$pass_file" "$plain"
-        return 1
-      }
-      echo "" >/dev/tty
-
-      if [ -z "$pass_one" ]; then
-        echo "ERROR: recovery archive encryption password cannot be empty." >&2
-        rm -f "$archive_tmp" "$pass_file" "$plain"
-        return 1
-      fi
-      if [ "$pass_one" != "$pass_two" ]; then
-        echo "ERROR: recovery archive encryption passwords did not match." >&2
-        echo "Database password rotation was not started; run the sync script again and choose a new archive password." >&2
-        rm -f "$archive_tmp" "$pass_file" "$plain"
-        return 1
-      fi
-
-      printf '%s' "$pass_one" > "$pass_file"
-      unset pass_one pass_two
+      printf '%s' "$archive_password" > "$pass_file"
+      unset archive_password
 
       if ! openssl enc -aes-256-cbc -salt -pbkdf2 -iter 210000 \
         -pass "file:${pass_file}" -in "$plain" -out "$archive_tmp"; then

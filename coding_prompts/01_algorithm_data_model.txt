@@ -1,0 +1,217 @@
+You are operating in /Users/michaelquintin/Desktop/Theseus.
+
+Goal: introduce the third layer of the extraction pipeline — the
+LOGICAL ALGORITHM. Round 18 made conclusions principle-shaped
+(prompt 56). This round adds algorithms ABOVE principles. An
+algorithm is a logical function: named inputs, named output, with
+a structured reasoning body that invokes one or more principles
+to derive the output from the inputs. The "work" is done by
+logic, not by numerical fitting.
+
+This prompt builds the data model. Prompts 02–05 build the
+extractor, runtime, visibility surface, and calibration.
+
+What an algorithm IS — concrete examples to keep in mind:
+
+Example 1 — "Arms-Race Escalation Predictor"
+  Inputs:
+    - bilateral military spending year-over-year delta (two states)
+    - rhetoric escalation index (0..1, derived from public statements)
+    - third-party mediator presence (boolean)
+  Principles invoked:
+    - "States in mutual threat-perception engage in security-dilemma
+       escalation absent credible commitment devices."
+    - "Domestic political incentives reinforce external escalation
+       once initiated; reversal requires elite cost."
+  Reasoning body:
+    1. Detect: both states have positive YoY spending delta AND
+       rhetoric escalation index > 0.6 AND no mediator → arms race
+       has begun.
+    2. Apply principle 1 → project security-dilemma feedback.
+    3. Apply principle 2 → project domestic-incentive lock-in.
+    4. Synthesize: each side's spending grows N% over K months
+       with confidence band.
+  Output:
+    {
+      "side_a_spending_increase_pct": float,
+      "side_b_spending_increase_pct": float,
+      "horizon_months": int,
+      "confidence_low": float,
+      "confidence_high": float
+    }
+  Implied bet:
+    - long defense-contractor equities of either side
+    - Polymarket "X will increase military spending by Y%" markets
+
+Example 2 — "Hyperstition Velocity Predictor"
+  Inputs:
+    - narrative spread velocity (mentions / day, smoothed)
+    - elite uptake rate (named-account adoption count over rolling 7d)
+    - resource-allocation response indicator (does anyone budget for
+       the narrative being true?)
+  Principles invoked:
+    - "A narrative becomes self-fulfilling once its circulation
+       exceeds the threshold of resource-allocation response."
+       (Nick Land, paraphrased.)
+  Reasoning body:
+    1. Detect: spread velocity rising AND elite uptake rising AND
+       resource-allocation response > 0 → narrative crossing
+       hyperstition threshold.
+    2. Apply principle → project narrative converts into material
+       reality within months.
+  Output:
+    {
+      "narrative_will_become_real": bool,
+      "horizon_months": int,
+      "confidence_low": float,
+      "confidence_high": float
+    }
+  Implied bet: positioning in markets the narrative would create.
+
+Example 3 — "Founder-Quality Discriminator" (VC-preset relevant)
+  Inputs:
+    - sustained-obsession score (years on the problem)
+    - domain-mastery signal (publications, talks, deep-work artifacts)
+    - prior-outcomes record (prior companies, exit, learning)
+  Principles invoked:
+    - "Domain mastery requires sustained obsession over years."
+    - "Track record updates the prior on the founder's
+       judgment more than any single signal."
+  Output:
+    { "founder_quality_score": float, "reasoning": str }
+  Implied bet: investment recommendation.
+
+These examples are SAMPLES — the founder will design more. The
+schema must support all three shapes (continuous output, boolean
+output, scored output).
+
+Before you start — read:
+1. `noosphere/noosphere/conclusions.py` post-Round-18-prompt-56 —
+   note the principle entity with `principle_kind`,
+   `quantifiable_proxies`, `decision_examples`.
+2. `noosphere/noosphere/models.py`.
+3. `noosphere/noosphere/store.py`.
+
+Implement:
+
+A. Prisma + SQLModel + Pydantic entities:
+
+   `LogicalAlgorithm`:
+     - `id` cuid PK
+     - `organizationId` FK + tenancy index
+     - `name` — human-readable. Required, ≤ 80 chars.
+     - `description` — one-paragraph human summary. ≤ 600 chars.
+     - `sourcePrincipleIds` — list[str], FKs to Principle rows.
+        At least one required.
+     - `inputs` — JSON list of AlgorithmInput dicts:
+        `{ name, type, description, observability_source }`
+        type ∈ NUMBER | RATIO | INDEX | BOOL | ENUM | TIMESERIES
+        observability_source names where the input value comes from
+        (e.g. "currents.x.spending_delta",
+         "manual.operator.entered").
+     - `output` — JSON AlgorithmOutput dict:
+        `{ name, type, description, units?, range? }`
+     - `reasoning_chain` — JSON list of ReasoningStep dicts:
+        `{ step_kind, principle_id?, predicate?, derived_fact? }`
+        step_kind ∈ DETECT | APPLY_PRINCIPLE | SYNTHESIZE | OUTPUT
+     - `trigger_predicate` — string expression over input names.
+        Evaluated by the runtime (prompt 03).
+        Example: "input.escalation_index > 0.6 and
+                  input.mediator_present == false".
+     - `status` — enum DRAFT | UNDER_REVIEW | ACTIVE |
+                       PAUSED | RETIRED
+     - `retiredReason` — nullable text
+     - `createdAt`, `updatedAt`, `lastInvokedAt` (nullable)
+     - Compound unique key on (organizationId, name).
+
+   `AlgorithmInvocation`:
+     - `id` cuid PK
+     - `algorithmId` FK with cascade delete
+     - `organizationId` FK
+     - `invokedAt` datetime, indexed
+     - `triggerInputs` — JSON dict of {input_name: observed_value}
+        at the moment the trigger predicate matched
+     - `derivedOutput` — JSON dict matching the algorithm's output schema
+     - `reasoningTrace` — JSON list of human-readable step strings;
+        each step names the principle invoked and the intermediate
+        fact derived. Founders will read this directly.
+     - `confidenceLow`, `confidenceHigh` — floats 0..1
+     - `predictedHorizon` — duration in seconds (how far the
+        prediction looks ahead)
+     - `betImplied` — JSON nullable; structured bet recommendation
+        if the algorithm implies one, otherwise null
+     - `resolvedAt` — datetime nullable
+     - `actualOutcome` — JSON nullable; populated when reality is
+        observed at the predicted horizon
+     - `correctness` — enum nullable: CORRECT | INCORRECT |
+        PARTIALLY_CORRECT | INDETERMINATE
+     - `brierEquivalent` — float nullable; computed for
+        probabilistic outputs
+     - Indexed on (algorithmId, invokedAt DESC),
+       (organizationId, invokedAt DESC).
+
+   `AlgorithmInputObservation`:
+     - small companion table for tracking which input
+       observability_source provided which value for an invocation.
+     - `id`, `invocationId` FK, `inputName`, `value` (JSON),
+       `observedAt`, `sourceArtifactId` (FK to whatever Currents /
+       upload / external source produced the value), `sourceUrl`.
+     - This is the audit trail for "where did this number come from?"
+
+B. SQLModel mirrors in `noosphere/noosphere/store.py` + helpers:
+   - `put_algorithm`, `get_algorithm`, `list_algorithms_for_org`,
+     `list_active_algorithms`, `set_algorithm_status`.
+   - `put_invocation`, `get_invocation`, `list_invocations_for_algorithm`,
+     `list_unresolved_invocations`, `set_invocation_resolution`.
+   - `put_input_observation`, `list_observations_for_invocation`.
+
+C. Migrations: Prisma + Alembic, additive only.
+
+D. Seed fixtures (`noosphere/tests/conftest.py`):
+   - one DRAFT algorithm modeled after the Arms-Race example, with
+     two principles pre-seeded, a trigger predicate, and a
+     reasoning chain of 4 steps.
+   - one ACTIVE algorithm modeled after the Founder-Quality
+     example for the VC-preset surface.
+
+E. Validators:
+   - Algorithm cannot be promoted to ACTIVE if any
+     sourcePrincipleId is REVOKED.
+   - Trigger predicate is sandbox-evaluated; reject predicates that
+     reference unknown input names or that contain non-allowed
+     identifiers (no `__import__`, no attribute access beyond
+     `input.<name>`).
+   - Output schema must have a concrete `type`; "STRING" is not
+     allowed (forces algorithms to commit to a structured output).
+
+F. Tests:
+   - Round-trip every helper.
+   - Promote DRAFT → ACTIVE; verify revoked-principle path rejects.
+   - Trigger-predicate validator on adversarial inputs (eval-bait
+     strings must be rejected).
+   - Compound unique key rejects duplicate (org, name).
+   - Resolution path on a synthetic invocation produces the
+     expected correctness + brierEquivalent.
+
+Constraints
+- Algorithms are NOT free-text. The structured reasoning_chain
+  is the contract — Codex's eventual generator (prompt 02) emits
+  this structure, not prose.
+- The reasoning trace on an invocation must be human-readable;
+  the operator can audit it without reading code.
+- This is additive only. No existing model is renamed or dropped.
+- Algorithms do not auto-fire on creation. ACTIVE just means
+  eligible-to-fire; the runtime (prompt 03) decides when.
+
+SCOPE
+- `theseus-codex/prisma/schema.prisma` MODIFY
+- `theseus-codex/prisma/migrations/<ts>_algorithm_layer/migration.sql` CREATE
+- `noosphere/noosphere/models.py` MODIFY
+- `noosphere/noosphere/store.py` MODIFY
+- `noosphere/alembic/versions/<rev>_algorithm_layer.py` CREATE
+- `noosphere/noosphere/algorithms/__init__.py` CREATE
+- `noosphere/noosphere/algorithms/schemas.py` CREATE
+- `noosphere/noosphere/algorithms/validators.py` CREATE
+- `noosphere/tests/conftest.py` MODIFY
+- `noosphere/tests/test_algorithm_store.py` CREATE
+- `noosphere/tests/test_algorithm_validators.py` CREATE
