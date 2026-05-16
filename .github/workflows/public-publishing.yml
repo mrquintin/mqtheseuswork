@@ -45,7 +45,7 @@ jobs:
         run: |
           set -eo pipefail
           missing=0
-          for name in CODEX_DATABASE_URL ANTHROPIC_API_KEY X_BEARER_TOKEN; do
+          for name in CODEX_DATABASE_URL ANTHROPIC_API_KEY; do
             if [ -z "${!name:-}" ]; then
               echo "::error::${name} is required for public Currents/article publishing."
               missing=1
@@ -53,6 +53,9 @@ jobs:
           done
           if [ "$missing" = "1" ]; then
             exit 1
+          fi
+          if [ -z "${X_BEARER_TOKEN:-}" ]; then
+            echo "::warning::X_BEARER_TOKEN is missing; scheduled public publishing will still run, but fresh X/Twitter discovery is disabled until the secret is added."
           fi
 
       - name: Resolve public organization
