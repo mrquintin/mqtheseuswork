@@ -1,0 +1,132 @@
+# Curated pin file for every third-party GitHub Action used across
+# .github/workflows/. The CI integrity check (scripts/check_ci_workflow_integrity.py)
+# walks every workflow and refuses an `uses:` reference whose
+# `owner/repo` is not in this file or whose version is not on the
+# `allowed_refs` list.
+#
+# Bumping a pin:
+#   1. Pick the new tag or commit SHA (prefer SHA for immutability).
+#   2. Append it to `allowed_refs` (keep the previous entry until
+#      every workflow has migrated).
+#   3. Update `last_reviewed_on` to today and write a `review_notes`
+#      line explaining why the bump is safe (release notes,
+#      security advisory cleared, etc.).
+#   4. Stage this file in the SAME commit as any workflow that uses
+#      the new ref. The integrity check refuses unpinned drift.
+#
+# Local actions (uses: ./.github/workflows/...) are not listed here —
+# the check resolves them against the filesystem instead.
+
+actions:
+  - name: actions/checkout
+    owner: actions
+    repo: checkout
+    allowed_refs:
+      - v4
+    last_reviewed_on: 2026-05-16
+    review_notes: |
+      v4 is the current major. No security advisories open at review time.
+
+  - name: actions/setup-python
+    owner: actions
+    repo: setup-python
+    allowed_refs:
+      - v5
+    last_reviewed_on: 2026-05-16
+    review_notes: |
+      v5 pinned across every Python job. Caches pip per
+      requirements.txt and noosphere/requirements.txt.
+
+  - name: actions/setup-node
+    owner: actions
+    repo: setup-node
+    allowed_refs:
+      - v4
+    last_reviewed_on: 2026-05-16
+    review_notes: |
+      v4 across every Node job. Node version pinned to 20 in the
+      reusable workflow.
+
+  - name: actions/cache
+    owner: actions
+    repo: cache
+    allowed_refs:
+      - v4
+    last_reviewed_on: 2026-05-16
+    review_notes: |
+      Used by build-docker.yml for the buildx layer cache.
+
+  - name: actions/upload-artifact
+    owner: actions
+    repo: upload-artifact
+    allowed_refs:
+      - v4
+    last_reviewed_on: 2026-05-16
+    review_notes: |
+      v4 is the only allowed major. v3 was deprecated by GitHub
+      on 2024-04-16 — drift back to v3 fails the integrity check.
+
+  - name: actions/download-artifact
+    owner: actions
+    repo: download-artifact
+    allowed_refs:
+      - v4
+    last_reviewed_on: 2026-05-16
+    review_notes: |
+      Paired with upload-artifact v4. The two majors MUST match.
+
+  - name: actions/github-script
+    owner: actions
+    repo: github-script
+    allowed_refs:
+      - v7
+    last_reviewed_on: 2026-05-16
+    review_notes: |
+      v7 is the Node 20 release line.
+
+  - name: docker/setup-buildx-action
+    owner: docker
+    repo: setup-buildx-action
+    allowed_refs:
+      - v3
+    last_reviewed_on: 2026-05-16
+    review_notes: |
+      Used by build-docker.yml.
+
+  - name: docker/build-push-action
+    owner: docker
+    repo: build-push-action
+    allowed_refs:
+      - v6
+    last_reviewed_on: 2026-05-16
+    review_notes: |
+      Paired with setup-buildx-action v3.
+
+  - name: peter-evans/create-or-update-comment
+    owner: peter-evans
+    repo: create-or-update-comment
+    allowed_refs:
+      - v4
+    last_reviewed_on: 2026-05-16
+    review_notes: |
+      PR comment helper. Used by smoke.yml and integrity.yml.
+
+  - name: softprops/action-gh-release
+    owner: softprops
+    repo: action-gh-release
+    allowed_refs:
+      - v2
+    last_reviewed_on: 2026-05-16
+    review_notes: |
+      Used by rolling-release.yml / release.yml to publish desktop
+      installers.
+
+  - name: pnpm/action-setup
+    owner: pnpm
+    repo: action-setup
+    allowed_refs:
+      - v4
+    last_reviewed_on: 2026-05-16
+    review_notes: |
+      Used by any workflow that switches to pnpm. Allowed though we
+      default to npm — keeps drift caught when a job migrates.

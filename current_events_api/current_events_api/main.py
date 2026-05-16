@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import sys
 import time
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -14,6 +15,7 @@ from fastapi.responses import PlainTextResponse
 from sqlalchemy import text
 
 from current_events_api import __version__
+from current_events_api.boot_check import run_boot_check
 from current_events_api.deps import (
     budget_path_from_env,
     get_bus,
@@ -25,15 +27,27 @@ from current_events_api.event_bus import OpinionBus
 from current_events_api.metrics import Metrics
 from current_events_api.publisher import OpinionTailer
 from current_events_api.rate_limit import RateLimitRegistry
+from current_events_api.routes.algorithms import router as algorithms_router
+from current_events_api.routes.algorithms_stream import (
+    router as algorithms_stream_router,
+)
 from current_events_api.routes.currents import router as currents_router
 from current_events_api.routes.forecasts import (
     forecasts_readyz_contract,
     router as forecasts_router,
 )
+from current_events_api.routes.health import router as health_router
+from current_events_api.routes.knowledge_graph import (
+    router as knowledge_graph_router,
+)
+from current_events_api.routes.dialectic_live import (
+    router as dialectic_live_router,
+)
 from current_events_api.routes.forecasts_followup import router as forecasts_followup_router
 from current_events_api.routes.forecasts_stream import router as forecasts_stream_router
 from current_events_api.routes.followup import router as followup_router
 from current_events_api.routes.operator import router as operator_router
+from current_events_api.routes.oracle import router as oracle_router
 from current_events_api.routes.portfolio import router as portfolio_router
 from current_events_api.routes.portfolio_equities import (
     router as portfolio_equities_router,
@@ -93,6 +107,38 @@ def forecasts_resolution_status_max_age_seconds() -> int:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    # Smoke / test mode: short-circuit ALL stateful lifespan init. The
+    # smoke harness boots the app via TestClient(app) to probe route
+    # shapes; it doesn't need a real store, a real OpinionTailer DB
+    # poll, or a persistent budget file. Without this short-circuit
+    # the lifespan hangs trying to connect to a stub DATABASE_URL
+    # (e.g. db.invalid:1, which is non-routable on purpose).
+    #
+    # The bypass is intentionally noisy in stderr so a misconfigured
+    # prod deploy cannot silently inherit it.
+    if os.environ.get("THESEUS_SMOKE_MODE") == "1":
+        sys.stderr.write(
+            '{"event":"lifespan_smoke_mode","service":"api",'
+            '"detail":"stateful init skipped; routes registered only"}\n'
+        )
+        app.state.env_report = None
+        app.state.store = None
+        app.state.bus = None
+        app.state.metrics = None
+        app.state.rate_limits = None
+        app.state.budget = None
+        app.state.tailer = None
+        yield
+        return
+
+    # Boot check first — if a required env var is missing, refuse to
+    # start and exit non-zero rather than 500-on-first-request later.
+    skip_boot = os.environ.get("THESEUS_SKIP_BOOT_CHECK") == "1"
+    if not skip_boot:
+        report = run_boot_check(service="api")
+        app.state.env_report = report
+    else:
+        app.state.env_report = None
     store = make_store()
     bus = OpinionBus()
     metrics = Metrics()
@@ -134,6 +180,8 @@ if _cors_origins:
     )
 
 # Static stream paths must be registered before dynamic detail routes.
+app.include_router(algorithms_stream_router)
+app.include_router(algorithms_router)
 app.include_router(forecasts_stream_router)
 app.include_router(forecasts_followup_router)
 app.include_router(portfolio_equities_router)
@@ -144,6 +192,10 @@ app.include_router(forecasts_router)
 app.include_router(stream_router)
 app.include_router(followup_router)
 app.include_router(currents_router)
+app.include_router(oracle_router)
+app.include_router(knowledge_graph_router)
+app.include_router(dialectic_live_router)
+app.include_router(health_router)
 
 
 @app.get("/healthz")
@@ -200,11 +252,16 @@ def readyz(request: Request) -> dict[str, Any]:
             "forecasts": detail,
         }
         raise HTTPException(exc.status_code, detail) from exc
+
+    # Env validation report — redacted by env_validation; safe to surface.
+    from noosphere.core.env_validation import parse_mode, validate_env
+    env_report = validate_env(parse_mode(os.environ.get("THESEUS_MODE"))).to_dict()
     return {
         "ok": True,
         "db": True,
         "scheduler": "fresh",
         "forecasts": forecasts_readyz,
+        "env": env_report,
     }
 
 

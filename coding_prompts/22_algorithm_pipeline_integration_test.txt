@@ -1,0 +1,138 @@
+You are operating in /Users/michaelquintin/Desktop/Theseus.
+
+Goal: a single dense integration test that exercises the full
+Round-19 pipeline end-to-end — principle ingest through algorithm
+drafting, runtime, invocation, memo build, portfolio agent
+dispatch, paper bet creation, resolution, calibration update,
+contradiction-engine inclusion. If THIS test passes, the
+algorithm layer is functionally alive. If any one step is
+broken, this test catches it before sync.
+
+Per-prompt tests in Round 19 are unit-scale; the smoke harness
+from prompt 21 hits surfaces. This prompt's test verifies the
+CONTINUITY between layers — the place where Round 19 most
+plausibly breaks is at the seams between modules.
+
+The integration test models the founder's arms-race example from
+the meeting transcript. End-to-end:
+
+```
+[seed] 3 principles about security dilemma + escalation dynamics
+   ↓
+[seed] 2 currents events with elevated bilateral spending +
+        elevated rhetoric escalation index
+   ↓
+algorithm drafter runs against the 3-principle cluster
+   → DRAFT algorithm "Arms-Race Escalation Predictor"
+   ↓
+[simulated founder] accept the draft → ACTIVE
+   ↓
+runtime tick → trigger predicate matches → reasoning chain
+   executes → AlgorithmInvocation created with reasoning trace
+   ↓
+synthesizer enqueues from algorithm fire → constitutes question
+   → reasoning chain → InvestmentMemo built
+   ↓
+memo dispatched to a HUMAN portfolio agent → MemoDispatch PENDING
+   ↓
+[simulated operator] accept-and-bet → PAPER bet on Polymarket
+   fixture market
+   ↓
+[time advance] market resolves YES
+   ↓
+resolution tracker → ForecastResolution created → algorithm
+   calibration updated → BetSpec resolution
+   ↓
+contradiction-engine check: the algorithm's cited principles
+   pass the canonical detector vs. the firm corpus
+```
+
+If every step persists the expected rows AND emits the expected
+structured logs AND no module raises, the test passes. Any
+silent abstain at a step that should have fired = failure.
+
+Before you start — read:
+1. Every prompt 01-15's contract.
+2. The fixture infrastructure in `noosphere/tests/conftest.py`
+   and any test-DB pattern Round 18 established.
+
+Implement:
+
+A. Test module `tests/integration/test_round19_pipeline.py`:
+   - Top-level test `test_arms_race_end_to_end` performs the
+     full flow above against an isolated test DB.
+   - Setup helpers: `seed_arms_race_principles`,
+     `seed_arms_race_currents_events`,
+     `simulate_founder_accept_draft`,
+     `simulate_operator_accept_memo`, `advance_time`,
+     `resolve_fixture_market`.
+   - Assertions per step (one assert block per pipeline stage,
+     so failures point at the right seam).
+   - Test is marked `@pytest.mark.integration` and runs in CI
+     on every PR.
+
+B. Three additional integration tests in the same module:
+   - `test_synthesizer_abstains_on_normative_only` — verify the
+     synthesizer correctly refuses to emit a conclusion when
+     the cluster is normative-only.
+   - `test_portfolio_agent_auto_paper_path` — same flow but
+     the portfolio agent is AUTO_PAPER mode; no operator
+     intervention needed; bet appears automatically.
+   - `test_contradiction_blocks_synthesis` — plant a STANDING
+     contradiction between two cited principles; verify
+     synthesizer abstains with `ABSTAINED_CONTRADICTION`.
+
+C. Test fixtures:
+   - `tests/integration/fixtures/arms_race_principles.yml` — the
+     3 principles
+   - `tests/integration/fixtures/arms_race_events.yml` — the
+     currents events
+   - `tests/integration/fixtures/polymarket_resolution.json` —
+     the canned market outcome
+
+D. Fake LLM client. Reuse whatever fake LLM client exists from
+   Round 10 / Round 17 testing. Each LLM call in the integration
+   test is mocked to return a fixed, principle-grounded
+   response. The fake's calls are counted; the test asserts the
+   expected call count (catches "we accidentally called the LLM
+   N=2x what we should have" regressions).
+
+E. Performance budget on the integration test:
+   - Full flow completes in < 30 seconds on the operator's
+     M-series Mac.
+   - If > 30 seconds, the test logs a perf warning (does not
+     fail; perf regressions get tracked separately).
+
+F. CI workflow integration. The smoke workflow from prompt 21
+   gets a `@integration` job that runs these tests as a separate
+   step.
+
+G. Documentation.
+   `docs/verification/integration/round19_pipeline.md`:
+   - Sequence diagram of the test flow.
+   - Which seams it covers vs. doesn't.
+   - How to debug a failure (which log to look at per stage).
+   - How to extend the test when a new pipeline stage lands.
+
+Constraints
+- The test is hermetic: no external HTTP, no real LLM, no real
+  market data. Every external dependency is mocked.
+- The test is FAIRLY representative — it doesn't mock so much
+  that the test passes while the production path would fail.
+- A failing integration test surfaces the SPECIFIC stage that
+  broke, not "everything is wrong."
+- The test uses public APIs of each module; it does NOT poke at
+  private fields to make assertions. If a needed assertion
+  requires a private field, that's a sign the module needs a
+  better public read API.
+
+SCOPE
+- `tests/integration/test_round19_pipeline.py` CREATE
+- `tests/integration/conftest.py` CREATE
+- `tests/integration/fixtures/arms_race_principles.yml` CREATE
+- `tests/integration/fixtures/arms_race_events.yml` CREATE
+- `tests/integration/fixtures/polymarket_resolution.json` CREATE
+- `tests/integration/fixtures/normative_principles.yml` CREATE
+- `tests/integration/fixtures/contradiction_pair.yml` CREATE
+- `docs/verification/integration/round19_pipeline.md` CREATE
+- `.github/workflows/smoke.yml` MODIFY

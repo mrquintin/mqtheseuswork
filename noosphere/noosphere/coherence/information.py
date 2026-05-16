@@ -2,6 +2,9 @@
 Coherence layer 5 — compressibility contrast (zstd) between pair and individuals.
 """
 
+# DEPRECATED — replaced by contradiction_engine.py in Round 19 prompt 06.
+# Slated for removal in prompt 16. Compat shim only.
+
 from __future__ import annotations
 
 import json

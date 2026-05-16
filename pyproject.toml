@@ -106,11 +106,12 @@ ignore_missing_imports = true
 # ---- Pytest ----
 [tool.pytest.ini_options]
 minversion = "8.0"
-testpaths = ["noosphere/tests", "dialectic/tests", "tests/e2e"]
+testpaths = ["noosphere/tests", "dialectic/tests", "tests/e2e", "tests/integration"]
 pythonpath = ["noosphere", "dialectic", "current_events_api", "."]
 addopts = "-ra"
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
 markers = [
     "e2e: end-to-end cross-wave smoke (Dialectic → Codex → Noosphere). Gated so default `pytest -q` stays fast.",
+    "integration: Round-19 algorithm-layer integration tests under tests/integration. Hermetic — no live LLM, no HTTP — but slower than unit-scale tests.",
 ]

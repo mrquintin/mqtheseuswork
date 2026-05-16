@@ -1,0 +1,185 @@
+You are operating in /Users/michaelquintin/Desktop/Theseus.
+
+Goal: roll out the "Philosopher in a Box" identity across the
+public surface AND produce the Renaissance-Technologies-style
+VC pitch deck the founder agreed to make. The meeting transcript
+is the source for the positioning language; this prompt operationalises
+it.
+
+The identity in one paragraph (use this as the canonical copy
+across surfaces, with light variants where appropriate):
+
+> Theseus is a philosopher in a box. We extract principles from a
+> curated corpus, build logical algorithms that apply those
+> principles to live observations of the world, and place bets
+> when the algorithms predict outcomes the principles support. We
+> are the Renaissance Technologies of formal logic — the same
+> machine shape (inputs → engine → conclusions → bets), one level
+> of abstraction higher. We do not commercialize this. The
+> machine is our edge.
+
+Surfaces to update:
+
+1. Public homepage `/` — replace whatever the current hero copy
+   is with a tight Philosopher-in-a-Box statement.
+2. About page `/about` — full positioning, three core axioms, the
+   logic-vs-quant comparison, the named bet domains.
+3. README at repo root — repositioned.
+4. The Currents and Forecasts surfaces — keep, but reframe their
+   copy so they're presented as the firm thinking in public, not
+   as standalone products.
+
+Plus a new artifact: `docs/pitch/2026_philosopher_in_a_box/`,
+containing a 12–14 slide pdflatex pitch deck.
+
+Before you start — read:
+1. The transcript directives from the meeting (the Renaissance-
+   Tech comparison, the onion-futures example, the axioms
+   confirmed, the "not commercialising" decision).
+2. The existing homepage at `theseus-codex/src/app/page.tsx`.
+3. Round 18 prompt 67's PDF guide pipeline — reuse the pdflatex
+   build script pattern.
+
+Implement:
+
+A. Identity copy module. `theseus-codex/src/lib/copy/identity.ts`:
+   - `THESEUS_TAGLINE = "A philosopher in a box."`
+   - `THESEUS_ONE_PARAGRAPH = "..."` (the paragraph above)
+   - `THESEUS_AXIOMS = [` axiom 1, 2, 3 `]`
+   - `THESEUS_LOGIC_VS_QUANT = "..."` (the abstraction-stack
+      framing)
+   - `THESEUS_NOT_COMMERCIAL = "Theseus is not a SaaS product.
+      The reasoning architecture is our edge."`
+   - Every public surface IMPORTS from this module; no inline
+     duplicates allowed (lint rule).
+
+B. Homepage rewrite. `theseus-codex/src/app/page.tsx`:
+   - Hero: tagline + one-paragraph statement.
+   - Three axiom cards.
+   - "The machine": ascii diagram of the pipeline (inputs →
+     synthesizer → conclusions → memo → portfolio agent → bet).
+     This is the user's preferred aesthetic; render as actual
+     ASCII (preformatted), not as a vector graphic.
+   - Live activity rail: "What the machine is thinking right
+     now" — three live algorithm invocations from prompt 04 +
+     the most recent published memo from prompt 11. Updates
+     via SSE.
+   - "Read the deck" → links to the pitch PDF.
+
+C. About page. `theseus-codex/src/app/about/page.tsx`:
+   - Long-form. The full positioning paragraph, then a section
+     each on:
+     - Why principles, not data
+     - The Renaissance comparison
+     - Why we are not commercializing this
+     - The team
+     - How to read the public surfaces (Currents, Forecasts,
+       Memos, Algorithms, Principles, Knowledge Graph)
+   - Quotes from Plato (the Platonic-ideal framing), Strauss,
+     and Land where they're already in the firm's corpus —
+     cited verbatim. (This is the firm DOING its philosophy,
+     not just describing it.)
+
+D. README rewrite. Repo-root README.md:
+   - Tagline + one-paragraph statement.
+   - Repository structure (three components: theseus-codex /
+     dialectic / noosphere).
+   - "Why Theseus exists" — one paragraph.
+   - "Where to read next" → about page, methodology pages,
+     pitch deck PDF.
+
+E. Pitch deck. `docs/pitch/2026_philosopher_in_a_box/`:
+
+   `deck.tex` (pdflatex, beamer or a clean custom class):
+
+   Slides:
+     1. Title: "A philosopher in a box."
+     2. The problem: quant firms abstract numerical patterns
+        from data. The next layer up is unworked.
+     3. The thesis: principles abstract logical patterns from
+        texts. The same machine works at this layer.
+     4. The machine, abstract: inputs → synthesizer engine →
+        conclusions → bets.
+     5. The machine, concrete: the Theseus pipeline with the
+        real components named (Currents, Principles,
+        Algorithms, Synthesizer, Memos, Portfolio Agents,
+        Forecasts/Equities).
+     6. Example: the arms-race algorithm (the worked example
+        from prompts 01–04). Inputs, principles invoked,
+        output, the implied bet.
+     7. Example: the onion-futures Strauss frame from the
+        meeting. Quant sees price oscillation; we read why.
+     8. Renaissance Tech comparison: side-by-side stack.
+     9. Bet domains: equities, prediction markets, advisory,
+        scientific, eventually private markets.
+    10. The team.
+    11. What's working: a current-numbers snapshot —
+        algorithms active, principles in corpus, memos
+        published, calibration record. Pulled at build time
+        from the live DB so the deck is never stale.
+    12. The ask: how much capital, what time horizon, what
+        terms (founder fills these in; the slide is a
+        template).
+    13. What we are NOT: not a SaaS product. The machine is
+        our edge.
+    14. Contact + appendix pointer.
+
+   `build_deck.sh` runs pdflatex twice (refs + bibliography),
+   commits `deck.pdf`.
+
+   `_preamble.tex` defines the slide aesthetic: restrained, large
+   typography, generous whitespace, parchment + amber accents
+   matching the firm's identity.
+
+   `live_snapshot.py` pulls the slide-11 numbers from the live
+   DB at build time and writes them into a generated
+   `slide11_data.tex`. The deck build depends on this file.
+
+F. 3-minute pitch script. `docs/pitch/three_minute_script.md`:
+   - A practice script for the founder. Sections (per the
+     meeting):
+     1. (30s) Renaissance Tech recognized that data has
+        patterns worth arbitraging.
+     2. (45s) We recognise that LOGIC has patterns worth
+        arbitraging — at a higher abstraction layer.
+     3. (45s) Concrete example: the arms-race algorithm.
+        Apply the principles → predict the bet.
+     4. (30s) We are bet-domain-polymorphic: equities,
+        prediction markets, advisory, scientific.
+     5. (30s) The machine is our edge; we don't sell it. We
+        invest with it.
+
+G. Tests:
+   - Identity copy module exports the right keys.
+   - Lint rule enforces no inline duplicates (a regex scan
+     refuses commits that hardcode any of the four canonical
+     strings outside the identity module).
+   - Pitch deck builds to a < 5MB PDF.
+   - Slide-11 data refresh produces a non-empty
+     `slide11_data.tex`.
+
+Constraints
+- Voice: restrained, confident, not promotional. No "AI-powered."
+  No "revolutionary." No emoji.
+- The deck is built with pdflatex (founder preference).
+- The live-snapshot generator MUST work from the actual DB —
+  if it can't, the deck build fails LOUDLY rather than ship
+  fake numbers.
+- The team slide pulls from the existing team data; do not
+  hardcode names.
+- This prompt updates COPY and rolls out IDENTITY. It does NOT
+  change app behavior beyond the homepage and about page.
+
+SCOPE
+- `theseus-codex/src/lib/copy/identity.ts` CREATE
+- `theseus-codex/src/app/page.tsx` MODIFY
+- `theseus-codex/src/app/about/page.tsx` MODIFY
+- `README.md` MODIFY
+- `docs/pitch/2026_philosopher_in_a_box/deck.tex` CREATE
+- `docs/pitch/2026_philosopher_in_a_box/_preamble.tex` CREATE
+- `docs/pitch/2026_philosopher_in_a_box/build_deck.sh` CREATE
+- `docs/pitch/2026_philosopher_in_a_box/live_snapshot.py` CREATE
+- `docs/pitch/2026_philosopher_in_a_box/deck.pdf` CREATE
+- `docs/pitch/three_minute_script.md` CREATE
+- `theseus-codex/__tests__/identity_copy.test.ts` CREATE
+- `theseus-codex/scripts/check_no_inline_identity_duplicates.py` CREATE

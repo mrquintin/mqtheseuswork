@@ -1,0 +1,11 @@
+name: missing script
+on:
+  pull_request:
+jobs:
+  bad:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run a script that does not exist
+        run: |
+          python scripts/this_script_does_not_exist_anywhere.py

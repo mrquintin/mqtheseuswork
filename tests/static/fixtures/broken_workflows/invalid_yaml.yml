@@ -1,0 +1,10 @@
+name: broken yaml
+on:
+  pull_request
+  push:   [main
+jobs:
+  bad:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: echo hello

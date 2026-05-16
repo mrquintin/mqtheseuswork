@@ -2,6 +2,11 @@
 Coherence layer 4 — embedding geometry (Hoyer sparsity + cosine vs reference corpus).
 """
 
+# DEPRECATED — replaced by contradiction_engine.py in Round 19 prompt 06.
+# Slated for removal in prompt 16. The new engine reuses ``hoyer_sparsity``
+# from this module via direct import; the layer-4 verdict path is the
+# heuristic being demoted.
+
 from __future__ import annotations
 
 import json

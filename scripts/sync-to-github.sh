@@ -520,6 +520,148 @@ echo ""
 echo "Syncing to GitHub..."
 echo ""
 
+# ──────────────────────────────────────────────────────────────────────────────
+# Ready-to-sync gate (Round 19b prompt 27).
+#
+# Runs every check from prompts 19–26 in one pass and emits a single
+# pass/fail verdict. If the gate fails, the sync refuses; if it passes,
+# the legacy per-check blocks below short-circuit because the gate has
+# already run the equivalent commands.
+#
+# Flags:
+#   --skip-ready-to-sync      bypass the gate entirely (loud warning + audit log)
+#   --ready-to-sync-only      run the gate, do not push
+#   --ready-to-sync-from N    resume the gate from step N (after a fix)
+#   --ready-to-sync-skip N    skip step N of the gate (comma-separated for multi)
+# ──────────────────────────────────────────────────────────────────────────────
+SKIP_READY_TO_SYNC=0
+READY_TO_SYNC_ONLY=0
+READY_TO_SYNC_FROM=""
+READY_TO_SYNC_SKIP=""
+READY_TO_SYNC_RAN=0
+for ((i=1; i<=$#; i++)); do
+  arg="${!i}"
+  case "$arg" in
+    --skip-ready-to-sync) SKIP_READY_TO_SYNC=1 ;;
+    --ready-to-sync-only) READY_TO_SYNC_ONLY=1 ;;
+    --ready-to-sync-from)
+      next=$((i + 1))
+      READY_TO_SYNC_FROM="${!next:-}" ;;
+    --ready-to-sync-from=*)
+      READY_TO_SYNC_FROM="${arg#--ready-to-sync-from=}" ;;
+    --ready-to-sync-skip)
+      next=$((i + 1))
+      READY_TO_SYNC_SKIP="${!next:-}" ;;
+    --ready-to-sync-skip=*)
+      READY_TO_SYNC_SKIP="${arg#--ready-to-sync-skip=}" ;;
+  esac
+done
+
+ready_to_sync_log_bypass() {
+  # Audit log for --skip-ready-to-sync. Persisted under docs/verification so
+  # it surfaces in code review when frequent skips become a smell.
+  local log_file ts
+  log_file="docs/verification/ready_to_sync_skips.log"
+  ts="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+  mkdir -p "$(dirname "$log_file")"
+  printf '{"ts":"%s","event":"sync.ready_to_sync.skip","operator":"%s","branch":"%s","head":"%s","reason":"%s"}\n' \
+    "$ts" \
+    "${USER:-unknown}" \
+    "$(git branch --show-current 2>/dev/null || echo unknown)" \
+    "$(git rev-parse --short HEAD 2>/dev/null || echo unknown)" \
+    "${SYNC_READY_TO_SYNC_SKIP_REASON:-unspecified}" \
+    >> "$log_file" 2>/dev/null || true
+  echo "${C_YELLOW}  Bypass recorded: $log_file${C_RESET}"
+}
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Ready-to-sync gate REMOVED from sync flow on 2026-05-16 per operator
+# directive. The gate's home is `run_prompts.sh` (auto-runs after a clean
+# prompt batch) and explicit manual invocation via
+# `./scripts/ready-to-sync.sh` or `make ready-to-sync`. Sync's job is to
+# sync; gating belongs upstream of code changes, not at push time.
+#
+# Backward compat for the flag surface: every --ready-to-sync-* flag is
+# still accepted by the arg parser above so existing scripts / muscle
+# memory don't error out, but only --ready-to-sync-only retains active
+# behavior (delegates to the gate script and exits without pushing).
+# The other flags become no-ops with a brief informational note.
+# ──────────────────────────────────────────────────────────────────────────────
+if [ "$SKIP_READY_TO_SYNC" = 1 ]; then
+  echo "${C_YELLOW}note: --skip-ready-to-sync is now a no-op (gate is no longer wired${C_RESET}"
+  echo "${C_YELLOW}      into sync). The gate lives in run_prompts.sh / ready-to-sync.sh.${C_RESET}"
+  echo ""
+fi
+
+if [ -n "$READY_TO_SYNC_FROM" ] || [ -n "$READY_TO_SYNC_SKIP" ]; then
+  echo "${C_YELLOW}note: --ready-to-sync-from / --ready-to-sync-skip are now no-ops in${C_RESET}"
+  echo "${C_YELLOW}      sync (gate is no longer wired here). Use them directly with${C_RESET}"
+  echo "${C_YELLOW}      ./scripts/ready-to-sync.sh if you want to invoke the gate.${C_RESET}"
+  echo ""
+fi
+
+if [ "$READY_TO_SYNC_ONLY" = 1 ]; then
+  # Compatibility path: delegate to the gate script + exit. This lets
+  # `./scripts/sync-to-github.sh --ready-to-sync-only` keep working as
+  # the "run the gate without pushing" entry point that prior docs
+  # referenced.
+  if [ -x scripts/ready-to-sync.sh ]; then
+    echo "--ready-to-sync-only set; invoking gate without pushing."
+    ./scripts/ready-to-sync.sh
+    gate_rc=$?
+    trap - EXIT
+    exit "$gate_rc"
+  else
+    echo "${C_RED}--ready-to-sync-only set, but scripts/ready-to-sync.sh is missing.${C_RESET}"
+    trap - EXIT
+    exit 1
+  fi
+fi
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Pre-push gates REMOVED from sync on 2026-05-16 per operator directive.
+#
+# Previously this script ran (in order): migration linearity, bug-replay
+# regression catalog, smoke harness. Each had its own --skip-* flag. The
+# checks are all valuable — they just don't belong here. Gating belongs
+# upstream of code changes (run_prompts.sh auto-runs the ready-to-sync
+# gate after a clean prompt batch, and the operator can invoke
+# ./scripts/ready-to-sync.sh manually at any time). Sync's job is to
+# sync, period.
+#
+# Flag-surface compatibility: --skip-migration-check, --skip-regression,
+# --skip-smoke, and --smoke are still accepted by the parser (and by the
+# `for arg` loops below for backward compat) so muscle memory and
+# automation don't error out. They become no-ops with a one-line note.
+# To run the checks: invoke them directly.
+#   - migrations: python3 scripts/check_migration_linearity.py
+#   - bug-replay: python3 -m pytest tests/regression -q
+#   - smoke:      ./scripts/smoke/run.sh
+#   - all of the above + others: ./scripts/ready-to-sync.sh
+# ──────────────────────────────────────────────────────────────────────────────
+SKIP_MIGRATION_CHECK=0
+SKIP_REGRESSION=0
+SKIP_SMOKE=0
+RUN_SMOKE_EXPLICIT=0
+_legacy_flag_seen=0
+for arg in "$@"; do
+  case "$arg" in
+    --skip-migration-check) SKIP_MIGRATION_CHECK=1; _legacy_flag_seen=1 ;;
+    --skip-regression)      SKIP_REGRESSION=1; _legacy_flag_seen=1 ;;
+    --skip-smoke)           SKIP_SMOKE=1; _legacy_flag_seen=1 ;;
+    --smoke)                RUN_SMOKE_EXPLICIT=1; _legacy_flag_seen=1 ;;
+  esac
+done
+if [ "$_legacy_flag_seen" = 1 ]; then
+  echo "${C_YELLOW}note: pre-push gates (migration-check, regression, smoke) are no${C_RESET}"
+  echo "${C_YELLOW}      longer wired into sync. The --skip-* and --smoke flags are${C_RESET}"
+  echo "${C_YELLOW}      accepted for backward compat but are now no-ops. Run the${C_RESET}"
+  echo "${C_YELLOW}      checks directly if you want them — see scripts/ready-to-sync.sh${C_RESET}"
+  echo "${C_YELLOW}      or invoke each check standalone.${C_RESET}"
+  echo ""
+fi
+
+
 # Show the user exactly what they're about to commit. Previously this
 # script just ran `git add -A` + `git commit` and relied on the commit's
 # stat line ("17 files changed …") to communicate what happened. That

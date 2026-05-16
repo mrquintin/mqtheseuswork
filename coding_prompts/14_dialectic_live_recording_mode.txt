@@ -1,0 +1,209 @@
+You are operating in /Users/michaelquintin/Desktop/Theseus.
+
+Goal: turn Dialectic into the firm's canonical meeting/podcast
+recorder, with live contradiction detection during the
+conversation AND historical contradiction surfacing ("speaker X
+said the opposite in session Y"). Founder's directive in the
+meeting: "I think I am going to start using dialectic instead of
+just voice messages for recording the podcast. Because dialectic
+is the app that has the ability to see contradictions in real
+time and also with past events."
+
+What "live recording mode" provides:
+
+1. **Record a conversation** with N participants. Capture mic
+   (with consent prompts). Stream-transcribe.
+2. **Identify the speaker per utterance** (operator can name
+   speakers up front; speaker-diarisation matches voice profiles
+   built from prior recordings).
+3. **Live extract claims/principles** from each utterance as the
+   conversation proceeds.
+4. **Live contradiction detection**:
+   - INTRA-SESSION: the agent flags when speaker A says
+     something that contradicts what speaker B said earlier in
+     the same session — or what speaker A themselves said
+     earlier.
+   - HISTORICAL: the agent flags when a current utterance
+     contradicts a principle the same speaker (or anyone in the
+     firm) committed to in a prior session.
+5. **Visual surface during the recording**: a side panel shows
+   contradiction alerts as they arise, with the prior position +
+   the current position + the contradiction score from the
+   engine (prompt 06). The participants can pause and address
+   the contradiction in the moment.
+
+Before you start — read:
+1. The Dialectic app, wherever it lives in the repo (check
+   `dialectic/` at repo root and any subdirs).
+2. The contradiction engine from prompt 06.
+3. The principle extractor from Round 18 prompt 56.
+4. Existing transcription infrastructure (Round 17 had audio
+   transcripts; reuse the pipeline).
+
+Implement:
+
+A. New entity `DialecticSession`:
+   - `id`, `organizationId` FK
+   - `title`, `startedAt`, `endedAt` (nullable)
+   - `participants`: list of `{ speaker_id, display_name,
+     voice_profile_ref }`
+   - `audio_path` — full session audio (encrypted at rest if the
+     existing pattern requires)
+   - `transcript_path` — incremental transcript
+   - `status` enum: RECORDING | PROCESSING | COMPLETE |
+     FAILED | ARCHIVED
+   - `liveContradictionsDetected`: count
+   - `principlesExtracted`: count
+   - `createdAt`, `updatedAt`
+
+B. `DialecticUtterance`:
+   - `id`, `sessionId` FK, `speakerId` FK to participant,
+     `startTime`, `endTime`, `text` (transcribed)
+   - `extractedClaims`: list of claim ids
+   - `derivedPrincipleIds`: list of principle ids (from live
+     extractor, marked PROVISIONAL until session ends and
+     the founder confirms)
+   - `liveContradictionFlags`: JSON list of contradiction events
+     fired during this utterance
+
+C. `DialecticContradictionFlag`:
+   - `id`, `utteranceId` FK, `flagKind` enum: INTRA_SESSION |
+     HISTORICAL_SELF | HISTORICAL_OTHER | HISTORICAL_FIRM
+   - `priorUtteranceId` nullable (INTRA path)
+   - `priorPrincipleId` nullable (HISTORICAL path)
+   - `priorSpeakerId` nullable
+   - `contradictionScore`, `axis`, `humanExplanation`
+   - `acknowledgedAt`, `acknowledgedBy`, `acknowledgmentNote`
+     (filled in if a participant responds to the flag during
+     the recording)
+   - `detectionMethod` (versioned)
+
+D. `dialectic/dialectic/live_recorder.py`:
+   - `class LiveRecorder`:
+     - Streams audio chunks → Whisper (or whatever existing
+       transcription).
+     - Speaker-diarises chunks via voice profiles.
+     - Per utterance:
+       1. Persist the utterance row.
+       2. Live-extract claims (principle-shape extractor from
+          Round 18 prompt 56, with `provisional=true`).
+       3. Run contradiction checks:
+          - INTRA-SESSION: pair the new utterance against every
+            prior utterance in the same session (within the
+            cluster from prompt 07).
+          - HISTORICAL_SELF: pair the new utterance against
+            the speaker's prior committed principles
+            (filtered by speaker_id).
+          - HISTORICAL_OTHER: same speaker_id constraint
+            removed; pair against other-speaker principles.
+          - HISTORICAL_FIRM: pair against the firm's
+            consolidated principles regardless of speaker.
+       4. Each flag triggers a side-channel event to the live
+          UI.
+     - Latency target: contradiction flag within 8 seconds of
+       the utterance ending.
+
+E. Live UI in Dialectic:
+   - The recording surface gains a "Contradiction Alerts" pane
+     on the right.
+   - Each flag renders:
+     - "Speaker X just said: '<current span>'"
+     - "But earlier (in this session OR on date Y), speaker Z
+        said: '<prior span>'"
+     - Contradiction score badge
+     - Axis-of-disagreement label
+     - Buttons: ACKNOWLEDGE (records the participant's
+        intent to address it later), ADDRESS-NOW (logs a
+        spoken response targeting this flag, linked back to
+        the flag row).
+   - The active speaker also sees the alert (so the
+     interruption is mutual).
+
+F. Post-session processing:
+   - On `endedAt`, the session transitions to PROCESSING.
+   - Provisional principles get a triage queue entry at
+     `/(authed)/dialectic/sessions/[id]/triage`. Founder
+     reviews + accepts/rejects/edits before any provisional
+     principle is promoted to ACTIVE.
+   - The contradiction flag log persists in full.
+   - A session-level summary memo is generated by the
+     synthesizer (prompt 10) — addressed to the operator —
+     summarising the conversation, the contradictions
+     surfaced, and any open threads.
+
+G. Speaker voice profile management:
+   - First time a speaker joins a session, they enroll a brief
+     voice sample. Stored as voice_profile_ref.
+   - Profile improves over sessions.
+   - Operator can re-label utterances post-hoc if
+     diarisation got someone wrong.
+
+H. Public surface. `/dialectic/sessions/[id]` (public read for
+   PUBLIC-status sessions):
+   - Transcript with speaker attribution.
+   - Inline annotations where a HISTORICAL contradiction was
+     flagged, with links to the prior position.
+   - "What changed during this conversation" footer linking to
+     any principles that were promoted post-triage.
+
+I. Configuration:
+   - `DIALECTIC_LIVE_CONTRADICTION_THRESHOLD` (default 0.65) —
+     score above which a flag fires.
+   - `DIALECTIC_LIVE_LATENCY_TARGET_S` (default 8) — alarm
+     threshold for monitoring.
+   - `DIALECTIC_MAX_SESSION_DURATION_MIN` (default 180) — hard
+     cap.
+   - `DIALECTIC_AUDIO_RETENTION_DAYS` (default 30) — audio
+     auto-deletes after this; transcripts retained.
+
+J. CLI:
+   - `noosphere dialectic record --title "..." --speakers
+       "name1,name2,..."`
+   - `noosphere dialectic sessions --status RECORDING|...`
+   - `noosphere dialectic triage --session <id>`
+
+K. Tests:
+   - Live recorder fixture: feed a pre-recorded audio with
+     planted contradictions; assert each is flagged within the
+     latency target.
+   - Speaker diarisation correctly attributes a multi-speaker
+     utterance based on enrolled voice profiles (or marks
+     UNKNOWN if confidence is low).
+   - Provisional principles are NOT promoted automatically.
+   - Post-session synthesis memo references the contradictions
+     flagged.
+   - Public surface respects PUBLIC-only status.
+   - Audio auto-deletes after retention window.
+
+Constraints
+- Recording REQUIRES every participant to consent. The UI
+  refuses to start until every named participant has clicked
+  "I consent" in their session entry. Audio of a non-consenting
+  participant is not retained.
+- Provisional principles are clearly badged as PROVISIONAL in
+  every surface they appear until the founder triages.
+- Contradiction flags are LOGGED but never block speech.
+  Speakers see them; the system does not silence anyone.
+- The contradiction engine (prompt 06) is reused unchanged.
+- Audio retention is bounded; transcripts are permanent.
+
+SCOPE
+- `dialectic/dialectic/live_recorder.py` CREATE
+- `dialectic/dialectic/voice_profile.py` CREATE
+- `dialectic/dialectic/_prompts/live_extractor_system.md` CREATE
+- `noosphere/noosphere/models.py` MODIFY
+- `noosphere/noosphere/store.py` MODIFY
+- `theseus-codex/prisma/schema.prisma` MODIFY
+- `theseus-codex/prisma/migrations/<ts>_dialectic_live/migration.sql` CREATE
+- `noosphere/alembic/versions/<rev>_dialectic_live.py` CREATE
+- `theseus-codex/src/app/(authed)/dialectic/record/page.tsx` CREATE
+- `theseus-codex/src/app/(authed)/dialectic/sessions/page.tsx` CREATE
+- `theseus-codex/src/app/(authed)/dialectic/sessions/[id]/page.tsx` CREATE
+- `theseus-codex/src/app/(authed)/dialectic/sessions/[id]/triage/page.tsx` CREATE
+- `theseus-codex/src/app/dialectic/sessions/[id]/page.tsx` CREATE
+- `theseus-codex/src/components/dialectic/LiveContradictionPanel.tsx` CREATE
+- `theseus-codex/src/components/dialectic/UtteranceStream.tsx` CREATE
+- `current_events_api/current_events_api/routes/dialectic_live.py` CREATE
+- `noosphere/noosphere/cli.py` MODIFY
+- `dialectic/tests/test_live_recorder.py` CREATE
+- `dialectic/tests/test_voice_profile.py` CREATE

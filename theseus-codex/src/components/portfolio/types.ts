@@ -95,6 +95,51 @@ export type EquitySurface = {
   targetPriceMape: MapeBucket[];
 };
 
+// Round 19 prompt 15: polymorphic bet rows surfaced on the new tabs.
+
+export type AdvisoryBetRow = {
+  id: string;
+  proposition: string;
+  positionPill: "BULLISH" | "BEARISH" | "NEUTRAL";
+  audience: "PUBLIC" | "FOUNDER_NETWORK" | "INTERNAL";
+  publishedAt: string | null;
+  publicUrl: string | null;
+  memoId: string | null;
+  status: string;
+  outcome: string | null;
+  reach: number | null;
+  accuracyScore: number | null;
+};
+
+export type ScientificBetRow = {
+  id: string;
+  proposition: string;
+  dataSource: "BLS" | "FRED" | "WORLD_BANK" | "MANUAL_OPERATOR";
+  expectedValue: number;
+  tolerance: number;
+  horizonAt: string;
+  status: string;
+  outcome: string | null;
+  resolvedAt: string | null;
+  memoId: string | null;
+};
+
+export type StrategicBetRow = {
+  id: string;
+  proposition: string;
+  resourceKind:
+    | "FOUNDER_TIME"
+    | "HIRING_DIRECTION"
+    | "PARTNERSHIP_PURSUIT"
+    | "PRODUCT_DIRECTION";
+  costEstimate: number;
+  costUnit: string;
+  commitmentReviewAt: string | null;
+  status: string;
+  outcome: string | null;
+  memoId: string | null;
+};
+
 export type DecisionTrace = {
   kind: "forecast" | "equity";
   positionId: string;

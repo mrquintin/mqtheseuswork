@@ -1,0 +1,212 @@
+You are operating in /Users/michaelquintin/Desktop/Theseus.
+
+Goal: the synthesizer engine. Speaker 4 in the meeting:
+"This is the biggest priority because this makes this like
+modeling Thiel. When Thiel makes decisions, you're modeling
+logic right here." The synthesizer takes a set of inputs
+(current events, observations, retrieved principles, fired
+algorithm invocations, and the firm's wisdom), runs them
+through a formal-logic-grounded reasoning pass, and produces
+a CONCLUSION — addressed to a portfolio agent (prompt 12) as
+a MEMO (prompt 11).
+
+The synthesizer is what differentiates Theseus from a SaaS
+collective-intelligence product. The contradiction engine
+filters; the synthesizer creates.
+
+Conceptual model (worth pinning into the prompt so the
+implementation follows it):
+
+```
+                  ┌────────────────────────────────────┐
+                  │           SYNTHESIZER ENGINE        │
+                  │                                     │
+INPUT BUNDLE  ──▶ │  1. Constitute the question         │
+  Current event   │  2. Retrieve relevant principles    │
+  Algorithm fires │  3. Retrieve relevant algorithms    │
+  Market state   ▶│  4. Identify governing principles   │
+  Operator query  │  5. Construct a reasoning chain     │
+                  │     each step grounded in principle │
+                  │  6. Detect contradictions in chain  │
+                  │  7. Emit conclusion + memo          │
+                  └────────────────┬────────────────────┘
+                                   │
+                                   ▼
+                              MEMO (prompt 11)
+                                   │
+                                   ▼
+                            PORTFOLIO AGENT
+                              (prompt 12)
+```
+
+Abstention rules — the synthesizer REFUSES to emit a conclusion
+when:
+- The question is normative-only and no principle would
+  operationalise it.
+- Fewer than 2 governing principles are identified.
+- The reasoning chain contains an unresolved contradiction
+  (lifecycle STANDING and score > 0.65).
+- Confidence band is too wide (high - low > 0.50).
+- Budget exhausted.
+
+Refusal is a first-class outcome, not a failure. The memo records
+the refusal with the specific cause and the inputs considered, so
+operators can see WHY no conclusion was reached.
+
+Before you start — read:
+1. The algorithm runtime from prompt 03 — the synthesizer
+   consumes its invocations.
+2. The principle entity post-Round-18-prompt-56.
+3. The contradiction engine from prompt 06 and lifecycle from
+   prompt 08.
+4. The provenance-filter pattern from prompt 09 — the synthesizer
+   honors it.
+5. `noosphere/noosphere/inquiry/` from Round 18 — note the
+   bayesian-network and aim-method-fit modules; the synthesizer
+   composes with them but does not replicate their internals.
+
+Implement:
+
+A. `noosphere/noosphere/synthesizer/engine.py`:
+   - `class SynthesizerEngine`:
+     - `async synthesize(question, *, store, budget,
+                          provenance_filter, context=None) ->
+                                          SynthesisResult`:
+       1. **Constitute the question**: parse the operator's input
+          (or system-triggered question from an algorithm
+          invocation) into a canonical form.
+          Question types supported:
+            - `INVESTMENT_DECISION` (e.g. "should we long X?")
+            - `PROBABILISTIC_FORECAST` (e.g. "P(event Y by date Z)?")
+            - `EXPLANATORY` (e.g. "why is X happening?")
+            - `STRATEGIC_RECOMMENDATION` (e.g. "should the firm
+               commit resources to Y?")
+       2. **Retrieve**: pull principles + algorithm invocations
+          + currents + market state relevant to the question.
+          Apply provenance_filter from prompt 09.
+       3. **Identify governing principles**: the subset of
+          retrieved principles whose `domain_of_applicability`
+          covers the question's domain. Must be ≥ 2.
+       4. **Construct reasoning chain**: ordered list of steps,
+          each step:
+            - cites a governing principle
+            - cites an observation (input)
+            - derives an intermediate fact
+          Steps are produced by a single Haiku call with a
+          strict JSON schema constraint. The schema enforces
+          principle citation per step.
+       5. **Contradiction check**: run the contradiction engine
+          (prompt 06) over the principles cited in the chain.
+          Any STANDING contradiction with score > 0.65 →
+          abstain with `CONTRADICTION_IN_CHAIN`.
+       6. **Emit conclusion**: a structured object:
+          ```
+          { conclusion_type: <question type>,
+            assertion: str,
+            confidence_low: float,
+            confidence_high: float,
+            governing_principles: [id,...],
+            cited_observations: [id,...],
+            reasoning_chain: [ {step_kind, principle_id?,
+                                observation_id?, derived_fact} ],
+            implied_bet: <BetSpec | null>,
+            generated_at: datetime,
+            synthesizer_version: str }
+          ```
+       7. **Memo dispatch**: hand the conclusion off to the memo
+          builder (prompt 11).
+   - `class SynthesisResult`:
+       outcome ∈ CONCLUDED | ABSTAINED_NO_PRINCIPLES |
+                  ABSTAINED_CONTRADICTION | ABSTAINED_CONFIDENCE |
+                  ABSTAINED_BUDGET | ABSTAINED_QUESTION_UNFORMED |
+                  REFUSED_NORMATIVE_ONLY
+       memo_id: str | None
+       reasoning: str  # human-readable cause if abstained
+
+B. `noosphere/noosphere/synthesizer/_prompts/system.md`:
+   - The system prompt for the Haiku call. Required content:
+     - "You construct a reasoning chain from RETRIEVED
+        principles. You do not invent principles."
+     - "Each step in the chain must cite at least one principle
+        from the supplied list, by id."
+     - "If the principles supplied do not adequately bear on
+        the question, abstain — emit `abstain: true` with a
+        specific reason."
+     - "Your output is JSON matching this schema verbatim:
+        {schema}"
+     - "Use the firm's voice: confident where evidence
+        supports, abstaining where it does not. No hedging
+        that is not grounded in a specific uncertainty."
+
+C. `noosphere/noosphere/synthesizer/governing.py`:
+   - `def identify_governing(principles, question_domain) ->
+                                              list[Principle]`:
+     pure function selecting principles whose
+     `domain_of_applicability` matches the question's domain
+     (fuzzy match; below a threshold returns empty list).
+
+D. Trigger pathways:
+   - **Operator-initiated**: founder asks a question via the
+     Oracle. The Oracle routes through the synthesizer when the
+     question type is one of the supported four.
+   - **Algorithm-triggered**: when an AlgorithmInvocation fires
+     with `triggers_synthesis = true` (a new field added to
+     `LogicalAlgorithm` schema), the runtime enqueues a
+     synthesis task.
+   - **Currents-triggered**: a Currents event tagged as
+     significant (significance score above threshold) optionally
+     triggers a "do we have a take?" synthesis call. This is
+     opt-in per event topic.
+
+E. Scheduler sub-loop `synthesizer_tick` (default 5min) drains
+   the synthesis task queue. Independent budget.
+
+F. Versioned synthesizer. Like the contradiction engine, the
+   synthesizer carries a version string on every emitted
+   conclusion so future analyses can group by version.
+
+G. CLI:
+   - `noosphere synthesizer query --question "..."` — interactive
+     ad-hoc query.
+   - `noosphere synthesizer status` — backlog, last memos, abstention rate.
+
+H. Tests:
+   - Happy path: question with rich principle coverage produces
+     a conclusion with valid reasoning chain.
+   - No-principles abstain.
+   - Contradiction abstain: chain cites two principles in
+     STANDING contradiction → abstain with reason.
+   - Confidence-too-wide abstain.
+   - Normative-only refusal.
+   - Provenance filter is honored.
+   - The reasoning chain's principle citations all match
+     supplied governing_principles (no fabrications).
+   - Versioned outputs persist correctly.
+
+Constraints
+- The synthesizer NEVER places a bet. It produces a conclusion
+  and a memo with an implied bet (if any). The portfolio agent
+  decides whether to act.
+- The reasoning chain is the audit artifact. Like the algorithm
+  trace, it is the load-bearing transparency surface.
+- Abstention is not failure. The metrics surface (prompt 12)
+  shows abstention rate as a HEALTH metric, not a penalty.
+- The synthesizer respects provenance_filter strictly. A
+  conclusion that should not pull from OPPOSING_EXTERNAL must
+  not contain an OPPOSING_EXTERNAL citation.
+
+SCOPE
+- `noosphere/noosphere/synthesizer/__init__.py` CREATE
+- `noosphere/noosphere/synthesizer/engine.py` CREATE
+- `noosphere/noosphere/synthesizer/governing.py` CREATE
+- `noosphere/noosphere/synthesizer/_prompts/system.md` CREATE
+- `noosphere/noosphere/synthesizer/budget.py` CREATE
+- `noosphere/noosphere/forecasts/scheduler.py` MODIFY
+- `noosphere/noosphere/models.py` MODIFY
+- `noosphere/noosphere/store.py` MODIFY
+- `theseus-codex/prisma/schema.prisma` MODIFY
+- `theseus-codex/prisma/migrations/<ts>_synthesizer/migration.sql` CREATE
+- `noosphere/alembic/versions/<rev>_synthesizer.py` CREATE
+- `noosphere/noosphere/cli.py` MODIFY
+- `noosphere/tests/test_synthesizer_engine.py` CREATE
+- `noosphere/tests/test_synthesizer_governing.py` CREATE

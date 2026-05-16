@@ -1,0 +1,162 @@
+You are operating in /Users/michaelquintin/Desktop/Theseus.
+
+Goal: a single command that boots the full stack against
+fixtures, hits every public route, exercises every CLI
+subcommand's `--help`, and ticks the scheduler at least once per
+sub-loop — and FAILS if anything returns 500, crashes, or
+silently no-ops. This is the safety net that catches
+"everything builds but the running system is broken" regressions
+before they hit sync.
+
+What this prompt CATCHES that per-prompt tests don't:
+
+- A new SSR route 500s because it imports a deleted module.
+- A new API endpoint references a column that the Prisma
+  migration committed but the Alembic revision missed.
+- A Typer CLI subcommand was registered but its handler crashes
+  on `--help` because of a top-level import error.
+- A scheduler sub-loop's import fails at startup so the loop
+  never runs.
+- A page renders but the data it loads is empty because the
+  generation pipeline silently abstained.
+
+Before you start — read:
+1. Round 19 prompt 18's verification (the invariants pass) —
+   this smoke harness is structurally simpler but covers more
+   surfaces.
+2. `theseus-codex/playwright/` for existing smoke specs.
+3. Every CLI entry point registered in `noosphere.cli`,
+   `dialectic.cli`, and (if exists) `current_events_api.cli`.
+
+Implement:
+
+A. `scripts/smoke/run.sh`:
+   - Single entry point. Runs every section below in order.
+     Halts on first failure.
+   - Sections (each its own subcommand for selective runs):
+     - `frontend-routes` — hit every public + authed route
+     - `api-endpoints` — hit every FastAPI route
+     - `cli-help` — every CLI subcommand's --help works
+     - `scheduler-tick` — one tick per sub-loop
+     - `pipelines-e2e` — three end-to-end pipeline tests
+   - Output one structured JSON per section to
+     `docs/verification/smoke/<timestamp>/<section>.json`.
+   - Final summary printed: pass/fail counts per section.
+
+B. `scripts/smoke/frontend_routes.py`:
+   - Boots the Next.js app in test mode against an in-memory
+     SQLite fixture (or whatever fixture pattern Round 18
+     established).
+   - Loads route manifest from `theseus-codex/src/app/`
+     introspection — every `page.tsx` corresponds to a public
+     route to test; every `(authed)/.../page.tsx` corresponds
+     to an authed route to test with a seeded founder session.
+   - For each route:
+     - GET it.
+     - Assert status code in {200, 302, 304, 410}.
+     - Assert no `<NextErrorBoundary>` or "An error occurred"
+       string in body.
+     - Assert there's at least one `<main>` element.
+   - 410 is allowed for the deletion-pass deletes (prompt 16).
+   - Failures captured with route + status + first 1000 chars
+     of body.
+
+C. `scripts/smoke/api_endpoints.py`:
+   - Boots `current_events_api` against the same fixture.
+   - Walks the OpenAPI spec to enumerate routes.
+   - For each route:
+     - GET / POST / PUT / DELETE per the route's allowed
+       methods.
+     - For GET: assert 200 with response matching the route's
+       Pydantic response model.
+     - For POST/PUT: send a minimum-valid body; assert 200/201;
+       OR expect a documented validation 400 with a structured
+       error.
+   - SSE endpoints get a separate handler that opens the
+     stream, waits ≤ 2s for at least one frame (or heartbeat),
+     closes.
+   - Operator endpoints get HMAC-signed test requests; assert
+     403 without signature, 200 with valid signature.
+
+D. `scripts/smoke/cli_help.py`:
+   - Walks every entry point in `[project.scripts]` (pyproject)
+     and `noosphere.cli` + `dialectic.cli` and runs each with
+     `--help`.
+   - Asserts exit 0.
+   - Asserts the help text mentions at least one subcommand
+     (catches a Typer app that lost its registration).
+
+E. `scripts/smoke/scheduler_tick.py`:
+   - Imports the scheduler.
+   - Invokes `scheduler.tick_once(loop_name='ingest')` for each
+     declared sub-loop name (ingest, generate, metric_scan,
+     resolve, paper_drain, live_orders, articles,
+     public_calibration, recalibration, algorithms_tick,
+     algorithms_resolution_tick, algorithms_calibration_tick,
+     synthesizer_tick, contradiction_test_tick).
+   - Asserts no exception.
+   - Asserts the structured-log emitted by the tick is
+     well-formed.
+
+F. `scripts/smoke/pipelines_e2e.py`:
+   - Three end-to-end happy paths:
+     1. Upload artifact → claim extraction → principle
+        emission → cluster assignment → contradiction tested
+        → no errors. Verify the principle's row exists with
+        non-null fields.
+     2. Algorithm DRAFT → operator-accept (simulated) → ACTIVE
+        → one tick of the runtime → invocation created with
+        complete reasoning trace.
+     3. Synthesizer query → SynthesisResult with CONCLUDED
+        outcome → memo built → portfolio agent dispatch in
+        HUMAN mode → MemoDispatch row PENDING.
+   - All inputs are seeded fixtures; no external HTTP calls.
+
+G. Documentation. `docs/verification/smoke/README.md`:
+   - How to run the smoke harness locally.
+   - What each section catches.
+   - How to add a new section when a new pipeline lands.
+
+H. Pre-sync hook. The sync script gains a `--smoke` flag that
+   runs `scripts/smoke/run.sh` before the push. By default the
+   sync runs smoke; `--skip-smoke` is the explicit opt-out
+   (with a printed warning).
+
+I. CI workflow `.github/workflows/smoke.yml`:
+   - Runs smoke on every PR.
+   - Posts a structured summary as a PR comment.
+   - Fails the PR check on any smoke failure.
+
+J. Tests for the smoke harness itself (yes, meta):
+   - Plant a fixture broken route (returns 500); assert the
+     smoke harness catches it.
+   - Plant a fixture broken CLI registration; assert
+     `cli_help.py` catches it.
+   - Plant a fixture broken scheduler tick; assert
+     `scheduler_tick.py` catches it.
+
+Constraints
+- Smoke uses FIXTURES, never live data, never real network.
+  httpx-mock or respx for any HTTP call.
+- Smoke does NOT mutate the live DB. Per-run temp SQLite or
+  per-run isolated test Postgres only.
+- The harness is FAST: full run under 4 minutes on the operator's
+  M-series Mac. Slower routes are budgeted; anything > 30s
+  per section flags a perf warning.
+- Failures are STRUCTURED. Operators read the JSON output, not
+  raw stderr.
+
+SCOPE
+- `scripts/smoke/run.sh` CREATE
+- `scripts/smoke/frontend_routes.py` CREATE
+- `scripts/smoke/api_endpoints.py` CREATE
+- `scripts/smoke/cli_help.py` CREATE
+- `scripts/smoke/scheduler_tick.py` CREATE
+- `scripts/smoke/pipelines_e2e.py` CREATE
+- `scripts/smoke/__init__.py` CREATE
+- `scripts/smoke/_fixtures.py` CREATE
+- `docs/verification/smoke/README.md` CREATE
+- `scripts/sync-to-github.sh` MODIFY
+- `.github/workflows/smoke.yml` CREATE
+- `tests/static/test_smoke_harness_itself.py` CREATE
+- `tests/static/fixtures/smoke_broken/` CREATE

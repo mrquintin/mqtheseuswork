@@ -1,0 +1,144 @@
+You are operating in /Users/michaelquintin/Desktop/Theseus.
+
+Goal: solve Jacob's cost concern. Testing every new principle for
+contradiction against every old principle is O(N²); at corpus
+scale that's untenable. Solution: pre-filter via embedding-space
+clustering. Test new principles only against principles in the
+same semantic cluster, plus a small cross-cluster sample to catch
+surprise links.
+
+This prompt sits BETWEEN the principle add event and the
+contradiction engine (prompt 06). It does not replace the engine;
+it scopes the engine's work.
+
+Design rationale (worth stating explicitly so the implementation
+follows it):
+
+- Principles whose embeddings are close are likely in the same
+  "domain of applicability." Testing them for contradiction has
+  high yield per CPU-second.
+- Principles whose embeddings are far are unlikely contradictions
+  — BUT there are exceptions (the founder's caveat: "language is
+  not ideas, but it tracks for semantic"). To catch those, sample
+  a small fraction of cross-cluster pairs.
+- A new principle's first test set is bounded; subsequent tests
+  expand only on triggers (e.g., the cluster centroid moved
+  significantly because a new principle joined).
+
+Before you start — read:
+1. The principle entity post-Round-18-prompt-56 — note the
+   `quantifiable_proxies` and `domain_of_applicability` fields.
+2. The embedding pipeline:
+   `noosphere/noosphere/embeddings.py` (or wherever the firm's
+   embedding helper lives).
+3. The contradiction engine from prompt 06.
+
+Implement:
+
+A. `noosphere/noosphere/coherence/cluster_index.py`:
+   - Maintains an HNSW or FAISS index over principle embeddings,
+     keyed by principle id.
+   - Backed by a `PrincipleCluster` table:
+       `principleId` FK, `clusterId` (text), `clusterCentroidVec`
+       (stored as binary blob), `assignedAt`, `assignmentMethod`
+       (versioned string).
+   - On every new principle insert: compute embedding, find
+     nearest cluster (cosine ≥ `CLUSTER_JOIN_THRESHOLD`, default
+     0.72), or create a new cluster.
+   - On every principle revocation: remove from cluster; if the
+     cluster falls below `MIN_CLUSTER_SIZE` (default 3), merge
+     into nearest neighbor or dissolve.
+   - Re-clustering job (`cluster_resweep`) runs nightly: full
+     k-means over all principle embeddings, compares cluster
+     assignments to the incremental ones, logs drift, and (if
+     drift > `CLUSTER_DRIFT_THRESHOLD`, default 0.15) creates a
+     `ClusterReindexProposal` row visible to the operator.
+
+B. `noosphere/noosphere/coherence/contradiction_scheduler.py`:
+   - `async schedule_tests_for_principle(store, new_principle_id)`:
+     1. Lookup the principle's cluster (or its newly-created one).
+     2. Schedule contradiction tests for the new principle vs.
+        every other principle in the same cluster.
+     3. Sample `CROSS_CLUSTER_SAMPLE_FRACTION` (default 0.05) of
+        principles from neighboring clusters by cluster-centroid
+        proximity, scheduled at lower priority.
+     4. Schedule `CROSS_CLUSTER_RANDOM_FRACTION` (default 0.01)
+        of principles from distant clusters as a low-priority
+        "surprise check."
+     5. Emit a `ContradictionTestTask` per pair into a work
+        queue.
+   - `async run_pending_tests(store, *, max_concurrency=4,
+                               time_budget_seconds=30)`:
+     drains the queue, calls the contradiction engine (prompt 06)
+     for each pair, persists results, respects the time budget so
+     individual ticks don't run long.
+
+C. New table `ContradictionTestTask` (work queue):
+   - `id`, `principleAId`, `principleBId`, `priority` enum
+     HIGH | NORMAL | LOW, `enqueuedAt`, `status` enum PENDING |
+     RUNNING | DONE | FAILED, `result_id` FK nullable.
+   - Dedupe on (sorted(A,B)) within a 24h window — don't
+     re-enqueue the same pair twice in a day.
+
+D. Scheduler integration. A new sub-loop `contradiction_test_tick`
+   (default 5min) drains the queue. Independent budget so
+   contradiction work doesn't starve forecasts/currents.
+
+E. Operator surface. `/(authed)/contradictions/cost-monitor` page:
+   - Current cluster topology (counts, sizes, centroid spread).
+   - Test backlog size and burndown rate.
+   - Last 7 days of detected contradictions split by cluster
+     (intra-cluster vs. cross-cluster).
+   - "Force resweep" button.
+
+F. Public surface. The `/methodology/contradiction-engine` page
+   from prompt 06 gains a short explainer section: "We don't test
+   every pair. Here's the geometry of how we pick which to test."
+   With the cluster topology rendered as a small force-graph.
+
+G. Configuration:
+   - `CLUSTER_JOIN_THRESHOLD` (default 0.72)
+   - `MIN_CLUSTER_SIZE` (default 3)
+   - `CROSS_CLUSTER_SAMPLE_FRACTION` (default 0.05)
+   - `CROSS_CLUSTER_RANDOM_FRACTION` (default 0.01)
+   - `CLUSTER_DRIFT_THRESHOLD` (default 0.15)
+   - `CONTRADICTION_TEST_BUDGET_PER_TICK_S` (default 30)
+
+H. Tests:
+   - New principle insert assigns to an existing cluster when
+     cosine > threshold.
+   - New principle creates a cluster when cosine < threshold.
+   - Cross-cluster sample correctly fires LOW-priority tasks at
+     the configured fraction.
+   - Surprise check catches a planted cross-cluster contradiction
+     within 100 inserts (statistical test on fixture data).
+   - Resweep detects drift and produces a proposal when drift
+     > threshold.
+   - Queue dedupe rejects (A, B) and (B, A) within window.
+   - Time budget is respected — a long-running test doesn't blow
+     past the per-tick budget.
+
+Constraints
+- The cluster index is an OPTIMISATION, not a correctness layer.
+  The contradiction engine (prompt 06) is the source of truth;
+  the cluster index decides WHICH pairs are submitted to it.
+- Cross-cluster sampling is non-zero. Setting either fraction to
+  exactly 0 is a CONFIG error — the engine will refuse and emit a
+  warning. The whole point is to never lose surprise links.
+- The cluster topology evolves; persistence is versioned so we
+  can replay "which cluster was X in on date Y."
+- This prompt does not modify the contradiction engine itself.
+
+SCOPE
+- `noosphere/noosphere/coherence/cluster_index.py` CREATE
+- `noosphere/noosphere/coherence/contradiction_scheduler.py` CREATE
+- `noosphere/noosphere/forecasts/scheduler.py` MODIFY
+- `noosphere/noosphere/models.py` MODIFY
+- `noosphere/noosphere/store.py` MODIFY
+- `theseus-codex/prisma/schema.prisma` MODIFY
+- `theseus-codex/prisma/migrations/<ts>_cluster_index/migration.sql` CREATE
+- `noosphere/alembic/versions/<rev>_cluster_index.py` CREATE
+- `theseus-codex/src/app/(authed)/contradictions/cost-monitor/page.tsx` CREATE
+- `theseus-codex/src/app/methodology/contradiction-engine/page.tsx` MODIFY
+- `noosphere/tests/test_cluster_index.py` CREATE
+- `noosphere/tests/test_contradiction_scheduler.py` CREATE

@@ -94,6 +94,63 @@ class Freshness(str, Enum):
     RETIRED = "retired"
 
 
+class ProvenanceKind(str, Enum):
+    """Demarcates firm-authored material from external material.
+
+    Set at upload time by the founder; never inferred from content. The
+    synthesis / Oracle layer weights these differently and the contradiction
+    engine restricts cross-provenance tests by default. See prompt 09.
+    """
+
+    PROPRIETARY = "PROPRIETARY"
+    ENDORSED_EXTERNAL = "ENDORSED_EXTERNAL"
+    STUDIED_EXTERNAL = "STUDIED_EXTERNAL"
+    OPPOSING_EXTERNAL = "OPPOSING_EXTERNAL"
+
+
+PROVENANCE_KIND_VALUES = tuple(p.value for p in ProvenanceKind)
+PROVENANCE_RATIONALE_MIN_LEN = 30
+EXTERNAL_PROVENANCE_KINDS = frozenset(
+    {
+        ProvenanceKind.ENDORSED_EXTERNAL,
+        ProvenanceKind.STUDIED_EXTERNAL,
+        ProvenanceKind.OPPOSING_EXTERNAL,
+    }
+)
+
+
+def coerce_provenance(value: Any) -> ProvenanceKind:
+    """Normalize an external value to ProvenanceKind. Defaults to PROPRIETARY."""
+    if isinstance(value, ProvenanceKind):
+        return value
+    if not value:
+        return ProvenanceKind.PROPRIETARY
+    try:
+        return ProvenanceKind(str(value).upper())
+    except ValueError:
+        return ProvenanceKind.PROPRIETARY
+
+
+def validate_provenance_rationale(
+    provenance: ProvenanceKind, rationale: str | None
+) -> str:
+    """Enforce the upload-time rationale rule.
+
+    External provenance requires a rationale of at least
+    PROVENANCE_RATIONALE_MIN_LEN characters. PROPRIETARY rows may carry
+    an empty rationale. Returns the trimmed rationale.
+    """
+    rationale = (rationale or "").strip()
+    if provenance in EXTERNAL_PROVENANCE_KINDS:
+        if len(rationale) < PROVENANCE_RATIONALE_MIN_LEN:
+            raise ValueError(
+                f"External provenance ({provenance.value}) requires a rationale "
+                f"of at least {PROVENANCE_RATIONALE_MIN_LEN} characters explaining "
+                "why this source is in our library."
+            )
+    return rationale
+
+
 class CurrentEventStatus(str, Enum):
     OBSERVED = "OBSERVED"
     ENRICHED = "ENRICHED"
@@ -463,6 +520,11 @@ class Artifact(BaseModel):
     effective_at_inferred: bool = True
     license_status: Optional[str] = "unknown"
     literature_connector: Optional[str] = ""
+    # Provenance demarcation (prompt 09). Set at upload time by the founder
+    # and propagated to every derived claim/principle/conclusion. External
+    # provenance kinds require a non-empty rationale.
+    provenance: ProvenanceKind = ProvenanceKind.PROPRIETARY
+    provenance_rationale: str = ""
 
 
 class Chunk(BaseModel):
@@ -927,6 +989,8 @@ class Claim(BaseModel):
     # Transcript alignment — used by ingest_papers and ingest_dialectic
     # to thread claims back to their source chunks for traceability.
     chunk_id: str = ""
+    # Inherited from the source artifact (prompt 09).
+    provenance: ProvenanceKind = ProvenanceKind.PROPRIETARY
 
 
 class Principle(BaseModel):
@@ -964,6 +1028,10 @@ class Principle(BaseModel):
     created_at: datetime = Field(default_factory=datetime.now)
     updated_at: datetime = Field(default_factory=datetime.now)
     tags: list[str] = []
+    # Inherited from the root source artifact (prompt 09). Used by the
+    # contradiction scheduler (cross-provenance default policy) and by the
+    # Oracle / synthesis weighting layer.
+    provenance: ProvenanceKind = ProvenanceKind.PROPRIETARY
 
 
 class Relationship(BaseModel):
@@ -1127,6 +1195,9 @@ class Conclusion(BaseModel):
     # from. Preserved end-to-end so re-extraction can show the founder
     # the original context. None for legacy rows.
     source_span: Optional[str] = None
+    # Inherited from the conclusion's source artifact (prompt 09). Used
+    # by Oracle / synthesis weighting and the contradiction engine.
+    provenance: ProvenanceKind = ProvenanceKind.PROPRIETARY
 
     @model_validator(mode="after")
     def _sync_legacy_aliases(self) -> Conclusion:
@@ -2155,6 +2226,22 @@ class ForecastBet(SQLModel, table=True):
     settled_at: Optional[datetime] = SQLField(
         default=None, sa_column=Column("settledAt", SADateTime, nullable=True)
     )
+    # Round 19 prompt 12: provenance back to the InvestmentMemo that
+    # caused a portfolio agent to fire this bet. Nullable so the
+    # field is additive — pre-prompt-12 bets carry NULL and ones
+    # placed directly from a forecast prediction (not memo-routed)
+    # also carry NULL.
+    source_memo_id: Optional[str] = SQLField(
+        default=None,
+        sa_column=Column("sourceMemoId", String, nullable=True),
+    )
+    # Round 19 prompt 15: link back to the polymorphic BetSpec. Pre-
+    # prompt-15 bets carry NULL; new ForecastBets created via the
+    # ``noosphere bet authorize`` path are linked here.
+    bet_spec_id: Optional[str] = SQLField(
+        default=None,
+        sa_column=Column("betSpecId", String, nullable=True),
+    )
 
 
 class ForecastPortfolioState(SQLModel, table=True):
@@ -2530,6 +2617,18 @@ class EquityPosition(SQLModel, table=True):
     )
     updated_at: datetime = SQLField(
         default_factory=_now, sa_column=Column("updatedAt", SADateTime, nullable=False)
+    )
+    # Round 19 prompt 12: provenance back to the InvestmentMemo that
+    # caused a portfolio agent to fire this position. Nullable so the
+    # column is additive.
+    source_memo_id: Optional[str] = SQLField(
+        default=None,
+        sa_column=Column("sourceMemoId", String, nullable=True),
+    )
+    # Round 19 prompt 15: link back to the polymorphic BetSpec.
+    bet_spec_id: Optional[str] = SQLField(
+        default=None,
+        sa_column=Column("betSpecId", String, nullable=True),
     )
 
 
@@ -3332,3 +3431,877 @@ class QuantitativeTestResult(BaseModel):
     created_at: datetime = Field(default_factory=datetime.now)
 
     model_config = ConfigDict(use_enum_values=True)
+
+
+# ── Logical Algorithm layer (prompt 01, Round 19) ───────────────────────────
+#
+# Conclusions became principle-shaped in Round 18 (prompt 56). Round 19
+# adds a third layer above principles: an *algorithm* is a logical
+# function — named inputs, named output, with a structured reasoning
+# body that invokes one or more principles to derive the output. The
+# work is done by logic, not by numerical fitting; calibration is the
+# track-record loop, not the design loop.
+#
+# The small sub-schemas (AlgorithmInput, AlgorithmOutput, ReasoningStep,
+# enums) live in ``noosphere.algorithms.schemas`` so they can be
+# imported by validators without dragging in the rest of this module.
+
+from noosphere.algorithms.schemas import (  # noqa: E402 — bottom-of-file import keeps cycles out
+    AlgorithmBetImplied,
+    AlgorithmCorrectness,
+    AlgorithmInput,
+    AlgorithmInputType,
+    AlgorithmOutput,
+    AlgorithmOutputType,
+    AlgorithmStatus,
+    ReasoningStep,
+    ReasoningStepKind,
+)
+
+
+class LogicalAlgorithm(BaseModel):
+    """A logical algorithm built on top of one or more principles.
+
+    Round-19 Layer 3. Carries:
+
+    * **Named inputs** with declared types and an observability source
+      string (where the runtime should fetch the value at fire time).
+    * **A single named output** committed to a structured shape; the
+      ``STRING`` type is intentionally disallowed.
+    * **A structured reasoning chain** — DETECT / APPLY_PRINCIPLE /
+      SYNTHESIZE / OUTPUT steps; never free text.
+    * **A trigger predicate** evaluated against the inputs by the
+      runtime. Sandbox-validated at promotion time so the runtime can
+      ``eval`` it safely later.
+
+    Status ladder:
+
+    * ``DRAFT`` — Codex extractor proposed; founder has not seen it.
+    * ``UNDER_REVIEW`` — promoted to the founder triage queue.
+    * ``ACTIVE`` — eligible to fire. The runtime, not creation, decides
+      when. Cannot be reached while any source principle is revoked.
+    * ``PAUSED`` — temporarily silenced without retirement.
+    * ``RETIRED`` — terminal; carries a ``retired_reason``.
+    """
+
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    organization_id: str
+
+    name: str = Field(min_length=1, max_length=80)
+    description: str = Field(default="", max_length=600)
+
+    source_principle_ids: list[str] = Field(default_factory=list)
+    inputs: list[AlgorithmInput] = Field(default_factory=list)
+    output: AlgorithmOutput
+    reasoning_chain: list[ReasoningStep] = Field(default_factory=list)
+    trigger_predicate: str = Field(default="", max_length=1000)
+
+    status: AlgorithmStatus = AlgorithmStatus.DRAFT
+    retired_reason: Optional[str] = Field(default=None, max_length=400)
+
+    # Earned weighting in the synthesizer. Bounded [0.0, 2.0]; default
+    # 1.0 means the algorithm contributes its raw output. The
+    # calibration loop (prompt 05) bumps this for promoted algorithms
+    # and the synthesizer (prompt 10) reads it when combining outputs
+    # across multiple algorithms.
+    weighting_multiplier: float = Field(default=1.0, ge=0.0, le=2.0)
+
+    created_at: datetime = Field(default_factory=datetime.now)
+    updated_at: datetime = Field(default_factory=datetime.now)
+    last_invoked_at: Optional[datetime] = None
+
+    # Inherited from the algorithm's source principles (prompt 09). An
+    # algorithm whose source principles span mixed provenance takes the
+    # most-restrictive value (PROPRIETARY < ENDORSED < STUDIED < OPPOSING).
+    # The synthesizer reads this when memo-building.
+    provenance: ProvenanceKind = ProvenanceKind.PROPRIETARY
+
+    # When True, every successful invocation of this algorithm enqueues
+    # a synthesis task on the synthesizer's queue (prompt 10). Defaults
+    # to False so an existing algorithm is not retroactively wired to
+    # the synthesizer; the founder flips this in the triage UI.
+    triggers_synthesis: bool = False
+
+    model_config = ConfigDict(use_enum_values=True)
+
+    @model_validator(mode="after")
+    def _enforce_basic_invariants(self) -> "LogicalAlgorithm":
+        if not self.source_principle_ids:
+            raise ValueError(
+                "LogicalAlgorithm requires at least one sourcePrincipleId"
+            )
+        return self
+
+
+class AlgorithmInvocation(BaseModel):
+    """One firing of a LogicalAlgorithm captured for audit + calibration.
+
+    Persisted at the moment the trigger predicate matches and the
+    reasoning chain runs. Resolution columns (``resolved_at``,
+    ``actual_outcome``, ``correctness``, ``brier_equivalent``) are
+    backfilled later when reality is observed at
+    ``predicted_horizon`` past ``invoked_at``.
+    """
+
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    algorithm_id: str
+    organization_id: str
+
+    invoked_at: datetime = Field(default_factory=datetime.now)
+    trigger_inputs: dict[str, Any] = Field(default_factory=dict)
+    derived_output: dict[str, Any] = Field(default_factory=dict)
+    reasoning_trace: list[str] = Field(default_factory=list)
+    confidence_low: float = Field(default=0.0, ge=0.0, le=1.0)
+    confidence_high: float = Field(default=1.0, ge=0.0, le=1.0)
+    # Horizon in seconds — how far ahead the prediction looks. Stored
+    # as float so the resolver can compare against arbitrary clocks
+    # without timedelta serialisation gymnastics.
+    predicted_horizon: float = Field(default=0.0, ge=0.0)
+    bet_implied: Optional[AlgorithmBetImplied] = None
+
+    resolved_at: Optional[datetime] = None
+    actual_outcome: Optional[dict[str, Any]] = None
+    correctness: Optional[AlgorithmCorrectness] = None
+    brier_equivalent: Optional[float] = Field(default=None, ge=0.0, le=1.0)
+
+    model_config = ConfigDict(use_enum_values=True)
+
+    @model_validator(mode="after")
+    def _enforce_confidence_band(self) -> "AlgorithmInvocation":
+        if self.confidence_low > self.confidence_high:
+            raise ValueError(
+                "confidence_low must be ≤ confidence_high"
+            )
+        return self
+
+
+class AlgorithmInputObservation(BaseModel):
+    """Audit row: where did this input value come from?
+
+    One row per (invocation, input_name). Persisted alongside the
+    invocation so a founder can answer "where did this number come
+    from?" without re-running the runtime. ``source_artifact_id`` is
+    nullable — operator-entered values have no upstream artifact.
+    """
+
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    invocation_id: str
+    input_name: str = Field(min_length=1, max_length=80)
+    value: Any = None
+    observed_at: datetime = Field(default_factory=datetime.now)
+    source_artifact_id: Optional[str] = None
+    source_url: Optional[str] = Field(default=None, max_length=2048)
+
+    model_config = ConfigDict(arbitrary_types_allowed=True)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Round 19 prompt 05 — Algorithm calibration loop.
+# ─────────────────────────────────────────────────────────────────────────────
+# Persisted track-record snapshots and the operator triage queue rows
+# the calibration tick produces. The Python compute lives in
+# ``noosphere.algorithms.calibration`` and ``.retirement``; this module
+# only carries the persistent shape.
+
+
+class AlgorithmCalibrationSnapshot(BaseModel):
+    """One persisted calibration snapshot for an algorithm.
+
+    Append-only — re-running the calibration tick produces a new row
+    rather than mutating the latest one. The public algorithm detail
+    page reads the time-series to render the calibration chart;
+    retirement / promotion events appear as annotations.
+    """
+
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    algorithm_id: str
+    organization_id: str
+    snapshot_at: datetime = Field(default_factory=datetime.now)
+
+    total_invocations: int = 0
+    resolved_invocations: int = 0
+    accuracy: Optional[float] = Field(default=None, ge=0.0, le=1.0)
+    mean_brier: Optional[float] = Field(default=None, ge=0.0, le=1.0)
+    mean_horizon_error: Optional[float] = Field(default=None, ge=0.0)
+    directional_accuracy: Optional[float] = Field(default=None, ge=0.0, le=1.0)
+    confidence_calibration_drift: Optional[float] = Field(
+        default=None, ge=-1.0, le=1.0
+    )
+    last_30d_accuracy: Optional[float] = Field(default=None, ge=0.0, le=1.0)
+    last_30d_resolved: int = 0
+
+    probabilistic_resolved: int = 0
+    directional_resolved: int = 0
+    confidence_band_resolved: int = 0
+
+    model_config = ConfigDict(arbitrary_types_allowed=True)
+
+
+class TriageRecommendationAction(str, Enum):
+    """Action the calibration tick is advising the founder to take."""
+
+    NONE = "NONE"
+    RETIRE = "RETIRE"
+    PROMOTE = "PROMOTE"
+
+
+class TriageRecommendationStatus(str, Enum):
+    """Operator-set status on a calibration triage recommendation."""
+
+    PENDING = "PENDING"
+    ACCEPTED = "ACCEPTED"
+    REJECTED = "REJECTED"
+    DEFERRED = "DEFERRED"
+
+
+class AlgorithmTriageRecommendation(BaseModel):
+    """Advisory retirement / promotion recommendation for the queue.
+
+    The agent NEVER auto-acts on a recommendation; this row is what
+    the founder sees in the operator triage queue. Accept / reject /
+    defer transitions are atomic at the store helper.
+    """
+
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    algorithm_id: str
+    organization_id: str
+    recommended_at: datetime = Field(default_factory=datetime.now)
+    recommended_action: TriageRecommendationAction = (
+        TriageRecommendationAction.NONE
+    )
+    # List of TriggerReason values (string-enum form) that fired.
+    trigger_reasons: list[str] = Field(default_factory=list)
+    recommended_multiplier: float = Field(default=1.0, ge=0.0, le=2.0)
+    narrative: str = Field(default="", max_length=2000)
+    status: TriageRecommendationStatus = TriageRecommendationStatus.PENDING
+    resolved_by: Optional[str] = None
+    resolved_at: Optional[datetime] = None
+    resolution_note: Optional[str] = Field(default=None, max_length=2000)
+
+    model_config = ConfigDict(use_enum_values=True)
+
+
+# ── Round 19 prompt 07: cluster-driven contradiction test queue ─────────────
+
+
+class ContradictionTestPriority(str, Enum):
+    """Priority bucket for a contradiction-test pair."""
+
+    HIGH = "HIGH"   # intra-cluster — most likely to yield a finding
+    NORMAL = "NORMAL"  # cross-cluster sample drawn from neighboring clusters
+    LOW = "LOW"     # surprise check drawn from distant clusters
+
+
+class ContradictionTestStatus(str, Enum):
+    """Lifecycle of a queued contradiction-test pair."""
+
+    PENDING = "PENDING"
+    RUNNING = "RUNNING"
+    DONE = "DONE"
+    FAILED = "FAILED"
+
+
+class ContradictionTestTask(BaseModel):
+    """Pydantic carrier for one row of the contradiction test queue.
+
+    Geometry detects which pairs ship to the engine; the engine itself
+    (prompt 06) remains authoritative for the verdict.
+    """
+
+    id: str
+    principle_a_id: str
+    principle_b_id: str
+    pair_key: str
+    priority: ContradictionTestPriority = ContradictionTestPriority.NORMAL
+    status: ContradictionTestStatus = ContradictionTestStatus.PENDING
+    enqueued_at: datetime = Field(default_factory=datetime.now)
+    started_at: Optional[datetime] = None
+    finished_at: Optional[datetime] = None
+    result_id: Optional[str] = None
+    last_error: Optional[str] = None
+
+    model_config = ConfigDict(use_enum_values=True)
+
+
+class PrincipleClusterAssignment(BaseModel):
+    """One principle's cluster membership at a point in time."""
+
+    principle_id: str
+    cluster_id: str
+    assignment_method: str
+    assigned_at: datetime
+
+
+# ── Synthesizer (prompt 10) ─────────────────────────────────────────
+
+
+class SynthesizerTaskStatus(str, Enum):
+    """Lifecycle of one synthesis task on the queue."""
+
+    PENDING = "PENDING"
+    RUNNING = "RUNNING"
+    DONE = "DONE"
+    FAILED = "FAILED"
+
+
+class SynthesizerTaskTrigger(str, Enum):
+    """Why the task ended up on the queue.
+
+    Operator vs algorithm vs currents — kept distinct so the
+    abstention-rate metric can split health by trigger pathway.
+    """
+
+    OPERATOR = "OPERATOR"
+    ALGORITHM = "ALGORITHM"
+    CURRENT = "CURRENT"
+
+
+class SynthesizerTask(BaseModel):
+    """One queued synthesis request.
+
+    The scheduler's ``synthesizer_tick`` drains PENDING rows. Operator
+    queries (which want a synchronous result) are typically executed
+    inline by the CLI and do not enqueue a task; algorithm-triggered
+    and currents-triggered requests use the queue so they don't block
+    the runtime tick that produced them.
+    """
+
+    id: str = Field(default_factory=lambda: f"syn_task_{uuid.uuid4().hex[:22]}")
+    organization_id: str
+    trigger: SynthesizerTaskTrigger = SynthesizerTaskTrigger.OPERATOR
+    question: str
+    context_json: dict[str, Any] = Field(default_factory=dict)
+
+    invocation_id: Optional[str] = None
+    current_event_id: Optional[str] = None
+
+    status: SynthesizerTaskStatus = SynthesizerTaskStatus.PENDING
+    enqueued_at: datetime = Field(default_factory=datetime.now)
+    started_at: Optional[datetime] = None
+    finished_at: Optional[datetime] = None
+
+    memo_id: Optional[str] = None
+    outcome: Optional[str] = None
+    reasoning: Optional[str] = None
+    last_error: Optional[str] = None
+
+    model_config = ConfigDict(use_enum_values=True)
+
+
+class SynthesizerMemo(BaseModel):
+    """Persisted *raw* synthesizer memo — the audit-shaped conclusion.
+
+    This is the unstructured payload the synthesizer engine produces; it
+    is the *upstream* artifact that prompt 11's :class:`InvestmentMemo`
+    builder consumes. Both shapes share the conclusion's ``id`` and the
+    JSON payload's ``conclusion`` key.
+    """
+
+    id: str
+    organization_id: str
+    question: str
+    conclusion_json: dict[str, Any] = Field(default_factory=dict)
+    created_at: datetime = Field(default_factory=datetime.now)
+    synthesizer_version: str = "synthesizer/v1"
+
+    model_config = ConfigDict(use_enum_values=True)
+
+
+# ── Round 19 prompt 11: InvestmentMemo ──────────────────────────────
+
+
+class MemoStatus(str, Enum):
+    """Lifecycle of an :class:`InvestmentMemo`.
+
+    Memos are *built* in DRAFT, optionally walk through UNDER_REVIEW,
+    are dispatched to the portfolio agent on SENT, archived if the
+    operator chose no action (ARCHIVED), or marked PUBLIC when the
+    operator publishes the memo on the ``/memos`` reader surface.
+    Memos in DRAFT or UNDER_REVIEW NEVER trigger bets — only SENT
+    memos are eligible to drive portfolio-agent action.
+    """
+
+    DRAFT = "DRAFT"
+    UNDER_REVIEW = "UNDER_REVIEW"
+    SENT = "SENT"
+    ARCHIVED = "ARCHIVED"
+    PUBLIC = "PUBLIC"
+
+
+class MemoQuestionType(str, Enum):
+    """The four question types a memo can be built for.
+
+    Mirrors :class:`noosphere.synthesizer.engine.QuestionType` so the
+    memo surface does not import the engine module just to render a
+    badge.
+    """
+
+    INVESTMENT_DECISION = "INVESTMENT_DECISION"
+    FORECAST = "FORECAST"
+    EXPLANATORY = "EXPLANATORY"
+    STRATEGIC = "STRATEGIC"
+
+
+MEMO_SECTIONS: tuple[str, ...] = (
+    "header",
+    "tldr",
+    "question_constituted",
+    "governing_principles",
+    "observed_inputs",
+    "reasoning_chain",
+    "implied_bet",
+    "what_would_update_us",
+    "abstentions_and_caveats",
+    "provenance_audit",
+)
+
+
+def memo_slug(title: str, memo_id: str) -> str:
+    """Produce a stable filesystem-safe slug for a memo.
+
+    The slug embeds the first 8 chars of the memo id so two memos with
+    identical titles cannot collide. Lowercase ASCII, hyphenated.
+    """
+
+    base = re.sub(r"[^a-z0-9]+", "-", (title or "memo").lower()).strip("-")
+    base = base or "memo"
+    suffix = (memo_id or "").replace("memo_", "")[:8] or "0"
+    return f"{base[:64]}-{suffix}"
+
+
+def memo_paths(*, created_at: datetime, slug: str) -> tuple[str, str]:
+    """Return the canonical ``(md_path, pdf_path)`` for a memo.
+
+    Paths are project-relative (under ``docs/memos/<yyyy>/<mm>/``) so
+    they round-trip cleanly across environments. The synthesizer
+    stores the rendered files at exactly these paths.
+    """
+
+    yyyy = f"{created_at.year:04d}"
+    mm = f"{created_at.month:02d}"
+    base = f"docs/memos/{yyyy}/{mm}/{slug}"
+    return (f"{base}.md", f"{base}.pdf")
+
+
+class InvestmentMemo(BaseModel):
+    """The canonical memo artifact emitted by the synthesizer.
+
+    Consumed by the portfolio agent (prompt 12) when an operator
+    SENDs it; rendered to the public ``/memos`` surface when an
+    operator chooses to PUBLISH. Every memo carries the full 10-section
+    investment-memo structure plus the provenance audit so a reader
+    can re-derive the firm's thinking end-to-end.
+    """
+
+    id: str = Field(default_factory=lambda: f"memo_{uuid.uuid4().hex[:24]}")
+    organization_id: str
+    synthesizer_result_id: Optional[str] = None
+
+    title: str
+    slug: str = ""
+    tldr: str = ""
+    question_constituted: str = ""
+    question_type: MemoQuestionType = MemoQuestionType.EXPLANATORY
+    confidence_low: float = 0.0
+    confidence_high: float = 0.0
+
+    governing_principle_ids: list[str] = Field(default_factory=list)
+    observed_input_ids: list[str] = Field(default_factory=list)
+    reasoning_chain: list[dict[str, Any]] = Field(default_factory=list)
+
+    implied_bet: Optional[dict[str, Any]] = None
+    eight_gate_readiness: dict[str, bool] = Field(default_factory=dict)
+
+    what_would_update_us: str = ""
+    abstentions_and_caveats: str = ""
+    provenance_audit: dict[str, Any] = Field(default_factory=dict)
+
+    status: MemoStatus = MemoStatus.DRAFT
+    addressee: str = ""
+    pdf_path: Optional[str] = None
+    md_path: Optional[str] = None
+
+    body_markdown: str = ""
+    synthesizer_version: str = "synthesizer/v1"
+
+    created_at: datetime = Field(default_factory=datetime.now)
+    updated_at: datetime = Field(default_factory=datetime.now)
+    sent_at: Optional[datetime] = None
+    acknowledged_at: Optional[datetime] = None
+    published_at: Optional[datetime] = None
+    archived_at: Optional[datetime] = None
+
+    model_config = ConfigDict(use_enum_values=True)
+
+
+# ── Round 19 prompt 12: PortfolioAgent + MemoDispatch ───────────────
+
+
+class PortfolioAgentKind(str, Enum):
+    """How a portfolio agent acts on incoming memos.
+
+    HUMAN — memos land in an inbox; founder accepts/rejects/defers
+    each one. Default. Every firm starts here.
+
+    AUTO_PAPER — memos auto-fire PAPER bets through the existing
+    paper-bet engines. Permitted only after the HUMAN-mode
+    predecessor has cleared the calibration threshold.
+
+    AUTO_LIVE — memos enqueue live bets for per-bet operator
+    confirmation in the existing operator console. NEVER bypasses
+    the eight-gate safety contract — each live order still hits the
+    operator's existing confirmation surface.
+    """
+
+    HUMAN = "HUMAN"
+    AUTO_PAPER = "AUTO_PAPER"
+    AUTO_LIVE = "AUTO_LIVE"
+
+
+class PortfolioAgentStatus(str, Enum):
+    """Lifecycle of a :class:`PortfolioAgent`."""
+
+    ACTIVE = "ACTIVE"
+    PAUSED = "PAUSED"
+    RETIRED = "RETIRED"
+
+
+class MemoDispatchOutcome(str, Enum):
+    """How a :class:`MemoDispatch` was acted upon.
+
+    PENDING — HUMAN-mode dispatch awaiting founder action.
+    ACCEPTED_AND_BET — operator accepted; bet engine was fired.
+    ACCEPTED_NO_BET — operator accepted the thesis but chose not
+        to place a bet (e.g. waiting for better entry).
+    REJECTED — operator rejected the memo; rationale is recorded.
+    DEFERRED — operator deferred; deferred_until carries the
+        re-surface timestamp.
+    AUTO_PAPERED — auto-paper agent placed a paper bet.
+    AUTO_LIVE_QUEUED — auto-live agent enqueued the bet for the
+        operator's existing per-bet confirmation surface.
+    DISPATCH_FAILED — subscription matched but the agent could not
+        accept (e.g. PAUSED, missing impliedBet). Recorded with a
+        reason so memos never silently disappear.
+    """
+
+    PENDING = "PENDING"
+    ACCEPTED_AND_BET = "ACCEPTED_AND_BET"
+    ACCEPTED_NO_BET = "ACCEPTED_NO_BET"
+    REJECTED = "REJECTED"
+    DEFERRED = "DEFERRED"
+    AUTO_PAPERED = "AUTO_PAPERED"
+    AUTO_LIVE_QUEUED = "AUTO_LIVE_QUEUED"
+    DISPATCH_FAILED = "DISPATCH_FAILED"
+
+
+class MemoDispatchBetKind(str, Enum):
+    """Discriminator for which bet table ``bet_link`` references."""
+
+    FORECAST_BET = "FORECAST_BET"
+    EQUITY_POSITION = "EQUITY_POSITION"
+
+
+class PortfolioAgentSubscription(BaseModel):
+    """One (topic, question_type) match rule on a :class:`PortfolioAgent`.
+
+    Memos flow to the agent when ANY subscription matches the memo.
+    A topic of ``"*"`` is a wildcard — useful for catch-all human
+    inboxes. The mode overrides the agent's default ``kind`` for the
+    specific subscription; if omitted, the agent's kind applies.
+    """
+
+    topic: str = "*"
+    question_type: MemoQuestionType = MemoQuestionType.INVESTMENT_DECISION
+    mode: Optional[PortfolioAgentKind] = None
+
+    model_config = ConfigDict(use_enum_values=True)
+
+
+class PortfolioAgent(BaseModel):
+    """The entity that decides whether to act on an incoming memo.
+
+    A portfolio agent is the seam between the synthesizer's
+    conclusion and a real-world bet. Three classes exist in v1: a
+    HUMAN inbox, an AUTO_PAPER paper-only auto-trader (calibration
+    data), and an AUTO_LIVE agent that queues live bets for the
+    existing operator confirmation console.
+    """
+
+    id: str = Field(default_factory=lambda: f"pagent_{uuid.uuid4().hex[:24]}")
+    organization_id: str
+    name: str
+    description: str = ""
+    kind: PortfolioAgentKind = PortfolioAgentKind.HUMAN
+    subscriptions: list[PortfolioAgentSubscription] = Field(default_factory=list)
+    default_bet_ceiling_usd: float = 50.0
+    status: PortfolioAgentStatus = PortfolioAgentStatus.ACTIVE
+    created_at: datetime = Field(default_factory=datetime.now)
+    updated_at: datetime = Field(default_factory=datetime.now)
+
+    model_config = ConfigDict(use_enum_values=True)
+
+
+class MemoDispatch(BaseModel):
+    """One delivery of one memo to one portfolio agent.
+
+    HUMAN dispatches start PENDING and transition to ACCEPTED_*,
+    REJECTED, or DEFERRED via operator action. AUTO_PAPER dispatches
+    are stamped AUTO_PAPERED at the same time as the paper bet they
+    create. AUTO_LIVE dispatches are stamped AUTO_LIVE_QUEUED — the
+    actual live order is gated behind the operator's per-bet
+    confirmation in the existing operator console.
+    """
+
+    id: str = Field(default_factory=lambda: f"dispatch_{uuid.uuid4().hex[:24]}")
+    organization_id: str
+    memo_id: str
+    agent_id: str
+    dispatched_at: datetime = Field(default_factory=datetime.now)
+
+    outcome_action: MemoDispatchOutcome = MemoDispatchOutcome.PENDING
+    bet_link: Optional[str] = None
+    bet_link_kind: Optional[MemoDispatchBetKind] = None
+
+    acknowledged_by: str = ""
+    acknowledged_at: Optional[datetime] = None
+    rationale: str = ""
+    deferred_until: Optional[datetime] = None
+
+    # Snapshot of the memo's eight-gate readiness at dispatch time.
+    # Informational only — the live bet engine re-checks the gates
+    # at submission time. The snapshot is what the operator sees in
+    # the inbox view when deciding whether to accept.
+    eight_gate_status: dict[str, bool] = Field(default_factory=dict)
+
+    # Reason recorded when a dispatch fails (DISPATCH_FAILED). Empty
+    # string for successful dispatches.
+    failure_reason: str = ""
+
+    model_config = ConfigDict(use_enum_values=True)
+
+
+# ── Round 19 prompt 13: Knowledge graph ──────────────────────────────
+
+
+class KGNodeKind(str, Enum):
+    """Discriminator for nodes in the cross-source knowledge graph.
+
+    Concept / person / source / topic are general; principle / algorithm
+    / memo project rows from the authoritative tables (the graph is a
+    projection, never authoritative for them).
+    """
+
+    CONCEPT = "CONCEPT"
+    PERSON = "PERSON"
+    SOURCE = "SOURCE"
+    TOPIC = "TOPIC"
+    PRINCIPLE = "PRINCIPLE"
+    ALGORITHM = "ALGORITHM"
+    MEMO = "MEMO"
+
+
+class KGEdgeKind(str, Enum):
+    """Typed edges in the knowledge graph.
+
+    See ``noosphere.knowledge_graph.edge_extractors`` for how each one
+    is derived. ``CONTRADICTS`` carries the contradiction score in the
+    edge weight; ``SUPPORTS`` carries an LLM-confidence in the weight.
+    """
+
+    DERIVED_FROM = "DERIVED_FROM"
+    INVOKES = "INVOKES"
+    CONTRADICTS = "CONTRADICTS"
+    SUPPORTS = "SUPPORTS"
+    APPLIES_TO = "APPLIES_TO"
+    PREDICTS = "PREDICTS"
+    CITES = "CITES"
+    MENTIONS = "MENTIONS"
+
+
+class KGNode(BaseModel):
+    """A node in a snapshot of the knowledge graph.
+
+    Edges reference nodes by ``id``; ``ref`` is the foreign key into the
+    authoritative table (Principle.id, LogicalAlgorithm.id, etc.).
+    ``label`` is the human-readable display string for the public view.
+    """
+
+    id: str
+    kind: KGNodeKind
+    ref: str = ""
+    label: str = ""
+    attrs: dict[str, Any] = Field(default_factory=dict)
+    # PROPRIETARY / ENDORSED / STUDIED / OPPOSING — used by the public
+    # view to honour the provenance_filter (prompt 09).
+    provenance: ProvenanceKind = ProvenanceKind.PROPRIETARY
+
+    model_config = ConfigDict(use_enum_values=True)
+
+
+class KGEdge(BaseModel):
+    """A typed, directed edge between two ``KGNode``s.
+
+    ``weight`` carries the kind-specific numeric: contradiction score
+    for CONTRADICTS, support confidence for SUPPORTS, 1.0 for
+    structural edges (DERIVED_FROM / INVOKES / CITES).
+    """
+
+    id: str
+    src: str
+    dst: str
+    kind: KGEdgeKind
+    weight: float = 1.0
+    attrs: dict[str, Any] = Field(default_factory=dict)
+
+    model_config = ConfigDict(use_enum_values=True)
+
+
+class KnowledgeGraph(BaseModel):
+    """One in-memory snapshot of an organization's knowledge graph."""
+
+    organization_id: str
+    nodes: list[KGNode] = Field(default_factory=list)
+    edges: list[KGEdge] = Field(default_factory=list)
+    generated_at: datetime = Field(default_factory=datetime.now)
+    version: str = "kg/v1"
+
+
+class GraphDelta(BaseModel):
+    """One additive or subtractive change emitted by ``incremental_update``.
+
+    ``op`` is ``add`` or ``remove``; ``target`` is ``node`` or ``edge``;
+    ``payload`` is the JSON-serialisable node/edge body. Persistence is
+    append-only so a sequence of deltas can be replayed against the
+    latest snapshot to recover the next version.
+    """
+
+    op: Literal["add", "remove"] = "add"
+    target: Literal["node", "edge"] = "node"
+    payload: dict[str, Any] = Field(default_factory=dict)
+
+
+class GraphSnapshot(BaseModel):
+    """An append-only persisted snapshot of one org's graph."""
+
+    id: str = Field(default_factory=lambda: f"kgsnap_{uuid.uuid4().hex[:24]}")
+    organization_id: str
+    snapshot_at: datetime = Field(default_factory=datetime.now)
+    version: str = "kg/v1"
+    nodes: list[KGNode] = Field(default_factory=list)
+    edges: list[KGEdge] = Field(default_factory=list)
+    node_count: int = 0
+    edge_count: int = 0
+    notes: str = ""
+
+
+class SourceCitation(BaseModel):
+    """A citation grounding one reasoning step in a real artifact."""
+
+    ref: str
+    kind: str = "SOURCE"
+    title: str = ""
+    excerpt: str = ""
+
+
+class EdgeReasoning(BaseModel):
+    """Structured response from ``agent_reasoner.reason_about_edge``."""
+
+    question_implied: str
+    short_answer: str
+    reasoning_chain: list[str] = Field(default_factory=list)
+    citations: list[SourceCitation] = Field(default_factory=list)
+    confidence_low: float = Field(default=0.0, ge=0.0, le=1.0)
+    confidence_high: float = Field(default=1.0, ge=0.0, le=1.0)
+    generated_at: datetime = Field(default_factory=datetime.now)
+    weak_connection: bool = False
+
+
+# ── Round 19 prompt 14: Dialectic live recording mode ───────────────────────
+
+
+class DialecticSessionStatus(str, Enum):
+    """Lifecycle of a recorded podcast / meeting session."""
+
+    RECORDING = "RECORDING"
+    PROCESSING = "PROCESSING"
+    COMPLETE = "COMPLETE"
+    FAILED = "FAILED"
+    ARCHIVED = "ARCHIVED"
+
+
+class DialecticVisibility(str, Enum):
+    PRIVATE = "PRIVATE"
+    PUBLIC = "PUBLIC"
+
+
+class DialecticContradictionFlagKind(str, Enum):
+    """Where the contradicting position came from."""
+
+    INTRA_SESSION = "INTRA_SESSION"
+    HISTORICAL_SELF = "HISTORICAL_SELF"
+    HISTORICAL_OTHER = "HISTORICAL_OTHER"
+    HISTORICAL_FIRM = "HISTORICAL_FIRM"
+
+
+class DialecticParticipant(BaseModel):
+    """One named participant in a recorded conversation."""
+
+    speaker_id: str
+    display_name: str
+    voice_profile_ref: Optional[str] = None
+    consented: bool = False
+    consented_at: Optional[datetime] = None
+
+
+class DialecticSession(BaseModel):
+    """A canonical recorded conversation."""
+
+    id: str = Field(default_factory=lambda: f"dlg_{uuid.uuid4().hex[:24]}")
+    organization_id: str
+    title: str = ""
+    started_at: datetime = Field(default_factory=datetime.now)
+    ended_at: Optional[datetime] = None
+    participants: list[DialecticParticipant] = Field(default_factory=list)
+    audio_path: str = ""
+    transcript_path: str = ""
+    status: DialecticSessionStatus = DialecticSessionStatus.RECORDING
+    visibility: DialecticVisibility = DialecticVisibility.PRIVATE
+    live_contradictions_detected: int = 0
+    principles_extracted: int = 0
+    summary_memo_id: Optional[str] = None
+    created_at: datetime = Field(default_factory=datetime.now)
+    updated_at: datetime = Field(default_factory=datetime.now)
+
+
+class DialecticUtterance(BaseModel):
+    """One transcribed speaker-turn inside a session."""
+
+    id: str = Field(default_factory=lambda: f"dlu_{uuid.uuid4().hex[:24]}")
+    session_id: str
+    speaker_id: str
+    start_time: float = 0.0  # seconds into session
+    end_time: float = 0.0
+    text: str = ""
+    extracted_claim_ids: list[str] = Field(default_factory=list)
+    derived_principle_ids: list[str] = Field(default_factory=list)
+    live_contradiction_flags: list[dict] = Field(default_factory=list)
+    created_at: datetime = Field(default_factory=datetime.now)
+
+
+class DialecticContradictionFlag(BaseModel):
+    """A contradiction event fired during a live recording."""
+
+    id: str = Field(default_factory=lambda: f"dcf_{uuid.uuid4().hex[:24]}")
+    utterance_id: str
+    flag_kind: DialecticContradictionFlagKind
+    prior_utterance_id: Optional[str] = None
+    prior_principle_id: Optional[str] = None
+    prior_speaker_id: Optional[str] = None
+    contradiction_score: float = 0.0
+    axis: Optional[str] = None
+    human_explanation: Optional[str] = None
+    detection_method: str = ""
+    acknowledged_at: Optional[datetime] = None
+    acknowledged_by: Optional[str] = None
+    acknowledgment_note: Optional[str] = None
+    detected_at: datetime = Field(default_factory=datetime.now)

@@ -1,0 +1,39 @@
+{
+  "_comment": "Fixtures for P5 verbatim-citation discipline. Each entry seeds a Principle and a synthesizer chain step that cites it. 'expected' is the outcome that the validator MUST produce: 'reject' for fabricated or mistyped principle_ids, 'accept' for exact governing-set citations. Future maintainers: do NOT delete fixtures that look 'weird' — each one is a known fabrication shape that the validator has to refuse.",
+  "principles": [
+    {
+      "id": "prn_safety_p5_real_001",
+      "text": "Calibration drift exceeding the mean-Brier ceiling forces a pause on every live submission until human review."
+    }
+  ],
+  "cases": [
+    {
+      "name": "exact_principle_id_accepted",
+      "principle_id": "prn_safety_p5_real_001",
+      "derived_fact": "Mean-Brier > 0.30 over the last 50 resolutions, so pause.",
+      "expected": "accept",
+      "attack": "Honest path: the cited principle_id exists in the governing set."
+    },
+    {
+      "name": "fabricated_principle_id_rejected",
+      "principle_id": "prn_does_not_exist_999",
+      "derived_fact": "Some plausible-looking fact.",
+      "expected": "reject",
+      "attack": "Fabricated source — the LLM invented a principle_id."
+    },
+    {
+      "name": "almost_verbatim_principle_id_rejected",
+      "principle_id": "prn_safety_p5_real_OO1",
+      "derived_fact": "Almost-right id — capital-O substituted for the trailing 001.",
+      "expected": "reject",
+      "attack": "Homoglyph attack: a single character changed in the principle_id should still be refused."
+    },
+    {
+      "name": "blank_principle_id_rejected",
+      "principle_id": "",
+      "derived_fact": "No citation at all.",
+      "expected": "reject",
+      "attack": "Drop-the-citation: a missing principle_id is a fabrication-by-omission."
+    }
+  ]
+}

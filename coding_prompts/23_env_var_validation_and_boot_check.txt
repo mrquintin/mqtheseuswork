@@ -1,0 +1,159 @@
+You are operating in /Users/michaelquintin/Desktop/Theseus.
+
+Goal: extend the env-var validator from Round 11 prompt 01 to
+cover every new variable Round 19 introduces, and add a
+boot-time check on the API and scheduler that refuses to start
+when a required-for-this-mode var is missing — surfacing a
+specific error rather than a 500-on-first-request mystery.
+
+What "required for this mode" means:
+
+- `MODE=algorithms-only`: algorithm runtime + visibility surface
+  active. Requires:
+  `DATABASE_URL`, `ANTHROPIC_API_KEY`, `FORECASTS_INGEST_ORG_ID`,
+  `FORECASTS_OPERATOR_SECRET`, `ALGORITHMS_BUDGET_HOURLY_PROMPT_TOKENS`,
+  `ALGORITHMS_BUDGET_HOURLY_COMPLETION_TOKENS`,
+  `ALGORITHMS_TICK_INTERVAL_S`,
+  `ALGORITHMS_MAX_TOKENS_PER_FIRE`.
+- `MODE=synthesizer`: synthesizer engine active. Additionally
+  requires:
+  `SYNTHESIZER_BUDGET_HOURLY_PROMPT_TOKENS`,
+  `SYNTHESIZER_BUDGET_HOURLY_COMPLETION_TOKENS`.
+- `MODE=full`: every Round-19 surface active. Additionally
+  requires:
+  `CLUSTER_JOIN_THRESHOLD`, `MIN_CLUSTER_SIZE`,
+  `CROSS_CLUSTER_SAMPLE_FRACTION`, `CROSS_CLUSTER_RANDOM_FRACTION`,
+  `CLUSTER_DRIFT_THRESHOLD`,
+  `CONTRADICTION_THRESHOLD`,
+  `DIALECTIC_LIVE_CONTRADICTION_THRESHOLD`,
+  `DIALECTIC_LIVE_LATENCY_TARGET_S`,
+  `DIALECTIC_AUDIO_RETENTION_DAYS`,
+  `GRAPH_REASONER_MAX_TOKENS_PER_EDGE`,
+  `MEMO_DISPATCH_DEFAULT_MODE`.
+- `MODE=live-trading`: additionally requires the live-trading
+  block from Round 10 and Round 18 plus
+  `AUTO_PAPER_REQUIRES_CALIBRATION_THRESHOLD`.
+
+Defaults are documented; missing optional vars are LOGGED but
+do not block startup. Missing REQUIRED vars BLOCK startup with
+a structured error naming the missing var and the mode that
+needed it.
+
+Before you start — read:
+1. `noosphere/scripts/validate_live_credentials.py` from Round
+   11 prompt 01.
+2. The boot sequence of the API: wherever the FastAPI app
+   instantiates and reads config.
+3. The boot sequence of the scheduler.
+4. Every Round 19 prompt's "Configuration" section — that's the
+   source of truth for new vars.
+
+Implement:
+
+A. `noosphere/scripts/validate_live_credentials.py` extended:
+   - Adds rows to the status table for every new var from
+     Round 19 (the full list above).
+   - For numeric vars: validates the value parses as a number
+     in the documented range (and emits "OUT_OF_RANGE" if not).
+   - For enum vars (e.g. `MEMO_DISPATCH_DEFAULT_MODE` ∈
+     `HUMAN | AUTO_PAPER | AUTO_LIVE`): validates the value
+     is in the allowed set.
+   - Output adds a final row: "Mode determined: <mode>" so the
+     operator sees which mode the env produces.
+
+B. `noosphere/noosphere/core/env_validation.py`:
+   - `class EnvRequirement`:
+     - `var_name: str`
+     - `required_in_modes: list[Mode]`
+     - `type: NUMBER | STRING | ENUM | DURATION | SECRET`
+     - `enum_values: list[str] | None`
+     - `range: tuple[float, float] | None`
+     - `default: str | None`
+     - `notes: str`
+   - `EnvRequirementRegistry`: the canonical list. Populated by
+     Round 19's new vars + Round 18's + Round 10's. One source
+     of truth.
+   - `def validate_env(mode: Mode) -> ValidationReport`:
+     - Returns a ValidationReport with per-var status: PASS /
+       MISSING / OUT_OF_RANGE / INVALID_ENUM / TYPE_MISMATCH.
+     - Does not log secret values.
+
+C. `current_events_api/current_events_api/boot_check.py`:
+   - On FastAPI app startup, runs `validate_env(MODE)`.
+   - If any REQUIRED var fails: the app refuses to start, logs
+     a structured error naming the var(s), and exits non-zero.
+   - On success: logs a single structured-log line with the
+     mode and the number of vars validated.
+   - The MODE is read from `THESEUS_MODE` env var; defaults
+     to `algorithms-only`.
+
+D. `noosphere/noosphere/forecasts/scheduler.py` startup hook:
+   - Same boot check as above. Scheduler refuses to start on
+     missing required vars.
+
+E. `current_events_api/current_events_api/routes/health.py`
+   extends `/readyz`:
+   - Returns the env validation report (with secret values
+     redacted) so an operator can curl readyz and see the
+     mode + which vars are healthy.
+
+F. CLI:
+   - `noosphere env validate --mode <mode>` runs the validator
+     and prints the report.
+   - `noosphere env report` prints the validation report for the
+     current process's env (the readyz response, basically).
+   - `noosphere env required --mode <mode>` lists every required
+     var for the named mode (useful for setup scripts).
+
+G. Documentation. `docs/operator/ENV_VARIABLES.md`:
+   - One row per env var: name, required-in-which-modes, type,
+     default, notes, prompt-of-origin.
+   - Generated from the EnvRequirementRegistry; CI fails on
+     drift between the doc and the registry.
+
+H. `.env.live.template` update:
+   - Every new Round-19 var is added with the same documentation
+     pattern as Round 11's template.
+   - The template stays gitignored-safe (no real values).
+
+I. Tests:
+   - validate_env returns PASS on a complete env fixture.
+   - validate_env returns MISSING on a stripped env fixture
+     for the right vars.
+   - validate_env returns OUT_OF_RANGE on adversarial numeric
+     values (negative, infinite, NaN).
+   - validate_env returns INVALID_ENUM on an off-list enum
+     value.
+   - Boot check refuses startup on missing required var with the
+     correct exit code.
+   - readyz returns the redacted report (no secret values
+     leak into the response).
+   - Documentation matches registry (drift test).
+
+Constraints
+- The validator never prints, logs, or returns a secret value.
+  Mask everything as in Round 11.
+- The MODE is one source of truth. Don't sprinkle "is this
+  enabled?" checks throughout the codebase; use the validator's
+  conclusion.
+- Adding a new env var in a future round REQUIRES adding a
+  row to EnvRequirementRegistry. CI fails on missed registry
+  entries (a test scans for new `os.getenv(` patterns and
+  asserts they're in the registry).
+- Boot-time refusal is LOUD. Operators should see a single
+  clear message; not a stack trace.
+
+SCOPE
+- `noosphere/scripts/validate_live_credentials.py` MODIFY
+- `noosphere/noosphere/core/env_validation.py` CREATE
+- `current_events_api/current_events_api/boot_check.py` CREATE
+- `current_events_api/current_events_api/main.py` MODIFY
+- `current_events_api/current_events_api/routes/health.py` MODIFY
+- `noosphere/noosphere/forecasts/scheduler.py` MODIFY
+- `noosphere/noosphere/cli.py` MODIFY
+- `docs/operator/ENV_VARIABLES.md` CREATE
+- `.env.live.template` MODIFY
+- `noosphere/tests/test_env_validation.py` CREATE
+- `noosphere/tests/test_env_validation_boot_check.py` CREATE
+- `tests/static/test_env_docs_match_registry.py` CREATE
+- `tests/static/test_no_unregistered_getenv.py` CREATE

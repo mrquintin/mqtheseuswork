@@ -198,6 +198,19 @@ export default function UploadForm() {
       ? "semi-private"
       : "org";
 
+  // Prompt 09 — upload-time provenance demarcation. Distinct from
+  // visibility: provenance answers who AUTHORED the material, not who
+  // is allowed to read it. External choices require a ≥30-character
+  // rationale ("why is this in our library?"). The agent never
+  // infers this; only the founder picks.
+  const [provenance, setProvenance] = useState<
+    "PROPRIETARY" | "ENDORSED_EXTERNAL" | "STUDIED_EXTERNAL" | "OPPOSING_EXTERNAL"
+  >("PROPRIETARY");
+  const [provenanceRationale, setProvenanceRationale] = useState("");
+  const isExternalProvenance = provenance !== "PROPRIETARY";
+  const provenanceRationaleOk =
+    !isExternalProvenance || provenanceRationale.trim().length >= 30;
+
   // ── Top-level form state ───────────────────────────────────────
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState("");
@@ -280,6 +293,10 @@ export default function UploadForm() {
       fd.append("authorBio", authorBio.trim());
     }
     fd.append("visibility", visibility);
+    fd.append("provenance", provenance);
+    if (isExternalProvenance) {
+      fd.append("provenanceRationale", provenanceRationale.trim());
+    }
 
     const res = await fetch("/api/upload", { method: "POST", body: fd });
     const data = await res.json();
@@ -315,6 +332,10 @@ export default function UploadForm() {
       blogExcerpt: publishAsPost ? blogExcerpt.trim() : "",
       authorBio: publishAsPost ? authorBio.trim() : "",
       audioDurationSec,
+      provenance,
+      provenanceRationale: isExternalProvenance
+        ? provenanceRationale.trim()
+        : "",
     };
     const prep = await fetch("/api/upload/signed/prepare", {
       method: "POST",
@@ -423,6 +444,12 @@ export default function UploadForm() {
     e.preventDefault();
     if (items.length === 0) {
       setError("Drop at least one file to upload.");
+      return;
+    }
+    if (isExternalProvenance && !provenanceRationaleOk) {
+      setError(
+        'External provenance requires a rationale of at least 30 characters: "Why is this in our library?"',
+      );
       return;
     }
     setError("");
@@ -1016,6 +1043,142 @@ export default function UploadForm() {
             </select>
           </div>
         )}
+
+        {/* ── Provenance (prompt 09) ───────────────────────────────── */}
+        {/* Distinct axis from visibility: who AUTHORED the source.    */}
+        {/* Founder picks; the agent never infers. External choices    */}
+        {/* require a short rationale that gets persisted on the row. */}
+        <div
+          style={{
+            marginTop: "0.5rem",
+            padding: "1rem 1.1rem",
+            border: "1px solid var(--stroke)",
+            borderRadius: "4px",
+            background: "rgba(212, 160, 23, 0.035)",
+            display: "flex",
+            flexDirection: "column",
+            gap: "0.6rem",
+          }}
+        >
+          <div
+            className="mono"
+            style={{
+              fontSize: "0.6rem",
+              letterSpacing: "0.16em",
+              textTransform: "uppercase",
+              color: "var(--amber)",
+            }}
+          >
+            Provenance
+          </div>
+          <p
+            style={{
+              fontSize: "0.85rem",
+              color: "var(--parchment-dim)",
+              margin: 0,
+              lineHeight: 1.55,
+            }}
+          >
+            Who authored this material? The Oracle and synthesis layer
+            weight proprietary firm material 2× higher than endorsed
+            external work by default. Studied and opposing material is
+            kept out of the contradiction queue unless an operator opts
+            in.
+          </p>
+          {(
+            [
+              {
+                value: "PROPRIETARY",
+                label: "Proprietary — the firm authored this",
+              },
+              {
+                value: "ENDORSED_EXTERNAL",
+                label:
+                  "Endorsed external — outside writing the firm explicitly stands behind",
+              },
+              {
+                value: "STUDIED_EXTERNAL",
+                label:
+                  "Studied external — a reference/test case we want to reason about",
+              },
+              {
+                value: "OPPOSING_EXTERNAL",
+                label:
+                  "Opposing external — material we disagree with, kept for argument value",
+              },
+            ] as const
+          ).map((opt) => (
+            <label
+              key={opt.value}
+              style={{
+                display: "flex",
+                alignItems: "flex-start",
+                gap: "0.55rem",
+                cursor: "pointer",
+                fontSize: "0.9rem",
+                color: "var(--parchment)",
+              }}
+            >
+              <input
+                type="radio"
+                name="provenance"
+                value={opt.value}
+                checked={provenance === opt.value}
+                onChange={() => setProvenance(opt.value)}
+                style={{ marginTop: "0.25rem" }}
+              />
+              <span>{opt.label}</span>
+            </label>
+          ))}
+          {isExternalProvenance && (
+            <div style={{ display: "flex", flexDirection: "column", gap: "0.3rem" }}>
+              <label
+                className="mono"
+                htmlFor="provenance-rationale"
+                style={{
+                  fontSize: "0.6rem",
+                  letterSpacing: "0.16em",
+                  textTransform: "uppercase",
+                  color: "var(--amber-dim)",
+                }}
+              >
+                Why is this in our library? (required, ≥ 30 chars)
+              </label>
+              <textarea
+                id="provenance-rationale"
+                value={provenanceRationale}
+                onChange={(e) => setProvenanceRationale(e.target.value)}
+                rows={3}
+                placeholder="e.g. Thiel's 'Competition is for Losers' captures our view that monopolies fund long-horizon R&D."
+                style={{
+                  width: "100%",
+                  padding: "0.6rem",
+                  background: "rgba(0,0,0,0.25)",
+                  border: `1px solid ${
+                    provenanceRationaleOk ? "var(--stroke)" : "var(--amber)"
+                  }`,
+                  borderRadius: "3px",
+                  color: "var(--parchment)",
+                  fontFamily: "inherit",
+                  fontSize: "0.9rem",
+                  resize: "vertical",
+                }}
+              />
+              <span
+                className="mono"
+                style={{
+                  fontSize: "0.6rem",
+                  letterSpacing: "0.12em",
+                  color: provenanceRationaleOk
+                    ? "var(--parchment-dim)"
+                    : "var(--amber)",
+                }}
+              >
+                {provenanceRationale.trim().length}/30
+              </span>
+            </div>
+          )}
+        </div>
 
         {/* ── Visibility + publication toggles ─────────────────────── */}
         {/* Two independent privacy axes:                              */}

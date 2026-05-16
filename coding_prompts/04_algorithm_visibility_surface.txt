@@ -1,0 +1,170 @@
+You are operating in /Users/michaelquintin/Desktop/Theseus.
+
+Goal: the SURFACE where founders see algorithms at work. This is
+load-bearing per the founder's directive: "make sure the founders
+can very clearly see the algorithms at work." This page is the
+proof — the visible artifact of the philosopher-in-a-box thinking
+in public.
+
+The page lives at `/algorithms` (public) plus `/(authed)/algorithms`
+(operator). The public view is a curated subset; the authed view
+is the full machinery.
+
+What the page is FOR (re-read whenever in doubt):
+- A founder, an investor, or a curious visitor opens `/algorithms`.
+- Within 5 seconds they should be able to answer:
+  1. What algorithms is Theseus currently running?
+  2. What did each algorithm predict most recently, and was it
+     right when it resolved?
+  3. Which principles does each algorithm rest on?
+  4. What bet (if any) does the latest invocation imply, and did
+     the firm take it?
+
+Before you start — read:
+1. The algorithm + invocation schema from prompt 01.
+2. The runtime from prompt 03 — note the reasoning_trace
+   structure on AlgorithmInvocation.
+3. `theseus-codex/src/app/principles/page.tsx` (Round 18
+   prompt 58) — the principle index this page links to.
+4. `theseus-codex/src/components/design/` — the design primitives
+   from Round 18 prompt 06; reuse them.
+
+Implement:
+
+A. `/algorithms` — public index page:
+   - Header strip: short copy explaining what the page is.
+     "Theseus runs N algorithms — logical functions derived from
+      our principles, applied to live observations of the world.
+      Each one predicts an output and is graded when reality
+      catches up. This is the firm thinking in public."
+   - Filter controls: status (ACTIVE only by default; toggle
+     RETIRED to show graveyard), domain, source principle.
+   - Algorithm cards, one per ACTIVE algorithm:
+     - Name (h2)
+     - Description (1 paragraph)
+     - Inputs (compact list: name → observability_source)
+     - Output (one-line; e.g. "predicts per-side military
+       spending increase over a 6-month horizon")
+     - Source principles (clickable pills → `/principles/[id]`)
+     - Hit rate badge: e.g. `73% (n=22)` — correctness ratio
+       across resolved invocations
+     - "Last fired N minutes ago" with link to the latest
+       invocation
+     - "View invocations" link → list page below
+   - Sort: by recent activity (last fired), by hit rate, or by name.
+
+B. `/algorithms/[id]` — detail page:
+   - Hero: name + description + status pill (ACTIVE/PAUSED/RETIRED)
+   - "How this algorithm works" section: the reasoning chain
+     rendered as numbered steps. Each APPLY_PRINCIPLE step shows
+     the principle text inline (collapsible).
+   - "Inputs it watches" section: each input named, with its
+     observability source and the LIVE current value (refreshed
+     every 60s via SSE or polling).
+   - "Trigger condition" section: the predicate rendered in
+     plain English under the hood (a small renderer that takes
+     the predicate AST and produces something like "fires when
+     escalation_index > 0.6 AND mediator_present == false").
+     The raw predicate is shown below for transparency.
+   - "Latest invocations" table — top 20, click to drill into a
+     specific invocation.
+   - "Calibration over time" — a small chart of correctness
+     versus invocation index, with confidence intervals.
+   - "Bet log" — the bets implied by this algorithm's invocations,
+     whether the firm took them (link to the portfolio agent
+     entry; prompt 12), and the P&L on the ones that resolved.
+
+C. `/algorithms/[id]/invocations/[invocationId]` — drill page.
+   This is the audit page; the most important page in the round.
+   - Title: "Invocation #N of <algorithm name>"
+   - Top strip: invoked_at, status (UNRESOLVED / RESOLVED-CORRECT /
+     RESOLVED-INCORRECT / RESOLVED-INDETERMINATE), confidence band.
+   - "Observed inputs" panel: each input, its value at fire time,
+     a link to the source artifact (a Currents event, a market
+     snapshot, an upload, an operator entry).
+   - "Reasoning trace" panel — THE central artifact. Each step
+     rendered:
+     - DETECT step: "Observed: <input shorthand> matched
+        predicate <predicate>"
+     - APPLY_PRINCIPLE step: "Applied principle '<text>' →
+        derived: '<derived fact text>'" with the principle text
+        clickable to its detail page.
+     - SYNTHESIZE step: "Synthesised <output_field> = <value>
+        from derived facts: [...]"
+     - OUTPUT step: "Final output: <structured JSON, pretty-printed>"
+   - "Bet implied" panel: structured rendering of the
+     `betImplied` JSON if present; otherwise "no bet implied".
+   - "Resolution" panel: if resolved, the actual outcome side-by-
+     side with the predicted output; correctness label;
+     brierEquivalent if probabilistic.
+   - "Permalink" — copy URL with no UTM (existing share policy).
+
+D. `/(authed)/algorithms/operator` — operator-only:
+   - Trigger sub-loop manually: force a tick on an algorithm with
+     overridden inputs (calls `noosphere algorithms fire`).
+   - Pause / unpause an algorithm.
+   - Edit an active algorithm (rare; opens the triage editor
+     from prompt 02).
+   - Retire an algorithm (with reason).
+
+E. SSE feed for live invocations. New endpoint
+   `GET /v1/algorithms/stream` emits frames:
+   - `algorithm.fired` — when an invocation is created
+   - `invocation.resolved` — when one resolves
+   - `algorithm.status_changed` — status transitions
+   Public surface (the cards) subscribes; the operator page
+   subscribes with elevated detail (includes the operator-only
+   pause/unpause events).
+
+F. Component library additions under
+   `theseus-codex/src/components/algorithms/`:
+   - `AlgorithmCard` — used on the index
+   - `ReasoningTraceList` — the central audit component
+   - `TriggerPredicatePlain` — renders predicate as English
+   - `InvocationTable` — used on detail
+   - `LiveInputValuePill` — small pill showing a live input value
+     with a heartbeat indicator
+   - `CalibrationSpark` — small chart for the index card
+
+G. Tests:
+   - Index page renders with N active algorithms.
+   - Detail page renders the reasoning chain for a fixture
+     algorithm with 4 steps including 2 APPLY_PRINCIPLE.
+   - Invocation drill page shows observed inputs, the full trace,
+     and resolution data when present.
+   - Trigger-predicate plain-English renderer round-trips a
+     fixture predicate.
+   - SSE stream delivers a synthetic `algorithm.fired` frame to
+     a connected client within 1s.
+
+Constraints
+- The public page does NOT leak operator-only fields. No internal
+  IDs, no token counts, no wallet info.
+- Inputs whose `observability_source` is `manual.operator.entered`
+  are still shown on the public surface but with a small "operator
+  input" badge so readers know the value is hand-curated.
+- Live trading bet implications are shown on the public surface
+  only at the PAPER level. Live-bet linkage stays operator-only.
+- This page is the firm's institutional honesty. Render UNRESOLVED
+  invocations alongside RESOLVED ones; do NOT hide the unflattering
+  ones.
+
+SCOPE
+- `theseus-codex/src/app/algorithms/page.tsx` CREATE
+- `theseus-codex/src/app/algorithms/[id]/page.tsx` CREATE
+- `theseus-codex/src/app/algorithms/[id]/invocations/[invocationId]/page.tsx` CREATE
+- `theseus-codex/src/app/(authed)/algorithms/operator/page.tsx` CREATE
+- `theseus-codex/src/components/algorithms/AlgorithmCard.tsx` CREATE
+- `theseus-codex/src/components/algorithms/ReasoningTraceList.tsx` CREATE
+- `theseus-codex/src/components/algorithms/TriggerPredicatePlain.tsx` CREATE
+- `theseus-codex/src/components/algorithms/InvocationTable.tsx` CREATE
+- `theseus-codex/src/components/algorithms/LiveInputValuePill.tsx` CREATE
+- `theseus-codex/src/components/algorithms/CalibrationSpark.tsx` CREATE
+- `theseus-codex/src/components/nav/PrimaryNav.tsx` MODIFY
+- `current_events_api/current_events_api/routes/algorithms.py` CREATE
+- `current_events_api/current_events_api/routes/algorithms_stream.py` CREATE
+- `theseus-codex/src/app/api/algorithms/route.ts` CREATE
+- `theseus-codex/src/app/api/algorithms/[id]/route.ts` CREATE
+- `theseus-codex/src/app/api/algorithms/stream/route.ts` CREATE
+- `theseus-codex/__tests__/algorithms_page.test.tsx` CREATE
+- `theseus-codex/__tests__/ReasoningTraceList.test.tsx` CREATE

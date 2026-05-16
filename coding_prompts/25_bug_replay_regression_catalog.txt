@@ -1,0 +1,195 @@
+You are operating in /Users/michaelquintin/Desktop/Theseus.
+
+Goal: every bug we have actually hit during this collaboration
+gets a regression test. The principle is unambiguous — if it
+broke once, write the test that would have caught it, so it
+cannot break the same way twice. This prompt builds the catalog.
+
+Source bugs (chronological, real cases from the conversation
+record):
+
+B01. **`prisma format` fails without `DATABASE_URL`.** Prisma 7's
+     `prisma.config.ts` resolves `DATABASE_URL` at config-load
+     time even for offline commands. Mitigation: scripts inject
+     a non-routable stub URL (`postgresql://stub:stub@db.invalid:1/stub`).
+     Regression: a test that runs `prisma format` AND `prisma
+     validate` with the env unset and asserts it fails with the
+     expected message; with the stub set, asserts success.
+
+B02. **`python` not on macOS by default.** Bare `python` invocations
+     in shell scripts break on the operator's Mac. Mitigation:
+     probe `python3` first; fall back gracefully; or use the
+     project venv. Regression: a shellcheck-style test that
+     scans every script under `scripts/` and `*.sh` files for
+     bare `\bpython\b` invocations not preceded by a probe; flags
+     them.
+
+B03. **Codex / Claude Code daily quota exhaustion mid-batch.**
+     The runner auto-retries with backoff. Regression: a test
+     that feeds a fake "quota exhausted" output to the runner's
+     retry parser and asserts the correct sleep + retry behavior.
+
+B04. **Avast quarantining `~/.codex/memories/*.md`.** Out of scope
+     for code regression but worth a docs check: the README's
+     "If something goes wrong" section names the Avast exclusion
+     fix.
+
+B05. **`~/.zshrc` vs `~/.zshenv` for non-interactive shells.**
+     The sync script runs `zsh -l -c`, which does not source
+     `~/.zshrc`. Regression: a test that simulates Cursor's
+     invocation pattern and asserts the env vars the sync needs
+     are visible. (Documented; not enforceable in CI without
+     access to the operator's home dir.)
+
+B06. **`sync-to-github.sh` requires `SUPABASE_ACCESS_TOKEN` and
+     `CURRENTS_BACKEND_REFRESH_CMD`.** Both must be set or the
+     script fails. Regression: a test that invokes the script
+     with each var unset in turn and asserts a clear error
+     message identifying the missing var.
+
+B07. **AES password mismatch in rotation flow.** The rotation
+     script's "enter password" prompt verifies twice; mistyped
+     entries fail. Mitigation: clearer error message; option to
+     supply the password via env var for unattended runs.
+     Regression: a test that asserts the unattended-env-var path
+     works correctly.
+
+B08. **Article rendering bug ("Real cost of growth" rendered
+     broken).** Round 18 prompt 51 fixed this. Regression: a
+     test that re-renders the "Real cost of growth" article from
+     fixture data and snapshot-asserts against the post-fix
+     baseline.
+
+B09. **Public homepage didn't surface newly-published articles.**
+     Round 18 prompt 52 fixed this. Regression: publish a
+     fixture article, hit `/`, assert the title appears within
+     60s.
+
+B10. **Continuous-running scheduler flakiness.** Round 18 prompt
+     53 fixed this. Regression: the continuous-run integration
+     test that asserts no sub-loop starves over 1.5s of fast-clock
+     ticks.
+
+B11. **`.env.live` accidentally tracked by git.** Round 11 prompt
+     11 added the `.gitignore` patterns. Regression: a test that
+     touches `.env.live`, `.env.production`, `.env.staging`,
+     `.env.live.fake`, and asserts `git status --short` does not
+     surface any of them.
+
+B12. **First-person-shaped conclusions instead of principles.**
+     Round 18 prompt 56 and Round 19 prompt 56-equivalent fix
+     this. Regression: a test that feeds a fixture first-person
+     paragraph through the extractor and asserts the resulting
+     conclusions do not start with `I`, `we`, `my`, `our`.
+
+B13. **Stale algorithm invocation idempotency window.** Round 19
+     prompt 03 added the idempotency rule. Regression: covered
+     by prompt 24's idempotency tests.
+
+B14. **Subagent runs partially complete; restart resumes badly.**
+     Long-running prompt batches can be interrupted (Codex quota,
+     Ctrl-C, etc.). The runner uses `--from N` to resume.
+     Regression: a test that simulates an interruption at prompt
+     N, runs `--from N+1`, and asserts the resumed batch picks
+     up correctly.
+
+B15. **Sync push without rotation due to missing token.** Round
+     19 prompt 23's boot-check handles this for the API; the
+     sync script handles it for the push. Regression: the test
+     above (B06).
+
+Before you start — read:
+1. The conversation history mental model:
+   - `coding_prompts/archive_round*/` for every prior round.
+   - `.claude_code_runs/` and `.codex_runs/` for the actual
+     error logs we've hit.
+2. Each named regression has SOMEWHERE in the conversation a
+   real error message. Use the actual error text when writing
+   the regression assertion (so the test fires on the same
+   text Codex emits).
+
+Implement:
+
+A. `tests/regression/test_bug_replay.py`:
+   - One test function per Bxx case above. Test name pattern:
+     `test_b<NN>_<short_slug>`.
+   - Each test:
+     - Sets up the failure condition (or a fixture proxy for it).
+     - Asserts the expected guard fires.
+     - Documents WHICH commit / round / prompt added the fix.
+   - When a test isn't fully automatable (B04, B05): include it
+     as a `@pytest.mark.documented_only` test that prints the
+     documented mitigation and passes.
+
+B. `tests/regression/fixtures/`:
+   - `real_cost_of_growth_article_body.md` — the article body
+     from the rendering-bug fixture (sanitised so it doesn't
+     contain real PII).
+   - `first_person_paragraph.txt` — input for B12.
+   - `continuous_run_planted_starvation.json` — config that
+     would have triggered the B10 starvation pre-fix.
+   - `articles/sample_publish_payload.json` — for B09.
+   - Other fixtures per Bxx as needed.
+
+C. `tests/regression/conftest.py`:
+   - Shared helpers, CLI-agnostic:
+     `simulate_quota_exhausted_output(cli="claude" | "codex")`
+     produces fixture output matching either runner's quota
+     error format; the regression test asserts the runner's
+     retry parser handles both. `assert_python_invocation_safe`
+     scans a shell snippet for bare `python` invocations. Etc.
+   - The runner today uses Claude Code CLI; the catalog
+     documents historical Codex CLI bugs too because the same
+     failure modes can recur. Tests apply to either.
+
+D. Bug-catalog documentation.
+   `docs/security/BUG_CATALOG.md`:
+   - One section per Bxx with:
+     - One-paragraph summary of the bug.
+     - The fix (commit + round + prompt).
+     - The regression test.
+     - "How to add a new entry" footer so the catalog grows over
+       time.
+
+E. The catalog is LIVING. A test
+   `tests/regression/test_catalog_freshness.py` walks
+   `BUG_CATALOG.md` and ensures every Bxx entry has a
+   corresponding test function — and vice versa, every test
+   function has a Bxx entry. New bugs added in future rounds
+   must update both.
+
+F. Pre-sync hook extension. The sync script runs the
+   regression catalog before the push. A regression failure
+   BLOCKS sync — no `--force` flag, only `--skip-regression`
+   (with a printed warning + structured-log entry naming the
+   skip).
+
+G. Tests:
+   - Every regression test passes against the current codebase
+     (i.e., every fix is still in place).
+   - The catalog freshness test fires on a planted orphan
+     (an entry in `BUG_CATALOG.md` without a corresponding
+     test, or vice versa).
+
+Constraints
+- A regression test that becomes flaky is a SIGNAL, not a
+  nuisance. If a regression test fails intermittently, the fix
+  it guards has eroded. Investigate; do not silence.
+- New regressions added in future rounds APPEND to this catalog.
+  Removing an entry requires a documented rationale (the fix is
+  no longer applicable because the code surface it guarded was
+  deleted).
+- The catalog file is a markdown document that humans read.
+  Keep entries pithy: 5-line summary + test pointer.
+
+SCOPE
+- `tests/regression/__init__.py` CREATE
+- `tests/regression/test_bug_replay.py` CREATE
+- `tests/regression/test_catalog_freshness.py` CREATE
+- `tests/regression/conftest.py` CREATE
+- `tests/regression/fixtures/real_cost_of_growth_article_body.md` CREATE
+- `tests/regression/fixtures/first_person_paragraph.txt` CREATE
+- `tests/regression/fixtures/continuous_run_planted_starvation.json` CREATE
+- `tests/regression/fixtures/articles/sample_publish_payload.json` CREATE
+- `docs/security/BUG_CATALOG.md` CREATE
+- `scripts/sync-to-github.sh` MODIFY

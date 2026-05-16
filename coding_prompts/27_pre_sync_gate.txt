@@ -1,0 +1,142 @@
+You are operating in /Users/michaelquintin/Desktop/Theseus.
+
+Goal: a single command — `ready-to-sync` — that runs every check
+this round added (prompts 19-26) and produces a SINGLE pass/fail
+verdict. If it fails, the sync script refuses to push. If it
+passes, the sync runs as before. This is the operator's "I just
+ran a big prompt batch and I want to push the result without
+breaking production" gate.
+
+The gate sequence (each step must pass for the gate to pass):
+
+1. **Migration linearity + parity** (prompt 19)
+2. **Import cycles + type contracts** (prompt 20)
+3. **End-to-end smoke** (prompt 21)
+4. **Algorithm pipeline integration** (prompt 22)
+5. **Env-var validation** (prompt 23)
+6. **Sandbox + safety regression** (prompt 24)
+7. **Bug-replay regression catalog** (prompt 25)
+8. **CI workflow + tooling + doc freshness** (prompt 26)
+
+Each step's failure halts the gate IMMEDIATELY with a structured
+report identifying which step failed and where to look. The gate
+does not "soldier on" through failures — partial passes are worse
+than clear failures.
+
+Before you start — read:
+1. Every prompt 19-26's outputs. Each prompt has either a
+   single check script or a test target you can invoke.
+2. `scripts/sync-to-github.sh` from earlier rounds.
+3. Round 18 prompt 70's pre-commit hook integration.
+
+Implement:
+
+A. `scripts/ready-to-sync.sh`:
+   - One-line invocation, no arguments by default.
+   - Sequence of subcommands, one per gate step:
+     - `scripts/check_migration_linearity.py`
+     - `scripts/check_no_import_cycles.py && scripts/generate_api_types.py --check`
+     - `scripts/smoke/run.sh`
+     - `pytest tests/integration -m integration -q`
+     - `noosphere env validate --mode full`
+     - `pytest tests/safety -q`
+     - `pytest tests/regression -q`
+     - `scripts/check_ci_workflow_integrity.py && scripts/check_doc_freshness.py`
+   - On any step failure: prints a clear "Gate FAILED at step N:
+     <step name>. See <log path>" message and exits non-zero.
+   - On success: prints a single "Gate PASSED. Safe to sync."
+     line with a green check mark in tty mode.
+   - Supports a `--from <step>` flag for resuming after a fix
+     (operator fixes step 3 → re-runs the gate from step 3
+     forward).
+   - Supports a `--only <step>` flag.
+   - Supports `--skip <step>` for genuine bypass (logs the skip
+     prominently; the sync script respects the skip but warns
+     loudly on push).
+   - Final report saved to
+     `docs/verification/ready_to_sync/<timestamp>/REPORT.md`.
+
+B. `scripts/sync-to-github.sh` extension:
+   - At the top of the sync flow (after the pre-commit hook but
+     before the actual push), invoke `scripts/ready-to-sync.sh`.
+   - If it fails: sync refuses. Prints the gate's failure
+     report path and the resume command.
+   - `--skip-ready-to-sync` is the explicit bypass (logs a
+     warning AND records the skip in
+     `docs/verification/ready_to_sync_skips.log` for audit).
+   - `--ready-to-sync-only` runs only the gate (no push).
+     Useful for the operator who wants to verify before
+     committing.
+
+C. Per-step timing budget. The gate is expected to complete in
+   < 10 minutes on the operator's Mac. Each step has a budget:
+   - Migration: 60s
+   - Import + types: 30s
+   - Smoke: 4 min
+   - Integration: 60s
+   - Env validate: 5s
+   - Safety: 60s
+   - Regression: 60s
+   - CI/tooling/docs: 30s
+   Any step exceeding its budget logs a perf warning but
+   completes. Over-budget steps accumulate to a perf summary.
+
+D. Pre-sync progress UI:
+   - The gate emits a progress bar (same style as run_prompts.sh
+     from Round 18). Each step shows status:
+     `[3/8] ▰▰▰▱▱▱▱▱  smoke harness  (1m 23s)`
+   - A SIGINT during the gate stops cleanly and surfaces the
+     resume command.
+
+E. `make` integration. `Makefile` (root) gains:
+   - `make ready-to-sync` invokes the script.
+   - `make sync` invokes sync-to-github.sh (which invokes the
+     gate first by default).
+   This is the operator's daily-driver interface.
+
+F. Documentation. `docs/operator/READY_TO_SYNC.md`:
+   - One section per gate step explaining what it checks, what
+     failure looks like, and how to fix common failure modes.
+   - "When can I skip a step?" — the rare legitimate cases
+     (e.g., a known-broken external service the CI workflow
+     check normally hits).
+   - The skip-audit log location.
+
+G. Tests:
+   - Plant a fixture broken migration; assert the gate's step 1
+     reports the failure.
+   - Plant a fixture broken import cycle; assert step 2 reports.
+   - The full gate runs in < 12 minutes on the test harness
+     (against fixture data).
+   - The skip-log records skips with timestamp + step name +
+     operator-supplied reason.
+   - SIGINT during step 3 cleanly halts and prints resume hint
+     for `--from 3`.
+
+H. CI workflow `.github/workflows/ready-to-sync.yml`:
+   - Runs the full gate on the `main` branch nightly.
+   - Posts a slack/issue notification if the nightly gate
+     starts failing (so an operator sees drift the morning
+     after, not days later).
+
+Constraints
+- The gate is the LAST line of defense before sync. A passing
+  gate does not guarantee the code is correct, but it does
+  guarantee none of the eight named risk classes are present.
+- The skip flags exist for exceptional cases. Frequent skips
+  are a code smell; the operator's nightly review should glance
+  at `ready_to_sync_skips.log`.
+- The gate's progress UI MATTERS. Operators run this command
+  10x per day; the UX has to be clean.
+- The gate does NOT mutate state. No DB writes, no file edits
+  (except its own structured-log output).
+
+SCOPE
+- `scripts/ready-to-sync.sh` CREATE
+- `scripts/sync-to-github.sh` MODIFY
+- `Makefile` MODIFY
+- `docs/operator/READY_TO_SYNC.md` CREATE
+- `docs/verification/ready_to_sync/.gitkeep` CREATE
+- `.github/workflows/ready-to-sync.yml` CREATE
+- `tests/static/test_ready_to_sync_gate.py` CREATE
+- `tests/static/fixtures/ready_to_sync_broken/` CREATE

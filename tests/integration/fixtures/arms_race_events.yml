@@ -1,0 +1,26 @@
+# Two currents events that satisfy the arms-race algorithm's trigger
+# predicate when supplied as forced inputs:
+#   side_a_spending_delta > 0
+#   side_b_spending_delta > 0
+#   escalation_index > 0.6
+#   mediator_present == False
+events:
+  - id: ev_bilateral_spending_spike
+    title: >-
+      State A and State B both raise defense budgets above trend
+    summary: >-
+      Year-on-year defense spending growth for both states crosses
+      the historical threshold; budget bills emphasize bilateral
+      threat framing.
+    side_a_spending_delta: 0.18
+    side_b_spending_delta: 0.14
+
+  - id: ev_rhetoric_escalation
+    title: >-
+      Joint rhetoric escalation index above 0.6
+    summary: >-
+      Public statements from senior officials cross the rhetoric
+      escalation index threshold; no credible third-party mediator
+      is engaged.
+    escalation_index: 0.78
+    mediator_present: false

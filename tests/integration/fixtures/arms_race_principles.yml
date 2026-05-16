@@ -1,0 +1,48 @@
+# Arms-race principle cluster — the founder's example from the meeting
+# transcript. Three principles whose disciplines overlap (security /
+# political philosophy / strategy / economics) so the drafter's
+# domain-overlap guard is satisfied.
+principles:
+  - id: principle_security_dilemma
+    text: >-
+      States in mutual threat perception engage in security-dilemma
+      escalation absent credible commitment devices.
+    disciplines:
+      - POLITICAL_PHILOSOPHY
+      - STRATEGY
+    tags:
+      - escalation
+      - arms-race
+      - regime
+      - bilateral
+      - spending
+      - rhetoric
+
+  - id: principle_domestic_lockin
+    text: >-
+      Domestic political incentives reinforce external escalation once
+      initiated; reversal requires elite cost.
+    disciplines:
+      - POLITICAL_PHILOSOPHY
+    tags:
+      - escalation
+      - arms-race
+      - regime
+      - bilateral
+      - spending
+      - rhetoric
+
+  - id: principle_second_derivative
+    text: >-
+      Arms races are predicted by the second derivative of military
+      spending, not the first.
+    disciplines:
+      - STRATEGY
+      - ECONOMICS
+    tags:
+      - escalation
+      - arms-race
+      - spending
+      - bilateral
+      - rhetoric
+      - regime

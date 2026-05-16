@@ -1,0 +1,68 @@
+name: Safety properties (load-bearing)
+
+# The safety suite enforces every property documented in
+# docs/security/SAFETY_PROPERTIES.md (P1..P10). A failure here BLOCKS
+# sync — operators must triage the broken property before merging.
+
+on:
+  pull_request:
+    paths:
+      - "tests/safety/**"
+      - "noosphere/noosphere/forecasts/safety.py"
+      - "noosphere/noosphere/algorithms/validators.py"
+      - "noosphere/noosphere/algorithms/runtime.py"
+      - "noosphere/noosphere/synthesizer/engine.py"
+      - "noosphere/noosphere/synthesizer/memo_builder.py"
+      - "noosphere/noosphere/synthesizer/memo_pdf.py"
+      - "noosphere/noosphere/bets/spec.py"
+      - "current_events_api/current_events_api/routes/operator.py"
+      - "docs/memos/build_memo_pdf.sh"
+      - "docs/security/SAFETY_PROPERTIES.md"
+      - ".github/workflows/safety.yml"
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+jobs:
+  safety-regression:
+    name: Safety regression suite
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+          cache-dependency-path: |
+            requirements.txt
+            noosphere/requirements.txt
+            current_events_api/pyproject.toml
+
+      - name: Install Python dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install -e current_events_api pytest
+
+      - name: Run safety regression suite
+        env:
+          PYTHONPATH: noosphere:current_events_api:.
+          # Markers that the no-secrets-in-logs test plants. Set here
+          # so that any logging surface that *might* echo them in CI
+          # is exercised under the same conditions the test asserts.
+          POLYMARKET_PRIVATE_KEY: "0xMARKERVALUEPOLYMARKETSECRET"
+          KALSHI_API_PRIVATE_KEY: "PEM_MARKER_KALSHI_SECRET_001"
+        run: |
+          python -m pytest -p no:pytest-qt \
+            tests/safety \
+            -ra -v
+
+      - name: Report pdflatex skips for audit
+        if: always()
+        run: |
+          echo "Note: P3 (pdflatex shell-escape) skips when pdflatex is"
+          echo "absent. CI runners do NOT install texlive — operators run"
+          echo "the test locally. The skip is intentional and logged so"
+          echo "an auditor can verify the test ran somewhere recently."

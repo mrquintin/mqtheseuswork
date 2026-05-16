@@ -5,17 +5,28 @@ import { useState, type CSSProperties, type ReactNode } from "react";
 
 import type { BinaryOutcome, DirectionalSample } from "@/lib/calibration";
 
+import AdvisoryBetsTab from "./AdvisoryBetsTab";
 import DecisionTraceDrawer from "./DecisionTraceDrawer";
 import EquitiesTab from "./EquitiesTab";
 import OverviewTab from "./OverviewTab";
+import ScientificBetsTab from "./ScientificBetsTab";
 import type {
+  AdvisoryBetRow,
   DecisionTrace,
   EquitySurface,
   LivePillState,
+  ScientificBetRow,
+  StrategicBetRow,
   UnifiedOverview,
 } from "./types";
 
-type TabId = "overview" | "prediction-markets" | "equities";
+type TabId =
+  | "overview"
+  | "prediction-markets"
+  | "equities"
+  | "advisory-bets"
+  | "strategic-bets"
+  | "scientific-bets";
 
 export type PortfolioShellProps = {
   overview: UnifiedOverview;
@@ -27,6 +38,14 @@ export type PortfolioShellProps = {
     positionId: string,
     type: "forecast" | "equity",
   ) => Promise<DecisionTrace>;
+  // Round 19 prompt 15: polymorphic bet rows. All default to empty
+  // so callers that haven't migrated continue to render only the
+  // legacy three tabs.
+  advisoryBets?: AdvisoryBetRow[];
+  scientificBets?: ScientificBetRow[];
+  strategicBets?: StrategicBetRow[];
+  /** Reveal the founder-only Strategic-bets tab. */
+  showStrategicBets?: boolean;
 };
 
 const headerStyle: CSSProperties = {
@@ -99,6 +118,10 @@ export default function PortfolioShell({
   directionalSamples,
   predictionMarketsContent,
   fetchDecisionTrace,
+  advisoryBets = [],
+  scientificBets = [],
+  strategicBets = [],
+  showStrategicBets = false,
 }: PortfolioShellProps) {
   const [tab, setTab] = useState<TabId>("overview");
   const [trace, setTrace] = useState<DecisionTrace | null>(null);
@@ -163,6 +186,26 @@ export default function PortfolioShell({
           label="Equities"
           onClick={() => setTab("equities")}
         />
+        <TabButton
+          active={tab === "advisory-bets"}
+          id="tab-advisory-bets"
+          label="Advisory bets"
+          onClick={() => setTab("advisory-bets")}
+        />
+        {showStrategicBets ? (
+          <TabButton
+            active={tab === "strategic-bets"}
+            id="tab-strategic-bets"
+            label="Strategic bets"
+            onClick={() => setTab("strategic-bets")}
+          />
+        ) : null}
+        <TabButton
+          active={tab === "scientific-bets"}
+          id="tab-scientific-bets"
+          label="Scientific bets"
+          onClick={() => setTab("scientific-bets")}
+        />
       </nav>
       <div role="tabpanel" aria-labelledby={`tab-${tab}`}>
         {tab === "overview" ? (
@@ -182,6 +225,15 @@ export default function PortfolioShell({
             surface={equitySurface}
             onSelectPosition={(positionId) => openTrace(positionId, "equity")}
           />
+        ) : null}
+        {tab === "advisory-bets" ? (
+          <AdvisoryBetsTab rows={advisoryBets} />
+        ) : null}
+        {tab === "strategic-bets" && showStrategicBets ? (
+          <StrategicBetsPanel rows={strategicBets} />
+        ) : null}
+        {tab === "scientific-bets" ? (
+          <ScientificBetsTab rows={scientificBets} />
         ) : null}
       </div>
       {drawerOpen ? (
@@ -286,6 +338,60 @@ function HeaderStrip({ overview }: { overview: UnifiedOverview }) {
         </div>
       ) : null}
     </header>
+  );
+}
+
+function StrategicBetsPanel({ rows }: { rows: StrategicBetRow[] }) {
+  if (rows.length === 0) {
+    return (
+      <div data-testid="portfolio-strategic-tab" className="authed-prose">
+        <p className="mono" style={{ color: "var(--amber-dim)" }}>
+          No strategic bets yet. Internal-commitment memos (STRATEGIC_BET)
+          show up here for founder review.
+        </p>
+      </div>
+    );
+  }
+  return (
+    <section data-testid="portfolio-strategic-tab" className="authed-prose">
+      <p className="mono" style={{ color: "var(--amber-dim)", fontSize: "0.82rem" }}>
+        Founder-only. Internal commitments of firm resources. Bets stay OPEN
+        until the founder marks them resolved via{" "}
+        <code>noosphere bet resolve</code>.
+      </p>
+      <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "0.85rem" }}>
+        <thead>
+          <tr style={{ textAlign: "left", borderBottom: "1px solid var(--rule)" }}>
+            <th style={{ padding: "0.4rem 0.4rem 0.4rem 0" }}>Resource</th>
+            <th style={{ padding: "0.4rem" }}>Proposition</th>
+            <th style={{ padding: "0.4rem" }}>Cost</th>
+            <th style={{ padding: "0.4rem" }}>Review at</th>
+            <th style={{ padding: "0.4rem" }}>Status</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((row) => (
+            <tr key={row.id} style={{ borderBottom: "1px solid var(--rule)" }}>
+              <td className="mono" style={{ padding: "0.4rem 0.4rem 0.4rem 0" }}>
+                {row.resourceKind}
+              </td>
+              <td style={{ padding: "0.4rem" }}>{row.proposition || row.id}</td>
+              <td className="mono" style={{ padding: "0.4rem" }}>
+                {row.costEstimate} {row.costUnit}
+              </td>
+              <td className="mono" style={{ padding: "0.4rem" }}>
+                {row.commitmentReviewAt
+                  ? row.commitmentReviewAt.slice(0, 10)
+                  : "—"}
+              </td>
+              <td className="mono" style={{ padding: "0.4rem" }}>
+                {row.outcome ? row.outcome.toLowerCase() : row.status.toLowerCase()}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </section>
   );
 }
 

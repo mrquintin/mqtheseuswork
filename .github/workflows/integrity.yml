@@ -1,0 +1,158 @@
+name: Integrity
+
+# Three pre-flight checks that catch silent drift:
+#   A. CI workflow integrity        scripts/check_ci_workflow_integrity.py
+#   B. Tooling availability         scripts/check_tooling_availability.py
+#                                   (warnings-only — host-specific)
+#   C. Doc freshness                scripts/check_doc_freshness.py
+#
+# A single PR comment is posted summarising all three. Designed to
+# run in under 30 seconds.
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pull-requests: write
+
+concurrency:
+  group: integrity-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  integrity:
+    name: integrity checks
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+
+      - name: Install pyyaml
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install pyyaml
+
+      - name: A. CI workflow integrity
+        id: workflows
+        run: |
+          set +e
+          mkdir -p .integrity
+          python scripts/check_ci_workflow_integrity.py \
+            > .integrity/workflows.txt 2>&1
+          echo "rc=$?" >> $GITHUB_OUTPUT
+          cat .integrity/workflows.txt
+
+      - name: B. Tooling availability (warnings-only on Linux runner)
+        id: tooling
+        run: |
+          set +e
+          mkdir -p .integrity
+          # --warnings-only: this runner does not have pdflatex/vercel
+          # installed by design. The pre-commit hook gates locally.
+          python scripts/check_tooling_availability.py \
+            --warnings-only \
+            --no-write \
+            > .integrity/tooling.txt 2>&1
+          echo "rc=$?" >> $GITHUB_OUTPUT
+          cat .integrity/tooling.txt
+
+      - name: C. Doc freshness
+        id: docs
+        run: |
+          set +e
+          mkdir -p .integrity
+          python scripts/check_doc_freshness.py \
+            > .integrity/docs.txt 2>&1
+          echo "rc=$?" >> $GITHUB_OUTPUT
+          cat .integrity/docs.txt
+
+      - name: Build PR comment body
+        if: always() && github.event_name == 'pull_request'
+        id: comment
+        run: |
+          python - <<'PY' >> "$GITHUB_OUTPUT"
+          import pathlib, os
+
+          def read(p):
+              path = pathlib.Path(p)
+              return path.read_text() if path.is_file() else "(no output)"
+
+          wf = read(".integrity/workflows.txt")
+          tl = read(".integrity/tooling.txt")
+          dc = read(".integrity/docs.txt")
+
+          wf_rc = "${{ steps.workflows.outputs.rc }}" or "0"
+          tl_rc = "${{ steps.tooling.outputs.rc }}" or "0"
+          dc_rc = "${{ steps.docs.outputs.rc }}" or "0"
+
+          def status(rc):
+              return "PASS" if rc.strip() == "0" else "FINDINGS"
+
+          def trim(s, n=80):
+              lines = s.splitlines()
+              if len(lines) > n:
+                  return "\n".join(lines[:n] + [f"... ({len(lines)-n} more lines)"])
+              return s
+
+          body = []
+          body.append("## Integrity report")
+          body.append("")
+          body.append(f"- CI workflow integrity: **{status(wf_rc)}**")
+          body.append(f"- Tooling availability: **{status(tl_rc)}** (warnings-only on this runner)")
+          body.append(f"- Doc freshness: **{status(dc_rc)}**")
+          body.append("")
+          body.append("<details><summary>CI workflow integrity output</summary>")
+          body.append("")
+          body.append("```")
+          body.append(trim(wf))
+          body.append("```")
+          body.append("</details>")
+          body.append("")
+          body.append("<details><summary>Tooling availability</summary>")
+          body.append("")
+          body.append("```")
+          body.append(trim(tl, 120))
+          body.append("```")
+          body.append("</details>")
+          body.append("")
+          body.append("<details><summary>Doc freshness</summary>")
+          body.append("")
+          body.append("```")
+          body.append(trim(dc, 120))
+          body.append("```")
+          body.append("</details>")
+          rendered = "\n".join(body)
+
+          delim = "EOF_integrity_comment"
+          print(f"body<<{delim}")
+          print(rendered)
+          print(delim)
+          PY
+
+      - name: Post PR comment
+        if: always() && github.event_name == 'pull_request' && steps.comment.outputs.body != ''
+        uses: peter-evans/create-or-update-comment@v4
+        with:
+          issue-number: ${{ github.event.pull_request.number }}
+          body: ${{ steps.comment.outputs.body }}
+
+      - name: Fail on hard errors
+        # A and C are gating; B is informational on this runner.
+        run: |
+          rc_wf="${{ steps.workflows.outputs.rc }}"
+          rc_dc="${{ steps.docs.outputs.rc }}"
+          if [ "${rc_wf}" != "0" ] || [ "${rc_dc}" != "0" ]; then
+            echo "::error::Integrity findings present (workflows=${rc_wf}, docs=${rc_dc}). See logs above."
+            exit 1
+          fi

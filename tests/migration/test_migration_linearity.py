@@ -26,6 +26,7 @@ SCRIPT_PATH = REPO_ROOT / "scripts" / "check_migration_linearity.py"
 DRY_RUN_PATH = REPO_ROOT / "scripts" / "migrate_production_dry_run.sh"
 APPLY_PATH = REPO_ROOT / "scripts" / "migrate_production.sh"
 PRISMA_MIGRATIONS_DIR = REPO_ROOT / "theseus-codex" / "prisma" / "migrations"
+FIXTURES_DIR = Path(__file__).resolve().parent / "fixtures"
 
 
 def _load_module():
@@ -185,6 +186,108 @@ class TestDiscoverAndCli:
             check=False,
         )
         assert result.returncode == 2
+
+
+# ---------------------------------------------------------------------------
+# Linearity helpers — exercise the new check_prisma_linearity /
+# check_alembic_linearity entry points directly against the real repo.
+# ---------------------------------------------------------------------------
+
+
+class TestPrismaLinearity:
+    def test_real_repo_is_linear(self) -> None:
+        violations = MOD.check_prisma_linearity(PRISMA_MIGRATIONS_DIR)
+        assert violations == [], violations
+
+    def test_duplicate_timestamps_detected(self) -> None:
+        fixture = FIXTURES_DIR / "broken_timestamp_gap" / "prisma" / "migrations"
+        violations = MOD.check_prisma_linearity(fixture)
+        kinds = {v.kind for v in violations}
+        assert "DUPLICATE_TIMESTAMP" in kinds, violations
+        # The bad-prefix directory must also be flagged.
+        assert "BAD_PREFIX" in kinds, violations
+
+    def test_missing_dir_reports_violation(self, tmp_path: Path) -> None:
+        violations = MOD.check_prisma_linearity(tmp_path / "no-such-dir")
+        assert len(violations) == 1
+        assert violations[0].kind == "MISSING_DIR"
+
+
+class TestAlembicLinearity:
+    def test_real_repo_chain_is_linear(self) -> None:
+        versions = REPO_ROOT / "noosphere" / "alembic" / "versions"
+        violations = MOD.check_alembic_linearity(versions)
+        assert violations == [], violations
+
+    def test_branch_is_detected(self) -> None:
+        fixture = FIXTURES_DIR / "broken_down_revision" / "alembic" / "versions"
+        violations = MOD.check_alembic_linearity(fixture)
+        kinds = {v.kind for v in violations}
+        assert "BRANCH" in kinds, violations
+
+    def test_parse_alembic_revision(self, tmp_path: Path) -> None:
+        body = (
+            '"""msg"""\n'
+            'revision = "abc_def"\n'
+            'down_revision = "xyz_123"\n'
+        )
+        path = tmp_path / "999_test.py"
+        path.write_text(body, encoding="utf-8")
+        rev, down = MOD.parse_alembic_revision(path)
+        assert rev == "abc_def"
+        assert down == "xyz_123"
+
+    def test_parse_alembic_revision_handles_none(self, tmp_path: Path) -> None:
+        path = tmp_path / "000_test.py"
+        path.write_text('revision = "base"\ndown_revision = None\n', encoding="utf-8")
+        rev, down = MOD.parse_alembic_revision(path)
+        assert rev == "base"
+        assert down is None
+
+
+class TestParityDriftFixture:
+    """The parity-drift fixture combines a planted Prisma schema with an
+    in-memory SQLModel that disagrees on nullability. The parity test's
+    diff logic should name the divergent column."""
+
+    def test_nullability_drift_named(self) -> None:
+        # Import parity helpers lazily — the SQLModel import side-effect of
+        # the parity module triggers a noosphere load, which is fine but
+        # slow; keep it out of the basic linearity tests.
+        from tests.migration.test_prisma_alembic_parity import (  # type: ignore
+            parse_prisma_schema,
+            _normalise_column_name,
+            ColumnInfo,
+            TableInfo,
+        )
+
+        prisma = parse_prisma_schema(FIXTURES_DIR / "broken_parity_drift" / "schema.prisma")
+        # In-memory SQLModel-shaped table where `note` is nullable. This
+        # is the divergence the test must catch.
+        sql = {
+            "shared_thing": TableInfo(
+                name="shared_thing",
+                columns={
+                    "id": ColumnInfo("id", "text", nullable=False),
+                    "name": ColumnInfo("name", "text", nullable=False),
+                    "count": ColumnInfo("count", "int", nullable=False),
+                    "note": ColumnInfo("note", "text", nullable=True),
+                    "created_at": ColumnInfo("created_at", "datetime", nullable=False),
+                },
+            )
+        }
+        # The parser stores the table under its physical @@map name.
+        prisma_cols = {
+            _normalise_column_name(k): v
+            for k, v in prisma["shared_thing"].columns.items()
+        }
+        sql_cols = sql["shared_thing"].columns
+        # Reproduce the parity comparison.
+        diffs = []
+        for col in sorted(set(prisma_cols) & set(sql_cols)):
+            if prisma_cols[col].nullable != sql_cols[col].nullable:
+                diffs.append(col)
+        assert diffs == ["note"], diffs
 
 
 # ---------------------------------------------------------------------------

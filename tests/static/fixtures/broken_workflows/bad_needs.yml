@@ -1,0 +1,15 @@
+name: bad needs
+on:
+  pull_request:
+jobs:
+  first:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: echo hello
+  second:
+    runs-on: ubuntu-latest
+    needs: nonexistent_job
+    steps:
+      - uses: actions/checkout@v4
+      - run: echo world

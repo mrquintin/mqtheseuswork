@@ -1,0 +1,63 @@
+# Adversarial fixtures for the trigger-predicate sandbox.
+#
+# Format: <predicate>\t<expected-reject-reason-fragment>
+#
+# Each line is a single Python expression that an attacker might
+# embed in a LogicalAlgorithm's `trigger_predicate` to escape the
+# sandbox. They are kept here (not inlined in the test) so a future
+# maintainer adding a new attack only needs to append a line — they
+# do NOT need to add a new test case. Do NOT prune entries that look
+# "weird"; each is a known-bad input that the validator MUST reject.
+#
+# The expected-reject-reason fragment is matched as a case-insensitive
+# substring of AlgorithmValidationError.args[0]. Do not require the
+# full string; the validator's wording can evolve so long as it still
+# refuses the input.
+
+# Direct attempts to reach the interpreter.
+__import__('os').system('rm -rf /')	disallowed
+__import__("os").environ.get("SECRET")	disallowed
+getattr(__import__('os'), 'system')('id')	disallowed
+
+# Function calls of any kind — the sandbox forbids ast.Call entirely.
+len(input.x) > 0	disallowed
+exec('print(1)')	disallowed
+compile('1+1','<x>','eval')	disallowed
+eval('1+1')	disallowed
+sorted([1])	disallowed
+
+# Comprehensions reach the enclosing scope and can iterate __globals__.
+[x for x in __builtins__]	disallowed
+{k for k in input.x.__class__.__mro__}	disallowed
+{k: v for k, v in input.x.items()}	disallowed
+(x for x in [1,2])	disallowed
+
+# Lambdas and walrus introduce new scopes / mutations.
+(lambda: True)()	disallowed
+(x := 1) > 0	disallowed
+
+# Attribute chains and reflection — input.x.something would let the
+# attacker dereference past the input mapping.
+input.x.dangerous == 1	may only reference attributes
+input.x.__class__.__bases__[0]	disallowed
+
+# Bare identifiers other than `input` — leak into the eval globals.
+os.path.exists('/etc/passwd')	disallowed
+some_bare_identifier > 0	disallowed identifier
+
+# Syntax-broken inputs MUST be rejected, not silently truthy.
+input.x >	not a valid python expression
+input.	not a valid python expression
+)( ;	not a valid python expression
+
+# Subscripts / slicing — gives an attacker indexed access to mappings
+# we do not model as predicate inputs.
+input.x[0] > 0	disallowed
+input.x[1:2]	disallowed
+
+# Numeric formatting / f-strings: f-strings parse to JoinedStr which
+# is not on the allow-list.
+f"{input.x}" == "1"	disallowed
+
+# Star-args / keyword-only constructs.
+*input.x,	not a valid python expression

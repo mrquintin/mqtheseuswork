@@ -1,0 +1,24 @@
+# Known-broken doc links accepted by scripts/check_doc_freshness.py.
+#
+# Each line is a target string (the path inside `[text](path)` or
+# `<img src="path">`) that we will NOT flag. Add a comment above
+# each batch explaining the reason — review on the next clean-up
+# sweep.
+#
+# Format: one path per line. Comments start with `#`. Blank lines
+# are ignored.
+
+# --- Round-18 archive: links into ../docs/ that no longer exist
+#     because the archive predates the docs reorg. Frozen by design;
+#     the round itself is closed. Re-evaluate before referencing the
+#     archive in any live doc.
+../docs/verification/round18_ext_2026_05_13/manifest.md
+../docs/verification/round18_ext_2026_05_13/SUMMARY.md
+
+# --- docs/design/Design_System.md: screenshots that have not yet
+#     been captured. The design system doc is a living spec; once
+#     the screenshots exist the entries below must be removed.
+./screenshots/primitives_overview.png
+./screenshots/pill.png
+./screenshots/card.png
+./screenshots/panel.png

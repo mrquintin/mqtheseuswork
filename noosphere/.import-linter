@@ -155,3 +155,164 @@ ignore_imports =
     noosphere.peer_review -> noosphere.peer_review.swarm
     noosphere.peer_review.swarm -> noosphere.peer_review.reviewers
     noosphere.peer_review.reviewers -> noosphere.peer_review
+
+# ── Round-19 module layering ────────────────────────────────────────────────
+#
+# The Round-19 work introduced five new top-level packages:
+# algorithms, synthesizer, bets, knowledge_graph, portfolio_agent. The
+# layered contract below pins their relative position so a future
+# refactor cannot quietly thread (say) a forecasts -> portfolio_agent
+# back-edge through an import. Higher layers may import from lower
+# layers; siblings on the same line (separated by ``|``) are forbidden
+# from importing each other.
+#
+# Reading order is top-down: portfolio_agent is the consumer at the
+# top, core is the leaf at the bottom. ``exhaustive = false`` lets the
+# many legacy modules outside this list remain unconstrained.
+#
+# ``ignore_imports`` captures the load-bearing back-edges that already
+# exist in the codebase. Each one is a known seam:
+#   * ``store -> algorithms.validators``: store is the persistence
+#     layer; the algorithm DTO validator lives in algorithms but is
+#     called during write. Move the validator to ``noosphere.core``
+#     to retire this.
+#   * ``forecasts.** -> currents.**`` and ``equities.** -> currents.**``:
+#     forecasts and equities share LLM client + budget code with
+#     currents; relocate the shared infra into ``noosphere.core`` to
+#     retire.
+#   * ``forecasts.scheduler -> equities.*`` and
+#     ``equities.live_trader -> forecasts.safety``: the operator
+#     scheduler co-runs both ingestion paths; the live trader reuses
+#     the eight-gate safety contract. Both are deliberate seams.
+[importlinter:contract:round19-layering]
+name = Round-19 module layering (portfolio_agent → … → core)
+type = layers
+exhaustive = false
+layers =
+    noosphere.portfolio_agent
+    noosphere.synthesizer
+    noosphere.algorithms
+    noosphere.bets
+    noosphere.knowledge_graph
+    noosphere.coherence
+    noosphere.forecasts | noosphere.equities | noosphere.currents
+    noosphere.store
+    noosphere.core
+ignore_imports =
+    # noosphere.models has a bottom-of-file import from algorithms.schemas
+    # to register algorithm-specific column types. Until those schemas move
+    # into noosphere.core, every transitive importer of models reaches
+    # algorithms; ignoring the seam edge is sufficient to break the chain.
+    noosphere.models -> noosphere.algorithms.schemas
+    # ── store seams ── store.py is the persistence layer and predates the
+    # Round-19 hierarchy; it reaches up to validators/bets/embedding/etc.
+    # Each ignore here is a TODO for the next physical relocation pass.
+    noosphere.store -> noosphere.algorithms.validators
+    noosphere.store -> noosphere.bets.spec
+    noosphere.store -> noosphere.embedding_pipeline
+    noosphere.store -> noosphere.claim_extractor
+    noosphere.store -> noosphere.temporal_replay
+    noosphere.store -> noosphere.conclusions
+    # ── core is currently a *facade* re-exporting from store/orchestrator/
+    # ── models; once those move into noosphere.core/ proper the facade
+    # ── shrinks to a re-export of in-package symbols and these ignores
+    # ── retire.
+    noosphere.core -> noosphere.orchestrator
+    noosphere.core -> noosphere.store
+    noosphere.orchestrator -> noosphere.coherence
+    # ── forecasts / equities share LLM client + budget code with currents.
+    # ── Move the shared infra into noosphere.core to retire.
+    noosphere.forecasts.budget -> noosphere.currents.budget
+    noosphere.forecasts.forecast_generator -> noosphere.currents.**
+    noosphere.forecasts.retrieval_adapter -> noosphere.currents.retrieval_adapter
+    noosphere.forecasts.edge_calc -> noosphere.currents.market_linker
+    noosphere.forecasts.resolution_backfill -> noosphere.currents.budget
+    noosphere.equities.budget -> noosphere.currents.budget
+    noosphere.equities.signal_generator -> noosphere.currents.**
+    noosphere.equities.retrieval_adapter -> noosphere.currents.retrieval_adapter
+    # ── forecasts.scheduler is the operator orchestration entry point; it
+    # ── legitimately fans into every consumer. Treat the entire scheduler
+    # ── as architecturally "above" the layered modules.
+    noosphere.forecasts.scheduler -> noosphere.algorithms.**
+    noosphere.forecasts.scheduler -> noosphere.synthesizer.**
+    noosphere.forecasts.scheduler -> noosphere.bets.**
+    noosphere.forecasts.scheduler -> noosphere.coherence.**
+    noosphere.forecasts.scheduler -> noosphere.currents.**
+    noosphere.forecasts.scheduler -> noosphere.equities.**
+    noosphere.forecasts.scheduler -> noosphere.articles.**
+    # ── equities.live_trader reuses the eight-gate safety contract.
+    noosphere.equities.live_trader -> noosphere.forecasts.safety
+    # ── currents has two legacy reach-ups into coherence (NLI + dialectic
+    # ── contradiction direction) and the cli scheduler. All are documented
+    # ── seams in Round_17 / Round_19 architecture docs.
+    noosphere.currents.dialectic -> noosphere.coherence.**
+    noosphere.currents.market_linker -> noosphere.coherence.**
+    noosphere.currents.scheduler -> noosphere.cli_commands.**
+    noosphere.evaluation.public_calibration -> noosphere.coherence.calibration
+
+# ── Independence contracts: consumer modules ───────────────────────────────
+#
+# portfolio_agent is the top consumer; it must never be imported by an
+# upstream (forecasts, equities, synthesizer, bets, algorithms,
+# knowledge_graph). Layering already forbids those edges, but the
+# explicit forbidden contract is loud-failing and survives a future
+# refactor that reorders the layered list.
+[importlinter:contract:portfolio-agent-is-leaf-consumer]
+name = noosphere.portfolio_agent is a leaf consumer (nothing imports it)
+type = forbidden
+source_modules =
+    noosphere.synthesizer
+    noosphere.algorithms
+    noosphere.bets
+    noosphere.knowledge_graph
+    noosphere.coherence
+    noosphere.forecasts
+    noosphere.equities
+    noosphere.currents
+    noosphere.store
+    noosphere.core
+forbidden_modules =
+    noosphere.portfolio_agent
+
+# ── Synthesizer must not import portfolio_agent (cyclic-consumer guard). ────
+[importlinter:contract:synthesizer-no-portfolio-agent]
+name = noosphere.synthesizer must not reach into portfolio_agent
+type = forbidden
+source_modules =
+    noosphere.synthesizer
+forbidden_modules =
+    noosphere.portfolio_agent
+
+# ── Algorithms must not import synthesizer or portfolio_agent. ──────────────
+[importlinter:contract:algorithms-no-upstream]
+name = noosphere.algorithms must not reach synthesizer / portfolio_agent
+type = forbidden
+source_modules =
+    noosphere.algorithms
+forbidden_modules =
+    noosphere.synthesizer
+    noosphere.portfolio_agent
+
+# ── Bets is a pure schema + per-kind resolver layer. ───────────────────────
+# Only forecasts / equities / portfolio_agent (and bets itself) should
+# import it. Synthesizer and algorithms must not depend on bets.
+[importlinter:contract:bets-not-consumed-by-upstream]
+name = noosphere.bets must not be imported by synthesizer / algorithms
+type = forbidden
+source_modules =
+    noosphere.synthesizer
+    noosphere.algorithms
+forbidden_modules =
+    noosphere.bets
+
+# ── Knowledge graph reads from everything but writes to nothing else. ──────
+[importlinter:contract:knowledge-graph-no-mutation-of-peers]
+name = noosphere.knowledge_graph must not import peer/upstream modules
+type = forbidden
+source_modules =
+    noosphere.knowledge_graph
+forbidden_modules =
+    noosphere.synthesizer
+    noosphere.portfolio_agent
+    noosphere.algorithms.runtime
+    noosphere.bets.lifecycle

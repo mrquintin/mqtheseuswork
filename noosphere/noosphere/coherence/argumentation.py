@@ -2,6 +2,11 @@
 Coherence layer 2 — Dung-style abstract argumentation on a micro framework.
 """
 
+# DEPRECATED — replaced by contradiction_engine.py in Round 19 prompt 06.
+# Slated for removal in prompt 16. New contradiction detection MUST route
+# through ContradictionEngine; this module is kept only as a compat shim
+# for legacy regression tests that still reference the layer-2 heuristic.
+
 from __future__ import annotations
 
 from dataclasses import dataclass, field

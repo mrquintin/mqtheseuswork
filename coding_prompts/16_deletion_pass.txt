@@ -1,0 +1,132 @@
+You are operating in /Users/michaelquintin/Desktop/Theseus.
+
+Goal: the "every assumption fights for its life" pass. Speaker 4
+in the meeting was emphatic: "It's an act of revealing. It's an
+act of deletion and then doubling down on what is most essential."
+Founder agreed: "Trimming the fat." This prompt executes the
+deletion, with a written rationale per delete so no surface
+disappears silently.
+
+What this prompt is NOT:
+- A dead-code-only pass (that was Round 18 prompt 07).
+- A "delete anything I don't recognize" pass.
+
+What this prompt IS:
+- Audit every public-facing surface, every database table, every
+  module, against the load-bearing question: **"Does this earn
+  its place in the Philosopher-in-a-Box product?"**
+- Delete what fails the test, with rationale recorded.
+- Demote what's borderline to a private/operator-only surface.
+- Document the new minimal surface explicitly.
+
+Founder named specific things to delete or has been on record
+wanting them gone:
+- Manual contradiction-resolution UI (handled by prompt 08 —
+  verify it actually got removed).
+- "Attention" box on dashboard (Round 18 prompt 54 removed it —
+  verify it stays gone).
+- First-person-shaped conclusions (prompt 56 / 02 replaces them
+  with principle/algorithm-shaped output).
+- The six contradiction heuristics (prompt 06 deprecated them;
+  this prompt finishes the job by deleting the legacy modules).
+- Anything else the audit surfaces.
+
+Before you start — read:
+1. EVERY top-level surface under
+   `theseus-codex/src/app/` (public) and
+   `theseus-codex/src/app/(authed)/`. Build a list.
+2. Each route's purpose (1 sentence each).
+3. Each Prisma model's purpose (1 sentence each).
+4. `coding_prompts/UI_CRITIQUE_2026_05_13.md` (from Round 18
+   prompt 65) — note any surfaces the critique recommended
+   removing.
+5. The DEPRECATED module markers (from prompts 06 and earlier
+   rounds).
+
+Implement:
+
+A. The audit. Produce
+   `docs/architecture/Round19_Deletion_Audit.md`:
+   - For EVERY public route, EVERY authed route, EVERY Prisma
+     model, EVERY major noosphere module:
+       - Name + path
+       - Purpose (1 sentence)
+       - Verdict: KEEP | DEMOTE | DELETE
+       - Justification (1-3 sentences). Must answer "why does
+         this earn its place in the Philosopher-in-a-Box
+         product?" If the answer is fuzzy → DEMOTE or DELETE.
+   - At the bottom: a summary table of counts and a list of all
+     DELETE / DEMOTE items.
+   - The document is committed; the founder reads it BEFORE the
+     deletes execute. The deletes happen in step C only after
+     the audit is reviewed.
+
+B. The plan. `docs/architecture/Round19_Deletion_Plan.md` lists
+   per DELETE item:
+   - Path(s)
+   - Dependent imports / references (grep results)
+   - Migration steps (what gets replaced / redirected; what
+     becomes a 410 Gone)
+   - Reversibility (what would need to happen to restore it)
+
+C. The execution. The actual deletes. For each DELETE item:
+   - Remove the source files.
+   - If the item was a public route: replace with a 410 Gone
+     handler that links to the closest current equivalent.
+   - If the item was a database table: write a deprecation
+     migration that marks the table dropped (don't physically
+     drop in this prompt — schedule drop for a later round; we
+     keep the data accessible for 90 days for audit).
+   - If the item was a noosphere module: remove the .py file
+     and its tests, update the import surface.
+
+   For each DEMOTE item:
+   - Move from public surface to operator-only surface.
+   - Update the nav to remove the public link.
+   - Add a redirect from the old path to the operator path
+     (where the operator can still reach it).
+
+D. Anti-resurrection. A test
+   `theseus-codex/__tests__/round19_deletion_invariants.test.ts`
+   asserts that every DELETE'd path returns 410 (not 200), every
+   DEMOTE'd path is reachable only under `(authed)`, and every
+   DEPRECATED module's import surface is empty.
+
+E. Reduced README. `theseus-codex/README.md` gets a new
+   "Surface map" section listing the minimal Philosopher-in-a-Box
+   public surface (after the deletion). The list should be
+   tight — if it doesn't fit on one screen, more deletion is
+   probably warranted.
+
+F. Operator notification. After execution, a structured-log
+   summary fires noting how many surfaces were deleted/demoted,
+   with the audit doc linked.
+
+G. Tests:
+   - The 410 invariant test passes for every DELETE.
+   - The (authed)-only invariant test passes for every DEMOTE.
+   - No tests reference DELETE'd modules.
+   - Build + type-check pass after deletions.
+
+Constraints
+- This prompt requires the FOUNDER to read the audit doc before
+  the deletes execute. Do not delete anything if the founder has
+  not signed off. The agent stops at step B if there is any
+  ambiguity and emits a pause-with-question, listing the items
+  it would delete and asking for confirmation.
+- DELETE does not mean "physically drop the data." Data is
+  retained in an audit-only state for 90 days. Only code is
+  removed.
+- Reversibility is documented for every delete. If a delete
+  turns out wrong, the founder has a path to restore.
+- The deletion pass is a SINGLE PR's worth of work, not a
+  rolling refactor. Either it lands cleanly or it doesn't land.
+
+SCOPE
+- `docs/architecture/Round19_Deletion_Audit.md` CREATE
+- `docs/architecture/Round19_Deletion_Plan.md` CREATE
+- `theseus-codex/__tests__/round19_deletion_invariants.test.ts` CREATE
+- `theseus-codex/README.md` MODIFY
+- (the actual deletions are discovered by the audit and listed
+   in the Plan; this SCOPE block deliberately does not pre-
+   enumerate them — the audit decides.)

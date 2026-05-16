@@ -1,0 +1,158 @@
+You are operating in /Users/michaelquintin/Desktop/Theseus.
+
+Goal: final pass for Round 19. Verify every prior prompt's
+deliverables exist, every test passes, every invariant holds.
+Produce a single report the founder reads to know the round is
+done.
+
+This is the Round 19 analog of Round 18's prompt 50.
+
+Round 19's load-bearing invariants — these MUST hold:
+
+I1. **Algorithm layer is live.**
+    There is at least one ACTIVE LogicalAlgorithm. It has fired
+    at least once (one AlgorithmInvocation row). The invocation
+    has a complete reasoning_trace.
+
+I2. **Algorithms are visible.**
+    `/algorithms` renders the algorithm list. Each card shows
+    name, principles invoked, hit rate, last fired.
+    `/algorithms/[id]/invocations/[invocationId]` renders the
+    full reasoning trace.
+
+I3. **Contradiction engine canonical.**
+    Only ONE detection method is used for new contradictions
+    after Round 19. The six legacy heuristics are DEPRECATED
+    (not yet removed) and not called by any new code path.
+
+I4. **Cluster pre-filter is on.**
+    The contradiction-test queue has bounded backlog. No O(N²)
+    enqueue pattern exists. Cross-cluster surprise sampling is
+    non-zero per config.
+
+I5. **Manual contradiction resolution gone.**
+    The old resolve route returns 404. The lifecycle table
+    drives state. SUBSUMED transitions require founder
+    confirmation.
+
+I6. **Provenance demarcation enforced.**
+    Every artifact has a non-null `provenance`. The Oracle
+    surface presents the four checkboxes. The contradiction
+    engine respects provenance_policy by default.
+
+I7. **Synthesizer engine produces structured memos.**
+    A synthetic synthesis run end-to-end produces a CONCLUDED
+    SynthesisResult with a non-empty reasoning chain, OR an
+    explicit ABSTAINED result with a reason. No silent failures.
+
+I8. **Memos are auditable artifacts.**
+    Every InvestmentMemo carries the 10-section structure.
+    Every memo cites at least 2 governing principles. PDF
+    renders.
+
+I9. **Portfolio agent never bypasses gates.**
+    AUTO_LIVE dispatches queue for operator confirmation; they
+    do not auto-submit. Default mode is HUMAN.
+
+I10. **Knowledge graph reflects reality.**
+     Builder produces a graph; counts match expected
+     (principles count, algorithm count, etc.). Agent reasoner
+     refuses fabricated connections on the planted-weak-link
+     fixture.
+
+I11. **Dialectic live recording fires real flags.**
+     A planted-contradiction recording produces the right flag
+     count within the latency target.
+
+I12. **Bet abstraction is polymorphic.**
+     A memo can produce a MARKET_BET, ADVISORY_BET,
+     STRATEGIC_BET, or SCIENTIFIC_BET. Each kind resolves
+     correctly via its kind-specific resolver.
+
+I13. **Deletion pass executed cleanly.**
+     The audit document is committed. Every DELETE'd path
+     returns 410 or is gone. Every DEMOTE'd path is
+     (authed)-only.
+
+I14. **Identity is consistent.**
+     Homepage / about page / README use the canonical copy
+     from `identity.ts`. The pitch deck builds.
+
+I15. **No new prompt regressed prior rounds.**
+     Round 18's eight forecasts invariants still hold.
+     Round 10's eight-gate safety contract still gates every
+     live bet.
+
+Before you start — read:
+1. Every Round 19 prompt's SCOPE block. Build the deliverable
+   checklist.
+2. Round 18 prompt 50's verification structure — same shape
+   applies here.
+3. Round 18 prompt 18's invariants (forecasts) — must still
+   pass.
+
+Implement:
+
+A. Deliverable manifest. Inspect every SCOPE entry from prompts
+   01-17. For each: does the file exist? does it have non-
+   trivial content? does it pass type-check / lint? Output to
+   `docs/verification/round19_2026_05_15/manifest.md`.
+
+B. Test roll-up. Run:
+   - `pytest noosphere current_events_api dialectic -m 'not slow'`
+   - `cd theseus-codex && npm run test`
+   - `cd theseus-codex && DATABASE_URL=postgresql://stub:stub@db.invalid:1/stub
+       npx prisma format`
+   - `cd theseus-codex && DATABASE_URL=... npx prisma validate`
+   - `cd theseus-codex && DATABASE_URL=... npm run build`
+   - `cd theseus-codex && npx playwright test --grep '@smoke'`
+   - `cd noosphere && alembic upgrade head` (against an in-mem
+     SQLite test DB)
+   Each output saved to
+   `docs/verification/round19_2026_05_15/<step>.log`.
+   A failure HALTS the prompt with a structured summary.
+
+C. Invariant checks. One test per invariant I1..I15, each named
+   `test_invariant_NN_*`. The tests live at
+   `tests/round19/test_invariants.py`. Many of these will be
+   integration tests that exercise the full pipeline against
+   seeded fixtures.
+
+D. Round-19 summary report.
+   `docs/verification/round19_2026_05_15/SUMMARY.md`:
+   - One paragraph per prompt 01-17 with status (SHIPPED /
+     PARTIAL / NOT_SHIPPED) and an evidence pointer.
+   - Each invariant I1..I15 with PASS / FAIL.
+   - "Open questions for Round 20" — a short list of things
+     surfaced during verification that should land next round.
+   - Cost: total LLM minutes consumed during Round 19 +
+     storage delta + test runtime.
+
+E. README update. `coding_prompts/README.md` (the active one,
+   which by this point will be the new Round 19 README from
+   prompt 27 / task) gains a "Round 19 verification" footer
+   linking to the SUMMARY.
+
+F. Promote the round. Tag the git commit
+   `round19/verified-<yyyy-mm-dd>` and write a CHANGELOG entry
+   at `CHANGELOG.md` summarising Round 19 in a paragraph.
+
+Constraints
+- This prompt VERIFIES. It does NOT implement new features. Any
+  gap surfaced is filed for Round 20.
+- A FAIL on any invariant halts the verification with a
+  structured report. Do not paper over.
+- Verification uses fixtures, not the live firm corpus. Live
+  data integrity is a separate operator concern.
+- The summary is concise. < 1500 words total.
+
+SCOPE
+- `docs/verification/round19_2026_05_15/manifest.md` CREATE
+- `docs/verification/round19_2026_05_15/SUMMARY.md` CREATE
+- `docs/verification/round19_2026_05_15/pytest.log` CREATE
+- `docs/verification/round19_2026_05_15/npm_test.log` CREATE
+- `docs/verification/round19_2026_05_15/npm_build.log` CREATE
+- `docs/verification/round19_2026_05_15/playwright_smoke.log` CREATE
+- `tests/round19/test_invariants.py` CREATE
+- `coding_prompts/README.md` MODIFY
+- `CHANGELOG.md` MODIFY

@@ -108,5 +108,109 @@ if [ -n "$PRISMA_STAGED" ] && [ -f "$REPO_ROOT/theseus-codex/prisma/schema.prism
   fi
 fi
 
+# 5. Migration linearity + Prisma↔Alembic chain. Run only if the staged diff
+#    touches either migration directory or the Prisma schema. The check is
+#    fast (pure-Python static analysis) so the latency penalty is small, and
+#    a failure here historically surfaces as production 500s weeks later.
+MIGRATION_STAGED=$(git diff --cached --name-only --diff-filter=ACMRD | \
+  grep -E '^(theseus-codex/prisma/(migrations/|schema\.prisma)|noosphere/alembic/versions/)' || true)
+if [ -n "$MIGRATION_STAGED" ] && [ -f "$REPO_ROOT/scripts/check_migration_linearity.py" ]; then
+  note "running migration linearity check…"
+  if ! python3 "$REPO_ROOT/scripts/check_migration_linearity.py"; then
+    fail "migration linearity check failed. Fix the divergence above before committing.
+Bypass (DANGEROUS) with: git commit --no-verify"
+  fi
+  ok "migration linearity check passed."
+fi
+
+# 6. Round-19 import-cycle gate. Runs the layered + forbidden contracts
+#    in noosphere/.import-linter (or the AST-fallback walker if
+#    import-linter is not installed). Refuses the commit on any cycle
+#    or contract violation. Only runs when the staged diff touches
+#    Python under noosphere/ since the gate analyses the noosphere
+#    package — pure frontend or docs commits skip it.
+if [ -n "$PY_STAGED" ] && [ -f "$REPO_ROOT/scripts/check_no_import_cycles.py" ]; then
+  note "running Round-19 import-cycle gate…"
+  if ! python3 "$REPO_ROOT/scripts/check_no_import_cycles.py"; then
+    fail "import-cycle / layering violation. Either fix the offending edge or
+update noosphere/.import-linter (with a written reason in the PR).
+Bypass (DANGEROUS) with: git commit --no-verify"
+  fi
+  ok "Round-19 import-cycle gate passed."
+fi
+
+# 7. API type-contract gate. Re-runs scripts/generate_api_types.py in
+#    check mode and refuses the commit on drift. Runs when the staged
+#    diff touches either the FastAPI response models (current_events_api/)
+#    or the generated TS bundle.
+TYPE_CONTRACT_STAGED=$(git diff --cached --name-only --diff-filter=ACMR | \
+  grep -E '^(current_events_api/|theseus-codex/src/lib/_generated/api/)' || true)
+if [ -n "$TYPE_CONTRACT_STAGED" ] && [ -f "$REPO_ROOT/scripts/generate_api_types.py" ]; then
+  note "running API type-contract gate…"
+  if ! python3 "$REPO_ROOT/scripts/generate_api_types.py" --check; then
+    fail "API type bundle is out of sync. Regenerate with
+    python scripts/generate_api_types.py
+and stage the resulting files. Bypass (DANGEROUS) with: git commit --no-verify"
+  fi
+  ok "API type-contract gate passed."
+fi
+
+# 8. Round-20 CI workflow integrity gate. Runs only when a workflow
+#    YAML or the action pin file is staged. Strict: any drift the
+#    integrity check reports refuses the commit.
+WORKFLOW_STAGED=$(git diff --cached --name-only --diff-filter=ACMR | \
+  grep -E '^\.github/(workflows/.*\.ya?ml|action_pins\.yml)$' || true)
+if [ -n "$WORKFLOW_STAGED" ] && [ -f "$REPO_ROOT/scripts/check_ci_workflow_integrity.py" ]; then
+  note "running CI workflow integrity gate on staged workflows…"
+  # If action_pins.yml changed, sweep every workflow (a pin bump can
+  # invalidate any uses: line). Otherwise scope the check to just
+  # the staged workflows for speed.
+  if echo "$WORKFLOW_STAGED" | grep -q '^\.github/action_pins\.yml$'; then
+    if ! python3 "$REPO_ROOT/scripts/check_ci_workflow_integrity.py" \
+        --severity-gate yaml-only; then
+      fail "CI workflow integrity gate failed. Fix the findings above or
+update .github/action_pins.yml in the same commit.
+Bypass (DANGEROUS) with: git commit --no-verify"
+    fi
+  else
+    args=()
+    while IFS= read -r wf; do
+      [ -n "$wf" ] && args+=("--workflow" "$REPO_ROOT/$wf")
+    done <<< "$WORKFLOW_STAGED"
+    if ! python3 "$REPO_ROOT/scripts/check_ci_workflow_integrity.py" \
+        "${args[@]}"; then
+      fail "CI workflow integrity gate failed. Fix the findings above.
+Bypass (DANGEROUS) with: git commit --no-verify"
+    fi
+  fi
+  ok "CI workflow integrity gate passed."
+fi
+
+# 9. Round-20 doc-freshness gate. Runs only when a markdown file is
+#    staged; scoped to the staged files for speed.
+MD_STAGED=$(git diff --cached --name-only --diff-filter=ACMR | \
+  grep -E '\.md$' || true)
+if [ -n "$MD_STAGED" ] && [ -f "$REPO_ROOT/scripts/check_doc_freshness.py" ]; then
+  note "running doc-freshness gate on staged markdown…"
+  paths_args=()
+  while IFS= read -r md; do
+    [ -n "$md" ] && paths_args+=("$md")
+  done <<< "$MD_STAGED"
+  if ! python3 "$REPO_ROOT/scripts/check_doc_freshness.py" \
+      --paths "${paths_args[@]}"; then
+    fail "doc-freshness gate failed. Either fix the broken link or add
+the path to .github/doc_freshness_allowlist.txt with a reason.
+Bypass (DANGEROUS) with: git commit --no-verify"
+  fi
+  ok "doc-freshness gate passed."
+fi
+
+# Note: the tooling-availability check (scripts/check_tooling_availability.py)
+# is deliberately NOT invoked here — it is slow and the answer
+# rarely changes commit-to-commit. The Integrity CI workflow runs
+# it on every PR in --warnings-only mode; operators run it locally
+# via `python scripts/check_tooling_availability.py` when setting up
+# a fresh dev environment.
+
 ok "all checks passed."
 exit 0

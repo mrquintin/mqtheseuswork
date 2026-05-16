@@ -1,0 +1,70 @@
+% Theseus — Investment memo (Round 19 prompt 11)
+%
+% Restrained typography: 11pt body, Palatino (with Charter as the
+% fallback when the system has no Palatino), narrow margins, small
+% cover page. The memo's PDF is the canonical artifact a portfolio
+% agent or human reviewer reads.
+%
+% Token substitutions handled by noosphere/synthesizer/memo_pdf.py:
+%   %%TITLE%%      — memo title (LaTeX-escaped)
+%   %%TLDR%%       — TL;DR paragraph (LaTeX-escaped, ≤ 80 words)
+%   %%ADDRESSEE%%  — who the memo is addressed to
+%   %%DATE%%       — YYYY-MM-DD
+%   %%AUTHOR%%     — "Theseus — synthesizer/vN"
+%   %%BODY%%       — rendered LaTeX body of the 10 sections
+%
+\documentclass[11pt]{article}
+
+\usepackage[margin=1in]{geometry}
+\usepackage{microtype}
+\usepackage{titlesec}
+\usepackage{enumitem}
+\usepackage[hidelinks]{hyperref}
+\usepackage{graphicx}
+\usepackage[T1]{fontenc}
+\usepackage{textcomp}
+
+% Charter is the founder preference; fall back gracefully when Charter
+% is not installed (CI containers, minimal LaTeX distros).
+\IfFileExists{charter.sty}{\usepackage{charter}}{%
+  \IfFileExists{mathpazo.sty}{\usepackage{mathpazo}}{}%
+}
+
+\setlist[itemize]{leftmargin=*, topsep=2pt, itemsep=2pt}
+\setlist[enumerate]{leftmargin=*, topsep=2pt, itemsep=2pt}
+\titleformat{\section}{\large\bfseries}{}{0pt}{}
+\titlespacing{\section}{0pt}{14pt}{4pt}
+\titleformat{\subsection}{\normalsize\bfseries}{}{0pt}{}
+\titlespacing{\subsection}{0pt}{10pt}{2pt}
+
+\pagestyle{plain}
+\setlength{\parskip}{0.6em}
+\setlength{\parindent}{0pt}
+
+\title{%%TITLE%%}
+\author{%%AUTHOR%%}
+\date{%%DATE%%}
+
+\begin{document}
+
+% ── Cover page ─────────────────────────────────────────────────────
+\thispagestyle{empty}
+\begin{flushleft}
+  {\footnotesize\textsc{Theseus} \quad \textsc{Investment memo}}\\[4pt]
+  \rule{\linewidth}{0.4pt}\\[18pt]
+  {\LARGE\bfseries %%TITLE%%}\\[12pt]
+  {\small\itshape Addressed to: %%ADDRESSEE%%}\\[6pt]
+  {\small Date: %%DATE%% \quad Author: %%AUTHOR%%}\\[24pt]
+  \rule{\linewidth}{0.4pt}\\[14pt]
+  {\small\textbf{TL;DR.} %%TLDR%%}
+\end{flushleft}
+\vfill
+\begin{center}
+  \footnotesize\textsc{Confidential — for the portfolio agent named above. Do not redistribute without operator approval.}
+\end{center}
+\newpage
+
+% ── Body ────────────────────────────────────────────────────────────
+%%BODY%%
+
+\end{document}

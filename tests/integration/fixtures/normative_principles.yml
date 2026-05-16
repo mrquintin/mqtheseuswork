@@ -1,0 +1,27 @@
+# A cluster the synthesizer must refuse: every principle is a
+# normative value claim with no observable input.
+principles:
+  - id: principle_dignity
+    text: Every person is owed dignity.
+    disciplines:
+      - ETHICS
+    tags:
+      - dignity
+      - duty
+
+  - id: principle_truthfulness
+    text: Honesty is a duty independent of consequence.
+    disciplines:
+      - ETHICS
+    tags:
+      - duty
+      - honesty
+
+  - id: principle_humility
+    text: Strong opinions held loosely.
+    disciplines:
+      - ETHICS
+      - EPISTEMOLOGY
+    tags:
+      - humility
+      - duty

@@ -165,6 +165,17 @@ enum EquityPositionStatus {
   FAILED
 }
 
+// Prompt 09 — provenance demarcation. Set by the founder at upload time
+// (or via the CLI / triage flow); never inferred from content. Drives the
+// Oracle / synthesis weighting layer and gates which contradictions the
+// scheduler enqueues by default.
+enum ProvenanceKind {
+  PROPRIETARY
+  ENDORSED_EXTERNAL
+  STUDIED_EXTERNAL
+  OPPOSING_EXTERNAL
+}
+
 // ── Multi-tenant root (cloud: Postgres + RLS; local dev: SQLite) ─────────────
 
 model Organization {
@@ -182,6 +193,8 @@ model Organization {
   uploads                       Upload[]
   conclusions                   Conclusion[]
   contradictions                Contradiction[]
+  contradictionDisputes         ContradictionDispute[]
+  contradictionLifecycles       ContradictionLifecycle[]
   driftEvents                   DriftEvent[]
   researchSuggestions           ResearchSuggestion[]
   reviewItems                   ReviewItem[]
@@ -234,6 +247,20 @@ model Organization {
   equityPositions               EquityPosition[]
   equityPortfolios              EquityPortfolioState[]
   deals                         Deal[]
+  logicalAlgorithms             LogicalAlgorithm[]
+  algorithmInvocations          AlgorithmInvocation[]
+  principleClusters             PrincipleCluster[]
+  principleClusterCentroids     PrincipleClusterCentroid[]
+  contradictionTestTasks        ContradictionTestTask[]
+  clusterReindexProposals       ClusterReindexProposal[]
+  synthesizerTasks              SynthesizerTask[]
+  synthesizerMemos              SynthesizerMemo[]
+  investmentMemos               InvestmentMemo[]
+  portfolioAgents               PortfolioAgent[]
+  memoDispatches                MemoDispatch[]
+  graphSnapshots                GraphSnapshot[]
+  graphEdgeReasonings           GraphEdgeReasoning[]
+  dialecticSessions             DialecticSession[]
 }
 
 // ── Founders (portal users) — maps to FounderProfile in noosphere/models.py ─
@@ -285,11 +312,13 @@ model Founder {
   conclusionDeletionRequests ConclusionDeletionRequest[]
   dashboardDismissals        DashboardDismissal[]
   resolvedContradictions     Contradiction[]             @relation("ContradictionResolver")
+  contradictionDisputes      ContradictionDispute[]      @relation("ContradictionDisputeAuthor")
   revisionEvents             RevisionEvent[]
   publicReplies              PublicReply[]               @relation("PublicReplyFounder")
   attentionActions           AttentionAction[]
   decidedCritiques           CritiqueSubmission[]        @relation("CritiqueDecidedBy")
   confirmedBountyPayouts     CritiqueBountyPayout[]      @relation("CritiqueBountyConfirmedBy")
+  resolvedClusterReindexes   ClusterReindexProposal[]    @relation("ClusterReindexResolver")
 
   /// Opt-in flag for the daily morning digest email summarising open
   /// high-severity attention items. Default `false` — silent until the
@@ -421,6 +450,19 @@ model Upload {
   // layer.
   visibility String @default("org")
 
+  // ── Provenance demarcation (prompt 09) ─────────────────────────────
+  // Distinct from `visibility` (who-can-see-this) — `provenance`
+  // answers WHO AUTHORED the source material. Founder picks one of
+  // four at upload time; external choices require `provenanceRationale`
+  // (the API rejects an empty rationale for non-PROPRIETARY rows).
+  // The synthesizer / Oracle layer weights proprietary 2× by default
+  // and gates contradiction tests so STUDIED / OPPOSING aren't pitted
+  // against firm material by default (those are *expected* to differ).
+  // Existing rows default to PROPRIETARY at migration time; the
+  // founder reviews via `/library/triage` and retags as needed.
+  provenance          ProvenanceKind @default(PROPRIETARY)
+  provenanceRationale String?
+
   // ── Podcast / audio playback ───────────────────────────────────────
   // When an audio upload is stored in a public CDN-addressable
   // location (Supabase Storage in our case), we persist the public
@@ -479,6 +521,11 @@ model Upload {
   // the org; without this, every dashboard render sorted 3k+ rows in
   // memory. Same shape, different timestamp than the public rail.
   @@index([organizationId, createdAt(sort: Desc)])
+  // Prompt 09 — Oracle / synthesis filter and the library page both
+  // scope by `organizationId AND provenance` and order by `createdAt
+  // DESC`. The composite keeps the planner from falling back to a seq
+  // scan when only the endorsed-external bucket is requested.
+  @@index([organizationId, provenance, createdAt(sort: Desc)])
 }
 
 model UploadChunk {
@@ -1456,6 +1503,16 @@ model ForecastBet {
   createdAt        DateTime          @default(now())
   settledAt        DateTime?
 
+  /// Provenance back to the InvestmentMemo that caused a portfolio
+  /// agent to fire this bet (Round 19 prompt 12). Nullable so the
+  /// column is additive; bets placed directly from a forecast
+  /// prediction (not memo-routed) carry NULL.
+  sourceMemoId String?
+
+  /// Round 19 prompt 15: link back to the polymorphic BetSpec row.
+  /// Pre-prompt-15 bets carry NULL.
+  betSpecId String?
+
   prediction   ForecastPrediction @relation(fields: [predictionId], references: [id])
   organization Organization       @relation(fields: [organizationId], references: [id], onDelete: Restrict)
 
@@ -1463,6 +1520,8 @@ model ForecastBet {
   @@index([predictionId, status])
   @@index([externalOrderId])
   @@index([clientOrderId])
+  @@index([sourceMemoId])
+  @@index([betSpecId])
 }
 
 model ForecastPortfolioState {
@@ -1625,6 +1684,13 @@ model EquityPosition {
   createdAt        DateTime             @default(now())
   updatedAt        DateTime             @updatedAt
 
+  /// Provenance back to the InvestmentMemo that caused a portfolio
+  /// agent to fire this position (Round 19 prompt 12).
+  sourceMemoId String?
+
+  /// Round 19 prompt 15: link back to the polymorphic BetSpec row.
+  betSpecId String?
+
   signal       EquitySignal     @relation(fields: [signalId], references: [id], onDelete: Cascade)
   instrument   EquityInstrument @relation(fields: [instrumentId], references: [id], onDelete: Restrict)
   organization Organization     @relation(fields: [organizationId], references: [id], onDelete: Restrict)
@@ -1632,6 +1698,8 @@ model EquityPosition {
   @@index([signalId])
   @@index([instrumentId, status])
   @@index([externalOrderId])
+  @@index([sourceMemoId])
+  @@index([betSpecId])
 }
 
 model EquityPortfolioState {
@@ -1828,6 +1896,22 @@ model Contradiction {
   narrative    String   @default("")
   createdAt    DateTime @default(now())
 
+  // ── Canonical contradiction engine (R19/p06) ──────────────────────
+  // New rows written by `ContradictionEngine` carry these fields. Old
+  // rows produced by the six-heuristic vote leave them null / defaulted
+  // until the deletion pass (prompt 16) drops the legacy path. The
+  // engine writes ONE detection per pair per `detectionMethod` so
+  // `detectionMethod` participates in analytics groupings; older rows
+  // keep the default empty string so the column index stays useful.
+  score            Float?
+  confidenceLow    Float?
+  confidenceHigh   Float?
+  axis             String?
+  humanExplanation String?
+  detectionMethod  String    @default("")
+  disputeCount     Int       @default(0)
+  lastDisputeAt    DateTime?
+
   // ── Source tracking ───────────────────────────────────────────────
   // The upload whose ingestion run produced this contradiction row.
   // Nullable so the column can be backfilled from `noosphereId` patterns
@@ -1851,7 +1935,10 @@ model Contradiction {
   resolvedAt   DateTime?
   resolvedBy   Founder?  @relation("ContradictionResolver", fields: [resolvedById], references: [id])
 
-  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  organization Organization            @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  disputes     ContradictionDispute[]
+  lifecycle    ContradictionLifecycle?
+  testTasks    ContradictionTestTask[] @relation("ContradictionTestTaskResult")
 
   @@index([organizationId])
   @@index([sourceUploadId])
@@ -1863,6 +1950,71 @@ model Contradiction {
   // the leading sort column, so the ORDER BY collapses to an index
   // walk + LIMIT.
   @@index([organizationId, status, severity(sort: Desc)])
+  @@index([detectionMethod])
+}
+
+// ── ContradictionDispute ──────────────────────────────────────────────
+// Founder DISPUTE on a row produced by ContradictionEngine. Multiple
+// disputes on the same `detectionMethod` trigger a calibration review
+// (the threshold lives in the operator UI, not in the schema). Disputes
+// are append-only; the parent Contradiction's `disputeCount` /
+// `lastDisputeAt` columns mirror this table for cheap reads.
+
+model ContradictionDispute {
+  id              String   @id @default(cuid())
+  contradictionId String
+  organizationId  String
+  detectionMethod String   @default("")
+  disputedById    String?
+  reason          String   @default("")
+  createdAt       DateTime @default(now())
+
+  contradiction Contradiction @relation(fields: [contradictionId], references: [id], onDelete: Cascade)
+  organization  Organization  @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  disputedBy    Founder?      @relation("ContradictionDisputeAuthor", fields: [disputedById], references: [id])
+
+  @@index([contradictionId])
+  @@index([organizationId, createdAt(sort: Desc)])
+  @@index([detectionMethod, createdAt(sort: Desc)])
+}
+
+// ── ContradictionLifecycle ────────────────────────────────────────────
+// Source-driven lifecycle of a Contradiction (Round 19 prompt 19).
+// The manual "resolve" path was removed: contradictions persist as
+// first-class entities until new source ingestion either weakens one
+// side, fully resolves the disagreement in favour of one side, or the
+// synthesis engine flags a candidate principle that subsumes both
+// (founder-confirmed).
+//
+// ``eventsJson`` is an append-only event log; every transition adds
+// one record but earlier ones are never overwritten. The denormalised
+// ``currentStatus`` / ``lastTransitionAt`` columns mirror the tail of
+// the log so the queue is a cheap range scan.
+
+model ContradictionLifecycle {
+  id                            String   @id @default(cuid())
+  contradictionId               String   @unique
+  organizationId                String
+  // DETECTED | STANDING | WEAKENED | RESOLVED_BY_SOURCE
+  // | DISPUTED_AS_ERROR | SUBSUMED_BY_SYNTHESIS
+  currentStatus                 String   @default("DETECTED")
+  lastTransitionAt              DateTime @default(now())
+  // JSON list of LifecycleEvent objects. Append-only.
+  eventsJson                    String   @default("[]")
+  supportedPrincipleId          String?
+  subsumingPrincipleId          String?
+  // Set when the synthesis engine flags a candidate that supersedes
+  // both sides. The founder triages from the subsumption queue and
+  // either accepts (→ SUBSUMED_BY_SYNTHESIS) or rejects (clears this
+  // field; status stays STANDING).
+  pendingSubsumptionPrincipleId String?
+
+  contradiction Contradiction @relation(fields: [contradictionId], references: [id], onDelete: Cascade)
+  organization  Organization  @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+
+  @@index([organizationId, currentStatus, lastTransitionAt(sort: Desc)])
+  @@index([currentStatus])
+  @@index([pendingSubsumptionPrincipleId])
 }
 
 // ── ConclusionDeletionRequest ─────────────────────────────────────────
@@ -3283,6 +3435,96 @@ model PrincipleConvictionUpdateQueue {
   @@index([status])
 }
 
+// ── Cluster index for contradiction-test scheduling (R19/p07) ───────────────
+//
+// Sits BETWEEN the principle add event and the canonical contradiction
+// engine (prompt 06). The engine is authoritative for verdicts; these
+// tables decide WHICH pairs the engine looks at. Solves the O(N²) cost
+// concern: a new principle is tested against principles in the same
+// semantic cluster, plus a small cross-cluster sample to catch surprise
+// links (founder caveat — "language is not ideas, but it tracks for
+// semantic").
+//
+// Versioning: every row carries `assignmentMethod` so a replay query
+// ("which cluster was P in on date Y?") is a range scan.
+
+model PrincipleCluster {
+  principleId      String   @id
+  organizationId   String
+  clusterId        String
+  assignmentMethod String   @default("incremental/v1")
+  assignedAt       DateTime @default(now())
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+
+  @@index([organizationId, clusterId])
+  @@index([clusterId, assignedAt(sort: Desc)])
+}
+
+model PrincipleClusterCentroid {
+  clusterId        String   @id
+  organizationId   String
+  /// Float32-packed centroid bytes. Length == 4 * `dim`.
+  centroidVec      Bytes    @default("")
+  dim              Int      @default(0)
+  memberCount      Int      @default(0)
+  assignmentMethod String   @default("incremental/v1")
+  updatedAt        DateTime @default(now()) @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+
+  @@index([organizationId])
+}
+
+/// Work queue. `pairKey` is the deterministic stable_pair_id over sorted
+/// (A, B), so (A,B) and (B,A) collide on dedupe. Priority orders the
+/// drain; status tracks lifecycle. `resultId` points to the Contradiction
+/// row written by the engine once detection runs.
+model ContradictionTestTask {
+  id             String    @id @default(cuid())
+  organizationId String
+  principleAId   String
+  principleBId   String
+  pairKey        String    @default("")
+  priority       String    @default("NORMAL") // HIGH | NORMAL | LOW
+  status         String    @default("PENDING") // PENDING | RUNNING | DONE | FAILED
+  enqueuedAt     DateTime  @default(now())
+  startedAt      DateTime?
+  finishedAt     DateTime?
+  resultId       String?
+  lastError      String?
+
+  organization Organization   @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  result       Contradiction? @relation("ContradictionTestTaskResult", fields: [resultId], references: [id], onDelete: SetNull)
+
+  @@index([status, priority, enqueuedAt])
+  @@index([pairKey, enqueuedAt(sort: Desc)])
+  @@index([organizationId, status])
+}
+
+/// Resweep drift proposal. Inserted when the nightly k-means resweep
+/// disagrees with the incremental assignment by more than
+/// `CLUSTER_DRIFT_THRESHOLD` (default 0.15). Operator must explicitly
+/// accept the proposal — the incremental assignment is what the system
+/// runs on.
+model ClusterReindexProposal {
+  id                  String    @id @default(cuid())
+  organizationId      String
+  proposedAt          DateTime  @default(now())
+  drift               Float     @default(0.0)
+  clusterCountBefore  Int       @default(0)
+  clusterCountAfter   Int       @default(0)
+  summaryJson         String    @default("{}")
+  status              String    @default("PENDING") // PENDING | ACCEPTED | REJECTED
+  resolvedByFounderId String?
+  resolvedAt          DateTime?
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  resolvedBy   Founder?     @relation("ClusterReindexResolver", fields: [resolvedByFounderId], references: [id], onDelete: SetNull)
+
+  @@index([organizationId, status])
+}
+
 /// One unit of observable work in the noosphere pipeline. Spans nest
 /// under `traceId` so an upload can be followed end-to-end (ingester →
 /// classifier → distiller → publication). Older spans roll up to
@@ -3586,4 +3828,717 @@ model DealNote {
   deal Deal @relation(fields: [dealId], references: [id], onDelete: Cascade)
 
   @@index([organizationId, dealId, createdAt])
+}
+
+// ── Round 19 — Logical Algorithm layer (prompt 01) ─────────────────────────
+//
+// An algorithm is a logical function: named inputs, a structured
+// output, and a structured reasoning body that invokes one or more
+// principles to derive the output. Algorithms sit above principles
+// the way principles sit above conclusions.
+//
+// The full Pydantic payload round-trips through ``payloadJson`` so
+// the schema can evolve without per-field migrations. Indexed
+// columns are the access keys the founder triage queue and the
+// runtime hit hardest: (organizationId, status), (organizationId,
+// name). The (organizationId, name) compound unique key prevents
+// accidental duplicate definitions across re-extraction passes.
+
+enum AlgorithmStatus {
+  DRAFT
+  UNDER_REVIEW
+  ACTIVE
+  PAUSED
+  RETIRED
+}
+
+enum AlgorithmCorrectness {
+  CORRECT
+  INCORRECT
+  PARTIALLY_CORRECT
+  INDETERMINATE
+}
+
+model LogicalAlgorithm {
+  id             String       @id @default(cuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+
+  name        String
+  description String @default("") @db.Text
+
+  /// JSON-encoded list of Principle ids the algorithm builds on.
+  /// At least one is required by the noosphere validator stack.
+  sourcePrincipleIdsJson String @default("[]") @db.Text
+  /// JSON-encoded list of AlgorithmInput dicts:
+  ///   {name, type, description, observability_source, ...}
+  inputsJson             String @default("[]") @db.Text
+  /// JSON-encoded AlgorithmOutput dict:
+  ///   {name, type, description, units?, range?}
+  outputJson             String @default("{}") @db.Text
+  /// JSON-encoded list of ReasoningStep dicts:
+  ///   {step_kind, principle_id?, predicate?, derived_fact?}
+  reasoningChainJson     String @default("[]") @db.Text
+  /// Sandboxed predicate expression over input.<name> identifiers.
+  /// Validated at promotion time so the runtime can ``eval`` it later.
+  triggerPredicate       String @default("") @db.Text
+
+  status        AlgorithmStatus @default(DRAFT)
+  retiredReason String?
+
+  /// Earned weighting in the synthesizer. Default 1.0; capped at 2.0
+  /// by the calibration loop (prompt 05). The synthesizer (prompt 10)
+  /// reads this when combining outputs across multiple algorithms.
+  weightingMultiplier Float @default(1.0)
+
+  /// When True, every successful invocation of this algorithm enqueues
+  /// a synthesis task (prompt 10). Defaults to False so existing
+  /// algorithms are not retroactively wired to the synthesizer; the
+  /// founder flips this in the triage UI.
+  triggersSynthesis Boolean @default(false)
+
+  /// Authoritative round-trip of the noosphere Pydantic payload.
+  payloadJson String @default("{}") @db.Text
+
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  lastInvokedAt DateTime?
+
+  invocations           AlgorithmInvocation[]
+  calibrationSnapshots  AlgorithmCalibrationSnapshot[]
+  triageRecommendations AlgorithmTriageRecommendation[]
+  synthesizerTasks      SynthesizerTask[]
+
+  @@unique([organizationId, name])
+  @@index([organizationId])
+  @@index([organizationId, status])
+}
+
+/// One row per algorithm firing. Persisted at the moment the trigger
+/// predicate matches; resolution columns are backfilled when reality
+/// is observed at ``predictedHorizon`` past ``invokedAt``.
+model AlgorithmInvocation {
+  id             String       @id @default(cuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+
+  algorithmId String
+  algorithm   LogicalAlgorithm @relation(fields: [algorithmId], references: [id], onDelete: Cascade)
+
+  invokedAt DateTime @default(now())
+
+  /// JSON dict of {input_name: observed_value} captured at fire time.
+  triggerInputsJson  String @default("{}") @db.Text
+  /// JSON dict matching the algorithm's output schema.
+  derivedOutputJson  String @default("{}") @db.Text
+  /// JSON list of human-readable step strings; each names the
+  /// principle invoked and the intermediate fact derived. Founders
+  /// read this directly in the audit log.
+  reasoningTraceJson String @default("[]") @db.Text
+
+  confidenceLow    Float   @default(0.0)
+  confidenceHigh   Float   @default(1.0)
+  /// Horizon in seconds — how far ahead the prediction looks.
+  predictedHorizon Float   @default(0.0)
+  /// Structured bet recommendation if the algorithm implies one,
+  /// otherwise null. Loose JSON until prompt 15 ships the canonical
+  /// polymorphic bet abstraction.
+  betImpliedJson   String?
+
+  resolvedAt        DateTime?
+  /// JSON dict of the realised outcome; null until resolution.
+  actualOutcomeJson String?
+  correctness       AlgorithmCorrectness?
+  brierEquivalent   Float?
+
+  /// Authoritative round-trip of the noosphere Pydantic payload.
+  payloadJson String @default("{}") @db.Text
+
+  observations     AlgorithmInputObservation[]
+  synthesizerTasks SynthesizerTask[]
+
+  @@index([algorithmId, invokedAt(sort: Desc)])
+  @@index([organizationId, invokedAt(sort: Desc)])
+}
+
+/// Audit row: which observability source produced which value for an
+/// invocation. One row per (invocation, input). Founders consult
+/// these to answer "where did this number come from?" without
+/// re-running the runtime.
+model AlgorithmInputObservation {
+  id           String              @id @default(cuid())
+  invocationId String
+  invocation   AlgorithmInvocation @relation(fields: [invocationId], references: [id], onDelete: Cascade)
+
+  inputName        String
+  /// JSON-encoded observed value (number, string, bool, list, or
+  /// dict — whatever the input's type allows).
+  valueJson        String   @default("") @db.Text
+  observedAt       DateTime @default(now())
+  /// Nullable FK pointer (app-level join) to the artifact / current /
+  /// upload row that produced the value. Operator-entered values
+  /// have no source artifact.
+  sourceArtifactId String?
+  sourceUrl        String?
+
+  @@index([invocationId])
+  @@index([inputName])
+  @@index([sourceArtifactId])
+}
+
+// ── Round 19 prompt 05 — Algorithm calibration loop ─────────────────────────
+//
+// Each ACTIVE algorithm earns its life: every invocation resolves,
+// the resolution updates the algorithm's track record, bad algorithms
+// retire (founder-confirmed via the triage queue) and good ones earn
+// higher weighting in the synthesizer.
+//
+// AlgorithmCalibrationSnapshot is append-only — re-running the
+// calibration tick produces a new row rather than mutating the
+// latest one. The public algorithm detail page reads the time-series
+// to render the calibration chart.
+
+enum AlgorithmTriageAction {
+  NONE
+  RETIRE
+  PROMOTE
+}
+
+enum AlgorithmTriageStatus {
+  PENDING
+  ACCEPTED
+  REJECTED
+  DEFERRED
+}
+
+model AlgorithmCalibrationSnapshot {
+  id             String           @id @default(cuid())
+  algorithmId    String
+  algorithm      LogicalAlgorithm @relation(fields: [algorithmId], references: [id], onDelete: Cascade)
+  organizationId String
+  snapshotAt     DateTime         @default(now())
+
+  totalInvocations           Int    @default(0)
+  resolvedInvocations        Int    @default(0)
+  accuracy                   Float?
+  meanBrier                  Float?
+  meanHorizonError           Float?
+  directionalAccuracy        Float?
+  confidenceCalibrationDrift Float?
+  last30dAccuracy            Float?
+  last30dResolved            Int    @default(0)
+
+  probabilisticResolved  Int @default(0)
+  directionalResolved    Int @default(0)
+  confidenceBandResolved Int @default(0)
+
+  @@index([algorithmId, snapshotAt(sort: Desc)])
+  @@index([organizationId, snapshotAt(sort: Desc)])
+}
+
+model AlgorithmTriageRecommendation {
+  id             String           @id @default(cuid())
+  algorithmId    String
+  algorithm      LogicalAlgorithm @relation(fields: [algorithmId], references: [id], onDelete: Cascade)
+  organizationId String
+  recommendedAt  DateTime         @default(now())
+
+  recommendedAction     AlgorithmTriageAction @default(NONE)
+  /// JSON-encoded list of TriggerReason strings that fired.
+  triggerReasonsJson    String                @default("[]") @db.Text
+  recommendedMultiplier Float                 @default(1.0)
+  narrative             String                @default("") @db.Text
+
+  status         AlgorithmTriageStatus @default(PENDING)
+  resolvedBy     String?
+  resolvedAt     DateTime?
+  resolutionNote String?               @db.Text
+
+  @@index([organizationId, status])
+  @@index([algorithmId, recommendedAt(sort: Desc)])
+}
+
+// ── Round 19 prompt 10 — Synthesizer engine ──────────────────────────────────
+//
+// The synthesizer is the firm's reasoning organ: it consumes a question,
+// retrieves principles + algorithm invocations + currents, identifies
+// governing principles, walks a reasoning chain grounded in those
+// principles, checks for unresolved STANDING contradictions, and emits
+// a structured conclusion. The portfolio agent (prompt 12) acts on the
+// memo; the synthesizer NEVER places a bet.
+
+enum SynthesizerTaskTrigger {
+  OPERATOR
+  ALGORITHM
+  CURRENT
+}
+
+enum SynthesizerTaskStatus {
+  PENDING
+  RUNNING
+  DONE
+  FAILED
+}
+
+/// Queue row for one synthesis task. Operator queries typically run
+/// inline and bypass the queue; algorithm- and currents-triggered
+/// requests enqueue here so the producing tick is not blocked by the
+/// synthesizer's LLM round-trip.
+model SynthesizerTask {
+  id             String       @id @default(cuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+
+  trigger SynthesizerTaskTrigger @default(OPERATOR)
+  status  SynthesizerTaskStatus  @default(PENDING)
+
+  enqueuedAt DateTime  @default(now())
+  startedAt  DateTime?
+  finishedAt DateTime?
+
+  /// Pointer to the algorithm invocation that triggered this task
+  /// (when trigger == ALGORITHM). Loose FK; the noosphere row owns
+  /// the authoritative payload.
+  invocationId   String?
+  invocation     AlgorithmInvocation? @relation(fields: [invocationId], references: [id], onDelete: SetNull)
+  algorithmId    String?
+  algorithm      LogicalAlgorithm?    @relation(fields: [algorithmId], references: [id], onDelete: SetNull)
+  /// Pointer to the Currents event that triggered this task (when
+  /// trigger == CURRENT). Stored as plain string; the Currents table
+  /// is owned by the noosphere side.
+  currentEventId String?
+
+  memoId    String?
+  outcome   String?
+  reasoning String? @db.Text
+
+  /// Authoritative round-trip of the noosphere Pydantic payload.
+  payloadJson String @default("{}") @db.Text
+
+  @@index([organizationId, status])
+  @@index([status, enqueuedAt])
+  @@index([invocationId])
+  @@index([currentEventId])
+}
+
+/// Persisted synthesizer memo — the audit-shaped conclusion the
+/// portfolio agent reads. Prompt 11 will replace the inline memo body
+/// with the full investment-memo format; both shapes share this row's
+/// ``id`` and the JSON payload's ``conclusion`` key so consumers don't
+/// need to be rewritten when prompt 11 lands.
+model SynthesizerMemo {
+  id             String       @id @default(cuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+
+  createdAt          DateTime @default(now())
+  synthesizerVersion String   @default("synthesizer/v1")
+
+  question    String @default("") @db.Text
+  /// Authoritative round-trip of the noosphere Pydantic payload (the
+  /// full conclusion including reasoning chain and citations).
+  payloadJson String @default("{}") @db.Text
+
+  @@index([organizationId, createdAt(sort: Desc)])
+  @@index([synthesizerVersion])
+}
+
+// ── Round 19 prompt 11: InvestmentMemo ─────────────────────────────────
+//
+// The canonical 10-section memo artifact, emitted by the synthesizer
+// and consumed by the portfolio agent (prompt 12). Distinct from
+// SynthesizerMemo (the raw, audit-shaped conclusion); InvestmentMemo
+// carries the rendered body + lifecycle status the operator drives.
+
+enum MemoStatus {
+  DRAFT
+  UNDER_REVIEW
+  SENT
+  ARCHIVED
+  PUBLIC
+}
+
+enum MemoQuestionType {
+  INVESTMENT_DECISION
+  FORECAST
+  EXPLANATORY
+  STRATEGIC
+}
+
+model InvestmentMemo {
+  id             String       @id @default(cuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+
+  /// Loose FK back to the synthesizer's raw memo row that produced
+  /// this investment memo. The authoritative payload is on the
+  /// noosphere side.
+  synthesizerResultId String?
+
+  title String @default("") @db.Text
+  slug  String @default("")
+
+  status       MemoStatus       @default(DRAFT)
+  questionType MemoQuestionType @default(EXPLANATORY)
+  addressee    String           @default("")
+
+  /// Project-relative paths under docs/memos/<yyyy>/<mm>/. The
+  /// markdown body is the editable source; the PDF is a derived
+  /// artifact.
+  mdPath  String?
+  pdfPath String?
+
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+  sentAt         DateTime?
+  acknowledgedAt DateTime?
+  publishedAt    DateTime?
+  archivedAt     DateTime?
+
+  synthesizerVersion String @default("synthesizer/v1")
+
+  /// Authoritative round-trip of the noosphere Pydantic payload —
+  /// full memo body, governing-principle ids, observed-input ids,
+  /// reasoning chain, eight-gate readiness, provenance audit.
+  payloadJson String @default("{}") @db.Text
+
+  @@index([organizationId, status])
+  @@index([organizationId, createdAt(sort: Desc)])
+  @@index([slug])
+}
+
+// ── Round 19 prompt 12: PortfolioAgent + MemoDispatch ──────────────
+
+enum PortfolioAgentKind {
+  HUMAN
+  AUTO_PAPER
+  AUTO_LIVE
+}
+
+enum PortfolioAgentStatus {
+  ACTIVE
+  PAUSED
+  RETIRED
+}
+
+enum MemoDispatchOutcome {
+  PENDING
+  ACCEPTED_AND_BET
+  ACCEPTED_NO_BET
+  REJECTED
+  DEFERRED
+  AUTO_PAPERED
+  AUTO_LIVE_QUEUED
+  DISPATCH_FAILED
+}
+
+enum MemoDispatchBetKind {
+  FORECAST_BET
+  EQUITY_POSITION
+}
+
+model PortfolioAgent {
+  id             String       @id @default(cuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+
+  name        String
+  description String @default("") @db.Text
+
+  kind   PortfolioAgentKind   @default(HUMAN)
+  status PortfolioAgentStatus @default(ACTIVE)
+
+  /// Per-memo soft ceiling in USD applied by AUTO_PAPER / AUTO_LIVE
+  /// modes. Live bets still go through the eight-gate safety
+  /// contract (which has its own stake ceiling); this is the
+  /// agent-level guardrail applied before the gates.
+  defaultBetCeilingUsd Float @default(50.0)
+
+  /// JSON list of `{ topic, question_type, mode }` subscriptions.
+  /// Memos whose (topic, question_type) matches ANY entry flow to
+  /// this agent. Mode is optional — when absent, the agent's `kind`
+  /// is used. Stored as JSON so the Pydantic shape can evolve.
+  subscriptionsJson String @default("[]") @db.Text
+
+  /// Round-trip of the full noosphere Pydantic payload, including
+  /// any fields not modeled at the SQL level.
+  payloadJson String @default("{}") @db.Text
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  memoDispatches MemoDispatch[]
+
+  @@index([organizationId, status])
+  @@index([organizationId, kind])
+}
+
+model MemoDispatch {
+  id             String       @id @default(cuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+
+  /// FK to InvestmentMemo.id — kept as a loose reference rather than
+  /// a hard FK so memos can be archived without cascading dispatches.
+  memoId String
+
+  agentId String
+  agent   PortfolioAgent @relation(fields: [agentId], references: [id], onDelete: Cascade)
+
+  dispatchedAt  DateTime            @default(now())
+  outcomeAction MemoDispatchOutcome @default(PENDING)
+
+  /// Foreign id of the bet row this dispatch produced (or null for
+  /// PENDING / REJECTED / failed dispatches). Discriminated by
+  /// betLinkKind which table the id lives in — we deliberately
+  /// avoid a hard FK because the dispatch can outlive the bet's
+  /// settlement archive.
+  betLink     String?
+  betLinkKind MemoDispatchBetKind?
+
+  acknowledgedBy String    @default("")
+  acknowledgedAt DateTime?
+  rationale      String    @default("") @db.Text
+  deferredUntil  DateTime?
+  failureReason  String    @default("") @db.Text
+
+  /// JSON snapshot of the memo's eight-gate readiness at dispatch
+  /// time. Informational — the live bet engine re-evaluates the
+  /// gates at submission. Operator inboxes display this snapshot so
+  /// the founder can see which gates were passing when the memo
+  /// landed.
+  eightGateStatusJson String @default("{}") @db.Text
+
+  /// Round-trip of the full noosphere Pydantic payload.
+  payloadJson String @default("{}") @db.Text
+
+  @@index([agentId, outcomeAction])
+  @@index([organizationId, dispatchedAt(sort: Desc)])
+  @@index([memoId])
+}
+
+// ── Round 19 prompt 13: Knowledge graph ────────────────────────────
+
+/// One append-only snapshot of an org's knowledge graph. The graph is
+/// a *projection* over Principle / LogicalAlgorithm / InvestmentMemo /
+/// source artifact / contradiction rows — those remain
+/// authoritative. Snapshots are versioned so the public
+/// `/knowledge-graph` view can serve the latest pre-computed shape at
+/// low latency, and so an operator can audit how the graph evolved.
+model GraphSnapshot {
+  id             String       @id @default(cuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+
+  snapshotAt DateTime @default(now())
+  version    String   @default("kg/v1")
+
+  /// JSON-serialized list of nodes. Each node carries id, kind, ref,
+  /// label, attrs, provenance.
+  nodesJson String @default("[]") @db.Text
+  /// JSON-serialized list of edges. Each edge carries id, src, dst,
+  /// kind, weight, attrs.
+  edgesJson String @default("[]") @db.Text
+
+  nodeCount Int    @default(0)
+  edgeCount Int    @default(0)
+  notes     String @default("") @db.Text
+
+  @@index([organizationId, snapshotAt(sort: Desc)])
+}
+
+/// Cached agent-reasoning output for one edge — populated by the
+/// operator's "warm the top-N edges" job so public clicks are
+/// instant. Keyed by (organizationId, src, dst, kind) so a public
+/// lookup is O(1).
+model GraphEdgeReasoning {
+  id             String       @id @default(cuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+
+  src  String
+  dst  String
+  kind String
+
+  /// JSON round-trip of `EdgeReasoning` — short_answer, reasoning
+  /// chain, citations, confidence band, weak-connection flag.
+  payloadJson String @default("{}") @db.Text
+
+  generatedAt DateTime @default(now())
+
+  @@index([organizationId, src, dst, kind])
+}
+
+/// Round 19 prompt 14 — Dialectic live recording mode.
+///
+/// One recorded conversation (podcast, meeting). Mirrors
+/// `dialectic_session` in noosphere/store.py.
+model DialecticSession {
+  id             String       @id @default(cuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+
+  title            String    @default("") @db.Text
+  startedAt        DateTime  @default(now())
+  endedAt          DateTime?
+  /// JSON list of `{ speaker_id, display_name, voice_profile_ref,
+  /// consented, consented_at }`.
+  participantsJson String    @default("[]") @db.Text
+  audioPath        String    @default("") @db.Text
+  transcriptPath   String    @default("") @db.Text
+
+  /// RECORDING | PROCESSING | COMPLETE | FAILED | ARCHIVED.
+  status     String @default("RECORDING")
+  /// PRIVATE | PUBLIC. Public sessions show on /dialectic/sessions/[id].
+  visibility String @default("PRIVATE")
+
+  liveContradictionsDetected Int     @default(0)
+  principlesExtracted        Int     @default(0)
+  summaryMemoId              String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  utterances DialecticUtterance[]
+
+  @@index([organizationId, status])
+  @@index([startedAt])
+}
+
+/// One transcribed speaker-turn inside a session.
+model DialecticUtterance {
+  id        String           @id @default(cuid())
+  sessionId String
+  session   DialecticSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  speakerId String
+  startTime Float  @default(0)
+  endTime   Float  @default(0)
+  text      String @default("") @db.Text
+
+  extractedClaimIdsJson      String @default("[]") @db.Text
+  derivedPrincipleIdsJson    String @default("[]") @db.Text
+  liveContradictionFlagsJson String @default("[]") @db.Text
+
+  createdAt DateTime @default(now())
+
+  flags DialecticContradictionFlag[]
+
+  @@index([sessionId, startTime])
+  @@index([speakerId])
+}
+
+/// Contradiction event fired during a live recording.
+model DialecticContradictionFlag {
+  id          String             @id @default(cuid())
+  utteranceId String
+  utterance   DialecticUtterance @relation(fields: [utteranceId], references: [id], onDelete: Cascade)
+
+  /// INTRA_SESSION | HISTORICAL_SELF | HISTORICAL_OTHER | HISTORICAL_FIRM.
+  flagKind String @default("INTRA_SESSION")
+
+  priorUtteranceId String?
+  priorPrincipleId String?
+  priorSpeakerId   String?
+
+  contradictionScore Float   @default(0)
+  axis               String?
+  humanExplanation   String? @db.Text
+  detectionMethod    String  @default("")
+
+  acknowledgedAt     DateTime?
+  acknowledgedBy     String?
+  acknowledgmentNote String?   @db.Text
+
+  detectedAt DateTime @default(now())
+
+  @@index([utteranceId])
+  @@index([flagKind])
+}
+
+// ── Round 19 prompt 15: Polymorphic bet abstraction ──────────────────
+
+enum BetKind {
+  MARKET_BET
+  ADVISORY_BET
+  STRATEGIC_BET
+  SCIENTIFIC_BET
+}
+
+enum BetStatus {
+  PROPOSED
+  AUTHORIZED
+  OPEN
+  RESOLVED
+  CANCELLED
+  EXPIRED
+}
+
+enum BetOutcome {
+  CORRECT
+  INCORRECT
+  PARTIALLY_CORRECT
+  UNDETERMINED
+}
+
+/// Polymorphic bet — the abstract claim made by a memo. The
+/// kind-specific sub-spec lives inside `payloadJson` (round-trip of
+/// the authoritative noosphere Pydantic shape). MARKET bets gate on
+/// the eight-gate safety contract; non-financial bets skip
+/// authorization. See `noosphere/bets/spec.py`.
+model BetSpec {
+  id             String @id
+  organizationId String @default("")
+
+  kind   BetKind   @default(MARKET_BET)
+  status BetStatus @default(PROPOSED)
+
+  proposition         String   @default("") @db.Text
+  resolutionCriterion String   @default("") @db.Text
+  horizonAt           DateTime
+
+  createdByMemoId        String?
+  originatingAlgorithmId String?
+
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+  resolvedAt  DateTime?
+  outcome     BetOutcome?
+  outcomeNote String?     @db.Text
+
+  /// Authoritative round-trip of the noosphere Pydantic payload —
+  /// kind-specific sub-spec lives here.
+  payloadJson String @default("{}") @db.Text
+
+  resolutions BetResolution[]
+
+  @@index([organizationId, kind, status])
+  @@index([horizonAt])
+  @@index([createdByMemoId])
+  @@map("bet_spec")
+}
+
+/// Append-only resolution record. One row per BetSpec resolution.
+model BetResolution {
+  id           String     @id
+  betSpecId    String
+  resolvedAt   DateTime   @default(now())
+  outcome      BetOutcome @default(UNDETERMINED)
+  evidenceNote String     @default("") @db.Text
+  resolvedBy   String     @default("agent")
+
+  /// Kind-specific outcome metrics. The lifecycle fills whichever
+  /// applies; the others stay NULL.
+  pnlUsd           Float?
+  costRealized     Float?
+  accuracyScore    Float?
+  audienceResponse String? @db.Text
+
+  payloadJson String @default("{}") @db.Text
+
+  betSpec BetSpec @relation(fields: [betSpecId], references: [id], onDelete: Cascade)
+
+  @@index([betSpecId])
+  @@index([resolvedAt])
+  @@map("bet_resolution")
 }

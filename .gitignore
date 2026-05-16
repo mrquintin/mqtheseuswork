@@ -167,3 +167,8 @@ theseus-template/.git/
 theseus-template/node_modules/
 theseus-template/dist/
 theseus-template/build/
+
+# Smoke harness — every run writes a timestamped artifact directory
+# under docs/verification/smoke/. The README is committed; individual
+# runs are local-only.
+docs/verification/smoke/2*/

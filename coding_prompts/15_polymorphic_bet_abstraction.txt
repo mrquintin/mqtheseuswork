@@ -1,0 +1,202 @@
+You are operating in /Users/michaelquintin/Desktop/Theseus.
+
+Goal: generalize "bet" beyond Polymarket/Kalshi/Alpaca. Speaker 4
+in the meeting enumerated bet domains: equities → prediction
+markets → private markets → movies → media → science → opinions.
+"Bet" is polymorphic: a structured claim about a future state of
+the world with a defined resolution criterion and (optionally) a
+financial stake.
+
+Currently the codebase has two bet entities (ForecastBet,
+EquityPosition) plus the implicit bets implied by published
+opinions and articles. This prompt introduces an ABSTRACT BetSpec
+that all bet kinds share, plus three NEW non-financial bet kinds
+to demonstrate the abstraction is real:
+
+1. `MARKET_BET` — covers ForecastBet (prediction markets) and
+   EquityPosition (equities). Existing entities get a `betSpec`
+   adapter so they conform.
+2. `ADVISORY_BET` — non-financial commitment of position. The
+   firm publishes "we believe X is the case; if Y is observed by
+   Z, we were right." No money moves. Used for opinion-track
+   memos.
+3. `STRATEGIC_BET` — internal commitment of firm resources
+   (founder time, partnership pursuit, hiring direction). Has
+   an opportunity-cost stake (e.g., "we'll commit N hours of
+   founder time over M weeks"). Used for STRATEGIC memos.
+4. `SCIENTIFIC_BET` — a falsifiable prediction about the world
+   that doesn't map to a market. "We predict that household
+   debt-to-income > X in country Y will precipitate Z by date
+   Z+90d." Resolves against external data feeds (BLS, FRED,
+   etc.). Used for hypothesis-track memos.
+
+The eight-gate safety contract applies to MARKET_BET only.
+Non-financial bets have their own simpler lifecycle.
+
+Before you start — read:
+1. The existing `ForecastBet` and `EquityPosition` models from
+   Round 10 / Round 18.
+2. The eight-gate safety contract:
+   `noosphere/noosphere/forecasts/safety.py`.
+3. The InvestmentMemo entity from prompt 11 — the memo's
+   `impliedBet` field is the shape this abstraction unifies.
+
+Implement:
+
+A. Abstract `BetSpec` schema (Pydantic + JSON Schema):
+
+   ```
+   class BetSpec:
+     id: str  # UUID
+     kind: enum  # MARKET_BET | ADVISORY_BET | STRATEGIC_BET |
+                # SCIENTIFIC_BET
+     proposition: str  # one-sentence; the claim
+     resolution_criterion: str  # specific, falsifiable
+     horizon_at: datetime  # when we expect resolution
+     created_by_memo_id: str  # FK to InvestmentMemo
+     created_at: datetime
+
+     # Kind-specific extensions:
+     market_bet: MarketBetSpec | None
+     advisory_bet: AdvisoryBetSpec | None
+     strategic_bet: StrategicBetSpec | None
+     scientific_bet: ScientificBetSpec | None
+
+     status: enum  # PROPOSED | AUTHORIZED | OPEN | RESOLVED |
+                  # CANCELLED | EXPIRED
+
+     # Resolution (filled on transition to RESOLVED):
+     resolved_at: datetime | None
+     outcome: enum | None  # CORRECT | INCORRECT | PARTIALLY_CORRECT
+                          # | UNDETERMINED
+     outcome_note: str | None
+   ```
+
+   `MarketBetSpec`:
+     - `exchange` enum: POLYMARKET | KALSHI | ALPACA | ROBINHOOD
+     - `side`, `stake_usd`, `entry_price`, `external_order_id?`,
+       `forecast_bet_id?`, `equity_position_id?`
+     - All eight-gate fields snapshot at submission
+
+   `AdvisoryBetSpec`:
+     - `published_at`, `public_url?`, `position_pill`
+       (BULLISH/BEARISH/NEUTRAL),
+     - `audience` (PUBLIC | FOUNDER_NETWORK | INTERNAL)
+
+   `StrategicBetSpec`:
+     - `resource_kind` enum: FOUNDER_TIME | HIRING_DIRECTION |
+       PARTNERSHIP_PURSUIT | PRODUCT_DIRECTION
+     - `cost_estimate`, `cost_unit` (hours, weeks, $)
+     - `commitment_review_at`: datetime — when we pause and ask
+        if the bet is still worth maintaining
+
+   `ScientificBetSpec`:
+     - `data_source` — named external feed (BLS, FRED, World
+       Bank, manual operator entry)
+     - `metric_query` — structured query
+     - `expected_value` — what we predict
+     - `tolerance` — band within which we'd count as CORRECT
+     - `resolution_polling_interval_s`
+
+B. The existing `ForecastBet` and `EquityPosition` gain a
+   nullable `betSpecId` FK + a `kind = MARKET_BET` enforcement.
+   When a portfolio agent dispatches a memo whose `impliedBet`
+   is MARKET_BET, the agent creates a BetSpec row AND the
+   downstream ForecastBet / EquityPosition, linked.
+
+C. New entity `BetResolution`:
+   - `id`, `betSpecId` FK, `resolvedAt`, `outcome`,
+     `evidence_artifact_ids`, `evidence_note`, `pnl_usd?`
+     (for MARKET), `cost_realized?` (for STRATEGIC),
+     `accuracy_score?` (for SCIENTIFIC), `audience_response?`
+     (for ADVISORY).
+
+D. BetSpec lifecycle ticks:
+   - `noosphere/noosphere/bets/lifecycle.py` runs as a
+     scheduler sub-loop:
+     - For OPEN bets past `horizon_at` by > 24h: attempt to
+       resolve via kind-specific resolver.
+     - MARKET_BET → reuse the existing resolution pollers from
+       Round 10 prompt 07.
+     - ADVISORY_BET → operator manually resolves (the agent
+       does not unilaterally decide whether public commentary
+       was "right" — that's a judgment call).
+     - STRATEGIC_BET → operator manually resolves.
+     - SCIENTIFIC_BET → query the named data source, compare to
+       expected_value ± tolerance, write the resolution.
+
+E. Calibration extension. The algorithm calibration tracker from
+   prompt 05 now operates on the BetSpec level too. Each
+   memo-originated BetSpec contributes to the originating
+   algorithm's calibration record (if memo was algorithm-
+   triggered) AND to the firm's overall calibration record.
+
+F. Public surface. The unified portfolio page from Round 18
+   prompt 63 gains tabs:
+   - "Market bets" (existing content)
+   - "Advisory bets" (new) — public-commitment positions
+     ranked by reach and accuracy
+   - "Strategic bets" (founder-only)
+   - "Scientific bets" (new) — published hypotheses with
+     pending/resolved status
+
+   The /memos public surface from prompt 11 cross-links to its
+   originating BetSpec(s).
+
+G. CLI:
+   - `noosphere bet propose --memo <id>` — creates a BetSpec
+     from a memo's implied bet.
+   - `noosphere bet authorize --bet <id>` — operator authorize
+     (MARKET only; equivalent to eight-gate authorize-live).
+   - `noosphere bet resolve --bet <id> --outcome CORRECT|...
+       --evidence <artifact_id,...>`
+   - `noosphere bet list --kind ADVISORY|STRATEGIC|...`
+
+H. Tests:
+   - BetSpec creation from each memo type round-trips correctly.
+   - MARKET_BET dispatch creates a linked ForecastBet /
+     EquityPosition; the eight-gate readiness panel honors
+     existing semantics.
+   - ADVISORY_BET resolution: operator-only; agent refuses to
+     decide.
+   - STRATEGIC_BET commitment_review_at fires a triage
+     reminder at the right time.
+   - SCIENTIFIC_BET resolves against a fixture data feed
+     within tolerance.
+   - Calibration tracker correctly attributes BetSpec
+     resolutions to their originating algorithm.
+
+Constraints
+- The agent NEVER resolves an ADVISORY_BET or STRATEGIC_BET
+  unilaterally. Both require operator judgment.
+- Existing ForecastBet / EquityPosition flows are NOT removed;
+  they are ADAPTED. Backward compatibility is required —
+  pre-Round-19 bets still work.
+- The eight-gate safety contract applies to MARKET_BET only.
+  Non-financial bets have their own simpler controls.
+- SCIENTIFIC_BET data sources must be named external feeds
+  with documented update cadence. No "make up a metric and
+  resolve against it" patterns.
+
+SCOPE
+- `noosphere/noosphere/bets/__init__.py` CREATE
+- `noosphere/noosphere/bets/spec.py` CREATE
+- `noosphere/noosphere/bets/lifecycle.py` CREATE
+- `noosphere/noosphere/bets/resolvers/__init__.py` CREATE
+- `noosphere/noosphere/bets/resolvers/market.py` CREATE
+- `noosphere/noosphere/bets/resolvers/scientific.py` CREATE
+- `noosphere/noosphere/bets/resolvers/advisory.py` CREATE
+- `noosphere/noosphere/bets/resolvers/strategic.py` CREATE
+- `noosphere/noosphere/models.py` MODIFY
+- `noosphere/noosphere/store.py` MODIFY
+- `theseus-codex/prisma/schema.prisma` MODIFY
+- `theseus-codex/prisma/migrations/<ts>_bet_polymorphism/migration.sql` CREATE
+- `noosphere/alembic/versions/<rev>_bet_polymorphism.py` CREATE
+- `noosphere/noosphere/forecasts/scheduler.py` MODIFY
+- `theseus-codex/src/app/portfolio/page.tsx` MODIFY
+- `theseus-codex/src/components/portfolio/AdvisoryBetsTab.tsx` CREATE
+- `theseus-codex/src/components/portfolio/ScientificBetsTab.tsx` CREATE
+- `noosphere/noosphere/cli.py` MODIFY
+- `noosphere/tests/test_bet_spec.py` CREATE
+- `noosphere/tests/test_bet_lifecycle.py` CREATE
+- `noosphere/tests/test_scientific_bet_resolution.py` CREATE

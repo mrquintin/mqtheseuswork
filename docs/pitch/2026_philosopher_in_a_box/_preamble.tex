@@ -1,0 +1,109 @@
+% Shared preamble for the "Philosopher in a Box" pitch deck.
+%
+% House rule: documents compile with pdflatex. Beamer is intentionally
+% avoided here in favour of a clean custom slide class built on
+% `article` so the deck reads like the firm — restrained, large
+% typography, generous whitespace, parchment + amber accents matching
+% the public site.
+
+\usepackage[paperwidth=13.333in,paperheight=7.5in,margin=0.75in]{geometry}
+\usepackage[T1]{fontenc}
+\usepackage[utf8]{inputenc}
+\usepackage{textcomp}
+\usepackage{lmodern}
+
+% Typography. Palatino body, Helvetica display. Palatino because it is
+% standard in TeX Live and reads like the EB Garamond used on the
+% public site; Helvetica for the mono-feeling section labels.
+\usepackage{mathpazo}
+\usepackage[scaled=0.92]{helvet}
+\usepackage{inconsolata}
+\renewcommand{\familydefault}{\rmdefault}
+
+\usepackage{microtype}
+\usepackage{parskip}
+\usepackage{xcolor}
+\usepackage{tikz}
+\usetikzlibrary{positioning,arrows.meta,calc}
+\usepackage{tcolorbox}
+\tcbuselibrary{skins,breakable}
+\usepackage{enumitem}
+\usepackage{array}
+\usepackage{booktabs}
+\usepackage{fancyhdr}
+\usepackage{calc}
+\usepackage[hidelinks]{hyperref}
+
+% Firm palette — matches the public site's parchment + amber identity.
+\definecolor{parchment}{HTML}{F4ECDA}
+\definecolor{parchmentdim}{HTML}{D9CFB8}
+\definecolor{ink}{HTML}{1E1A14}
+\definecolor{inkdim}{HTML}{3B3326}
+\definecolor{amber}{HTML}{B27A2A}
+\definecolor{amberdim}{HTML}{8C5F1F}
+\definecolor{rule}{HTML}{C8BDA0}
+
+% Background and default text colours. Parchment paper, ink type.
+\pagecolor{parchment}
+\color{ink}
+
+% No page numbers, no headers — slides are atomic.
+\pagestyle{empty}
+\setlength{\parindent}{0pt}
+
+% Slide environment. Each slide is exactly one page. The header bar
+% carries the slide number + section label; the footer carries the
+% firm tagline so the deck reads as a coherent artefact even when a
+% single slide is exported in isolation.
+\newcommand{\slidenumber}[1]{\gdef\@slidenum{#1}}
+\newcommand{\slidelabel}[1]{\gdef\@slidelabel{#1}}
+\gdef\@slidenum{}
+\gdef\@slidelabel{}
+
+\newenvironment{slide}[2]{%
+  \slidenumber{#1}\slidelabel{#2}%
+  \begin{tikzpicture}[remember picture,overlay]
+    \node[anchor=north west, inner sep=0pt] at ([xshift=0.75in,yshift=-0.45in]current page.north west) {%
+      \sffamily\fontsize{8pt}{10pt}\selectfont\color{amberdim}%
+      \MakeUppercase{\@slidelabel}\quad\textbullet\quad #1 / 14%
+    };
+    \node[anchor=south west, inner sep=0pt] at ([xshift=0.75in,yshift=0.45in]current page.south west) {%
+      \sffamily\fontsize{7pt}{9pt}\selectfont\color{amberdim}%
+      THESEUS\quad\textbullet\quad A PHILOSOPHER IN A BOX%
+    };
+    \draw[color=rule,line width=0.4pt]
+      ([xshift=0.75in,yshift=-0.65in]current page.north west) --
+      ([xshift=-0.75in,yshift=-0.65in]current page.north east);
+    \draw[color=rule,line width=0.4pt]
+      ([xshift=0.75in,yshift=0.65in]current page.south west) --
+      ([xshift=-0.75in,yshift=0.65in]current page.south east);
+  \end{tikzpicture}%
+  \vspace*{0.35in}%
+}{\clearpage}
+
+% Headlines and supporting type.
+\newcommand{\slidehead}[1]{%
+  {\sffamily\bfseries\fontsize{30pt}{34pt}\selectfont\color{ink}#1\par}%
+  \vspace{0.25in}%
+}
+\newcommand{\slidesub}[1]{%
+  {\sffamily\fontsize{14pt}{18pt}\selectfont\color{inkdim}#1\par}%
+  \vspace{0.18in}%
+}
+\newcommand{\sliderule}{%
+  \vspace{0.1in}%
+  {\color{rule}\rule{\textwidth}{0.4pt}}\par
+  \vspace{0.15in}%
+}
+\newcommand{\callout}[1]{%
+  {\rmfamily\itshape\fontsize{16pt}{22pt}\selectfont\color{amber}#1\par}%
+}
+
+% A reusable two-column table for side-by-side comparisons.
+\newenvironment{stack}[2]{%
+  \begin{tabular}{@{}>{\raggedright\arraybackslash}p{0.46\textwidth}@{\hspace{0.06\textwidth}}>{\raggedright\arraybackslash}p{0.46\textwidth}@{}}
+  \sffamily\bfseries\color{amber}#1 & \sffamily\bfseries\color{amber}#2 \\
+  \midrule
+}{%
+  \end{tabular}%
+}

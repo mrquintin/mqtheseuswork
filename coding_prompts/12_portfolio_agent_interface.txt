@@ -1,0 +1,192 @@
+You are operating in /Users/michaelquintin/Desktop/Theseus.
+
+Goal: the PORTFOLIO AGENT — the entity (initially human-facing
+queue, eventually optional machine agent) that consumes memos
+(prompt 11) and decides whether to act on them. Speaker 4 in the
+meeting: "those conclusions get transferred into portfolio agents,
+human or machine, and those agents place bets in their respective
+markets."
+
+The portfolio agent is the SEAM between the synthesizer's
+conclusion and a real-world bet. It honors the eight-gate safety
+contract from Round 10 — every bet flows through the same gates
+regardless of whether the originator was a Currents opinion, a
+ForecastPrediction, an EquitySignal, or a synthesizer memo.
+
+Three classes of portfolio agent in v1:
+
+1. **Human portfolio agent** (default) — a founder reviews each
+   incoming memo, edits/accepts/rejects, and clicks to fire the
+   implied bet through the existing Forecasts/Equities engines.
+2. **Auto-paper portfolio agent** — for memos in topics the
+   founder has opted-in to auto-paper, the agent automatically
+   places a PAPER bet (no real money) and surfaces the result on
+   the portfolio page. This is calibration data.
+3. **Auto-live portfolio agent** — gated behind explicit
+   per-topic operator authorization PLUS the eight-gate safety
+   contract per bet. Each live order requires per-bet
+   confirmation in the operator console; this prompt does not
+   change that.
+
+Each portfolio agent has a SUBSCRIPTION specifying which memos
+flow to it. Subscriptions are per-(topic, question_type) and
+declare a mode (HUMAN / AUTO_PAPER / AUTO_LIVE).
+
+Before you start — read:
+1. The InvestmentMemo entity from prompt 11.
+2. The existing bet engines: `noosphere/noosphere/forecasts/`
+   (Polymarket/Kalshi) and `noosphere/noosphere/equities/`
+   (Alpaca + Robinhood).
+3. The eight-gate safety contract:
+   `noosphere/noosphere/forecasts/safety.py`.
+
+Implement:
+
+A. New entities:
+
+   `PortfolioAgent`:
+     - `id`, `organizationId` FK
+     - `name`, `description`
+     - `kind` enum: HUMAN | AUTO_PAPER | AUTO_LIVE
+     - `subscriptions`: JSON list of
+        `{ topic, question_type, mode }` — memos matching ANY
+        subscription flow to this agent.
+     - `defaultBetCeilingUsd` — soft ceiling per memo for
+        AUTO_PAPER / AUTO_LIVE
+     - `status` enum: ACTIVE | PAUSED | RETIRED
+     - `createdAt`, `updatedAt`
+
+   `MemoDispatch`:
+     - `id`, `memoId` FK, `agentId` FK, `dispatchedAt`,
+       `outcomeAction` enum: ACCEPTED_AND_BET | ACCEPTED_NO_BET |
+       REJECTED | DEFERRED | AUTO_PAPERED | AUTO_LIVED
+     - `betLink`: nullable FK to a ForecastBet / EquityPosition /
+        other bet entity created as a result
+     - `acknowledgedBy`: founder id for human path, "agent" for
+        auto
+     - `acknowledgedAt`, `rationale`
+     - `eight_gate_status`: JSON snapshot of the eight gates at
+        dispatch time (informational; the bet engines re-check)
+
+B. Memo router. The memo-send action from prompt 11 invokes
+   `dispatch_memo(memo_id)`:
+   1. Find all PortfolioAgents with subscriptions matching the
+      memo's (topic, question_type).
+   2. For each match:
+      - If HUMAN: create a MemoDispatch row with status
+        PENDING and surface it in the operator console.
+      - If AUTO_PAPER: build a PAPER bet via the existing bet
+        engines from the memo's `impliedBet`, persist the
+        position, record MemoDispatch with `outcomeAction =
+        AUTO_PAPERED`.
+      - If AUTO_LIVE: enqueue the live bet for operator
+        per-bet confirmation. Do NOT auto-submit. The
+        confirmation surface from Round 10 prompt 16 is the
+        single approval point.
+   3. Emit a structured-log event for each dispatch.
+
+C. Operator surface. `/(authed)/portfolio-agents`:
+   - List of portfolio agents.
+   - Per-agent: subscriptions, recent dispatches, hit rate
+     (acceptance ratio), agent's calibration if AUTO_PAPER.
+   - Configure subscriptions: topic + question_type + mode.
+   - Pause/unpause/retire actions.
+
+D. `/(authed)/portfolio-agents/[id]/inbox`:
+   - HUMAN-mode agents have an inbox of pending memo dispatches.
+   - Each memo shown in full (the 10-section view), with
+     ACCEPT-AND-BET / ACCEPT-NO-BET / REJECT / DEFER actions.
+   - ACCEPT-AND-BET fires the bet flow through the existing
+     engines (Forecasts / Equities). Eight-gate readiness
+     panel from the memo is re-evaluated at click time;
+     failing gates surface inline.
+   - REJECT requires a free-text rationale (≥ 20 chars).
+   - The action is recorded on the MemoDispatch row.
+
+E. Public surface. The unified portfolio page from Round 18
+   prompt 63 gains a "Memo trace" surface on each open
+   position — clicking a position shows the memo that
+   originated it, the agent that dispatched it, and the
+   rationale of the human or auto-agent that fired it.
+
+F. Auto-paper engine specifics:
+   - Reuses the existing paper-bet engines (Forecasts paper
+     from Round 10 prompt 08, Equities paper from Round 18
+     prompt 60).
+   - The auto-paper agent picks stake via the memo's
+     `impliedBet.stake_range` clamped to its
+     `defaultBetCeilingUsd`.
+   - Records the originating memo id on the bet row (new
+     `sourceMemoId` field on ForecastBet / EquityPosition).
+     Migration is additive.
+
+G. Auto-live engine specifics:
+   - This prompt does NOT introduce a new live-bet path.
+   - Auto-live is "memo proposes → operator confirms each bet
+     in the existing operator console." The only new behavior
+     is queuing live bets there from a memo dispatch.
+
+H. Configuration:
+   - `MEMO_DISPATCH_DEFAULT_MODE` (default HUMAN) — the mode
+     for any subscription that doesn't specify one explicitly.
+   - `AUTO_PAPER_REQUIRES_CALIBRATION_THRESHOLD` (default 20) —
+     a subscription cannot be set to AUTO_PAPER until its
+     HUMAN-mode predecessor has 20+ dispatches with positive
+     hit rate.
+
+I. CLI:
+   - `noosphere portfolio-agent create --name "..." --kind
+       HUMAN|AUTO_PAPER|AUTO_LIVE`
+   - `noosphere portfolio-agent subscribe --agent <id> --topic
+       <t> --question-type <qt> --mode <m>`
+   - `noosphere portfolio-agent inbox --agent <id>`
+
+J. Tests:
+   - HUMAN-mode dispatch creates a pending row and surfaces in
+     inbox.
+   - AUTO_PAPER mode auto-creates a paper bet within
+     `defaultBetCeilingUsd`.
+   - AUTO_LIVE mode queues a live bet for operator
+     confirmation without auto-submitting (verified by
+     asserting no live-engine HTTP call was made).
+   - Subscription matching honors topic AND question_type
+     (both must match).
+   - Calibration-threshold guard prevents premature
+     AUTO_PAPER promotion.
+   - REJECT path records rationale; DEFER path leaves dispatch
+     PENDING with a deferred-until timestamp.
+   - Eight-gate readiness panel is re-evaluated at human-accept
+     click time (snapshot from memo dispatch is informational
+     only).
+
+Constraints
+- The portfolio agent NEVER bypasses the eight-gate safety
+  contract for live trading. Period.
+- AUTO_LIVE is gated by the operator's per-bet confirmation in
+  the existing operator console. There is no new "auto-live"
+  bypass.
+- The memo is the canonical record of WHY a bet was placed. A
+  bet without a linked memo (for memo-originated bets) is a
+  data-integrity error and is flagged in the operator surface.
+- A failed dispatch (e.g., subscription matches but agent is
+  PAUSED) is recorded with reason. Memos don't silently disappear.
+
+SCOPE
+- `noosphere/noosphere/portfolio_agent/__init__.py` CREATE
+- `noosphere/noosphere/portfolio_agent/router.py` CREATE
+- `noosphere/noosphere/portfolio_agent/auto_paper.py` CREATE
+- `noosphere/noosphere/portfolio_agent/auto_live.py` CREATE
+- `noosphere/noosphere/models.py` MODIFY
+- `noosphere/noosphere/store.py` MODIFY
+- `theseus-codex/prisma/schema.prisma` MODIFY
+- `theseus-codex/prisma/migrations/<ts>_portfolio_agent/migration.sql` CREATE
+- `noosphere/alembic/versions/<rev>_portfolio_agent.py` CREATE
+- `theseus-codex/src/app/(authed)/portfolio-agents/page.tsx` CREATE
+- `theseus-codex/src/app/(authed)/portfolio-agents/[id]/page.tsx` CREATE
+- `theseus-codex/src/app/(authed)/portfolio-agents/[id]/inbox/page.tsx` CREATE
+- `theseus-codex/src/components/portfolio/MemoInboxItem.tsx` CREATE
+- `theseus-codex/src/app/portfolio/page.tsx` MODIFY
+- `noosphere/noosphere/cli.py` MODIFY
+- `noosphere/tests/test_portfolio_agent_router.py` CREATE
+- `noosphere/tests/test_auto_paper_dispatch.py` CREATE
+- `noosphere/tests/test_auto_live_dispatch.py` CREATE

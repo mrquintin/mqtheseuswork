@@ -1,6 +1,17 @@
 """
-Coherence package: legacy six-layer engine (`engine`), modular scorers,
-aggregator (six layers + voting), LLM judge, scheduler, cache, and calibration.
+Coherence package.
+
+The canonical contradiction detector is
+``noosphere.coherence.contradiction_engine.ContradictionEngine`` — a single
+geometric method (Householder reflection + Hoyer sparsity of difference)
+calibrated against the QH-v1 benchmark.
+
+The six legacy heuristic modules (``engine``, ``argumentation``,
+``probabilistic``, ``geometry``, ``information``, ``judge``) are DEPRECATED
+as of Round 19 prompt 06. They remain importable as a compat shim so the
+legacy regression tests still pass, but new contradiction detection MUST
+route through ``ContradictionEngine``. They are slated for removal in
+Round 19 prompt 16.
 """
 
 from noosphere.coherence.engine import (
@@ -47,8 +58,70 @@ from noosphere.coherence.calibration import (
     save_calibration,
 )
 from noosphere.coherence.metrics import macro_f1, per_layer_accuracy, regression_delta
+from noosphere.coherence.contradiction_engine import (
+    AVAILABLE_METHODS,
+    CONTRADICTION_THRESHOLD,
+    ContradictionEngine,
+    ContradictionResult,
+    ContradictionVerdict,
+    DETECTION_METHOD_VERSION,
+    DetectionMethodInfo,
+    INDEPENDENT_THRESHOLD,
+    list_methods,
+    stable_pair_id,
+)
+from noosphere.coherence.lifecycle import (
+    HIGH_THRESHOLD as LIFECYCLE_HIGH_THRESHOLD,
+    LOW_THRESHOLD as LIFECYCLE_LOW_THRESHOLD,
+    LifecycleEvent,
+    LifecycleRecord,
+    LifecycleStatus,
+    TERMINAL_STATUSES as LIFECYCLE_TERMINAL_STATUSES,
+    TransitionDecision,
+    WEAKENED_GAP as LIFECYCLE_WEAKENED_GAP,
+    decide_transition,
+    validate_transition,
+)
+from noosphere.coherence.auto_resolver import (
+    ResolverOutcome,
+    ResolverReport,
+    accept_subsumption,
+    acknowledge_standing,
+    dispute_as_error,
+    on_new_principle,
+    on_principle_revocation,
+    reject_subsumption,
+)
 
 __all__ = [
+    "AVAILABLE_METHODS",
+    "CONTRADICTION_THRESHOLD",
+    "ContradictionEngine",
+    "ContradictionResult",
+    "ContradictionVerdict",
+    "DETECTION_METHOD_VERSION",
+    "DetectionMethodInfo",
+    "INDEPENDENT_THRESHOLD",
+    "LIFECYCLE_HIGH_THRESHOLD",
+    "LIFECYCLE_LOW_THRESHOLD",
+    "LIFECYCLE_TERMINAL_STATUSES",
+    "LIFECYCLE_WEAKENED_GAP",
+    "LifecycleEvent",
+    "LifecycleRecord",
+    "LifecycleStatus",
+    "ResolverOutcome",
+    "ResolverReport",
+    "TransitionDecision",
+    "accept_subsumption",
+    "acknowledge_standing",
+    "decide_transition",
+    "dispute_as_error",
+    "list_methods",
+    "on_new_principle",
+    "on_principle_revocation",
+    "reject_subsumption",
+    "stable_pair_id",
+    "validate_transition",
     "AggregationResult",
     "ArgumentationResult",
     "CoherenceAggregator",

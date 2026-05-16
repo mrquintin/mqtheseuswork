@@ -14,8 +14,8 @@
 # rendering is at .claude_code_runs/<timestamp>_<prompt>.log .
 #
 # Usage:
-#   ./run_prompts.sh
-#   ./run_prompts.sh --from 3
+#   ./run_prompts.sh                       # run all prompts + auto-run gate
+#   ./run_prompts.sh --from 3              # resume; gate is skipped (partial run)
 #   ./run_prompts.sh --to 5
 #   ./run_prompts.sh --from 2 --to 6
 #   ./run_prompts.sh --only 04
@@ -23,6 +23,18 @@
 #   ./run_prompts.sh --continue
 #   ./run_prompts.sh --dry-run
 #   ./run_prompts.sh --branch-mode
+#   ./run_prompts.sh --skip-gate           # run prompts but don't run the gate
+#   ./run_prompts.sh --gate-only           # skip prompts, just run the gate
+#   ./run_prompts.sh --gate-from 3         # gate resumes from its step 3
+#
+# Gate integration (Round 19b prompt 27):
+#   After a full successful batch (no --from / --to / --only filtering),
+#   the runner automatically invokes scripts/ready-to-sync.sh — the
+#   bug-testing gate that runs migration linearity, import-cycle checks,
+#   smoke tests, integration tests, env validation, safety regression,
+#   bug-replay catalog, and CI/doc freshness. If the gate fails, the
+#   runner exits non-zero and sync is BLOCKED. This is the permanent
+#   pre-sync safety net; --skip-gate is the explicit opt-out (rare).
 #
 # --branch-mode (opt-in):
 #   Each prompt runs on its own branch `auto/<round-suffix>/<NN>-<slug>`
@@ -60,6 +72,17 @@ CURRENT_PROMPT_NUM=""
 CURRENT_PROMPT_NAME=""
 CURRENT_BRANCH=""
 
+# ready-to-sync gate integration (Round 19b prompt 27).
+# After the full declared batch completes, automatically run the
+# bug-testing gate so the operator sees pass/fail before sync.
+# Flags:
+#   --skip-gate    don't run the gate even if every prompt succeeded
+#   --gate-only    skip prompts entirely, run just the gate
+#   --gate-from N  pass through to the gate's --from flag (resume gate)
+RUN_GATE=1            # default ON; runs after a complete successful batch
+GATE_ONLY=0
+GATE_FROM=""
+
 on_signal() {
   local signal="$1"
   echo
@@ -88,6 +111,9 @@ while [[ $# -gt 0 ]]; do
     --dry-run) DRY_RUN=1; shift ;;
     --branch-mode) BRANCH_MODE=1; shift ;;
     --round-suffix) case "${2-}" in ''|--*) echo "error: --round-suffix requires a value" >&2; exit 2 ;; esac; ROUND_SUFFIX="$2"; shift 2 ;;
+    --skip-gate) RUN_GATE=0; shift ;;
+    --gate-only) GATE_ONLY=1; shift ;;
+    --gate-from) case "${2-}" in ''|--*) echo "error: --gate-from requires a value" >&2; exit 2 ;; esac; GATE_FROM="$2"; shift 2 ;;
     -h|--help) sed -n '2,33p' "$0"; exit 0 ;;
     *) echo "unknown flag: $1"; exit 2 ;;
   esac
@@ -530,10 +556,55 @@ run_prompt() {
   return "$status"
 }
 
+# ----- ready-to-sync gate ---------------------------------------------------
+# Runs scripts/ready-to-sync.sh (Round 19b prompt 27) at the end of a clean
+# batch. Returns 0 on PASS, non-zero on FAIL. If the gate script does not yet
+# exist (e.g., prompt 27 hasn't been implemented in this checkout), the gate
+# WARNs and is treated as PASS so older checkouts don't break — the warning
+# is loud enough that the operator notices.
+run_ready_to_sync_gate() {
+  local gate="$REPO_ROOT/scripts/ready-to-sync.sh"
+  if [ ! -x "$gate" ]; then
+    if [ ! -f "$gate" ]; then
+      echo "${YELLOW}--------------------------------------------------------------${NC}"
+      echo "${YELLOW}gate: scripts/ready-to-sync.sh not present in this checkout.${NC}"
+      echo "${YELLOW}      Run prompt 27 to build it; gate is being SKIPPED for now.${NC}"
+      echo "${YELLOW}--------------------------------------------------------------${NC}"
+      return 0
+    fi
+    echo "${YELLOW}gate: scripts/ready-to-sync.sh exists but is not executable.${NC}"
+    echo "${YELLOW}      chmod +x scripts/ready-to-sync.sh; gate is being SKIPPED.${NC}"
+    return 0
+  fi
+
+  echo
+  echo "${BLUE}--------------------------------------------------------------${NC}"
+  echo "${BOLD}${BLUE}Running ready-to-sync gate...${NC}"
+  echo "${BLUE}--------------------------------------------------------------${NC}"
+
+  local gate_args=()
+  [ -n "$GATE_FROM" ] && gate_args+=("--from" "$GATE_FROM")
+  "$gate" "${gate_args[@]}"
+  return $?
+}
+
 OVERALL_START=$(date +%s)
 ran=0
 failed=0
 ok=0
+
+# --gate-only short-circuit: skip the prompt loop entirely, run only the gate.
+if [ "$GATE_ONLY" -eq 1 ]; then
+  echo "${BOLD}--gate-only set; skipping prompts, running gate only.${NC}"
+  if run_ready_to_sync_gate; then
+    echo "${GREEN}${BOLD}OK Gate PASSED.${NC}"
+    exit 0
+  else
+    echo "${RED}${BOLD}FAIL Gate did not pass. See report path above.${NC}"
+    exit 1
+  fi
+fi
+
 for f in ${PROMPTS[@]+"${PROMPTS[@]}"}; do
   base=$(basename "$f" .txt)
   num="${base%%_*}"
@@ -568,11 +639,59 @@ if [ "$failed" -eq 0 ]; then
     "$final_bar" "$ok" "$SELECTED" "$total_mins" "$total_secs"
   echo "${BLUE}Logs:${NC} $LOG_DIR"
   echo "${BLUE}--------------------------------------------------------------${NC}"
+
+  # ----- Gate dispatch ------------------------------------------------------
+  # Only run the gate if:
+  #   * the full declared batch ran (no --from / --to / --only filtering),
+  #   * --skip-gate was not set,
+  #   * --dry-run was not set.
+  # Running the gate against a partial run would be misleading — the gate
+  # tests integrity of the WHOLE codebase post-batch, and a partial run
+  # leaves the codebase in a half-applied state by design.
+  gate_eligible=1
+  [ "$RUN_GATE" -eq 0 ] && gate_eligible=0
+  [ "$DRY_RUN" -eq 1 ] && gate_eligible=0
+  [ "$FROM" -gt 0 ] && gate_eligible=0
+  [ "$TO" -gt 0 ] && gate_eligible=0
+  [ -n "$ONLY" ] && gate_eligible=0
+
+  if [ "$gate_eligible" -eq 1 ]; then
+    if run_ready_to_sync_gate; then
+      echo
+      echo "${GREEN}${BOLD}OK Gate PASSED — safe to sync.${NC}"
+      echo "${BLUE}Next: ./scripts/sync-to-github.sh${NC}"
+      exit 0
+    else
+      echo
+      echo "${RED}${BOLD}FAIL Gate did not pass.${NC}"
+      echo "${RED}Prompts succeeded but the bug-testing gate caught an issue.${NC}"
+      echo "${RED}Review the report path printed above, fix the issue, then re-run:${NC}"
+      echo "${RED}  ./run_prompts.sh --gate-only${NC}"
+      echo "${RED}Sync is BLOCKED until the gate passes (run sync-to-github.sh${NC}"
+      echo "${RED}with --skip-ready-to-sync only in emergencies).${NC}"
+      exit 1
+    fi
+  else
+    # Partial run or explicit skip — explain rather than silently omit.
+    skip_reason=""
+    [ "$RUN_GATE" -eq 0 ] && skip_reason="$skip_reason --skip-gate"
+    [ "$FROM" -gt 0 ] && skip_reason="$skip_reason --from"
+    [ "$TO" -gt 0 ] && skip_reason="$skip_reason --to"
+    [ -n "$ONLY" ] && skip_reason="$skip_reason --only"
+    [ "$DRY_RUN" -eq 1 ] && skip_reason="$skip_reason --dry-run"
+    echo
+    echo "${YELLOW}Gate skipped (reason:${skip_reason}).${NC}"
+    echo "${YELLOW}Run the gate manually before sync:${NC}"
+    echo "${YELLOW}  ./run_prompts.sh --gate-only${NC}"
+    exit 0
+  fi
 else
   echo "${BLUE}--------------------------------------------------------------${NC}"
   printf "${RED}${BOLD}FAIL Active batch halted${NC}         %s   ${RED}%d/%d ran, %d fail${NC}   ${BLUE}%dm %02ds${NC}\n" \
     "$final_bar" "$ran" "$SELECTED" "$failed" "$total_mins" "$total_secs"
   echo "${BLUE}Logs:${NC} $LOG_DIR"
   echo "${BLUE}--------------------------------------------------------------${NC}"
+  echo
+  echo "${RED}Gate not run — prompts didn't complete. Fix and resume with --from N.${NC}"
   exit 1
 fi

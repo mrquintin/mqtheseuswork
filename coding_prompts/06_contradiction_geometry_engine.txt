@@ -1,0 +1,173 @@
+You are operating in /Users/michaelquintin/Desktop/Theseus.
+
+Goal: replace the six fragile contradiction heuristics with a
+single high-reliability detector grounded in the founder's
+contradiction-geometry research. Founder's verdict on the current
+heuristics (language / argument-shape / probability / geometry /
+compression / LLM-rationality): "really bad, don't make sense."
+The replacement is geometric, falsifiable, and produces a single
+contradiction score per principle pair plus a structured reason
+when it fires.
+
+The research artifact to draw from is the QH benchmark + the
+householder-ablation work — both already landed in earlier rounds.
+This prompt promotes the best-performing detection method out of
+that research into PRODUCTION as the canonical contradiction
+engine.
+
+Before you start — read:
+1. The QH benchmark results under
+   `benchmarks/quintin_hypothesis/v1/results/` —
+   especially the latest run's `analysis.md`.
+2. The cross-model study under
+   `benchmarks/quintin_hypothesis/v1/results/cross_model/` —
+   note which embedding family produces the most stable
+   contradiction signal.
+3. The householder-ablation results under
+   `benchmarks/quintin_hypothesis/v1/results/ablations/`.
+4. `noosphere/noosphere/coherence/` for the existing
+   contradiction module (this is what's being replaced).
+5. The founder's research write-up at
+   `docs/research/Cross_Model_Geometry_Study.tex` and
+   `docs/research/Householder_Ablation.tex`.
+
+Implement:
+
+A. `noosphere/noosphere/coherence/contradiction_engine.py`
+   (the new canonical engine; the old multi-heuristic module is
+   demoted to a legacy compat shim):
+   - `class ContradictionEngine`:
+     - `async detect(principle_a, principle_b, *, store) ->
+                                          ContradictionResult`:
+       1. Resolve embeddings for both principles using the
+          embedding family the benchmark selected.
+       2. Apply the contradiction-geometry transform (the
+          Householder-style projection if the ablation showed it
+          best; otherwise the alternative the benchmark winner
+          uses). The decision is locked HERE — there is one
+          canonical method, not six.
+       3. Compute the contradiction score: a scalar in [0, 1]
+          where 0 = independent / compatible, 1 = strict
+          contradiction.
+       4. Compute a confidence band (low, high) for the score.
+          Bands come from the benchmark's calibration data.
+       5. If score > `CONTRADICTION_THRESHOLD` (default 0.65),
+          generate a structured contradiction reason: which
+          axis-of-disagreement the geometry highlights, with a
+          short human-readable description ("the principles
+          disagree on whether X causes Y").
+          The reason is produced by a brief Haiku call that
+          takes both principle texts + the geometric signal and
+          MUST GROUND its explanation in actual disagreement
+          between the texts (not in the geometry itself —
+          geometry detects, language explains).
+       6. Return ContradictionResult:
+          { score: float,
+            confidence_low: float,
+            confidence_high: float,
+            verdict: "CONTRADICTORY" | "INDEPENDENT" | "COHERENT",
+            axis: str | null,
+            human_explanation: str | null,
+            detection_method: str,  # version-stamped
+            detected_at: datetime }
+
+   - `async batch_detect(principle_pairs, *, store, max_concurrency=4)
+                                       -> list[ContradictionResult]`
+
+B. Versioned detection method. The contradiction engine carries
+   `detection_method` as a versioned string (e.g.
+   `"geometry/householder/v2"`). This appears on every persisted
+   ContradictionResult so future analyses can group by method
+   version. New rolls of the benchmark can produce a new version
+   without invalidating prior results.
+
+C. Persistence. The existing `StoredContradiction` (or analog)
+   table is extended with:
+   - `score` float
+   - `confidence_low`, `confidence_high` floats
+   - `axis` text nullable
+   - `human_explanation` text nullable
+   - `detection_method` text
+   Old rows retain whatever heuristic produced them; new rows
+   carry the new fields. The Prisma migration is additive.
+
+D. The six legacy heuristics are NOT deleted in this prompt —
+   they're DEMOTED. Prompt 16 (the deletion pass) handles the
+   actual removal once we've validated the new engine in
+   production for a month. For now:
+   - Mark each legacy heuristic file with a module-level
+     `# DEPRECATED — replaced by contradiction_engine.py in
+       Round 19 prompt 06. Slated for removal in prompt 16.`
+   - Route any new contradiction detection through the new
+     engine. The legacy detectors are not called.
+   - Tests that exercised the legacy detectors are kept (they
+     guard the compat shim); new tests cover the new engine.
+
+E. Public surface. `/methodology/contradiction-engine` page
+   describing how the engine works, with the geometry intuition
+   illustrated, the benchmark numbers from the cross-model study
+   embedded, and a worked example showing two principles, the
+   geometric signal, and the human explanation.
+
+F. Operator surface. The `/(authed)/contradictions` page (extend
+   if exists; create otherwise) lists recently-detected
+   contradictions awaiting review:
+   - Score, confidence band, axis, human explanation.
+   - The two principles side-by-side with the verbatim spans
+     that ground each.
+   - Founder actions: ACKNOWLEDGE (the contradiction is real;
+     it stands until new sources resolve it — prompt 08 covers
+     this), DISPUTE (the engine got it wrong; logs the dispute
+     and downgrades the result; multiple disputes on the same
+     method version trigger a calibration review).
+
+G. CLI:
+   - `noosphere contradiction detect --a <id> --b <id>` — single
+     pair.
+   - `noosphere contradiction sweep --since <iso>` — re-run the
+     engine over all principles added since a timestamp.
+   - `noosphere contradiction methods` — list available method
+     versions and their benchmark stats.
+
+H. Tests:
+   - Engine produces stable scores on a fixture pair across
+     repeated runs (determinism within tolerance).
+   - Contradictory pair fires above threshold with sensible
+     axis text.
+   - Independent pair scores low (< 0.3).
+   - Coherent / supporting pair also scores low; engine
+     distinguishes COHERENT from INDEPENDENT via the verdict
+     enum.
+   - Adversarial fixture: principles whose texts are
+     semantically identical but lexically different → engine
+     does NOT flag as contradictory.
+   - Method-version stamping is correct on persisted rows.
+   - DISPUTE action records the dispute and surfaces it on the
+     methodology page.
+
+Constraints
+- ONE detection method ships as canonical. The era of "we have
+  six heuristics that vote" is over.
+- The contradiction engine NEVER auto-resolves a contradiction.
+  Resolution is source-driven (prompt 08).
+- The Haiku call that produces the human explanation MUST cite
+  the verbatim disagreement; if it cannot, it produces a null
+  explanation and the contradiction is flagged with axis but
+  no narrative.
+- Calibration: the engine's confidence bands must match its
+  actual reliability ± 0.10 — verified by a benchmark integration
+  test against the QH ground-truth fixtures.
+
+SCOPE
+- `noosphere/noosphere/coherence/contradiction_engine.py` CREATE
+- `noosphere/noosphere/coherence/_prompts/explanation_system.md` CREATE
+- `noosphere/noosphere/coherence/__init__.py` MODIFY (mark legacy DEPRECATED)
+- `noosphere/noosphere/store.py` MODIFY
+- `theseus-codex/prisma/schema.prisma` MODIFY
+- `theseus-codex/prisma/migrations/<ts>_contradiction_engine/migration.sql` CREATE
+- `noosphere/alembic/versions/<rev>_contradiction_engine.py` CREATE
+- `theseus-codex/src/app/methodology/contradiction-engine/page.tsx` CREATE
+- `theseus-codex/src/app/(authed)/contradictions/page.tsx` CREATE-OR-MODIFY
+- `noosphere/noosphere/cli.py` MODIFY
+- `noosphere/tests/test_contradiction_engine.py` CREATE
+- `noosphere/tests/test_contradiction_engine_benchmark.py` CREATE

@@ -28,6 +28,18 @@ import type { ReactNode } from "react";
 
 /** Canonical entry point for the firm's principle index. */
 export const PRIMARY_NAV_PRINCIPLES_HREF = "/principles";
+
+/**
+ * Canonical entry point for the firm's algorithm index.
+ *
+ * Round 19 added LogicalAlgorithms — functions derived from the
+ * principle surface, fired against live observations. `/algorithms`
+ * is the public proof that those algorithms are running. Exporting
+ * the href as a named constant means a future canonical-URL change
+ * ripples through a single source.
+ */
+export const PRIMARY_NAV_ALGORITHMS_HREF = "/algorithms";
+
 export type PrimaryNavLinkProps = {
   href: string;
   emphasis?: "default" | "solid";

@@ -1,0 +1,23 @@
+// Synthetic Prisma schema used by tests/migration/test_migration_linearity.py
+// to verify that the parity diff names the divergent column.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model SharedThing {
+  id        String   @id
+  name      String
+  count     Int
+  // Prisma side: `note` is REQUIRED. SQLModel side: nullable. The parity
+  // test must surface this as a nullability drift on `shared_thing.note`.
+  note      String
+  createdAt DateTime @default(now())
+
+  @@map("shared_thing")
+}

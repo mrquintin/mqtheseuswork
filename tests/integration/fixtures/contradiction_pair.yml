@@ -1,0 +1,39 @@
+# Two principles in STANDING contradiction: same observable surface,
+# directly opposing prediction. The synthesizer must abstain with
+# ABSTAINED_CONTRADICTION when these are cited in a chain.
+principles:
+  - id: principle_escalation_self_sustains
+    text: >-
+      Once initiated, bilateral arms-race escalation self-sustains and
+      grows without external mediation.
+    disciplines:
+      - POLITICAL_PHILOSOPHY
+      - STRATEGY
+    tags:
+      - escalation
+      - arms-race
+      - bilateral
+      - mediator
+      - regime
+
+  - id: principle_escalation_self_corrects
+    text: >-
+      Bilateral arms-race escalation self-corrects within twelve months
+      as domestic budget constraints bite.
+    disciplines:
+      - POLITICAL_PHILOSOPHY
+      - STRATEGY
+    tags:
+      - escalation
+      - arms-race
+      - bilateral
+      - mediator
+      - regime
+
+contradiction:
+  id: contr_escalation_pair
+  principle_a_id: principle_escalation_self_sustains
+  principle_b_id: principle_escalation_self_corrects
+  score: 0.84
+  verdict: CONTRADICTORY
+  lifecycle_status: STANDING

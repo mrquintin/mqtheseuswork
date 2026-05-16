@@ -1,0 +1,13 @@
+{
+  "market_id": "poly_arms_race_2027",
+  "title": "Will bilateral defense spending grow by >10% over the next 12 months?",
+  "exchange": "POLYMARKET",
+  "open_yes_price": 0.42,
+  "open_no_price": 0.58,
+  "close_yes_price": 0.93,
+  "close_no_price": 0.07,
+  "resolved_outcome": "YES",
+  "resolved_at": "2027-05-15T12:00:00Z",
+  "resolution_source": "venue_oracle",
+  "justification": "Both states reported >10% YoY defense spending growth at the 12-month mark, matching the arms-race projection."
+}

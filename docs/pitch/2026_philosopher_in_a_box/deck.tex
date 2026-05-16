@@ -1,0 +1,382 @@
+% Theseus pitch deck — "A philosopher in a box."
+% Compiled with pdflatex via ./build_deck.sh.
+%
+% Slide 11 ("What's working") pulls live numbers from the DB through
+% live_snapshot.py which writes slide11_data.tex. If the snapshot
+% script cannot read the live DB the build aborts loudly rather than
+% ship fake numbers.
+
+\documentclass[10pt]{article}
+\input{_preamble.tex}
+
+\begin{document}
+
+% --------------------------------------------------------------------
+% 1. Title
+% --------------------------------------------------------------------
+\begin{slide}{1}{Title}
+  \vspace*{1.6in}
+  \begin{center}
+    {\rmfamily\bfseries\fontsize{56pt}{60pt}\selectfont\color{ink}
+      A philosopher in a box.}\\[0.5in]
+    {\sffamily\fontsize{14pt}{18pt}\selectfont\color{amber}
+      THESEUS\quad\textbullet\quad 2026}
+  \end{center}
+\end{slide}
+
+% --------------------------------------------------------------------
+% 2. The problem
+% --------------------------------------------------------------------
+\begin{slide}{2}{Problem}
+  \slidehead{Quants solved one layer.}
+  \slidesub{The next layer up is unworked.}
+  \sliderule
+
+  Quantitative firms abstract \emph{numerical patterns} out of price
+  data and arbitrage them at scale. The architecture is well
+  understood: data archive, model trainer, fitted parameters, live
+  signal, position.
+
+  \vspace{0.2in}
+
+  Above the price layer is the \emph{logic layer} --- the patterns
+  inside arguments themselves, the principles that organise how a
+  reader maps a text to a position. No firm has industrialised that
+  layer. The reading is done by hand, the principles never leave the
+  reader's head, and the bet, when it comes, is a one-off.
+
+  \vspace{0.25in}
+
+  \callout{There is room for one Renaissance up the stack.}
+\end{slide}
+
+% --------------------------------------------------------------------
+% 3. The thesis
+% --------------------------------------------------------------------
+\begin{slide}{3}{Thesis}
+  \slidehead{Principles are arbitrageable.}
+  \slidesub{The same machine, one level up.}
+  \sliderule
+
+  A principle is a logical pattern abstracted from a text --- the
+  stable shape underneath an argument, expressible in a sentence or
+  two, applicable to situations the original author never saw.
+
+  \vspace{0.2in}
+
+  Theseus reads a curated corpus the way Renaissance reads price
+  tape. The synthesizer is the trainer; the principle is the fitted
+  artefact; the algorithm is the live executor; the conclusion is the
+  position. The bet, when the algorithm fires sharply enough, is the
+  output of the same machine --- operating on logic instead of
+  numbers.
+
+  \vspace{0.2in}
+
+  \callout{We are the Renaissance Technologies of formal logic.}
+\end{slide}
+
+% --------------------------------------------------------------------
+% 4. The machine, abstract
+% --------------------------------------------------------------------
+\begin{slide}{4}{The machine — abstract}
+  \slidehead{Inputs $\rightarrow$ engine $\rightarrow$ conclusions $\rightarrow$ bets.}
+  \sliderule
+
+  \vspace{0.15in}
+
+  \begin{center}
+  \begin{tikzpicture}[node distance=1.3cm and 1.5cm,
+      every node/.style={font=\sffamily\bfseries\fontsize{11pt}{13pt}\selectfont,
+                         draw=amber,line width=0.6pt,
+                         rounded corners=2pt,inner sep=10pt,
+                         text=ink,fill=parchment},
+      arrow/.style={-{Latex[length=2.5mm]},line width=0.8pt,color=amber}]
+    \node (inputs) {INPUTS};
+    \node[right=of inputs] (engine) {SYNTHESIZER ENGINE};
+    \node[right=of engine] (concl) {CONCLUSIONS};
+    \node[right=of concl] (bets) {BETS};
+    \draw[arrow] (inputs) -- (engine);
+    \draw[arrow] (engine) -- (concl);
+    \draw[arrow] (concl) -- (bets);
+  \end{tikzpicture}
+  \end{center}
+
+  \vspace{0.3in}
+
+  Inputs are the curated corpus and live observations of the world.
+  The synthesizer extracts principles. Conclusions are principles
+  applied to live observations. The bet is the conclusion expressed
+  as a position. Every arrow is recorded, replayable, and gradable.
+\end{slide}
+
+% --------------------------------------------------------------------
+% 5. The machine, concrete
+% --------------------------------------------------------------------
+\begin{slide}{5}{The machine — concrete}
+  \slidehead{The Theseus pipeline.}
+  \sliderule
+
+  \begin{center}
+  \begin{tikzpicture}[node distance=0.45cm and 0.85cm,
+      every node/.style={font=\sffamily\fontsize{9pt}{11pt}\selectfont,
+                         draw=amber,line width=0.5pt,
+                         rounded corners=2pt,inner sep=7pt,
+                         text=ink,fill=parchment,minimum width=1.55in,
+                         align=center},
+      arrow/.style={-{Latex[length=2mm]},line width=0.7pt,color=amber}]
+    \node (corpus) {Curated corpus};
+    \node[right=of corpus] (synth) {Synthesizer};
+    \node[right=of synth] (princ) {Principles};
+    \node[right=of princ] (algo) {Algorithms};
+    \node[below=of corpus] (live) {Live observations\\ (Currents)};
+    \node[below=of algo] (conc) {Conclusions};
+    \node[below=of conc] (memo) {Memos};
+    \node[left=of memo] (port) {Portfolio agent};
+    \node[left=of port] (bet) {Bets\\ (Forecasts / Equities)};
+    \draw[arrow] (corpus) -- (synth);
+    \draw[arrow] (synth) -- (princ);
+    \draw[arrow] (princ) -- (algo);
+    \draw[arrow] (live) -| (algo);
+    \draw[arrow] (algo) -- (conc);
+    \draw[arrow] (conc) -- (memo);
+    \draw[arrow] (memo) -- (port);
+    \draw[arrow] (port) -- (bet);
+  \end{tikzpicture}
+  \end{center}
+
+  \vspace{0.1in}
+
+  \slidesub{Every named box is a surface on the public site.}
+\end{slide}
+
+% --------------------------------------------------------------------
+% 6. Example — arms race
+% --------------------------------------------------------------------
+\begin{slide}{6}{Example I}
+  \slidehead{The arms-race algorithm.}
+  \slidesub{One principle, one observation, one bet.}
+  \sliderule
+
+  \begin{stack}{Principle invoked}{Live observation}
+    Two-party arms races, when one party signals a credible escalation
+    and the other is institutionally constrained from matching it,
+    converge on a settlement on terms favourable to the unconstrained
+    party --- not on the open conflict that surface news coverage
+    predicts. &
+    A credible escalation signal from party A; documented institutional
+    constraints on party B (legislative, fiscal, alliance-internal);
+    public commentary still pricing open conflict. \\
+  \end{stack}
+
+  \vspace{0.3in}
+
+  \begin{stack}{Algorithm output}{Implied bet}
+    Conclusion: settlement on A-favourable terms within the horizon,
+    not open conflict. Confidence band documented; conditions for
+    revision named. &
+    Long the prediction-market contract for settlement-by-date;
+    short the contract for open conflict in the same window. Memo
+    written; portfolio agent sized; bet recorded. \\
+  \end{stack}
+\end{slide}
+
+% --------------------------------------------------------------------
+% 7. Example — onion futures (Strauss frame)
+% --------------------------------------------------------------------
+\begin{slide}{7}{Example II}
+  \slidehead{Onion futures.}
+  \slidesub{The quant sees price oscillation. We read why.}
+  \sliderule
+
+  Onion futures were banned in 1958 after a corner that ricocheted
+  through the price tape for years. A quant looking at the chart sees
+  amplitude, volatility, a regime change. A reader who has worked
+  through the Senate testimony, the speculators' position book, and
+  the producers' political reach sees \emph{the logic of the
+  ban itself} --- the principle that produced the price action.
+
+  \vspace{0.2in}
+
+  \callout{``To write between the lines.''}
+  {\sffamily\fontsize{9pt}{11pt}\selectfont\color{amberdim}%
+   --- Leo Strauss, Persecution and the Art of Writing (1952)}
+
+  \vspace{0.25in}
+
+  The Strauss frame is operational, not decorative. The synthesizer
+  is built to read both the surface argument and the constraint that
+  shaped it. A principle library that holds those constraints
+  predicts the price action that the chart only describes after the
+  fact.
+\end{slide}
+
+% --------------------------------------------------------------------
+% 8. Renaissance comparison
+% --------------------------------------------------------------------
+\begin{slide}{8}{Renaissance comparison}
+  \slidehead{The same stack, one layer up.}
+  \sliderule
+
+  \begin{tabular}{@{}>{\raggedright\arraybackslash}p{0.3\textwidth}
+                    @{\hspace{0.04\textwidth}}>{\raggedright\arraybackslash}p{0.3\textwidth}
+                    @{\hspace{0.04\textwidth}}>{\raggedright\arraybackslash}p{0.3\textwidth}@{}}
+    \sffamily\bfseries\color{amber}LAYER &
+    \sffamily\bfseries\color{amber}RENAISSANCE TECH &
+    \sffamily\bfseries\color{amber}THESEUS \\
+    \midrule
+    Input archive & Tick data, fundamentals, alternative data & Curated corpus of texts (memos, papers, talks, filings) \\[0.15in]
+    Trainer & Statistical model fitting & Synthesizer (principle extraction) \\[0.15in]
+    Fitted artefact & Parameters of an alpha model & Principle (logical pattern, expressible in a sentence) \\[0.15in]
+    Live executor & Strategy code on live ticks & Algorithm on live observations \\[0.15in]
+    Output & Position & Conclusion $\rightarrow$ memo $\rightarrow$ bet \\[0.15in]
+    Edge & Proprietary models and execution & Proprietary corpus, principles, and algorithm registry \\
+  \end{tabular}
+\end{slide}
+
+% --------------------------------------------------------------------
+% 9. Bet domains
+% --------------------------------------------------------------------
+\begin{slide}{9}{Bet domains}
+  \slidehead{Polymorphic across where logic can be priced.}
+  \sliderule
+
+  The machine is bet-domain-polymorphic. The same principle library,
+  the same algorithm registry, the same portfolio agent --- different
+  venues:
+
+  \vspace{0.2in}
+
+  \begin{itemize}[leftmargin=0.35in,itemsep=0.12in,topsep=0pt]
+    \item \textbf{Equities.} Theses with multi-quarter horizons,
+          executed through the firm's brokerage relationships.
+    \item \textbf{Prediction markets.} Discrete questions with a
+          settlement date; the calibration backbone of the system.
+    \item \textbf{Advisory.} The same conclusions, sold as judgement
+          to clients who pay for it directly.
+    \item \textbf{Scientific.} Hypotheses the principle library
+          predicts; published, falsified, or extended.
+    \item \textbf{Private markets (eventually).} Once the calibration
+          record across the public venues is long enough to justify
+          the cycle time.
+  \end{itemize}
+\end{slide}
+
+% --------------------------------------------------------------------
+% 10. The team
+% --------------------------------------------------------------------
+\begin{slide}{10}{Team}
+  \slidehead{Team.}
+  \sliderule
+
+  \IfFileExists{team_data.tex}{\input{team_data.tex}}{%
+    \slidesub{Team data is generated at build time from the live
+    founder roster.}
+
+    The build script writes \texttt{team\_data.tex} from the same
+    \texttt{founder} table the public About page reads from. If the
+    build cannot reach the database, the slide falls back to this
+    note --- but the founder copy in the deck PDF that ships should
+    always be the generated version.
+  }
+\end{slide}
+
+% --------------------------------------------------------------------
+% 11. What's working — live snapshot
+% --------------------------------------------------------------------
+\begin{slide}{11}{What's working}
+  \slidehead{What's working.}
+  \slidesub{Numbers pulled at build time. The deck is never stale.}
+  \sliderule
+
+  \input{slide11_data.tex}
+
+  \vspace{0.2in}
+
+  {\sffamily\fontsize{8pt}{10pt}\selectfont\color{amberdim}%
+   Snapshot generated by \texttt{live\_snapshot.py}. If the live DB is
+   unreachable, the build fails loudly rather than ship a stale or
+   fabricated snapshot.}
+\end{slide}
+
+% --------------------------------------------------------------------
+% 12. The ask
+% --------------------------------------------------------------------
+\begin{slide}{12}{The ask}
+  \slidehead{The ask.}
+  \sliderule
+
+  \begin{stack}{Capital}{Time horizon}
+    \texttt{\$\_\_\_\_\_\_\_\_\_\_\_} &
+    \texttt{\_\_\_\_\_\_ months / years} \\
+  \end{stack}
+
+  \vspace{0.3in}
+
+  \begin{stack}{Structure}{Use of proceeds}
+    \texttt{\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_} &
+    \texttt{\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_} \\
+  \end{stack}
+
+  \vspace{0.3in}
+
+  \slidesub{Template. The founder fills the four blanks before each
+  conversation; the rest of the deck is identical across pitches.}
+\end{slide}
+
+% --------------------------------------------------------------------
+% 13. What we are NOT
+% --------------------------------------------------------------------
+\begin{slide}{13}{What we are NOT}
+  \slidehead{What we are not.}
+  \sliderule
+
+  \callout{Theseus is not a SaaS product. The reasoning
+  architecture is our edge.}
+
+  \vspace{0.3in}
+
+  A SaaS distribution would force a single workflow on every buyer
+  and would expose the corpus, the principle library, and the
+  algorithm internals to anyone with a credit card. The machine is
+  valuable in proportion to how much of the firm's specific reading
+  has been encoded into it; selling shells of that would commodify
+  the surface and erode the edge.
+
+  \vspace{0.2in}
+
+  We invest with the machine. We do not sell access to it. The
+  public surfaces --- Currents, Forecasts, Memos, Algorithms,
+  Principles, Knowledge graph --- are the firm thinking in public.
+  They are not the product.
+\end{slide}
+
+% --------------------------------------------------------------------
+% 14. Contact + appendix pointer
+% --------------------------------------------------------------------
+\begin{slide}{14}{Contact}
+  \slidehead{Contact.}
+  \sliderule
+
+  \begin{tabular}{@{}>{\raggedright\arraybackslash}p{0.4\textwidth}
+                    @{\hspace{0.04\textwidth}}>{\raggedright\arraybackslash}p{0.5\textwidth}@{}}
+    \sffamily\bfseries\color{amber}Firm &
+      \href{https://www.theseuscodex.com}{theseuscodex.com} \\[0.15in]
+    \sffamily\bfseries\color{amber}Email &
+      \href{mailto:hello@theseuscodex.com}{hello@theseuscodex.com} \\[0.15in]
+    \sffamily\bfseries\color{amber}About &
+      \href{https://www.theseuscodex.com/about}{theseuscodex.com/about} \\[0.15in]
+    \sffamily\bfseries\color{amber}Memos &
+      \href{https://www.theseuscodex.com/memos}{theseuscodex.com/memos} \\[0.15in]
+    \sffamily\bfseries\color{amber}Algorithms &
+      \href{https://www.theseuscodex.com/algorithms}{theseuscodex.com/algorithms} \\[0.15in]
+    \sffamily\bfseries\color{amber}Three-minute script &
+      \texttt{docs/pitch/three\_minute\_script.md} \\
+  \end{tabular}
+
+  \vspace{0.4in}
+
+  \callout{The machine is our edge.}
+\end{slide}
+
+\end{document}

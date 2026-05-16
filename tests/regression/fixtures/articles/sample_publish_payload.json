@@ -1,0 +1,9 @@
+{
+  "_doc": "Fixture for B09 — payload shape for a newly-published article whose title must appear on '/' within 60s. Pre-fix, the public homepage cached the article list at build time and never re-validated, so freshly-published articles never surfaced until a redeploy. Post-fix, '/' is rendered with `revalidate = 60` (Next.js ISR) and the publish endpoint pings a revalidate-tag webhook.",
+  "slug": "real-cost-of-growth",
+  "title": "Real cost of growth",
+  "publishedAt": "2026-05-16T12:00:00.000Z",
+  "tags": ["principles", "growth", "p&l"],
+  "summary": "Growth absorbs cost faster than the income statement reveals.",
+  "body_path": "../real_cost_of_growth_article_body.md"
+}

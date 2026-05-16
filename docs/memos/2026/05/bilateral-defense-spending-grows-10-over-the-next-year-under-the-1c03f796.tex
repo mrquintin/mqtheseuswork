@@ -1,0 +1,198 @@
+% Theseus — Investment memo (Round 19 prompt 11)
+%
+% Restrained typography: 11pt body, Palatino (with Charter as the
+% fallback when the system has no Palatino), narrow margins, small
+% cover page. The memo's PDF is the canonical artifact a portfolio
+% agent or human reviewer reads.
+%
+% Token substitutions handled by noosphere/synthesizer/memo_pdf.py:
+%   Bilateral defense spending grows >10\% over the next year under the cited…      — memo title (LaTeX-escaped)
+%   Bilateral defense spending grows >10\% over the next year under the cited regime. Confidence 0.55–0.75. The governing principle is `principle\_security\_dilemma`.       — TL;DR paragraph (LaTeX-escaped, ≤ 80 words)
+%   Portfolio Agent — investment  — who the memo is addressed to
+%   2026-05-16       — YYYY-MM-DD
+%   Theseus — synthesizer/v1     — "Theseus — synthesizer/vN"
+%   \subsection*{Header}
+\textbf{Title}: Bilateral defense spending grows >10\% over the next year under the cited…
+\textbf{Author}: Theseus — synthesizer/v1
+\textbf{Date}: 2026-05-16
+\textbf{Question type}: INVESTMENT\_DECISION
+\textbf{Confidence band}: 0.55–0.75
+\textbf{Addressee}: Portfolio Agent — investment
+
+\subsection*{TL;DR}
+Bilateral defense spending grows >10\% over the next year under the cited regime. Confidence 0.55–0.75. The governing principle is \texttt{principle\_security\_dilemma}.
+
+\subsection*{Question constituted}
+should we long the polymarket arms-race escalation contract under the current regime?
+
+\subsection*{Governing principles}
+\begin{itemize}
+\item \textbf{principle\_security\_dilemma} — States in mutual threat perception engage in security-dilemma escalation absent credible commitment devices. (\_Political Philosophy, Strategy\_; [details](/principles/principle\_security\_dilemma))
+\item \textbf{principle\_domestic\_lockin} — Domestic political incentives reinforce external escalation once initiated; reversal requires elite cost. (\_Political Philosophy\_; [details](/principles/principle\_domestic\_lockin))
+\item \textbf{principle\_second\_derivative} — Arms races are predicted by the second derivative of military spending, not the first. (\_Strategy, Economics\_; [details](/principles/principle\_second\_derivative))
+\end{itemize}
+
+\subsection*{Observed inputs}
+\_No observed inputs recorded for this memo.\_
+
+\subsection*{Reasoning chain}
+\textbf{Step 1 — DETECT}: applied principle \texttt{principle\_security\_dilemma} to observation \texttt{—} → derived: Bilateral spending acceleration crosses the threshold.
+
+\textbf{Step 2 — APPLY\_PRINCIPLE}: applied principle \texttt{principle\_domestic\_lockin} to observation \texttt{—} → derived: Domestic lock-in lowers the probability of reversal.
+
+\textbf{Step 3 — SYNTHESIZE}: applied principle \texttt{principle\_security\_dilemma} to observation \texttt{—} → derived: Combine principles into a forward projection.
+
+\subsection*{Implied bet}
+\begin{itemize}
+\item \textbf{Bet kind}: unspecified
+\item \textbf{Side}: YES
+\item \textbf{Stake}: 50.0
+\item \textbf{Horizon}: —
+\item \textbf{Ceilings}: —
+\end{itemize}
+
+Eight-gate readiness:
+\begin{itemize}
+\item ✅ \texttt{thesis\_articulated}
+\item ✅ \texttt{principles\_govern}
+\item ✅ \texttt{no\_standing\_contradiction}
+\item ✅ \texttt{confidence\_band\_narrow}
+\item ✅ \texttt{stake\_sized}
+\item ⬜ \texttt{horizon\_set}
+\item ⬜ \texttt{exit\_condition\_defined}
+\item ✅ \texttt{addressee\_authorised}
+\end{itemize}
+
+\subsection*{What would update us}
+We would weaken on any of: (1) principle \texttt{principle\_security\_dilemma} losing STANDING in the firm's contradiction lifecycle; (2) a fresh observation that flips the governing precondition; (3) a provenance downgrade on any cited principle. We would strengthen on a confirming algorithm invocation.
+
+\subsection*{Abstentions and caveats}
+Confidence band rationale: the synthesizer narrowed to a 0.20-wide band (low=0.55, high=0.75). No STANDING contradictions block the chain (else the synthesizer would have abstained).
+
+\subsection*{Provenance audit}
+Active provenance kinds:
+\begin{itemize}
+\item \textbf{PROPRIETARY} — weighting 2.00; sources: 0
+\item \textbf{ENDORSED\_EXTERNAL} — weighting 1.00; sources: 0
+\item \textbf{STUDIED\_EXTERNAL} — weighting 1.00; sources: 0
+\end{itemize}       — rendered LaTeX body of the 10 sections
+%
+\documentclass[11pt]{article}
+
+\usepackage[margin=1in]{geometry}
+\usepackage{microtype}
+\usepackage{titlesec}
+\usepackage{enumitem}
+\usepackage[hidelinks]{hyperref}
+\usepackage{graphicx}
+\usepackage[T1]{fontenc}
+\usepackage{textcomp}
+
+% Charter is the founder preference; fall back gracefully when Charter
+% is not installed (CI containers, minimal LaTeX distros).
+\IfFileExists{charter.sty}{\usepackage{charter}}{%
+  \IfFileExists{mathpazo.sty}{\usepackage{mathpazo}}{}%
+}
+
+\setlist[itemize]{leftmargin=*, topsep=2pt, itemsep=2pt}
+\setlist[enumerate]{leftmargin=*, topsep=2pt, itemsep=2pt}
+\titleformat{\section}{\large\bfseries}{}{0pt}{}
+\titlespacing{\section}{0pt}{14pt}{4pt}
+\titleformat{\subsection}{\normalsize\bfseries}{}{0pt}{}
+\titlespacing{\subsection}{0pt}{10pt}{2pt}
+
+\pagestyle{plain}
+\setlength{\parskip}{0.6em}
+\setlength{\parindent}{0pt}
+
+\title{Bilateral defense spending grows >10\% over the next year under the cited…}
+\author{Theseus — synthesizer/v1}
+\date{2026-05-16}
+
+\begin{document}
+
+% ── Cover page ─────────────────────────────────────────────────────
+\thispagestyle{empty}
+\begin{flushleft}
+  {\footnotesize\textsc{Theseus} \quad \textsc{Investment memo}}\\[4pt]
+  \rule{\linewidth}{0.4pt}\\[18pt]
+  {\LARGE\bfseries Bilateral defense spending grows >10\% over the next year under the cited…}\\[12pt]
+  {\small\itshape Addressed to: Portfolio Agent — investment}\\[6pt]
+  {\small Date: 2026-05-16 \quad Author: Theseus — synthesizer/v1}\\[24pt]
+  \rule{\linewidth}{0.4pt}\\[14pt]
+  {\small\textbf{TL;DR.} Bilateral defense spending grows >10\% over the next year under the cited regime. Confidence 0.55–0.75. The governing principle is `principle\_security\_dilemma`.}
+\end{flushleft}
+\vfill
+\begin{center}
+  \footnotesize\textsc{Confidential — for the portfolio agent named above. Do not redistribute without operator approval.}
+\end{center}
+\newpage
+
+% ── Body ────────────────────────────────────────────────────────────
+\subsection*{Header}
+\textbf{Title}: Bilateral defense spending grows >10\% over the next year under the cited…
+\textbf{Author}: Theseus — synthesizer/v1
+\textbf{Date}: 2026-05-16
+\textbf{Question type}: INVESTMENT\_DECISION
+\textbf{Confidence band}: 0.55–0.75
+\textbf{Addressee}: Portfolio Agent — investment
+
+\subsection*{TL;DR}
+Bilateral defense spending grows >10\% over the next year under the cited regime. Confidence 0.55–0.75. The governing principle is \texttt{principle\_security\_dilemma}.
+
+\subsection*{Question constituted}
+should we long the polymarket arms-race escalation contract under the current regime?
+
+\subsection*{Governing principles}
+\begin{itemize}
+\item \textbf{principle\_security\_dilemma} — States in mutual threat perception engage in security-dilemma escalation absent credible commitment devices. (\_Political Philosophy, Strategy\_; [details](/principles/principle\_security\_dilemma))
+\item \textbf{principle\_domestic\_lockin} — Domestic political incentives reinforce external escalation once initiated; reversal requires elite cost. (\_Political Philosophy\_; [details](/principles/principle\_domestic\_lockin))
+\item \textbf{principle\_second\_derivative} — Arms races are predicted by the second derivative of military spending, not the first. (\_Strategy, Economics\_; [details](/principles/principle\_second\_derivative))
+\end{itemize}
+
+\subsection*{Observed inputs}
+\_No observed inputs recorded for this memo.\_
+
+\subsection*{Reasoning chain}
+\textbf{Step 1 — DETECT}: applied principle \texttt{principle\_security\_dilemma} to observation \texttt{—} → derived: Bilateral spending acceleration crosses the threshold.
+
+\textbf{Step 2 — APPLY\_PRINCIPLE}: applied principle \texttt{principle\_domestic\_lockin} to observation \texttt{—} → derived: Domestic lock-in lowers the probability of reversal.
+
+\textbf{Step 3 — SYNTHESIZE}: applied principle \texttt{principle\_security\_dilemma} to observation \texttt{—} → derived: Combine principles into a forward projection.
+
+\subsection*{Implied bet}
+\begin{itemize}
+\item \textbf{Bet kind}: unspecified
+\item \textbf{Side}: YES
+\item \textbf{Stake}: 50.0
+\item \textbf{Horizon}: —
+\item \textbf{Ceilings}: —
+\end{itemize}
+
+Eight-gate readiness:
+\begin{itemize}
+\item ✅ \texttt{thesis\_articulated}
+\item ✅ \texttt{principles\_govern}
+\item ✅ \texttt{no\_standing\_contradiction}
+\item ✅ \texttt{confidence\_band\_narrow}
+\item ✅ \texttt{stake\_sized}
+\item ⬜ \texttt{horizon\_set}
+\item ⬜ \texttt{exit\_condition\_defined}
+\item ✅ \texttt{addressee\_authorised}
+\end{itemize}
+
+\subsection*{What would update us}
+We would weaken on any of: (1) principle \texttt{principle\_security\_dilemma} losing STANDING in the firm's contradiction lifecycle; (2) a fresh observation that flips the governing precondition; (3) a provenance downgrade on any cited principle. We would strengthen on a confirming algorithm invocation.
+
+\subsection*{Abstentions and caveats}
+Confidence band rationale: the synthesizer narrowed to a 0.20-wide band (low=0.55, high=0.75). No STANDING contradictions block the chain (else the synthesizer would have abstained).
+
+\subsection*{Provenance audit}
+Active provenance kinds:
+\begin{itemize}
+\item \textbf{PROPRIETARY} — weighting 2.00; sources: 0
+\item \textbf{ENDORSED\_EXTERNAL} — weighting 1.00; sources: 0
+\item \textbf{STUDIED\_EXTERNAL} — weighting 1.00; sources: 0
+\end{itemize}
+
+\end{document}

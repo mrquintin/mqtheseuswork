@@ -12,9 +12,16 @@ on:
   pull_request:
     paths:
       - "packages/shared-schemas/**"
+      - "noosphere/**"
+      - "current_events_api/**"
       - "noosphere/noosphere/_generated/**"
       - "theseus-codex/src/lib/_generated/**"
+      - "theseus-codex/__tests__/**"
       - "noosphere/tests/test_type_contracts.py"
+      - "noosphere/.import-linter"
+      - "scripts/check_no_import_cycles.py"
+      - "scripts/generate_api_types.py"
+      - "tests/static/**"
       - "theseus-codex/src/__tests__/type-contracts.test.ts"
       - ".github/workflows/type-contracts.yml"
       - ".github/workflows/_setup_python.yml"
@@ -73,3 +80,43 @@ jobs:
         done
 
         npx vitest run src/__tests__/type-contracts.test.ts
+
+  round19-import-cycles:
+    name: Round-19 import-cycle + layering gate
+    uses: ./.github/workflows/_setup_python.yml
+    with:
+      python-version: '3.11'
+      pip-extras: 'dev'
+      extra-packages: 'import-linter==2.* grimp==3.* pydantic==2.* fastapi==0.115.*'
+      timeout-minutes: 10
+      script: |
+        # cwd: repo root.
+        python scripts/check_no_import_cycles.py
+        pytest tests/static/test_no_import_cycles.py -q
+
+  round19-api-type-contract:
+    name: Round-19 API type-contract gate
+    uses: ./.github/workflows/_setup_python.yml
+    with:
+      python-version: '3.11'
+      pip-extras: 'dev'
+      extra-packages: 'pydantic==2.* fastapi==0.115.*'
+      timeout-minutes: 10
+      script: |
+        # cwd: repo root.
+        # Re-run the generator and refuse on drift.
+        python scripts/generate_api_types.py --check
+        pytest tests/static/test_api_types_in_sync.py -q
+
+  round19-frontend-consumers:
+    name: Round-19 frontend consumer contract
+    uses: ./.github/workflows/_setup_node.yml
+    with:
+      node-version: '20'
+      working-directory: 'theseus-codex'
+      install-command: 'npm install --no-audit --no-fund'
+      timeout-minutes: 10
+      script: |
+        # cwd: theseus-codex. The frontend test scans src/lib + src/app/api
+        # against the committed _generated/api bundle.
+        npx vitest run __tests__/api_consumers_use_generated_types.test.ts

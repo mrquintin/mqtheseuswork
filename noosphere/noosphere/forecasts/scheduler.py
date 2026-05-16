@@ -84,6 +84,37 @@ DEFAULT_RECALIBRATION_INTERVAL_S = 7 * 24 * 60 * 60  # weekly
 # has elapsed since the last persisted ``QuantitativeTestResult``. Hourly
 # is the smallest interval that still respects the sub-daily ban.
 DEFAULT_QUANTITATIVE_INTERVAL_S = 60 * 60  # hourly check
+# Algorithm runtime tick — fires ACTIVE algorithms against live inputs.
+# 60s is the smallest cadence that still respects Currents / market
+# data drift; operators bump the env var when they want faster feedback.
+DEFAULT_ALGORITHMS_TICK_INTERVAL_S = 60
+# Resolution tick walks unresolved invocations whose horizon has elapsed.
+# Half-hour is dense enough to surface daily-horizon predictions on the
+# same day they resolve without thrashing the LLM budget.
+DEFAULT_ALGORITHMS_RESOLUTION_INTERVAL_S = 30 * 60
+# Calibration tick walks every ACTIVE algorithm with a fresh resolution
+# since the last sweep, recomputes its track-record, and lays down an
+# append-only snapshot. Hourly is dense enough to catch the day-end
+# settlement burst without thrashing the writer.
+DEFAULT_ALGORITHMS_CALIBRATION_INTERVAL_S = 60 * 60
+# Contradiction-test tick — drains the cluster-index pre-filtered work queue
+# (Round 19 prompt 07). 5 minutes balances responsiveness (a new principle
+# joins the conversation about contradictions inside one news cycle) against
+# the per-tick CPU budget. Budget is independent so contradiction work does
+# not starve forecasts/currents.
+DEFAULT_CONTRADICTION_TEST_INTERVAL_S = 5 * 60
+# Synthesizer tick — drains the synthesis task queue (prompt 10). 5
+# minutes is the cadence the prompt explicitly calls out; budget is
+# independent of the other layers so synthesizer work does not starve
+# forecasts/currents/algorithms.
+DEFAULT_SYNTHESIZER_INTERVAL_S = 5 * 60
+# Per-synthesizer-tick cap on tasks drained. Keeps a backlog from
+# burning the hourly token budget in one tick.
+DEFAULT_SYNTHESIZER_MAX_PER_TICK = 4
+# BetSpec lifecycle tick — walks OPEN bets past their horizon, dispatches
+# to the kind-specific resolver. 10 minutes balances responsiveness for
+# SCIENTIFIC bets (whose feed cadence is typically daily) against I/O.
+DEFAULT_BET_LIFECYCLE_INTERVAL_S = 10 * 60
 
 # Per-tick wall-clock cap. A hung external call should surface as a
 # structured-log tick_timeout event rather than blocking a sub-loop forever.
@@ -111,6 +142,13 @@ class SchedulerConfig:
     public_calibration_interval_s: int = DEFAULT_PUBLIC_CALIBRATION_INTERVAL_S
     recalibration_interval_s: int = DEFAULT_RECALIBRATION_INTERVAL_S
     quantitative_interval_s: int = DEFAULT_QUANTITATIVE_INTERVAL_S
+    algorithms_tick_interval_s: int = DEFAULT_ALGORITHMS_TICK_INTERVAL_S
+    algorithms_resolution_interval_s: int = DEFAULT_ALGORITHMS_RESOLUTION_INTERVAL_S
+    algorithms_calibration_interval_s: int = DEFAULT_ALGORITHMS_CALIBRATION_INTERVAL_S
+    contradiction_test_interval_s: int = DEFAULT_CONTRADICTION_TEST_INTERVAL_S
+    synthesizer_interval_s: int = DEFAULT_SYNTHESIZER_INTERVAL_S
+    synthesizer_max_per_tick: int = DEFAULT_SYNTHESIZER_MAX_PER_TICK
+    bet_lifecycle_interval_s: int = DEFAULT_BET_LIFECYCLE_INTERVAL_S
     status_file: Path = Path("/var/lib/theseus/forecasts_status.json")
     budget_file: Path = DEFAULT_BUDGET_PATH
     equities_budget_file: Path = DEFAULT_EQUITIES_BUDGET_PATH
@@ -185,6 +223,34 @@ class SchedulerConfig:
                 "FORECASTS_QUANTITATIVE_INTERVAL_S",
                 cls.quantitative_interval_s,
             ),
+            algorithms_tick_interval_s=_env_seconds(
+                "ALGORITHMS_TICK_INTERVAL_S",
+                cls.algorithms_tick_interval_s,
+            ),
+            algorithms_resolution_interval_s=_env_seconds(
+                "ALGORITHMS_RESOLUTION_INTERVAL_S",
+                cls.algorithms_resolution_interval_s,
+            ),
+            algorithms_calibration_interval_s=_env_seconds(
+                "ALGORITHMS_CALIBRATION_INTERVAL_S",
+                cls.algorithms_calibration_interval_s,
+            ),
+            contradiction_test_interval_s=_env_seconds(
+                "CONTRADICTION_TEST_INTERVAL_S",
+                cls.contradiction_test_interval_s,
+            ),
+            synthesizer_interval_s=_env_seconds(
+                "SYNTHESIZER_INTERVAL_S",
+                cls.synthesizer_interval_s,
+            ),
+            synthesizer_max_per_tick=_env_nonnegative_int(
+                "SYNTHESIZER_MAX_PER_TICK",
+                cls.synthesizer_max_per_tick,
+            ),
+            bet_lifecycle_interval_s=_env_seconds(
+                "BET_LIFECYCLE_INTERVAL_S",
+                cls.bet_lifecycle_interval_s,
+            ),
             status_file=status_path_from_env(),
             budget_file=Path(os.environ.get("FORECASTS_BUDGET_PATH", "").strip() or default_budget),
             equities_budget_file=Path(
@@ -230,6 +296,28 @@ class SchedulerState:
     last_recalibration_models_written: int = 0
     last_quantitative_ts: str | None = None
     last_quantitative_runs: int = 0
+    last_algorithms_tick_ts: str | None = None
+    last_algorithms_fired: int = 0
+    last_algorithms_resolution_ts: str | None = None
+    last_algorithms_resolved: int = 0
+    last_algorithms_calibration_ts: str | None = None
+    last_algorithms_calibration_snapshots: int = 0
+    last_algorithms_calibration_triage: int = 0
+    last_contradiction_test_ts: str | None = None
+    last_contradiction_test_completed: int = 0
+    last_contradiction_test_failed: int = 0
+    last_contradiction_test_attempted: int = 0
+    last_contradiction_test_budget_hit: bool = False
+    last_synthesizer_ts: str | None = None
+    last_synthesizer_attempted: int = 0
+    last_synthesizer_concluded: int = 0
+    last_synthesizer_abstained: int = 0
+    last_synthesizer_failed: int = 0
+    last_synthesizer_budget_hit: bool = False
+    last_bet_lifecycle_ts: str | None = None
+    last_bet_lifecycle_resolved: int = 0
+    last_bet_lifecycle_deferred: int = 0
+    last_bet_lifecycle_review_reminders: int = 0
     last_error: str | None = None
     last_error_loop: str | None = None
     last_error_ts: str | None = None
@@ -439,6 +527,22 @@ def _status_payload(store: Store, state: SchedulerState) -> dict[str, Any]:
         "last_recalibration_models_written": state.last_recalibration_models_written,
         "last_quantitative_ts": state.last_quantitative_ts,
         "last_quantitative_runs": state.last_quantitative_runs,
+        "last_algorithms_tick_ts": state.last_algorithms_tick_ts,
+        "last_algorithms_fired": state.last_algorithms_fired,
+        "last_algorithms_resolution_ts": state.last_algorithms_resolution_ts,
+        "last_algorithms_resolved": state.last_algorithms_resolved,
+        "last_algorithms_calibration_ts": state.last_algorithms_calibration_ts,
+        "last_algorithms_calibration_snapshots": state.last_algorithms_calibration_snapshots,
+        "last_algorithms_calibration_triage": state.last_algorithms_calibration_triage,
+        "last_contradiction_test_ts": state.last_contradiction_test_ts,
+        "last_contradiction_test_completed": state.last_contradiction_test_completed,
+        "last_contradiction_test_failed": state.last_contradiction_test_failed,
+        "last_contradiction_test_attempted": state.last_contradiction_test_attempted,
+        "last_contradiction_test_budget_hit": state.last_contradiction_test_budget_hit,
+        "last_bet_lifecycle_ts": state.last_bet_lifecycle_ts,
+        "last_bet_lifecycle_resolved": state.last_bet_lifecycle_resolved,
+        "last_bet_lifecycle_deferred": state.last_bet_lifecycle_deferred,
+        "last_bet_lifecycle_review_reminders": state.last_bet_lifecycle_review_reminders,
         "last_error": state.last_error,
         "last_error_loop": state.last_error_loop,
         "last_error_ts": state.last_error_ts,
@@ -1177,6 +1281,327 @@ async def _tick_quantitative(
     )
 
 
+def _build_algorithms_runtime(store: Store) -> Any:
+    """Build the AlgorithmRuntime with the standard production adapters.
+
+    The runtime owns its own InputResolver + adapter registry; we wire
+    the currents / markets / manual adapters here so the scheduler does
+    not import them at module load. Returns ``None`` when the
+    organization id is not configured or the LLM client cannot be
+    constructed — the sub-loop then skips quietly.
+    """
+
+    org_id = _organization_id()
+    if not org_id:
+        return None
+    try:
+        from noosphere.algorithms.adapters import AdapterRegistry
+        from noosphere.algorithms.adapters.currents_source import CurrentsAdapter
+        from noosphere.algorithms.adapters.manual_source import (
+            ArtifactFieldAdapter,
+            ManualOperatorAdapter,
+        )
+        from noosphere.algorithms.adapters.markets_source import MarketsAdapter
+        from noosphere.algorithms.input_resolver import InputResolver
+        from noosphere.algorithms.runtime import AlgorithmRuntime
+        from noosphere.llm import llm_client_from_settings
+    except Exception as exc:  # pragma: no cover - defensive
+        log.warning(
+            "algorithms_runtime_import_failed",
+            error=f"{type(exc).__name__}: {exc}",
+        )
+        return None
+
+    registry = AdapterRegistry()
+    registry.register(CurrentsAdapter(store=store, organization_id=org_id))
+    registry.register(MarketsAdapter(store=store, organization_id=org_id))
+    registry.register(ManualOperatorAdapter(provider=lambda: {}))
+    registry.register(ArtifactFieldAdapter(cell_provider=lambda _a, _f: None))
+
+    try:
+        llm = llm_client_from_settings()
+    except Exception as exc:
+        log.warning(
+            "algorithms_runtime_llm_unavailable",
+            error=f"{type(exc).__name__}: {exc}",
+        )
+        return None
+    resolver = InputResolver(registry)
+    return AlgorithmRuntime(
+        resolver=resolver,
+        llm=llm,
+        organization_id=org_id,
+    )
+
+
+async def _tick_algorithms(
+    store: Store,
+    *,
+    config: SchedulerConfig,
+    state: SchedulerState,
+    status_lock: asyncio.Lock,
+) -> TickReport:
+    """Fire ACTIVE algorithms against live observability inputs."""
+
+    started = time.monotonic()
+    started_at = utc_now_iso()
+    errors: list[str] = []
+    fired = 0
+    skipped = 0
+    runtime = _build_algorithms_runtime(store)
+    if runtime is None:
+        state.last_algorithms_tick_ts = utc_now_iso()
+        await _write_status(store, state, config=config, status_lock=status_lock)
+        return TickReport(
+            loop="algorithms_tick",
+            started_at=started_at,
+            duration_ms=int((time.monotonic() - started) * 1000),
+            status="skipped_unconfigured",
+            skipped=1,
+        )
+    try:
+        result = await runtime.tick_once(store, now=_utcnow())
+        fired = result.fired
+        skipped = (
+            result.skipped_no_input
+            + result.skipped_predicate_false
+            + result.skipped_idempotent
+            + result.skipped_sandbox
+            + result.skipped_token_cap
+        )
+        errors = list(result.errors)
+    except Exception as exc:
+        errors.append(f"{type(exc).__name__}: {exc}")
+
+    state.last_algorithms_tick_ts = utc_now_iso()
+    state.last_algorithms_fired = fired
+    await _write_status(store, state, config=config, status_lock=status_lock)
+    return TickReport(
+        loop="algorithms_tick",
+        started_at=started_at,
+        duration_ms=int((time.monotonic() - started) * 1000),
+        status="ok" if not errors else "error",
+        succeeded=fired,
+        skipped=skipped,
+        errors=tuple(errors),
+    )
+
+
+async def _tick_algorithms_resolution(
+    store: Store,
+    *,
+    config: SchedulerConfig,
+    state: SchedulerState,
+    status_lock: asyncio.Lock,
+) -> TickReport:
+    """Resolve algorithm invocations whose predicted horizon has elapsed."""
+
+    started = time.monotonic()
+    started_at = utc_now_iso()
+    errors: list[str] = []
+    resolved = 0
+    considered = 0
+    runtime = _build_algorithms_runtime(store)
+    if runtime is None:
+        state.last_algorithms_resolution_ts = utc_now_iso()
+        await _write_status(store, state, config=config, status_lock=status_lock)
+        return TickReport(
+            loop="algorithms_resolution",
+            started_at=started_at,
+            duration_ms=int((time.monotonic() - started) * 1000),
+            status="skipped_unconfigured",
+            skipped=1,
+        )
+    try:
+        result = await runtime.resolution_tick_once(store, now=_utcnow())
+        resolved = result.resolved
+        considered = result.considered
+        errors = list(result.errors)
+    except Exception as exc:
+        errors.append(f"{type(exc).__name__}: {exc}")
+
+    state.last_algorithms_resolution_ts = utc_now_iso()
+    state.last_algorithms_resolved = resolved
+    await _write_status(store, state, config=config, status_lock=status_lock)
+    return TickReport(
+        loop="algorithms_resolution",
+        started_at=started_at,
+        duration_ms=int((time.monotonic() - started) * 1000),
+        status="ok" if not errors else "error",
+        attempted=considered,
+        succeeded=resolved,
+        skipped=max(0, considered - resolved),
+        errors=tuple(errors),
+    )
+
+
+def _run_algorithms_calibration_sync(
+    store: Store, *, organization_id: str
+) -> tuple[int, int, list[str]]:
+    """Recompute calibration for ACTIVE algorithms and persist results.
+
+    Returns ``(snapshots_written, triage_rows_written, errors)``.
+    Driven from :func:`_tick_algorithms_calibration` inside a worker
+    thread because the store is synchronous SQLAlchemy.
+    """
+
+    from noosphere.algorithms.calibration import compute_stats
+    from noosphere.algorithms.retirement import (
+        RecommendedAction,
+        build_recommendation,
+    )
+    from noosphere.models import (
+        AlgorithmCalibrationSnapshot,
+        AlgorithmTriageRecommendation,
+        TriageRecommendationStatus,
+    )
+
+    snapshots = 0
+    triage_rows = 0
+    errors: list[str] = []
+    try:
+        active = store.list_active_algorithms(organization_id=organization_id)
+    except Exception as exc:
+        errors.append(f"list_active_algorithms:{type(exc).__name__}: {exc}")
+        return snapshots, triage_rows, errors
+
+    for algorithm in active:
+        try:
+            invocations = store.list_invocations_for_algorithm(
+                algorithm.id, limit=2000
+            )
+            stats = compute_stats(invocations)
+            snapshot = AlgorithmCalibrationSnapshot(
+                algorithm_id=algorithm.id,
+                organization_id=algorithm.organization_id,
+                snapshot_at=_utcnow(),
+                total_invocations=stats.total_invocations,
+                resolved_invocations=stats.resolved_invocations,
+                accuracy=stats.accuracy,
+                mean_brier=stats.mean_brier,
+                mean_horizon_error=stats.mean_horizon_error,
+                directional_accuracy=stats.directional_accuracy,
+                confidence_calibration_drift=stats.confidence_calibration_drift,
+                last_30d_accuracy=stats.last_30d_accuracy,
+                last_30d_resolved=stats.last_30d_resolved,
+                probabilistic_resolved=stats.probabilistic_resolved,
+                directional_resolved=stats.directional_resolved,
+                confidence_band_resolved=stats.confidence_band_resolved,
+            )
+            store.put_calibration_snapshot(snapshot)
+            snapshots += 1
+
+            current_multiplier = store.get_algorithm_weighting_multiplier(
+                algorithm.id
+            )
+            recommendation = build_recommendation(
+                algorithm_id=algorithm.id,
+                stats=stats,
+                current_multiplier=current_multiplier,
+            )
+            if (
+                recommendation.recommended_action
+                != RecommendedAction.NONE.value
+                and recommendation.recommended_action
+                != RecommendedAction.NONE
+            ):
+                # Skip if a PENDING row for the same action already exists —
+                # the agent should not pile up duplicate recommendations for
+                # the operator queue.
+                existing_pending = store.list_triage_recommendations(
+                    organization_id=algorithm.organization_id,
+                    algorithm_id=algorithm.id,
+                    status=TriageRecommendationStatus.PENDING,
+                )
+                action_value = (
+                    recommendation.recommended_action.value
+                    if hasattr(recommendation.recommended_action, "value")
+                    else str(recommendation.recommended_action)
+                )
+                already = any(
+                    (r.recommended_action == action_value)
+                    for r in existing_pending
+                )
+                if already:
+                    continue
+                row = AlgorithmTriageRecommendation(
+                    algorithm_id=recommendation.algorithm_id,
+                    organization_id=algorithm.organization_id,
+                    recommended_at=_utcnow(),
+                    recommended_action=action_value,
+                    trigger_reasons=[
+                        r.value if hasattr(r, "value") else str(r)
+                        for r in recommendation.reasons
+                    ],
+                    recommended_multiplier=recommendation.recommended_multiplier,
+                    narrative=recommendation.narrative,
+                )
+                store.put_triage_recommendation(row)
+                triage_rows += 1
+        except Exception as exc:
+            errors.append(
+                f"algorithm:{algorithm.id}:{type(exc).__name__}: {exc}"
+            )
+
+    return snapshots, triage_rows, errors
+
+
+async def _tick_algorithms_calibration(
+    store: Store,
+    *,
+    config: SchedulerConfig,
+    state: SchedulerState,
+    status_lock: asyncio.Lock,
+) -> TickReport:
+    """Recompute calibration snapshots for every ACTIVE algorithm.
+
+    The work is pure-Python over the SQL store, so it runs in a thread
+    executor to keep the asyncio loop responsive. The agent NEVER
+    auto-retires an algorithm — it persists a PENDING triage
+    recommendation that the founder accepts or rejects via the
+    operator UI.
+    """
+
+    started = time.monotonic()
+    started_at = utc_now_iso()
+    organization_id = _organization_id()
+    errors: list[str] = []
+    snapshots = 0
+    triage_rows = 0
+    try:
+        loop = asyncio.get_running_loop()
+        snapshots, triage_rows, errors = await loop.run_in_executor(
+            None,
+            lambda: _run_algorithms_calibration_sync(
+                store, organization_id=organization_id
+            ),
+        )
+    except Exception as exc:
+        errors.append(f"{type(exc).__name__}: {exc}")
+
+    state.last_algorithms_calibration_ts = utc_now_iso()
+    state.last_algorithms_calibration_snapshots = snapshots
+    state.last_algorithms_calibration_triage = triage_rows
+    await _write_status(store, state, config=config, status_lock=status_lock)
+    log.info(
+        "forecasts_algorithms_calibration_tick",
+        organization_id=organization_id,
+        snapshots_written=snapshots,
+        triage_rows_written=triage_rows,
+        errors=tuple(errors),
+    )
+    return TickReport(
+        loop="algorithms_calibration",
+        started_at=started_at,
+        duration_ms=int((time.monotonic() - started) * 1000),
+        status="ok" if not errors else "error",
+        attempted=snapshots,
+        succeeded=snapshots,
+        skipped=triage_rows,
+        errors=tuple(errors),
+    )
+
+
 async def _tick_recalibration(
     store: Store,
     *,
@@ -1343,6 +1768,272 @@ async def _tick_equity_signals(
         attempted=attempted,
         succeeded=published,
         skipped=skipped,
+        errors=tuple(errors),
+    )
+
+
+async def _tick_contradiction_tests(
+    store: Store,
+    *,
+    config: SchedulerConfig,
+    state: SchedulerState,
+    status_lock: asyncio.Lock,
+) -> TickReport:
+    """Drain the contradiction-test work queue (Round 19 prompt 07).
+
+    The cluster index decides which pairs are tested; this tick is just the
+    drain. Independent CPU budget so contradiction work does not starve
+    forecasts/currents. The engine itself is the source of truth for the
+    verdict.
+    """
+
+    from noosphere.coherence.cluster_index import (
+        CONTRADICTION_TEST_BUDGET_PER_TICK_S,
+    )
+    from noosphere.coherence.contradiction_engine import ContradictionEngine
+    from noosphere.coherence.contradiction_scheduler import run_pending_tests
+
+    started = time.monotonic()
+    started_at = utc_now_iso()
+    errors: list[str] = []
+    attempted = completed = failed = 0
+    budget_hit = False
+    try:
+        engine = ContradictionEngine()
+        report = await run_pending_tests(
+            store,
+            engine=engine,
+            time_budget_seconds=CONTRADICTION_TEST_BUDGET_PER_TICK_S,
+        )
+        attempted = report.attempted
+        completed = report.completed
+        failed = report.failed
+        budget_hit = report.timed_out_at_budget
+    except Exception as exc:
+        errors.append(f"{type(exc).__name__}: {exc}")
+
+    state.last_contradiction_test_ts = utc_now_iso()
+    state.last_contradiction_test_attempted = attempted
+    state.last_contradiction_test_completed = completed
+    state.last_contradiction_test_failed = failed
+    state.last_contradiction_test_budget_hit = bool(budget_hit)
+    await _write_status(store, state, config=config, status_lock=status_lock)
+    return TickReport(
+        loop="contradiction_test",
+        started_at=started_at,
+        duration_ms=int((time.monotonic() - started) * 1000),
+        status="ok" if not errors else "error",
+        attempted=attempted,
+        succeeded=completed,
+        skipped=failed,
+        errors=tuple(errors),
+    )
+
+
+async def _tick_synthesizer(
+    store: Store,
+    *,
+    config: SchedulerConfig,
+    state: SchedulerState,
+    status_lock: asyncio.Lock,
+) -> TickReport:
+    """Drain the synthesizer task queue (Round 19 prompt 10).
+
+    Walks up to ``synthesizer_max_per_tick`` PENDING tasks, runs each
+    one through the engine, and persists the outcome / memo. Independent
+    budget so a backlog of synthesis requests does not starve
+    forecasts / currents / algorithms.
+    """
+
+    started = time.monotonic()
+    started_at = utc_now_iso()
+    errors: list[str] = []
+    attempted = concluded = abstained = failed = 0
+    budget_hit = False
+
+    org_id = _organization_id()
+    if not org_id:
+        state.last_synthesizer_ts = utc_now_iso()
+        await _write_status(store, state, config=config, status_lock=status_lock)
+        return TickReport(
+            loop="synthesizer_tick",
+            started_at=started_at,
+            duration_ms=int((time.monotonic() - started) * 1000),
+            status="skipped_unconfigured",
+            skipped=1,
+        )
+
+    try:
+        from noosphere.llm import llm_client_from_settings
+        from noosphere.models import SynthesizerTaskStatus
+        from noosphere.synthesizer.budget import (
+            BudgetExhausted,
+            load_persistent_guard,
+        )
+        from noosphere.synthesizer.engine import (
+            SynthesisOutcome,
+            SynthesizerEngine,
+        )
+    except Exception as exc:  # pragma: no cover - import guard
+        errors.append(f"import:{type(exc).__name__}: {exc}")
+        state.last_synthesizer_ts = utc_now_iso()
+        await _write_status(store, state, config=config, status_lock=status_lock)
+        return TickReport(
+            loop="synthesizer_tick",
+            started_at=started_at,
+            duration_ms=int((time.monotonic() - started) * 1000),
+            status="error",
+            errors=tuple(errors),
+        )
+
+    try:
+        llm = llm_client_from_settings()
+    except Exception as exc:
+        errors.append(f"llm_unavailable:{type(exc).__name__}: {exc}")
+        state.last_synthesizer_ts = utc_now_iso()
+        await _write_status(store, state, config=config, status_lock=status_lock)
+        return TickReport(
+            loop="synthesizer_tick",
+            started_at=started_at,
+            duration_ms=int((time.monotonic() - started) * 1000),
+            status="skipped_unconfigured",
+            skipped=1,
+            errors=tuple(errors),
+        )
+
+    engine = SynthesizerEngine(llm=llm, organization_id=org_id)
+    try:
+        budget_guard = load_persistent_guard()
+    except Exception as exc:
+        errors.append(f"budget:{type(exc).__name__}: {exc}")
+        budget_guard = None
+
+    try:
+        tasks = store.list_pending_synthesizer_tasks(
+            organization_id=org_id, limit=int(config.synthesizer_max_per_tick)
+        )
+    except Exception as exc:
+        errors.append(f"list_tasks:{type(exc).__name__}: {exc}")
+        tasks = []
+
+    for task in tasks:
+        attempted += 1
+        task.status = SynthesizerTaskStatus.RUNNING.value
+        task.started_at = _utcnow()
+        try:
+            store.put_synthesizer_task(task)
+        except Exception as exc:  # pragma: no cover - defensive
+            errors.append(f"task_start:{task.id}:{type(exc).__name__}: {exc}")
+            failed += 1
+            continue
+        try:
+            result = await engine.synthesize(
+                task.question,
+                store=store,
+                budget=budget_guard,
+                context=task.context_json or {},
+            )
+        except BudgetExhausted:
+            budget_hit = True
+            task.status = SynthesizerTaskStatus.PENDING.value
+            task.started_at = None
+            try:
+                store.put_synthesizer_task(task)
+            except Exception:
+                pass
+            break
+        except Exception as exc:
+            errors.append(f"synthesize:{task.id}:{type(exc).__name__}: {exc}")
+            task.status = SynthesizerTaskStatus.FAILED.value
+            task.finished_at = _utcnow()
+            task.last_error = f"{type(exc).__name__}: {exc}"
+            try:
+                store.put_synthesizer_task(task)
+            except Exception:
+                pass
+            failed += 1
+            continue
+
+        task.status = SynthesizerTaskStatus.DONE.value
+        task.finished_at = _utcnow()
+        task.outcome = result.outcome.value
+        task.reasoning = result.reasoning
+        task.memo_id = result.memo_id
+        try:
+            store.put_synthesizer_task(task)
+        except Exception:  # pragma: no cover - defensive
+            pass
+        if result.outcome == SynthesisOutcome.CONCLUDED:
+            concluded += 1
+        else:
+            abstained += 1
+
+    state.last_synthesizer_ts = utc_now_iso()
+    state.last_synthesizer_attempted = attempted
+    state.last_synthesizer_concluded = concluded
+    state.last_synthesizer_abstained = abstained
+    state.last_synthesizer_failed = failed
+    state.last_synthesizer_budget_hit = bool(budget_hit)
+    await _write_status(store, state, config=config, status_lock=status_lock)
+    return TickReport(
+        loop="synthesizer_tick",
+        started_at=started_at,
+        duration_ms=int((time.monotonic() - started) * 1000),
+        status="ok" if not errors else "error",
+        attempted=attempted,
+        succeeded=concluded,
+        skipped=abstained,
+        errors=tuple(errors),
+    )
+
+
+async def _tick_bet_lifecycle(
+    store: Store,
+    *,
+    config: SchedulerConfig,
+    state: SchedulerState,
+    status_lock: asyncio.Lock,
+) -> TickReport:
+    """Walk OPEN BetSpec rows and resolve any whose horizon has passed.
+
+    See ``noosphere.bets.lifecycle`` for the resolver dispatch table.
+    The agent never auto-resolves ADVISORY or STRATEGIC bets; those
+    return ``None`` and are deferred until an operator runs
+    ``noosphere bet resolve``.
+    """
+
+    _ = config
+    started = time.monotonic()
+    started_at = utc_now_iso()
+    errors: list[str] = []
+    resolved = 0
+    deferred = 0
+    review_reminders = 0
+    org_id = _organization_id() or None
+    try:
+        from noosphere.bets.lifecycle import run_lifecycle_once
+
+        report = run_lifecycle_once(store, organization_id=org_id)
+        resolved = report.resolved
+        deferred = report.deferred
+        review_reminders = report.review_reminders
+        errors.extend(report.errors)
+    except Exception as exc:
+        errors.append(f"{type(exc).__name__}: {exc}")
+
+    state.last_bet_lifecycle_ts = utc_now_iso()
+    state.last_bet_lifecycle_resolved = resolved
+    state.last_bet_lifecycle_deferred = deferred
+    state.last_bet_lifecycle_review_reminders = review_reminders
+    await _write_status(store, state, config=config, status_lock=status_lock)
+    return TickReport(
+        loop="bet_lifecycle",
+        started_at=started_at,
+        duration_ms=int((time.monotonic() - started) * 1000),
+        status="ok" if not errors else "error",
+        attempted=resolved + deferred,
+        succeeded=resolved,
+        skipped=deferred,
         errors=tuple(errors),
     )
 
@@ -1532,6 +2223,12 @@ _LOOP_NAMES: tuple[str, ...] = (
     "public_calibration",
     "recalibration",
     "quantitative",
+    "algorithms_tick",
+    "algorithms_resolution",
+    "algorithms_calibration",
+    "contradiction_test",
+    "synthesizer_tick",
+    "bet_lifecycle",
 )
 
 
@@ -1606,6 +2303,24 @@ async def run_once(
             store, config=config, state=state, status_lock=status_lock,
         ),
         "quantitative": lambda: _tick_quantitative(
+            store, config=config, state=state, status_lock=status_lock,
+        ),
+        "algorithms_tick": lambda: _tick_algorithms(
+            store, config=config, state=state, status_lock=status_lock,
+        ),
+        "algorithms_resolution": lambda: _tick_algorithms_resolution(
+            store, config=config, state=state, status_lock=status_lock,
+        ),
+        "algorithms_calibration": lambda: _tick_algorithms_calibration(
+            store, config=config, state=state, status_lock=status_lock,
+        ),
+        "contradiction_test": lambda: _tick_contradiction_tests(
+            store, config=config, state=state, status_lock=status_lock,
+        ),
+        "synthesizer_tick": lambda: _tick_synthesizer(
+            store, config=config, state=state, status_lock=status_lock,
+        ),
+        "bet_lifecycle": lambda: _tick_bet_lifecycle(
             store, config=config, state=state, status_lock=status_lock,
         ),
     }
@@ -1723,6 +2438,48 @@ async def run_forever(store: Store, *, config: SchedulerConfig) -> None:
                 store, config=config, state=state, status_lock=status_lock,
             ),
         ),
+        (
+            "algorithms_tick",
+            float(config.algorithms_tick_interval_s),
+            lambda: _tick_algorithms(
+                store, config=config, state=state, status_lock=status_lock,
+            ),
+        ),
+        (
+            "algorithms_resolution",
+            float(config.algorithms_resolution_interval_s),
+            lambda: _tick_algorithms_resolution(
+                store, config=config, state=state, status_lock=status_lock,
+            ),
+        ),
+        (
+            "algorithms_calibration",
+            float(config.algorithms_calibration_interval_s),
+            lambda: _tick_algorithms_calibration(
+                store, config=config, state=state, status_lock=status_lock,
+            ),
+        ),
+        (
+            "contradiction_test",
+            float(config.contradiction_test_interval_s),
+            lambda: _tick_contradiction_tests(
+                store, config=config, state=state, status_lock=status_lock,
+            ),
+        ),
+        (
+            "synthesizer_tick",
+            float(config.synthesizer_interval_s),
+            lambda: _tick_synthesizer(
+                store, config=config, state=state, status_lock=status_lock,
+            ),
+        ),
+        (
+            "bet_lifecycle",
+            float(config.bet_lifecycle_interval_s),
+            lambda: _tick_bet_lifecycle(
+                store, config=config, state=state, status_lock=status_lock,
+            ),
+        ),
     ]
     tasks = [
         asyncio.create_task(
@@ -1769,6 +2526,11 @@ async def run_forever(store: Store, *, config: SchedulerConfig) -> None:
         public_calibration_interval_s=config.public_calibration_interval_s,
         recalibration_interval_s=config.recalibration_interval_s,
         quantitative_interval_s=config.quantitative_interval_s,
+        algorithms_tick_interval_s=config.algorithms_tick_interval_s,
+        algorithms_resolution_interval_s=config.algorithms_resolution_interval_s,
+        algorithms_calibration_interval_s=config.algorithms_calibration_interval_s,
+        contradiction_test_interval_s=config.contradiction_test_interval_s,
+        synthesizer_interval_s=config.synthesizer_interval_s,
         status_file=str(config.status_file),
         budget_file=str(config.budget_file),
         max_predictions_per_cycle=config.max_predictions_per_cycle,
@@ -1902,6 +2664,15 @@ def main(argv: Sequence[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     _configure_logging()
+
+    # Boot-time env-var check. Refuse to start if any var required for
+    # the current MODE is missing/invalid — surface the specific var
+    # rather than a 500-on-first-request mystery.
+    if os.environ.get("THESEUS_SKIP_BOOT_CHECK") != "1":
+        from current_events_api.boot_check import run_boot_check
+
+        run_boot_check(service="scheduler")
+
     from noosphere.forecasts.safety import current_trading_mode
 
     log.info("forecasts_trading_mode", trading_mode=current_trading_mode())

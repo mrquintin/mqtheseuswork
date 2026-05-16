@@ -1,0 +1,154 @@
+You are operating in /Users/michaelquintin/Desktop/Theseus.
+
+Goal: every GitHub Actions workflow YAML parses, references
+scripts and tests that actually exist, has the right Python /
+Node version pinned, and produces useful structured output.
+Every documented script is callable. Every cited path in the
+docs resolves. Every screenshot in the docs exists on disk.
+Tooling availability (pdflatex, alembic, prisma, etc.) is
+pre-flight-checked so an operator doesn't discover a missing
+dependency the first time they try to run something.
+
+What "CI workflow integrity" means:
+
+- Every `.github/workflows/*.yml` is valid YAML.
+- Every workflow's `uses:` action references a version that
+  exists (we pin to immutable SHAs for security; this catches
+  drift).
+- Every `run:` invocation references a script that exists at
+  the cited path and is executable.
+- Every `needs:` reference points at a job defined in the same
+  workflow.
+- Every workflow's matrix dimensions are sane (no infinite
+  combinations).
+
+What "tooling availability" means:
+
+- `pdflatex` is required for prompts 11, 17, 67. A pre-flight
+  warns clearly if it's missing.
+- `gh` (GitHub CLI) is required for the live-trading rotation
+  flow.
+- `vercel` CLI is required for the production deploy flow.
+- `npx` resolves to a working Node.
+- The project venv (`.venv/currents/bin/python` or whatever
+  Round 18 settled on) is the canonical Python.
+- `prisma` and `alembic` both work.
+
+What "doc freshness" means:
+
+- Every relative link in every markdown doc resolves to an
+  existing file.
+- Every screenshot referenced exists on disk and is < N MB.
+- Every `<commit-pinned>` reference is up-to-date.
+- The README's "Surface map" (from Round 19 prompt 16) is in
+  sync with the actual top-level routes.
+
+Before you start — read:
+1. `.github/workflows/` — every workflow that exists from prior
+   rounds.
+2. The docs that the team has accumulated.
+3. The pre-commit hook from Round 18 prompt 70.
+
+Implement:
+
+A. `scripts/check_ci_workflow_integrity.py`:
+   - Walks `.github/workflows/*.yml`.
+   - Validates each as YAML.
+   - Validates the action references (`uses:`) against a curated
+     pin file at `.github/action_pins.yml`. Drift fails the
+     check; the pin file is updated explicitly when an action
+     is bumped.
+   - Validates `run:` lines: any referenced script under
+     `scripts/` exists and is executable; any referenced test
+     path exists; any referenced npm/pytest target is real.
+   - Validates `needs:` references.
+   - Outputs a structured report; exit 0 on clean, non-zero on
+     any drift.
+
+B. `scripts/check_tooling_availability.py`:
+   - Probes each required tool by running its `--version`.
+   - Builds a table of tool → status (FOUND / MISSING / TOO_OLD).
+   - Critical tools (Python, Node, npm, prisma, alembic) → MISSING
+     fails the check.
+   - Optional tools (pdflatex, gh, vercel) → MISSING is a warning;
+     prints which prompts/scripts would be affected.
+   - Output is a tabular report saved to
+     `docs/verification/tooling/<timestamp>.md`.
+
+C. `scripts/check_doc_freshness.py`:
+   - For each `.md` under `docs/`, `coding_prompts/`, and repo
+     root:
+     - Parses every relative link `[text](path)` and every image
+       reference `![alt](path)`.
+     - Asserts the target file exists.
+     - For images: checks size < 5 MB.
+   - For the README's "Surface map" section: parses the listed
+     routes and asserts each exists at the documented path in
+     `theseus-codex/src/app/`.
+   - Allowlist for documented-known-broken links (e.g., links to
+     external services we may not be able to reach in CI).
+
+D. `tests/static/test_ci_workflows_parse.py` invokes A.
+E. `tests/static/test_tooling_available.py` invokes B (in
+   "warnings-only" mode in CI so a missing pdflatex doesn't
+   fail CI; the operator gets the report).
+F. `tests/static/test_doc_freshness.py` invokes C.
+
+G. CI workflow `.github/workflows/integrity.yml`:
+   - Runs A, B (warnings-only), C on every PR.
+   - Posts a single PR comment summarizing all three.
+
+H. Pre-commit hook integration. Hook from Round 18 prompt 70:
+   - Runs A and C on staged files.
+   - Skips B (it's slow and tooling-availability rarely changes
+     PR-to-PR).
+
+I. README "Surface map" generator
+   `scripts/generate_surface_map.py`:
+   - Walks `theseus-codex/src/app/` and produces a markdown
+     bullet list of routes with one-line purposes (pulled from
+     a comment at the top of each `page.tsx`).
+   - Used during README updates to keep the surface map in sync
+     with reality.
+   - The doc-freshness check enforces sync.
+
+J. `.github/action_pins.yml`:
+   - One entry per GitHub Action used across all workflows:
+     `{ name, owner, repo, allowed_sha_or_tag, last_reviewed_on,
+       review_notes }`.
+   - A bump requires updating the entry; the freshness check
+     fires if a workflow uses an unpinned action.
+
+K. Tests:
+   - Plant a fixture broken workflow (invalid YAML, missing
+     script ref, wrong needs) and assert the check catches each.
+   - Plant a fixture broken doc link (404 target) and assert
+     the doc-freshness check catches it.
+   - Plant a fixture missing tool (alias `prisma` to `false`)
+     and assert the tooling check reports MISSING.
+
+Constraints
+- The integrity checks are FAST: full suite under 30 seconds.
+- The tooling check is the only one that varies by host. Its
+  CI output is informative, not gating, on macOS-specific
+  failures. The pre-commit gates it locally.
+- The action pin file is a living document; bumping requires a
+  review comment in the same commit.
+- The surface map generator is OPT-IN — operators run it when
+  the surface changes. The freshness test enforces sync but the
+  test only fires if both the README's surface section and the
+  app's surfaces exist (so a fresh repo isn't blocked).
+
+SCOPE
+- `scripts/check_ci_workflow_integrity.py` CREATE
+- `scripts/check_tooling_availability.py` CREATE
+- `scripts/check_doc_freshness.py` CREATE
+- `scripts/generate_surface_map.py` CREATE
+- `.github/workflows/integrity.yml` CREATE
+- `.github/action_pins.yml` CREATE
+- `tests/static/test_ci_workflows_parse.py` CREATE
+- `tests/static/test_tooling_available.py` CREATE
+- `tests/static/test_doc_freshness.py` CREATE
+- `scripts/hooks/pre-commit.sh` MODIFY
+- `tests/static/fixtures/broken_workflows/` CREATE
+- `tests/static/fixtures/broken_doc_links/` CREATE

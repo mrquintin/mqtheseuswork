@@ -86,3 +86,33 @@ line literally.
   `reviewers/__init__.py`; have every concrete reviewer import from
   the leaf; have `reviewers/__init__.py` re-export for the public API
   only. Once that lands, this entry is deleted.
+
+---
+
+### knowledge-graph-package-shim
+
+- Modules:
+  noosphere.knowledge_graph,
+  noosphere.knowledge_graph.builder
+- Expires: 2026-07-15
+- Why hard to break: The package's `__init__.py` re-exports
+  `KnowledgeGraphBuilder`, `build_for_org`, `incremental_update`, and
+  `reason_about_edge` so callers can `from noosphere.knowledge_graph
+  import build_for_org`. `builder.py` in turn imports
+  `edge_extractors` via the package namespace
+  (`from noosphere.knowledge_graph import edge_extractors as _ex`),
+  which forces Python to evaluate the package `__init__` before
+  `builder.py` finishes. The "cycle" is a one-edge shim: the package
+  is initialized, then re-enters itself to grab its own submodule.
+  Python's partially-initialized-module semantics are stable for this
+  pattern because no top-level code on either side reads attributes
+  the other has not yet populated.
+- Mitigation in place: detected at import time, held to this exact
+  two-module shape by the allowlist. Any new module joining this
+  cycle is a hard test failure.
+- Planned resolution: change builder.py's import to the direct
+  submodule form: `from noosphere.knowledge_graph.edge_extractors
+  import ...`. That breaks the package re-entry and the cycle
+  evaporates. Five-minute fix; deferred to a follow-up round so the
+  in-flight Round 19 work isn't disturbed by a refactor in
+  knowledge_graph mid-merge.

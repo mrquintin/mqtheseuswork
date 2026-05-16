@@ -1,0 +1,186 @@
+You are operating in /Users/michaelquintin/Desktop/Theseus.
+
+Goal: every safety property the firm has shipped — the eight-gate
+contract, the trigger-predicate sandbox, the verbatim-citation
+discipline, the no-real-network-in-tests rule, the no-PII-in-logs
+rule, the no-credential-in-output rule — gets a dedicated
+regression test. Round 19 introduced sandboxed expression
+evaluation (algorithm trigger predicates) and a new LLM call
+pathway (algorithm reasoning chain, synthesizer engine, memo
+builder, knowledge-graph reasoner); each is a potential ingress
+for the safety properties to silently break.
+
+The catalog of properties this suite protects:
+
+P1. **Trigger-predicate sandbox is unescapable.**
+   Adversarial predicates (`__import__('os').system(...)`,
+   attribute access, list comprehensions over `__globals__`,
+   etc.) MUST be rejected at parse / eval time. The runtime
+   pauses the algorithm after 3 rejections.
+
+P2. **Algorithm runtime makes zero unmocked network calls in
+    tests.**
+    Monkeypatch httpx.AsyncClient.request; count calls; assert
+    0 across the full test suite for the algorithm package.
+
+P3. **Memo PDF generation cannot execute arbitrary code.**
+    pdflatex is run in a constrained mode (shell-escape DISABLED).
+    A test attempts to plant `\immediate\write18{rm -rf /tmp/x}`
+    in a memo body and verifies pdflatex refuses (or runs
+    without executing the shell call).
+
+P4. **Eight-gate safety contract stands.**
+    Every gate from Round 10 prompt 09 still rejects under the
+    expected condition. Specifically test against every Round 19
+    bet kind (MARKET_BET, ADVISORY_BET, STRATEGIC_BET,
+    SCIENTIFIC_BET) that MARKET_BET is the only kind that runs
+    the gate check; the others have their own simpler controls.
+
+P5. **Verbatim citation discipline holds.**
+    Memos cite verbatim from principles; algorithm reasoning
+    traces cite verbatim from invoked principles; the synthesizer's
+    reasoning chain cites verbatim. Each invocation point gets a
+    fabrication-fixture test: planted "almost verbatim" citations
+    are rejected; exact substrings are accepted.
+
+P6. **Provenance policy is honored.**
+    A synthesis with `include_opposing_external=false` MUST NOT
+    cite any OPPOSING_EXTERNAL source. Plant an adversarial
+    LLM response that cites one anyway; verify the validator
+    catches the violation and the result is rejected.
+
+P7. **No PII / secret in any log output.**
+    Marker values placed in env (`POLYMARKET_PRIVATE_KEY=
+    0xMARKERVALUE`, `KALSHI_API_PRIVATE_KEY=PEM_MARKER`,
+    `DATABASE_URL=postgresql://X_USER:X_PASS@...`) MUST NOT
+    appear in any captured log when the full smoke harness
+    runs.
+
+P8. **Operator HMAC secret guards operator routes.**
+    Every Round-19 operator-only route returns 403 without a
+    valid HMAC; 200 with a valid one. Brute-force a wrong
+    signature; assert 403 and structured-log entry.
+
+P9. **Kill switch blocks every live path.**
+    With `ForecastPortfolioState.killSwitchEngaged=true`, every
+    attempted live bet across MARKET_BET subkinds (Polymarket,
+    Kalshi, Alpaca, Robinhood) is refused with
+    `KILL_SWITCH_ENGAGED`.
+
+P10. **Idempotency holds end-to-end.**
+     Running the algorithm runtime twice over the same input
+     state produces one invocation, not two. Running the
+     synthesizer twice on the same question + same state
+     produces one memo, not two. Running portfolio dispatch
+     twice on the same memo produces one MemoDispatch, not two.
+
+Before you start — read:
+1. `noosphere/noosphere/forecasts/safety.py` — the eight gates.
+2. `noosphere/noosphere/algorithms/validators.py` — the
+   predicate sandbox.
+3. The PDF build script from prompts 11 and 17.
+4. The HMAC-protected operator routes from Round 18 prompt 10
+   and Round 19 prompts 04, 11, 12, 13.
+
+Implement:
+
+A. `tests/safety/test_sandbox.py`:
+   - Each property P1, P2, P3 gets a dedicated test class.
+   - Adversarial-input fixtures live at
+     `tests/safety/fixtures/adversarial_predicates.txt` (one
+     per line, with expected-rejection reason).
+   - The pdflatex shell-escape test is skipped on CI runners
+     without pdflatex installed; LOCAL it runs.
+
+B. `tests/safety/test_eight_gates.py`:
+   - One test per gate code (DISABLED, NOT_CONFIGURED,
+     NOT_AUTHORIZED, NOT_CONFIRMED, STAKE_OVER_CEILING,
+     DAILY_LOSS_OVER_CEILING, KILL_SWITCH_ENGAGED,
+     INSUFFICIENT_BALANCE). Per-gate test asserts the failure
+     mode under the targeted condition and PASS under healthy.
+   - Polymorphic-bet variant: confirm only MARKET_BET runs
+     the eight-gate check.
+
+C. `tests/safety/test_verbatim_citations.py`:
+   - For each citing surface (memo, algorithm reasoning trace,
+     synthesizer chain, knowledge-graph edge explanation):
+     - Plant a fixture with an "almost verbatim" citation
+       (one character changed). Assert rejection.
+     - Plant a fixture with an exact substring citation.
+       Assert acceptance.
+     - Plant a fixture with a fabricated citation referencing
+       a non-existent source_id. Assert rejection.
+
+D. `tests/safety/test_provenance_policy.py`:
+   - Each policy-filter combination tested across the
+     synthesizer + Oracle.
+   - Adversarial test: LLM mock returns a result that violates
+     the active filter; assert validator catches it; result is
+     replaced with an abstention.
+
+E. `tests/safety/test_no_secrets_in_logs.py`:
+   - Sets env with marker values for every secret-bearing var.
+   - Runs the smoke harness (from prompt 21) end-to-end.
+   - Greps every produced log under `docs/verification/smoke/`
+     for any of the marker strings.
+   - Asserts zero occurrences.
+
+F. `tests/safety/test_operator_hmac.py`:
+   - For every operator-only route (Round 10 + Round 19): assert
+     403 without signature, 200 with valid, 403 with
+     timestamp drift > 5min, 403 with body tampering after
+     signing.
+
+G. `tests/safety/test_kill_switch.py`:
+   - For each MARKET_BET subkind (Polymarket, Kalshi, Alpaca,
+     Robinhood): with kill switch engaged, assert refusal with
+     the right gate code; with kill switch clear, assert
+     non-refusal (other gates may still fail; that's fine).
+
+H. `tests/safety/test_idempotency.py`:
+   - Algorithm runtime: identical input observation → 1 row.
+   - Synthesizer: identical question + state → 1 memo.
+   - Portfolio dispatch: identical memo → 1 dispatch.
+   - Contradiction engine: same pair, same method version,
+     same time window → 1 result.
+
+I. CI integration. `.github/workflows/safety.yml` runs the
+   safety suite on every PR. The job is REQUIRED — sync is
+   blocked if it fails.
+
+J. Documentation. `docs/security/SAFETY_PROPERTIES.md`:
+   - One section per property P1..P10.
+   - The threat model the property defends against.
+   - The test that enforces it.
+   - The acceptable conditions for changing the property
+     (always requires a review by the operator).
+
+Constraints
+- These tests are LOAD-BEARING. A failure here BLOCKS sync.
+- The pdflatex shell-escape test gracefully skips when
+  pdflatex is unavailable but RECORDS the skip; CI logs the
+  skip so an operator can verify the test ran somewhere
+  recently.
+- The no-secrets-in-logs test must NOT itself print the
+  marker values in its failure message — it reports
+  "marker X found in N log lines" without quoting the line
+  contents.
+- Adversarial fixtures are commented to explain what they
+  attack (so a future maintainer doesn't delete them as
+  "weird-looking test data").
+
+SCOPE
+- `tests/safety/__init__.py` CREATE
+- `tests/safety/test_sandbox.py` CREATE
+- `tests/safety/test_eight_gates.py` CREATE
+- `tests/safety/test_verbatim_citations.py` CREATE
+- `tests/safety/test_provenance_policy.py` CREATE
+- `tests/safety/test_no_secrets_in_logs.py` CREATE
+- `tests/safety/test_operator_hmac.py` CREATE
+- `tests/safety/test_kill_switch.py` CREATE
+- `tests/safety/test_idempotency.py` CREATE
+- `tests/safety/fixtures/adversarial_predicates.txt` CREATE
+- `tests/safety/fixtures/adversarial_pdflatex.tex` CREATE
+- `tests/safety/fixtures/almost_verbatim_citations.json` CREATE
+- `.github/workflows/safety.yml` CREATE
+- `docs/security/SAFETY_PROPERTIES.md` CREATE

@@ -1,0 +1,163 @@
+You are operating in /Users/michaelquintin/Desktop/Theseus.
+
+Goal: invert the contradiction resolution model per the founder's
+explicit instruction in the meeting: "I actually kind of want to
+remove that because they should be resolved only by the sources
+themselves again." Remove the manual contradiction-resolution UI.
+Contradictions stand until new sources arrive that either
+strengthen one side, weaken the other, or introduce a synthesis
+principle that supersedes both.
+
+This is an epistemological change, not just a UI change. The
+firm's database becomes a faithful crystallisation of what the
+sources jointly imply, not a curated narrative.
+
+What the new model REQUIRES:
+
+1. Contradictions persist as first-class entities (already added
+   in prompt 06). They are never "resolved" by an operator
+   clicking a button. They are either:
+   - **Resolved by source ingestion** — a new source supports one
+     side, weakens the other, OR introduces a synthesis principle
+     that subsumes both. Resolution is automatic and grounded.
+   - **Acknowledged as standing** — the founder confirms the
+     contradiction is genuine and the firm should hold both
+     positions until evidence accumulates. This is a recorded
+     status, not a resolution.
+   - **Disputed as detection error** — the founder believes the
+     engine got it wrong; the contradiction is downgraded and a
+     dispute logged for engine calibration.
+
+2. A new "contradiction lifecycle" replaces the manual-resolve
+   pattern:
+
+   ```
+   DETECTED → STANDING ⇄ WEAKENED ⇄ RESOLVED-BY-SOURCE
+                     ↘ DISPUTED-AS-ERROR (terminal)
+                     ↘ SUBSUMED-BY-SYNTHESIS (terminal)
+   ```
+
+3. Auto-resolution triggers (when source ingestion fires the
+   transition):
+
+   - **WEAKENED**: a new principle is added whose embedding sits
+     between the two contradictory principles AND whose
+     contradiction score with one side is significantly lower
+     than with the other. The lower-scoring side becomes the
+     supported side.
+   - **RESOLVED-BY-SOURCE**: a new principle is added whose
+     contradiction score is < 0.30 with one side AND > 0.65 with
+     the other. The contradiction is marked resolved in favor of
+     the low-scoring side. The "weight of evidence" tally is
+     persisted on the ContradictionLifecycle row.
+   - **SUBSUMED-BY-SYNTHESIS**: a new principle is added that the
+     synthesis engine (prompt 10) flags as a candidate synthesis
+     of the contradictory pair. The founder confirms via a
+     dedicated triage card; on accept, both original principles
+     are flagged "subsumed by <new id>" and the contradiction is
+     marked SUBSUMED.
+
+Before you start — read:
+1. `noosphere/noosphere/coherence/contradiction_engine.py` from
+   prompt 06.
+2. Any existing manual resolution UI (the founder said to remove
+   it). Likely under `theseus-codex/src/app/(authed)/contradictions/`
+   or similar.
+3. The principle revision history pattern from Round 18 prompt 32
+   (Bayesian belief layer).
+
+Implement:
+
+A. New table `ContradictionLifecycle`:
+   - `id`, `contradictionId` FK (to the existing contradiction
+     row created by the engine).
+   - `currentStatus` enum: DETECTED | STANDING | WEAKENED |
+     RESOLVED_BY_SOURCE | DISPUTED_AS_ERROR | SUBSUMED_BY_SYNTHESIS.
+   - `lastTransitionAt`.
+   - `lifecycle_events`: JSON list of all transitions with
+     timestamps, triggering source ids, and rationale text.
+   - `supported_principle_id`: which side is currently
+     supported by weight of evidence (nullable).
+   - `subsuming_principle_id`: nullable; populated on
+     SUBSUMED transition.
+
+B. `noosphere/noosphere/coherence/auto_resolver.py`:
+   - `async on_new_principle(store, principle_id)`:
+     1. For every STANDING / WEAKENED contradiction involving a
+        principle in the same cluster (prompt 07):
+        - compute contradiction score new vs. each side.
+        - apply the WEAKENED / RESOLVED_BY_SOURCE / SUBSUMED
+          transition rules.
+        - log the lifecycle event.
+   - `async on_principle_revocation(store, principle_id)`:
+     handles the inverse — a revoked principle in a contradiction
+     pair flips the lifecycle.
+
+C. Manual-resolve UI is REMOVED. The
+   `/(authed)/contradictions/[id]/resolve` page (or wherever the
+   button lives) is deleted. The detail page from prompt 06 is
+   updated:
+   - REMOVE the "Resolve" button.
+   - ADD a "Lifecycle" panel showing every transition with the
+     triggering source, the score change, and the rationale.
+   - KEEP the ACKNOWLEDGE-STANDING action — sets explicit
+     STANDING status (recorded, doesn't resolve).
+   - KEEP the DISPUTE-AS-ERROR action — sets DISPUTED status and
+     flags the contradiction engine for calibration review.
+
+D. Subsumption triage. When the auto-resolver flags a candidate
+   subsumption, a triage card appears at
+   `/(authed)/contradictions/subsumption-queue`. Founder reviews
+   the candidate synthesis principle and the original pair; can
+   ACCEPT (transitions to SUBSUMED, marks originals as superseded)
+   or REJECT (clears the candidate; status stays STANDING).
+
+E. Public surface. The `/methodology/contradiction-engine` page
+   gains a "Lifecycle of a contradiction" section explaining the
+   states + the source-driven philosophy.
+
+F. CLI:
+   - `noosphere contradiction lifecycle --id <id>` — prints the
+     full transition history.
+   - `noosphere contradiction sweep-resolutions` — replays all
+     standing contradictions against current corpus to find
+     newly-eligible auto-resolutions.
+
+G. Tests:
+   - WEAKENED transition fires when scores diverge sufficiently.
+   - RESOLVED_BY_SOURCE fires at the right thresholds.
+   - SUBSUMED candidate flagged correctly; founder confirmation
+     transitions terminally.
+   - DISPUTED action records the dispute; algorithm doesn't
+     auto-retire from a single dispute.
+   - Old manual-resolve route returns 404 (proves removal).
+   - Lifecycle event log is append-only — no transitions
+     overwritten in place.
+
+Constraints
+- The agent NEVER auto-applies SUBSUMED. Subsumption requires
+  founder confirmation.
+- Source-driven resolutions are reversible: if the resolving
+  source is itself revoked, the lifecycle moves back to STANDING.
+- The lifecycle table is append-only at the events level (no
+  history rewriting).
+- This prompt does NOT modify the contradiction engine itself or
+  the cluster index.
+- Removing the manual-resolve UI is not optional. Per founder
+  directive.
+
+SCOPE
+- `noosphere/noosphere/coherence/auto_resolver.py` CREATE
+- `noosphere/noosphere/coherence/lifecycle.py` CREATE
+- `noosphere/noosphere/models.py` MODIFY
+- `noosphere/noosphere/store.py` MODIFY
+- `theseus-codex/prisma/schema.prisma` MODIFY
+- `theseus-codex/prisma/migrations/<ts>_contradiction_lifecycle/migration.sql` CREATE
+- `noosphere/alembic/versions/<rev>_contradiction_lifecycle.py` CREATE
+- `theseus-codex/src/app/(authed)/contradictions/[id]/page.tsx` MODIFY
+- `theseus-codex/src/app/(authed)/contradictions/[id]/resolve/page.tsx` DELETE
+- `theseus-codex/src/app/(authed)/contradictions/subsumption-queue/page.tsx` CREATE
+- `theseus-codex/src/app/methodology/contradiction-engine/page.tsx` MODIFY
+- `noosphere/noosphere/cli.py` MODIFY
+- `noosphere/tests/test_auto_resolver.py` CREATE
+- `noosphere/tests/test_lifecycle.py` CREATE

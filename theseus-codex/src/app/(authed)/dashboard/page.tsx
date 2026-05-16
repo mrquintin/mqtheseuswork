@@ -118,6 +118,7 @@ export default async function DashboardPage() {
           actions={
             <PrimaryNav>
               <PrimaryNavLink href="/principles">Principles</PrimaryNavLink>
+              <PrimaryNavLink href="/algorithms">Algorithms</PrimaryNavLink>
               <PrimaryNavLink href="/knowledge?tab=library">
                 Library
               </PrimaryNavLink>

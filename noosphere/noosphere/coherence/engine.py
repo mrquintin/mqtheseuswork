@@ -16,6 +16,12 @@ Each layer produces a score in [0, 1], which are combined into a composite
 coherence score Coh(Γ) using configurable weights.
 """
 
+# DEPRECATED — replaced by contradiction_engine.py in Round 19 prompt 06.
+# Slated for removal in prompt 16. The six-heuristic vote is the engine
+# the founder ruled "really bad, don't make sense." Kept only as a compat
+# shim for legacy regression tests; new contradiction detection MUST route
+# through ``noosphere.coherence.contradiction_engine.ContradictionEngine``.
+
 from __future__ import annotations
 from dataclasses import dataclass, field
 from datetime import date, datetime

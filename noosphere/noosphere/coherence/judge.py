@@ -2,6 +2,10 @@
 Coherence layer 6 — LLM meta-judge with citation-enforced prior-layer scores.
 """
 
+# DEPRECATED — replaced by contradiction_engine.py in Round 19 prompt 06.
+# Slated for removal in prompt 16. The LLM judge layer is the "rationality"
+# heuristic the founder flagged as not making sense; compat shim only.
+
 from __future__ import annotations
 
 import json

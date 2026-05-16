@@ -2,6 +2,11 @@
 Coherence layer 3 — probabilistic commitments via LLM + simple axiom checks.
 """
 
+# DEPRECATED — replaced by contradiction_engine.py in Round 19 prompt 06.
+# Slated for removal in prompt 16. Kept only as a compat shim for legacy
+# regression tests; new contradiction detection routes through
+# ContradictionEngine.
+
 from __future__ import annotations
 
 import json

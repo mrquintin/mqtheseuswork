@@ -1,0 +1,145 @@
+You are operating in /Users/michaelquintin/Desktop/Theseus.
+
+Goal: catch the two highest-impact silent failure modes Round 19
+introduces — Python import cycles between the many new modules
+(algorithms, synthesizer, knowledge_graph, bets, portfolio_agent)
+and TypeScript / Python type-contract drift between API routes
+and frontend consumers. Both produce loud-at-runtime errors that
+are easy to prevent at static-analysis time.
+
+What "import cycle" means in this codebase:
+
+- `noosphere.algorithms.*` may import from `noosphere.core`,
+  `noosphere.coherence`, `noosphere.store`. It MUST NOT import
+  from `noosphere.synthesizer` or `noosphere.portfolio_agent`.
+- `noosphere.synthesizer.*` may import from `noosphere.algorithms`,
+  `noosphere.coherence`, `noosphere.core`. It MUST NOT import
+  from `noosphere.portfolio_agent`.
+- `noosphere.portfolio_agent.*` may import from `noosphere.synthesizer`,
+  `noosphere.bets`, `noosphere.forecasts`, `noosphere.equities`.
+  It is a CONSUMER of upstream modules; it must not be imported
+  by any of them.
+- `noosphere.bets.*` is a pure schema layer plus per-kind
+  resolvers. It depends on `noosphere.forecasts` and
+  `noosphere.equities` for MARKET resolution; nothing depends
+  on bets except portfolio_agent.
+- `noosphere.knowledge_graph.*` reads from everything but writes
+  to nothing except its own snapshot tables.
+
+What "type contract" means:
+
+- Every FastAPI route in `current_events_api` that returns JSON
+  must have a Pydantic response model.
+- Every Next.js API route in `theseus-codex/src/app/api/` that
+  consumes a FastAPI route must have a TypeScript type that
+  matches.
+- The match is enforced by code-generation: a Python script
+  walks the FastAPI app and emits TypeScript types into
+  `theseus-codex/src/lib/_generated/api/`. The generated file
+  is committed; CI fails if regeneration produces a diff.
+
+Before you start — read:
+1. Every `__init__.py` and top-level module under
+   `noosphere/noosphere/` post-Round-19. Note current import
+   patterns.
+2. `current_events_api/current_events_api/routes/*.py` — note
+   the response shapes.
+3. `theseus-codex/src/lib/_generated/` if it exists from
+   earlier rounds (Round 18 prompt 04 may have introduced this
+   pattern).
+
+Implement:
+
+A. `noosphere/.import-linter` (extend if exists):
+   - Layered architecture contract using import-linter's
+     `layers` rule:
+     ```
+     [importlinter:contract:noosphere-layering]
+     name = noosphere layering
+     type = layers
+     layers =
+         noosphere.portfolio_agent
+         noosphere.synthesizer
+         noosphere.algorithms
+         noosphere.bets
+         noosphere.knowledge_graph
+         noosphere.coherence
+         noosphere.forecasts | noosphere.equities | noosphere.currents
+         noosphere.store
+         noosphere.core
+     ```
+   - Independence contracts to forbid specific bad edges
+     (`portfolio_agent` ↮ `forecasts` are sibling consumers).
+
+B. `tests/static/test_no_import_cycles.py` (extend if exists):
+   - Runs import-linter as a subprocess; asserts exit 0.
+   - Falls back to a Python AST walk that detects cycles if
+     import-linter is not installed, with a friendly install hint.
+
+C. `scripts/check_no_import_cycles.py` — script form for the
+   pre-commit hook.
+
+D. `scripts/generate_api_types.py`:
+   - Walks the FastAPI app object, enumerates routes, extracts
+     each route's Pydantic response model.
+   - Emits TypeScript types into
+     `theseus-codex/src/lib/_generated/api/<route_module>.ts`
+     using `datamodel-code-generator` or a hand-rolled emitter.
+   - Emits an index file `theseus-codex/src/lib/_generated/api/index.ts`
+     exporting everything.
+
+E. `tests/static/test_api_types_in_sync.py`:
+   - Runs `scripts/generate_api_types.py` in a temp directory.
+   - Compares output against the committed
+     `theseus-codex/src/lib/_generated/api/` byte-for-byte.
+   - Fails with `git diff`-style output identifying the
+     drift.
+
+F. Frontend consumption test
+   `theseus-codex/__tests__/api_consumers_use_generated_types.test.ts`:
+   - Greps every `theseus-codex/src/app/api/` route and every
+     Next.js handler that calls a FastAPI route. Asserts each
+     imports its expected type from `_generated/api/`.
+   - Allowlist for routes that legitimately produce non-JSON
+     (SSE, file downloads).
+
+G. CI workflow extension. `.github/workflows/type-contracts.yml`
+   (extend if exists) runs the type-sync check and import-cycle
+   check on every PR.
+
+H. Pre-commit hook extension. The hook from Round 18 prompt 70
+   runs both check scripts. Failing import-cycle or type-drift
+   refuses the commit.
+
+I. Tests:
+   - Plant a fixture cycle (a → b → a) under a test-only path
+     and assert import-linter catches it.
+   - Plant a Pydantic schema drift on a fixture route and
+     assert the type-sync test catches it.
+   - Happy path on the real codebase passes.
+
+Constraints
+- Generated types are COMMITTED, not gitignored. Drift is
+  intentional friction; the developer regenerates and the diff
+  surfaces in review.
+- The layered contract is the architecture spec. Adding a new
+  import that violates it requires updating the contract +
+  explaining in the PR why.
+- Sibling modules that legitimately need shared types should
+  define those in `noosphere.core` (the deepest layer).
+- Test fixtures don't pollute production: they live under
+  `tests/static/fixtures/` and are not on the production import
+  path.
+
+SCOPE
+- `noosphere/.import-linter` MODIFY
+- `tests/static/test_no_import_cycles.py` CREATE-OR-MODIFY
+- `tests/static/test_api_types_in_sync.py` CREATE
+- `scripts/check_no_import_cycles.py` CREATE-OR-MODIFY
+- `scripts/generate_api_types.py` CREATE
+- `theseus-codex/src/lib/_generated/api/.gitkeep` CREATE
+- `theseus-codex/__tests__/api_consumers_use_generated_types.test.ts` CREATE
+- `.github/workflows/type-contracts.yml` MODIFY
+- `scripts/hooks/pre-commit.sh` MODIFY
+- `tests/static/fixtures/synthetic_cycle/` CREATE
+- `tests/static/fixtures/synthetic_drift/` CREATE

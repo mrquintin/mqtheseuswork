@@ -1,0 +1,10 @@
+{
+  "_doc": "Fixture for B10. The continuous-run scheduler had a bug where a sub-loop with a very short interval could starve longer-interval sub-loops by monopolising the fast clock. The pre-fix scheduler picked the next due loop greedily without resetting the priority queue between fast ticks. This fixture captures the planted starvation: loop 'fast' has interval_ms=10 and loop 'slow' has interval_ms=200, run over 1500ms of simulated time. A pre-fix scheduler runs 'fast' ~150 times and 'slow' 0 times. The post-fix scheduler MUST run 'slow' at least 6 times in the same window.",
+  "duration_ms": 1500,
+  "loops": [
+    {"name": "fast", "interval_ms": 10, "min_runs": 100},
+    {"name": "medium", "interval_ms": 75, "min_runs": 15},
+    {"name": "slow", "interval_ms": 200, "min_runs": 6}
+  ],
+  "starvation_threshold_runs": 1
+}

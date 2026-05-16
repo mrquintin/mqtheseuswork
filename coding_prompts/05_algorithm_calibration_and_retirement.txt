@@ -1,0 +1,182 @@
+You are operating in /Users/michaelquintin/Desktop/Theseus.
+
+Goal: an algorithm should earn its life. The firm needs an
+explicit calibration loop on every ACTIVE algorithm: each
+invocation eventually resolves; the resolution updates the
+algorithm's track record; bad algorithms retire; good ones get
+promoted to higher-confidence weighting in the synthesizer
+(prompt 10).
+
+This prompt closes the loop opened by prompts 01-04: drafted →
+ACTIVE → fired → resolved → graded → retained or retired.
+
+Calibration metrics per algorithm:
+
+- `total_invocations`
+- `resolved_invocations`
+- `accuracy` — fraction CORRECT among resolved (non-INDETERMINATE)
+- `mean_brier` — across probabilistic outputs only
+- `mean_horizon_error` — for predictions with a horizon (predicted
+   vs. actual delay-to-realisation)
+- `directional_accuracy` — for outputs that are directional
+   (up/down, bullish/bearish, escalating/de-escalating)
+- `confidence_calibration` — does the algorithm's stated
+   confidence_low/high band cover the actual outcome at the
+   claimed rate? (E.g., 80% bands should cover 80% of resolutions
+   ± slack.)
+- `last_30d_accuracy` — rolling measure, sensitive to drift
+
+Retirement triggers (any of):
+
+- `accuracy < 0.55` over ≥ 20 resolved invocations
+- `mean_brier > 0.30` over ≥ 20 resolved (probabilistic outputs)
+- `directional_accuracy < 0.55` over ≥ 20 resolved (directional)
+- `confidence_calibration_drift > 0.20` over ≥ 30 resolved
+  (algorithm is systematically overconfident or underconfident)
+- `last_30d_accuracy < 0.40` AND `total_invocations > 50`
+   (algorithm has degraded recently — possible regime change)
+
+Retirement requires a triage queue entry — the founder confirms,
+the agent never auto-retires. The agent's recommendation is
+advisory and explicit about which trigger fired.
+
+Promotion triggers — earn higher weighting in the synthesizer:
+
+- `accuracy > 0.75` over ≥ 30 resolved
+- `mean_brier < 0.15` over ≥ 30 resolved
+- Confidence calibration within ± 0.05 of stated band over ≥ 30
+
+Promoted algorithms have `weighting_multiplier` increased (default
+1.0, max 2.0); the synthesizer uses this in synthesizing outputs
+across multiple algorithms.
+
+Before you start — read:
+1. `noosphere/noosphere/algorithms/runtime.py` from prompt 03 —
+   the resolution sub-loop already exists.
+2. `noosphere/noosphere/forecasts/resolution_tracker.py` from
+   Round 10 — the Brier math is reused.
+3. `noosphere/noosphere/methods/retirement.py` from Round 18
+   prompt 33 — the methodology-retirement pattern this prompt
+   parallels.
+
+Implement:
+
+A. `noosphere/noosphere/algorithms/calibration.py`:
+   - `class CalibrationStats` (Pydantic):
+       fields per the metric list above.
+   - `def compute_stats(invocations, *, window_days=None) ->
+                                              CalibrationStats`:
+       pure function over a list of AlgorithmInvocation rows.
+       Handles probabilistic / directional / structured outputs.
+   - `def compute_confidence_calibration_drift(invocations) -> float`:
+       compares stated confidence band coverage to actual
+       coverage. Returns signed drift (positive = overconfident,
+       negative = underconfident).
+
+B. `noosphere/noosphere/algorithms/retirement.py`:
+   - `def check_retirement_triggers(stats) -> list[TriggerReason]`:
+     returns named reasons that fired (empty list = no retirement
+     recommended).
+   - `def check_promotion_triggers(stats) -> list[TriggerReason]`
+   - `class RetirementRecommendation`:
+     - `algorithm_id`, `reasons: list[TriggerReason]`,
+       `recommended_action: RETIRE | PROMOTE | NONE`,
+       `recommended_multiplier: float (for PROMOTE)`,
+       `narrative: str (human-readable summary for the queue)`.
+
+C. Calibration scheduler tick. Add a sub-loop
+   `algorithms_calibration_tick` (default 1h) that:
+   1. Loads each ACTIVE algorithm with at least one resolution
+      since the last tick.
+   2. Recomputes its CalibrationStats.
+   3. Persists the latest stats to a new
+      `AlgorithmCalibrationSnapshot` table (one row per
+      algorithm per snapshot; append-only for time-series).
+   4. Runs retirement / promotion trigger checks.
+   5. If any trigger fires, creates an
+      `AlgorithmTriageRecommendation` row visible in the operator
+      triage UI.
+
+D. New entities (Prisma + SQLModel):
+
+   `AlgorithmCalibrationSnapshot`:
+     - `id`, `algorithmId` FK, `snapshotAt`, plus all
+       CalibrationStats fields.
+     - Indexed (algorithmId, snapshotAt DESC).
+     - Append-only.
+
+   `AlgorithmTriageRecommendation`:
+     - `id`, `algorithmId` FK, `recommendedAt`,
+       `recommendedAction`, `triggerReasons` (JSON), `narrative`,
+       `status` enum PENDING | ACCEPTED | REJECTED,
+       `resolvedBy` (founder id), `resolvedAt`, `resolutionNote`.
+
+   `weighting_multiplier` column added to `LogicalAlgorithm`
+     (default 1.0). Bounded [0.0, 2.0] by check constraint.
+
+E. Operator triage UI extension. The operator-only algorithms
+   page from prompt 04 gains a "Calibration triage queue" panel
+   listing PENDING recommendations:
+   - Each row: algorithm name, the reasons fired (e.g.
+     "accuracy 0.48 over 24 resolved"), the recommended action,
+     the narrative, and ACCEPT / REJECT / DEFER actions.
+   - ACCEPT-RETIRE sets the algorithm's status to RETIRED with
+     reason captured.
+   - ACCEPT-PROMOTE sets `weighting_multiplier` to the
+     recommended value.
+   - REJECT requires a free-text note (≥ 20 chars).
+
+F. Public surface integration. The public
+   `/algorithms/[id]` detail page from prompt 04 renders the
+   latest CalibrationSnapshot inline + a small time-series chart
+   of accuracy over time. Retirement / promotion events appear
+   as annotations on the chart.
+
+G. CLI:
+   - `noosphere algorithms calibrate --algorithm <id>` — force
+     recompute.
+   - `noosphere algorithms calibrate --all` — full org sweep.
+   - `noosphere algorithms triage --pending` — list pending
+     recommendations.
+
+H. Tests:
+   - Stats compute correctly across probabilistic / directional /
+     structured outputs on fixture invocations.
+   - Confidence-calibration drift detects systematic over/under
+     confidence on adversarial fixtures.
+   - Retirement triggers fire at the right thresholds — and DON'T
+     fire when sample size is insufficient (the round protects
+     algorithms from premature retirement on small N).
+   - Promotion path works end-to-end including weight bump.
+   - Snapshot append-only invariant: re-running calibration does
+     not overwrite existing snapshots.
+   - Triage UI accept-reject flows round-trip.
+
+Constraints
+- The agent NEVER retires an algorithm autonomously. The founder
+  must accept the recommendation.
+- Promotion is bounded; weighting multiplier capped at 2.0.
+- Calibration uses ONLY resolved invocations. Unresolved
+  invocations never affect the metrics.
+- Indeterminate resolutions (the world genuinely couldn't decide)
+  are excluded from accuracy denominator.
+- Calibration math must match what the public chart renders;
+  the existing pattern from Round 10 prompt 14 applies — the
+  Python aggregator and the JS renderer agree, verified by a
+  round-trip test.
+
+SCOPE
+- `noosphere/noosphere/algorithms/calibration.py` CREATE
+- `noosphere/noosphere/algorithms/retirement.py` CREATE
+- `noosphere/noosphere/forecasts/scheduler.py` MODIFY
+- `noosphere/noosphere/models.py` MODIFY
+- `noosphere/noosphere/store.py` MODIFY
+- `theseus-codex/prisma/schema.prisma` MODIFY
+- `theseus-codex/prisma/migrations/<ts>_algorithm_calibration/migration.sql` CREATE
+- `noosphere/alembic/versions/<rev>_algorithm_calibration.py` CREATE
+- `theseus-codex/src/app/(authed)/algorithms/operator/page.tsx` MODIFY
+- `theseus-codex/src/components/algorithms/CalibrationTriagePanel.tsx` CREATE
+- `theseus-codex/src/app/algorithms/[id]/page.tsx` MODIFY
+- `noosphere/noosphere/cli.py` MODIFY
+- `noosphere/tests/test_algorithm_calibration.py` CREATE
+- `noosphere/tests/test_algorithm_retirement.py` CREATE

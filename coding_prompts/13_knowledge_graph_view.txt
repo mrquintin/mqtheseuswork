@@ -1,0 +1,192 @@
+You are operating in /Users/michaelquintin/Desktop/Theseus.
+
+Goal: a cross-source KNOWLEDGE GRAPH view. Speaker 4 demoed his
+own version of this in the meeting — nodes for concept/person/
+source/topic, edges that surface unprompted (e.g. "Attention Is
+All You Need" → "Nick Land" via dark-enlightenment philosophy).
+Click an edge, ask the agent to reason about it, get a structured
+answer rendered as a table.
+
+Theseus already has lineage (Round 18 prompt 23) which shows
+where a single conclusion came from. The knowledge graph shows
+the cross-source semantic neighborhood of any node — concepts
+connected through the firm's principles AND through the new
+algorithm layer (prompts 01-05).
+
+What the graph IS:
+
+Nodes (extensible — start with these):
+- `CONCEPT` — a named idea ("hyperstition", "security dilemma")
+- `PERSON` — anyone the corpus references ("Peter Thiel", "Nick
+   Land", a podcast guest)
+- `SOURCE` — an uploaded artifact (a PDF, a transcript, an
+   article)
+- `TOPIC` — a Currents / library topic tag
+- `PRINCIPLE` — a row from the principles table
+- `ALGORITHM` — a row from LogicalAlgorithm (prompt 01)
+- `MEMO` — a row from InvestmentMemo (prompt 11)
+
+Edges (typed):
+- `DERIVED_FROM` — a principle derived from a source
+- `INVOKES` — an algorithm invokes a principle
+- `CONTRADICTS` — from the contradiction engine (prompt 06);
+  carries the contradiction score on the edge
+- `SUPPORTS` — explicit support relationship (manually marked
+  or LLM-extracted with high confidence)
+- `APPLIES_TO` — a principle applies to a topic
+- `PREDICTS` — an algorithm produces an output that bears on a
+  topic
+- `CITES` — a memo cites a principle / algorithm / source
+- `MENTIONS` — a source mentions a person / concept
+
+Before you start — read:
+1. The principle entity from Round 18 prompt 56.
+2. The lineage v2 from Round 18 prompt 23 — note its data shape;
+   this graph composes WITH lineage but is broader.
+3. `noosphere/noosphere/cascade/graph.py` — there may already be
+   a graph helper; reuse it rather than reinvent.
+4. Round 18 prompt 56's `quantifiable_proxies` field — this
+   round's algorithm nodes use that to surface in the graph.
+
+Implement:
+
+A. `noosphere/noosphere/knowledge_graph/builder.py`:
+   - `class KnowledgeGraphBuilder`:
+     - `build_for_org(store, org_id) -> KnowledgeGraph`:
+       full graph snapshot for one org. Snapshots are versioned
+       and persisted (an org's graph is recomputed on a schedule;
+       querying always serves the latest snapshot for low
+       latency).
+     - `incremental_update(store, event) -> list[GraphDelta]`:
+       called by domain events (principle add, algorithm fire,
+       memo created, source upload). Computes the deltas and
+       applies them to the latest snapshot.
+   - Snapshot persistence: `GraphSnapshot` table with
+     `snapshotAt`, `nodes` (JSON array), `edges` (JSON array),
+     `nodeCount`, `edgeCount`, `version`. Append-only.
+
+B. `noosphere/noosphere/knowledge_graph/edge_extractors.py`:
+   - One extractor function per edge type.
+   - DERIVED_FROM: read straight off the principle's
+     source_artifact pointer.
+   - INVOKES: read off algorithm.source_principle_ids.
+   - CONTRADICTS: read off the ContradictionLifecycle rows
+     (lifecycle != DISPUTED_AS_ERROR). Edge carries the latest
+     score.
+   - SUPPORTS: derived from explicit support flags + an LLM
+     extractor that runs on a schedule (low budget; high
+     confidence threshold).
+   - APPLIES_TO: derived from principle.domain_of_applicability +
+     topic registry.
+   - PREDICTS: derived from algorithm output schema + topic
+     mapping.
+   - CITES: read off memo.governing_principle_ids and
+     observed_input_ids.
+   - MENTIONS: extracted from source text via NER; cached on
+     the source row.
+
+C. `noosphere/noosphere/knowledge_graph/agent_reasoner.py`:
+   - `async reason_about_edge(node_a, node_b, edge_type, *, store,
+                              budget) -> EdgeReasoning`:
+     The "click an edge, ask the agent why" path Speaker 4 demoed.
+     Returns a structured response:
+     ```
+     { question_implied: str,
+       short_answer: str,
+       reasoning_chain: list[str],
+       citations: list[SourceCitation],
+       confidence_low: float,
+       confidence_high: float,
+       generated_at: datetime }
+     ```
+     The agent's job is to explain the edge's existence, not to
+     manufacture a connection. If no real connection exists,
+     return short_answer="The connection is weak. The two are
+     adjacent in our graph because of shared source X but the
+     conceptual link is shallow." with citations grounding the
+     claim.
+
+D. `noosphere/noosphere/knowledge_graph/_prompts/reasoner_system.md`:
+   - "You explain why two nodes in the firm's knowledge graph
+     are connected. You DO NOT manufacture connections that the
+     data does not support."
+   - "Every step in your reasoning cites a source or principle
+     by id."
+   - "Tabular output is welcome when comparing positions; use
+     markdown tables."
+
+E. Public surface. `/knowledge-graph` page:
+   - SVG / D3 / react-flow rendering of the graph.
+   - Filters: by node type, by edge type, by topic, by date.
+   - Search: jump to a node by name.
+   - Click a node: detail panel with neighbors + recent
+     invocations / citations / contradictions.
+   - Click an edge: trigger the agent_reasoner; render the
+     response as a side panel with the reasoning chain
+     prominently displayed.
+   - The graph is restrained: parchment background, gold for
+     PRINCIPLE nodes, amber for ALGORITHM nodes, ink-on-
+     parchment for SOURCE / PERSON / CONCEPT. Edge colors
+     encode type (contradictions stand out).
+   - Performance: server-render initial viewport; lazy-load
+     neighbors on click.
+
+F. Operator surface. `/(authed)/knowledge-graph/operator`:
+   - Force rebuild snapshot.
+   - Run agent_reasoner over the top 50 highest-degree edges
+     proactively, persist results so public clicks are instant.
+   - Edit a SUPPORTS edge explicitly (mark a manual support).
+   - Inspect SnapshotDelta history to audit how the graph
+     evolved.
+
+G. CLI:
+   - `noosphere graph build --org <id>` — full rebuild.
+   - `noosphere graph reason --node-a <id> --node-b <id>
+       --edge-type CONTRADICTS` — ad-hoc edge reasoning.
+   - `noosphere graph stats` — node/edge counts by type, density.
+
+H. Tests:
+   - Builder produces a graph for a fixture corpus with
+     expected node/edge counts.
+   - Each edge extractor produces edges with correct shape.
+   - Agent_reasoner ground its explanations in real citations
+     on a happy-path fixture.
+   - Weak-connection fixture: agent_reasoner reports the
+     connection is weak rather than fabricating one.
+   - Incremental_update applies a principle-add delta correctly;
+     CONTRADICTS edge appears when contradiction-engine flags it.
+   - Snapshot persistence is append-only.
+
+Constraints
+- The graph is OBSERVABLE, not authoritative. The principles
+  table is authoritative for principles; the graph is a
+  projection. Editing the graph directly (except SUPPORTS
+  manual marks) is forbidden.
+- The agent_reasoner has a strict budget per edge query
+  (`GRAPH_REASONER_MAX_TOKENS_PER_EDGE`, default 4000).
+- Snapshots are versioned. Old snapshots are kept for at least
+  90 days so historical queries work.
+- The graph respects provenance_filter (prompt 09) on public
+  view — operator can override.
+
+SCOPE
+- `noosphere/noosphere/knowledge_graph/__init__.py` CREATE
+- `noosphere/noosphere/knowledge_graph/builder.py` CREATE
+- `noosphere/noosphere/knowledge_graph/edge_extractors.py` CREATE
+- `noosphere/noosphere/knowledge_graph/agent_reasoner.py` CREATE
+- `noosphere/noosphere/knowledge_graph/_prompts/reasoner_system.md` CREATE
+- `noosphere/noosphere/models.py` MODIFY
+- `noosphere/noosphere/store.py` MODIFY
+- `theseus-codex/prisma/schema.prisma` MODIFY
+- `theseus-codex/prisma/migrations/<ts>_knowledge_graph/migration.sql` CREATE
+- `noosphere/alembic/versions/<rev>_knowledge_graph.py` CREATE
+- `theseus-codex/src/app/knowledge-graph/page.tsx` CREATE
+- `theseus-codex/src/app/(authed)/knowledge-graph/operator/page.tsx` CREATE
+- `theseus-codex/src/components/graph/GraphCanvas.tsx` CREATE
+- `theseus-codex/src/components/graph/EdgeReasoningPanel.tsx` CREATE
+- `theseus-codex/src/components/graph/NodeDetailPanel.tsx` CREATE
+- `current_events_api/current_events_api/routes/knowledge_graph.py` CREATE
+- `theseus-codex/src/app/api/knowledge-graph/route.ts` CREATE
+- `noosphere/noosphere/cli.py` MODIFY
+- `noosphere/tests/test_graph_builder.py` CREATE
+- `noosphere/tests/test_agent_reasoner.py` CREATE

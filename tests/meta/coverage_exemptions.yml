@@ -1,0 +1,29 @@
+# Files exempt from the Round-19 ≥60% line-coverage bar.
+#
+# The exempt list is intentionally short. Long exempt lists are a code
+# smell. Every entry MUST have a category and a one-line reason.
+#
+# Categories:
+#   generated   – emitted by a code generator (regenerated from upstream
+#                 source; testing the generator is what matters).
+#   fixture     – test-only data; the test that consumes it is the
+#                 coverage that matters.
+#   dev_only    – local-only developer script; not on any production
+#                 import path; running it as a test would have side
+#                 effects (network, repo mutation).
+#   migration   – Alembic revision; covered by the migration linearity
+#                 + dry-run gates (M1, ready-to-sync step 1), not by
+#                 unit tests.
+#
+# Format: a list of entries under ``exempt:``. Each entry is a single
+# line of the form
+#   - path: "<repo-relative path or glob>" category: <cat> reason: "<why>"
+# The parser is intentionally minimal — see
+# tests/meta/test_coverage_of_round19_changes.py for the loader.
+
+exempt:
+  - path: "noosphere/alembic/versions/*.py" category: migration reason: "Alembic revisions are covered by migration linearity (M1) + dry-run."
+  - path: "tests/**/fixtures/**/*.py" category: fixture reason: "Test fixtures; the consumer test is the coverage that matters."
+  - path: "theseus-codex/src/lib/_generated/**/*" category: generated reason: "Emitted by scripts/generate_api_types.py; the generator's tests are what matter."
+  - path: "scripts/round1?_smoke.sh" category: dev_only reason: "Round-specific smoke driver; superseded by scripts/smoke/run.sh."
+  - path: "scripts/round1?_verification.py" category: dev_only reason: "Round-specific verification driver; not on a production path."

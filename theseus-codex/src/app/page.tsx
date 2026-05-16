@@ -3,6 +3,7 @@ import Link from "next/link";
 import TransparencyFooter from "@/app/(home)/TransparencyFooter";
 import ArticlesRail from "@/components/home/ArticlesRail";
 import ConclusionsRail from "@/components/home/ConclusionsRail";
+import LiveActivityRefresher from "@/components/home/LiveActivityRefresher";
 import PublicAskBox from "@/components/PublicAskBox";
 import PublicHeader from "@/components/PublicHeader";
 import SubscribeForm from "@/components/SubscribeForm";
@@ -10,8 +11,23 @@ import {
   getTheseusContactEmail,
   theseusIdentity,
 } from "@/content/theseusIdentity";
+import {
+  THESEUS_AXIOMS,
+  THESEUS_IDENTITY_HEADINGS,
+  THESEUS_ONE_PARAGRAPH,
+  THESEUS_PIPELINE_ASCII,
+  THESEUS_TAGLINE,
+} from "@/lib/copy/identity";
+import {
+  listPublicAlgorithms,
+  listInvocationsForAlgorithm,
+  type PublicInvocationRow,
+  type PublicAlgorithmRow,
+} from "@/lib/algorithmsPublicApi";
+import { getFounder } from "@/lib/auth";
 import { getCurrentsHealth, listCurrents } from "@/lib/currentsApi";
 import type { PublicOpinion } from "@/lib/currentsTypes";
+import { db } from "@/lib/db";
 import { firmVoice } from "@/lib/firmVoice";
 import {
   CURRENTS_EMPTY_COPY,
@@ -23,13 +39,13 @@ import {
 
 // SSR contract: every request rebuilds from the database so a publish
 // shows up within one render cycle (well inside the 60-second SLO).
-// We do not use a long static cache. Cache invalidation on publish is
-// documented in `docs/operator/public_surfacing.md`.
 export const dynamic = "force-dynamic";
 
 const editorialTitleFont = "'EB Garamond', 'Iowan Old Style', Georgia, serif";
 const HOME_PREVIEW_TIMEOUT_MS = 2_000;
 const HOME_SURFACE_TIMEOUT_MS = 1_500;
+const PITCH_DECK_HREF =
+  "https://github.com/mrquintin/mqtheseuswork/blob/main/docs/pitch/2026_philosopher_in_a_box/deck.pdf";
 
 async function softTimeout<T>(
   promise: Promise<T>,
@@ -104,13 +120,114 @@ async function publicSurfaceStatus(): Promise<PublicSurfaceStatus> {
   }
 }
 
+interface LiveInvocationCard {
+  algorithm: PublicAlgorithmRow;
+  invocation: PublicInvocationRow;
+}
+
+interface LatestMemoCard {
+  id: string;
+  slug: string | null;
+  title: string;
+  publishedAt: Date | null;
+  tldr: string | null;
+}
+
+async function publicOrganizationId(): Promise<string> {
+  const founder = await getFounder().catch(() => null);
+  return (
+    founder?.organizationId ??
+    process.env.PUBLIC_ORGANIZATION_ID ??
+    process.env.DEFAULT_ORGANIZATION_ID ??
+    ""
+  );
+}
+
+async function liveInvocations(
+  organizationId: string,
+): Promise<LiveInvocationCard[]> {
+  if (!organizationId) return [];
+  try {
+    const algorithms = await listPublicAlgorithms(organizationId, {
+      status: "ACTIVE",
+    });
+    const candidates = algorithms.filter((a) => a.latestInvocationAt);
+    candidates.sort(
+      (a, b) =>
+        (b.latestInvocationAt?.getTime() ?? 0) -
+        (a.latestInvocationAt?.getTime() ?? 0),
+    );
+    const top = candidates.slice(0, 3);
+    const cards: LiveInvocationCard[] = [];
+    for (const algorithm of top) {
+      const invocations = await listInvocationsForAlgorithm(algorithm.id, 1);
+      const invocation = invocations[0];
+      if (invocation) cards.push({ algorithm, invocation });
+    }
+    return cards;
+  } catch (error) {
+    console.error("homepage_live_invocations_failed", error);
+    return [];
+  }
+}
+
+async function latestPublishedMemo(): Promise<LatestMemoCard | null> {
+  const memoApi = (db as unknown as {
+    investmentMemo?: {
+      findFirst: (args: unknown) => Promise<{
+        id: string;
+        slug: string | null;
+        title: string | null;
+        publishedAt: Date | null;
+        payloadJson: string;
+      } | null>;
+    };
+  }).investmentMemo;
+  if (!memoApi) return null;
+  try {
+    const row = await memoApi.findFirst({
+      where: { status: "PUBLIC" },
+      orderBy: { publishedAt: "desc" },
+      select: {
+        id: true,
+        slug: true,
+        title: true,
+        publishedAt: true,
+        payloadJson: true,
+      },
+    });
+    if (!row) return null;
+    let tldr: string | null = null;
+    try {
+      const parsed = JSON.parse(row.payloadJson) as { tldr?: string };
+      if (parsed?.tldr && typeof parsed.tldr === "string") tldr = parsed.tldr;
+    } catch {
+      tldr = null;
+    }
+    return {
+      id: row.id,
+      slug: row.slug,
+      title: row.title ?? "Untitled memo",
+      publishedAt: row.publishedAt,
+      tldr,
+    };
+  } catch (error) {
+    console.error("homepage_latest_memo_failed", error);
+    return null;
+  }
+}
+
 export default async function PublicHomePage() {
-  const [currents, articles, conclusions, surfaceStatus] = await Promise.all([
-    latestCurrents(),
-    latestArticles(),
-    latestConclusions(),
-    publicSurfaceStatus(),
-  ]);
+  const organizationId = await publicOrganizationId();
+  const [currents, articles, conclusions, surfaceStatus, invocations, memo] =
+    await Promise.all([
+      latestCurrents(),
+      latestArticles(),
+      latestConclusions(),
+      publicSurfaceStatus(),
+      liveInvocations(organizationId),
+      latestPublishedMemo(),
+    ]);
   const email = getTheseusContactEmail();
   const hasPublicOutput =
     currents.length > 0 || articles.length > 0 || conclusions.length > 0;
@@ -133,7 +250,10 @@ export default async function PublicHomePage() {
           zIndex: 1,
         }}
       >
-        <IdentityStrip />
+        <PhilosopherInABoxHero />
+        <AxiomsCards />
+        <MachineDiagram />
+        <LiveActivityRail invocations={invocations} memo={memo} />
 
         <section
           aria-label="Inquiry search"
@@ -191,7 +311,7 @@ export default async function PublicHomePage() {
   );
 }
 
-function IdentityStrip() {
+function PhilosopherInABoxHero() {
   return (
     <section
       aria-labelledby="home-identity-title"
@@ -215,30 +335,19 @@ function IdentityStrip() {
           textTransform: "uppercase",
         }}
       >
-        {theseusIdentity.homePage.identityTitle}
+        {THESEUS_TAGLINE}
       </h1>
       <p
         style={{
           color: "var(--parchment)",
           fontFamily: "'EB Garamond', serif",
-          fontSize: "clamp(1.2rem, 2.2vw, 1.7rem)",
-          lineHeight: 1.32,
-          margin: "1rem 0 0",
-          maxWidth: "44rem",
+          fontSize: "clamp(1.05rem, 1.7vw, 1.32rem)",
+          lineHeight: 1.5,
+          margin: "1.1rem 0 0",
+          maxWidth: "48rem",
         }}
       >
-        {theseusIdentity.oneLine}
-      </p>
-      <p
-        style={{
-          color: "var(--parchment-dim)",
-          fontSize: "0.94rem",
-          lineHeight: 1.6,
-          margin: "0.7rem 0 0",
-          maxWidth: "42rem",
-        }}
-      >
-        {theseusIdentity.homePage.commonsLine}
+        {THESEUS_ONE_PARAGRAPH}
       </p>
       <div
         style={{
@@ -268,6 +377,25 @@ function IdentityStrip() {
         >
           About →
         </Link>
+        <a
+          className="mono"
+          href={PITCH_DECK_HREF}
+          rel="noreferrer"
+          target="_blank"
+          style={{
+            border: "1px solid var(--amber)",
+            borderRadius: "3px",
+            color: "var(--amber)",
+            display: "inline-flex",
+            fontSize: "0.68rem",
+            letterSpacing: "0.2em",
+            padding: "0.72rem 1rem",
+            textDecoration: "none",
+            textTransform: "uppercase",
+          }}
+        >
+          {THESEUS_IDENTITY_HEADINGS.readTheDeck} →
+        </a>
         <Link
           className="mono"
           href="/login"
@@ -284,8 +412,383 @@ function IdentityStrip() {
           Founder login →
         </Link>
       </div>
+      <p
+        style={{
+          color: "var(--parchment-dim)",
+          fontSize: "0.9rem",
+          lineHeight: 1.55,
+          margin: "1.1rem 0 0",
+          maxWidth: "42rem",
+        }}
+      >
+        {theseusIdentity.homePage.commonsLine}
+      </p>
     </section>
   );
+}
+
+function AxiomsCards() {
+  return (
+    <section
+      aria-labelledby="home-axioms-title"
+      style={{
+        borderBottom: "1px solid var(--stroke)",
+        marginBottom: "2rem",
+        paddingBottom: "1.75rem",
+      }}
+    >
+      <h2
+        className="mono"
+        id="home-axioms-title"
+        style={{
+          color: "var(--amber-dim)",
+          fontSize: "0.72rem",
+          letterSpacing: "0.3em",
+          margin: "0 0 0.9rem",
+          textTransform: "uppercase",
+        }}
+      >
+        {THESEUS_IDENTITY_HEADINGS.axiomsHeading}
+      </h2>
+      <div
+        style={{
+          display: "grid",
+          gap: "0.85rem",
+          gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
+        }}
+      >
+        {THESEUS_AXIOMS.map((axiom) => (
+          <article
+            key={axiom.name}
+            style={{
+              background: "rgba(232, 225, 211, 0.035)",
+              border: "1px solid rgba(232, 225, 211, 0.14)",
+              borderRadius: "6px",
+              padding: "1rem",
+            }}
+          >
+            <h3
+              style={{
+                color: "var(--amber)",
+                fontFamily: editorialTitleFont,
+                fontSize: "1.2rem",
+                fontWeight: 500,
+                lineHeight: 1.22,
+                margin: 0,
+              }}
+              data-h3-glyph="off"
+            >
+              {axiom.name}
+            </h3>
+            <p
+              className="mono"
+              style={{
+                color: "var(--amber-dim)",
+                fontSize: "0.62rem",
+                letterSpacing: "0.18em",
+                margin: "0.4rem 0 0",
+                textTransform: "uppercase",
+              }}
+            >
+              {axiom.summary}
+            </p>
+            <p
+              style={{
+                color: "var(--parchment-dim)",
+                fontSize: "0.92rem",
+                lineHeight: 1.5,
+                margin: "0.7rem 0 0",
+              }}
+            >
+              {axiom.elaboration}
+            </p>
+          </article>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function MachineDiagram() {
+  return (
+    <section
+      aria-labelledby="home-machine-title"
+      style={{
+        borderBottom: "1px solid var(--stroke)",
+        marginBottom: "2rem",
+        paddingBottom: "1.75rem",
+      }}
+    >
+      <h2
+        className="mono"
+        id="home-machine-title"
+        style={{
+          color: "var(--amber-dim)",
+          fontSize: "0.72rem",
+          letterSpacing: "0.3em",
+          margin: "0 0 0.9rem",
+          textTransform: "uppercase",
+        }}
+      >
+        {THESEUS_IDENTITY_HEADINGS.machineRail}
+      </h2>
+      <pre
+        aria-label="Theseus pipeline diagram"
+        className="mono"
+        style={{
+          background: "rgba(232, 225, 211, 0.035)",
+          border: "1px solid rgba(232, 225, 211, 0.14)",
+          borderRadius: "6px",
+          color: "var(--parchment)",
+          fontSize: "0.82rem",
+          lineHeight: 1.55,
+          margin: 0,
+          overflowX: "auto",
+          padding: "1.1rem 1.2rem",
+          whiteSpace: "pre",
+        }}
+      >
+{THESEUS_PIPELINE_ASCII}
+      </pre>
+      <p
+        style={{
+          color: "var(--parchment-dim)",
+          fontSize: "0.9rem",
+          lineHeight: 1.55,
+          margin: "0.85rem 0 0",
+          maxWidth: "42rem",
+        }}
+      >
+        Inputs are the curated corpus and live observations. The
+        synthesizer extracts principles. Algorithms apply those
+        principles to whatever the world is doing this morning. When the
+        prediction is sharp enough, the portfolio agent places the bet.
+      </p>
+    </section>
+  );
+}
+
+function LiveActivityRail({
+  invocations,
+  memo,
+}: {
+  invocations: LiveInvocationCard[];
+  memo: LatestMemoCard | null;
+}) {
+  const empty = invocations.length === 0 && !memo;
+  return (
+    <section
+      aria-labelledby="home-live-title"
+      data-testid="homepage-live-activity"
+      style={{
+        borderBottom: "1px solid var(--stroke)",
+        marginBottom: "2rem",
+        paddingBottom: "1.75rem",
+      }}
+    >
+      <LiveActivityRefresher />
+      <div
+        style={{
+          alignItems: "baseline",
+          display: "flex",
+          flexWrap: "wrap",
+          gap: "0.75rem",
+          justifyContent: "space-between",
+          marginBottom: "0.85rem",
+        }}
+      >
+        <h2
+          className="mono"
+          id="home-live-title"
+          style={{
+            color: "var(--amber-dim)",
+            fontSize: "0.72rem",
+            letterSpacing: "0.3em",
+            margin: 0,
+            textTransform: "uppercase",
+          }}
+        >
+          {THESEUS_IDENTITY_HEADINGS.liveActivity}
+        </h2>
+        <Link
+          className="mono"
+          href="/algorithms"
+          style={{
+            color: "var(--amber)",
+            fontSize: "0.62rem",
+            letterSpacing: "0.2em",
+            textDecoration: "none",
+            textTransform: "uppercase",
+          }}
+        >
+          All algorithms →
+        </Link>
+      </div>
+      {empty ? (
+        <p
+          style={{
+            background: "rgba(232, 225, 211, 0.035)",
+            border: "1px solid rgba(232, 225, 211, 0.12)",
+            color: "var(--parchment-dim)",
+            fontSize: "0.95rem",
+            lineHeight: 1.55,
+            margin: 0,
+            padding: "1rem",
+          }}
+        >
+          No algorithm has fired and no memo has been published yet. The
+          machine is quiet.
+        </p>
+      ) : (
+        <div
+          style={{
+            display: "grid",
+            gap: "0.85rem",
+            gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))",
+          }}
+        >
+          {invocations.map((card) => (
+            <Link
+              key={card.invocation.id}
+              data-testid="homepage-live-invocation"
+              href={`/algorithms/${encodeURIComponent(
+                card.algorithm.id,
+              )}/invocations/${encodeURIComponent(card.invocation.id)}`}
+              style={{
+                background: "rgba(232, 225, 211, 0.035)",
+                border: "1px solid rgba(232, 225, 211, 0.14)",
+                borderRadius: "6px",
+                color: "inherit",
+                display: "block",
+                padding: "1rem",
+                textDecoration: "none",
+              }}
+            >
+              <p
+                className="mono"
+                style={{
+                  color: "var(--amber-dim)",
+                  fontSize: "0.6rem",
+                  letterSpacing: "0.18em",
+                  margin: 0,
+                  textTransform: "uppercase",
+                }}
+              >
+                Algorithm · {formatTimestamp(card.invocation.invokedAt)}
+              </p>
+              <h3
+                style={{
+                  color: "var(--amber)",
+                  fontFamily: editorialTitleFont,
+                  fontSize: "1.18rem",
+                  fontWeight: 500,
+                  lineHeight: 1.22,
+                  margin: "0.35rem 0 0",
+                }}
+                data-h3-glyph="off"
+              >
+                {card.algorithm.name}
+              </h3>
+              <p
+                style={{
+                  color: "var(--parchment-dim)",
+                  fontSize: "0.9rem",
+                  lineHeight: 1.5,
+                  margin: "0.55rem 0 0",
+                }}
+              >
+                {summarizeInvocation(card.invocation)}
+              </p>
+              {card.invocation.betImplied ? (
+                <p
+                  className="mono"
+                  style={{
+                    color: "var(--amber)",
+                    fontSize: "0.62rem",
+                    letterSpacing: "0.16em",
+                    margin: "0.65rem 0 0",
+                    textTransform: "uppercase",
+                  }}
+                >
+                  bet · {card.invocation.betImplied.direction}{" "}
+                  {card.invocation.betImplied.instrument}
+                </p>
+              ) : null}
+            </Link>
+          ))}
+          {memo ? (
+            <Link
+              key={memo.id}
+              data-testid="homepage-live-memo"
+              href={`/memos/${memo.slug || memo.id}`}
+              style={{
+                background: "rgba(232, 225, 211, 0.035)",
+                border: "1px solid rgba(232, 225, 211, 0.14)",
+                borderRadius: "6px",
+                color: "inherit",
+                display: "block",
+                padding: "1rem",
+                textDecoration: "none",
+              }}
+            >
+              <p
+                className="mono"
+                style={{
+                  color: "var(--amber-dim)",
+                  fontSize: "0.6rem",
+                  letterSpacing: "0.18em",
+                  margin: 0,
+                  textTransform: "uppercase",
+                }}
+              >
+                Memo · {memo.publishedAt ? formatTimestamp(memo.publishedAt) : "Unpublished"}
+              </p>
+              <h3
+                style={{
+                  color: "var(--amber)",
+                  fontFamily: editorialTitleFont,
+                  fontSize: "1.18rem",
+                  fontWeight: 500,
+                  lineHeight: 1.22,
+                  margin: "0.35rem 0 0",
+                }}
+                data-h3-glyph="off"
+              >
+                {memo.title}
+              </h3>
+              {memo.tldr ? (
+                <p
+                  style={{
+                    color: "var(--parchment-dim)",
+                    fontSize: "0.9rem",
+                    lineHeight: 1.5,
+                    margin: "0.55rem 0 0",
+                  }}
+                >
+                  {memo.tldr}
+                </p>
+              ) : null}
+            </Link>
+          ) : null}
+        </div>
+      )}
+    </section>
+  );
+}
+
+function summarizeInvocation(invocation: PublicInvocationRow): string {
+  const reasoning = invocation.reasoningTrace
+    .filter((step) => typeof step === "string" && step.trim().length > 0)
+    .join(" ");
+  if (reasoning) return deriveExcerpt(reasoning, 160);
+  const output = invocation.derivedOutput;
+  if (output && typeof output === "object") {
+    const summary = (output as Record<string, unknown>).summary;
+    if (typeof summary === "string" && summary.trim()) {
+      return deriveExcerpt(summary, 160);
+    }
+  }
+  return "Invocation recorded; full reasoning available on the algorithm page.";
 }
 
 function CurrentsPreviewRail({
@@ -308,7 +811,7 @@ function CurrentsPreviewRail({
       <RailHeader
         href="/currents"
         linkLabel="View all currents →"
-        title="Currents from the firm"
+        title="The firm thinking in public — Currents"
         titleId="home-currents-title"
       />
 
@@ -337,8 +840,6 @@ function CurrentsPreviewRail({
                 textDecoration: "none",
               }}
             >
-              {/* R-008: title leads the card; meta strip lives beneath
-                  in small caps separated by `·` middots. No pill fills. */}
               <h3
                 style={{
                   color: "var(--amber)",
@@ -417,13 +918,13 @@ function currentsEmptyCopy(status: PublicSurfaceStatus): string {
 
 function PublicSignalSurface({ status }: { status: PublicSurfaceStatus }) {
   const heading = status.reachable && !status.workersIdle
-    ? "LIVE PUBLIC SURFACES"
-    : "PUBLIC SURFACES";
+    ? "The firm in public"
+    : "Public surfaces (paused)";
   const currentsBody = !status.reachable
-    ? "Real-world X posts and other live signals, with the firm's public opinion in response. Live publishing is currently paused."
+    ? "Live X posts and other signals, with the firm's principles applied in response. Publishing is paused."
     : status.workersIdle
-      ? "Real-world X posts and other live signals, with the firm's public opinion in response. Ingestion workers are not running, so new opinions are not being published right now."
-      : "Real-world X posts and other live signals, with the firm's public opinion in response.";
+      ? "Live X posts and other signals, with the firm's principles applied in response. Ingestion workers are not running."
+      : "Live X posts and other signals — the firm's principles applied to the day, in public.";
   return (
     <section
       aria-labelledby="home-signal-title"
@@ -459,7 +960,7 @@ function PublicSignalSurface({ status }: { status: PublicSurfaceStatus }) {
           title="Currents"
         />
         <SignalCard
-          body="Prediction-market forecasts with evidence, uncertainty, and eventual calibration."
+          body="Prediction-market forecasts — the same algorithms applied to questions with a settlement date. Calibration is public."
           href="/forecasts"
           title="Forecasts"
         />
@@ -610,7 +1111,7 @@ function EmptyPublicOutput({
     ? "The Currents service is unreachable from the public site, so neither new opinions nor live signals can be published right now."
     : status.workersIdle
       ? "The firm's ingestion workers are not running. Nothing new will appear here until they resume."
-      : "Currents will appear here when a real-world post crosses the firm's significance and relevance floors. Essays appear here when the firm releases them.";
+      : "Currents will appear here when a real-world post crosses the firm's significance and relevance floors. Memos appear here when the firm releases them.";
   return (
     <section
       aria-label="No public publications yet"
@@ -746,8 +1247,8 @@ function stripMarkdown(text: string): string {
   );
 }
 
-function formatTimestamp(value: string): string {
-  const date = new Date(value);
+function formatTimestamp(value: string | Date): string {
+  const date = value instanceof Date ? value : new Date(value);
   if (Number.isNaN(date.getTime())) return "Date pending";
 
   return new Intl.DateTimeFormat("en-US", {

@@ -2,6 +2,11 @@
 Coherence layer 1 — NLI-style scoring for claim pairs (DeBERTa cross-encoder).
 """
 
+# DEPRECATED — replaced by contradiction_engine.py in Round 19 prompt 06.
+# Slated for removal in prompt 16. The NLI/language layer is one of the six
+# heuristics the founder ruled "really bad, don't make sense." Compat shim
+# only; new contradiction detection routes through ContradictionEngine.
+
 from __future__ import annotations
 
 from dataclasses import dataclass

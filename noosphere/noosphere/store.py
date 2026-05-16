@@ -10,7 +10,7 @@ import struct
 import uuid
 from contextlib import contextmanager
 from datetime import date, datetime, timedelta, timezone
-from typing import Any, Generator, Iterator, Literal, Optional
+from typing import Any, Generator, Iterable, Iterator, Literal, Optional
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 try:
@@ -20,16 +20,42 @@ except ImportError as exc:  # pragma: no cover - exercised only on broken local 
     _NUMPY_IMPORT_ERROR = exc
 else:
     _NUMPY_IMPORT_ERROR = None
-from sqlalchemy import Column, LargeBinary, asc, desc, inspect, text
+from sqlalchemy import (
+    Column,
+    Index,
+    LargeBinary,
+    UniqueConstraint,
+    asc,
+    desc,
+    inspect,
+    text,
+)
 from sqlalchemy.engine import Engine
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.pool import NullPool, StaticPool
 from sqlmodel import Field, Session, SQLModel, create_engine, select
 
+from noosphere.algorithms.validators import (
+    AlgorithmValidationError,
+    validate_inputs,
+    validate_output_schema,
+    validate_promotion_to_active,
+    validate_reasoning_chain,
+    validate_status_transition,
+    validate_trigger_predicate,
+)
 from noosphere.models import (
     AbstentionReason,
     Actor,
     AdversarialChallenge,
+    AlgorithmCalibrationSnapshot,
+    AlgorithmCorrectness,
+    AlgorithmInvocation,
+    AlgorithmInputObservation,
+    AlgorithmStatus,
+    AlgorithmTriageRecommendation,
+    TriageRecommendationAction,
+    TriageRecommendationStatus,
     Artifact,
     BatteryRunResult,
     CalibrationMetrics,
@@ -80,6 +106,7 @@ from noosphere.models import (
     FollowUpSession,
     Freshness,
     LedgerEntry,
+    LogicalAlgorithm,
     Method,
     MethodInvocation,
     MethodRef,
@@ -107,6 +134,18 @@ from noosphere.models import (
     RigorVerdict,
     SixLayerScore,
     SocialPost,
+    InvestmentMemo,
+    MemoDispatch,
+    MemoDispatchBetKind,
+    MemoDispatchOutcome,
+    MemoStatus,
+    PortfolioAgent,
+    PortfolioAgentKind,
+    PortfolioAgentStatus,
+    SynthesizerMemo,
+    SynthesizerTask,
+    SynthesizerTaskStatus,
+    SynthesizerTaskTrigger,
     TemporalCut,
     Topic,
     TransferStudy,
@@ -255,6 +294,9 @@ class CascadeEdgeConflictError(Exception):
 
 class StoredArtifact(SQLModel, table=True):
     __tablename__ = "artifact"
+    __table_args__ = (
+        Index("ix_artifact_provenance_created_at", "provenance", "created_at"),
+    )
     id: str = Field(primary_key=True)
     uri: str = ""
     mime_type: str = ""
@@ -269,6 +311,11 @@ class StoredArtifact(SQLModel, table=True):
     effective_at_inferred: bool = Field(default=True)
     license_status: str = Field(default="unknown")
     literature_connector: str = Field(default="")
+    # Prompt 09 — upload-time provenance demarcation. Stored as the enum
+    # string ("PROPRIETARY" | "ENDORSED_EXTERNAL" | ...). Founder-set or
+    # CLI-set only; never inferred. Indexed so Oracle filters are fast.
+    provenance: str = Field(default="PROPRIETARY", index=True)
+    provenance_rationale: str = Field(default="")
 
 
 class StoredChunk(SQLModel, table=True):
@@ -287,6 +334,8 @@ class StoredClaim(SQLModel, table=True):
     payload_json: str = ""
     freshness: str = Field(default="fresh")
     last_validated_at: Optional[datetime] = Field(default=None)
+    # Prompt 09 — inherited from source artifact. Indexed for Oracle filters.
+    provenance: str = Field(default="PROPRIETARY", index=True)
 
 
 class StoredEmbedding(SQLModel, table=True):
@@ -335,6 +384,8 @@ class StoredConclusion(SQLModel, table=True):
     payload_json: str = ""
     freshness: str = Field(default="fresh")
     last_validated_at: Optional[datetime] = Field(default=None)
+    # Prompt 09 — inherited from source artifact. Indexed for Oracle filters.
+    provenance: str = Field(default="PROPRIETARY", index=True)
 
 
 class StoredResearchSuggestion(SQLModel, table=True):
@@ -679,6 +730,748 @@ class StoredQuantitativeTestResult(SQLModel, table=True):
     created_at: datetime = Field(default_factory=_utcnow)
 
 
+class StoredLogicalAlgorithm(SQLModel, table=True):
+    """One row per LogicalAlgorithm — the Round-19 Layer-3 entity.
+
+    The full Pydantic payload lives in ``payload_json``; duplicated
+    indexed columns (``organization_id``, ``status``, ``name``) power
+    the founder triage queue and per-tenant listing without parsing
+    JSON. Mirrors the Codex-side ``LogicalAlgorithm`` Prisma model.
+    """
+
+    __tablename__ = "logical_algorithm"
+    __table_args__ = (
+        UniqueConstraint(
+            "organization_id",
+            "name",
+            name="logical_algorithm_org_name_key",
+        ),
+    )
+    id: str = Field(primary_key=True)
+    organization_id: str = Field(index=True)
+    name: str = Field(index=True)
+    status: str = Field(default="DRAFT", index=True)
+    payload_json: str = ""
+    weighting_multiplier: float = Field(default=1.0)
+    created_at: datetime = Field(default_factory=_utcnow)
+    updated_at: datetime = Field(default_factory=_utcnow)
+    last_invoked_at: Optional[datetime] = Field(default=None)
+    # Prompt 09 — provenance inherited from source principles.
+    provenance: str = Field(default="PROPRIETARY", index=True)
+
+
+class StoredAlgorithmInvocation(SQLModel, table=True):
+    """One row per algorithm firing.
+
+    Resolution columns (``resolved_at`` etc.) live inside
+    ``payload_json``; the indexed columns are the access keys the
+    runtime and calibrator hit hardest — algorithm-id (per-algorithm
+    history) and organization-id (per-tenant feed), both ordered by
+    invoked-at DESC.
+    """
+
+    __tablename__ = "algorithm_invocation"
+    __table_args__ = (
+        Index(
+            "algorithm_invocation_algorithm_invoked_idx",
+            "algorithm_id",
+            "invoked_at",
+        ),
+        Index(
+            "algorithm_invocation_org_invoked_idx",
+            "organization_id",
+            "invoked_at",
+        ),
+    )
+    id: str = Field(primary_key=True)
+    algorithm_id: str = Field(index=True)
+    organization_id: str = Field(index=True)
+    invoked_at: datetime = Field(default_factory=_utcnow)
+    resolved_at: Optional[datetime] = Field(default=None)
+    correctness: Optional[str] = Field(default=None)
+    payload_json: str = ""
+
+
+class StoredAlgorithmInputObservation(SQLModel, table=True):
+    """Audit trail for a single (invocation, input_name) pair.
+
+    Records which observability source provided the value at the
+    moment the algorithm fired. Founders consult these to answer
+    "where did this number come from?" without re-running the runtime.
+    """
+
+    __tablename__ = "algorithm_input_observation"
+    id: str = Field(primary_key=True)
+    invocation_id: str = Field(index=True)
+    input_name: str = Field(index=True)
+    value_json: str = ""
+    observed_at: datetime = Field(default_factory=_utcnow)
+    source_artifact_id: Optional[str] = Field(default=None, index=True)
+    source_url: Optional[str] = Field(default=None)
+
+
+class StoredAlgorithmCalibrationSnapshot(SQLModel, table=True):
+    """Append-only calibration snapshot for an algorithm.
+
+    One row per (algorithm, snapshot_at). The latest row is what the
+    operator triage UI and the public detail page read; the full
+    time-series is what the calibration chart renders.
+    """
+
+    __tablename__ = "algorithm_calibration_snapshot"
+    __table_args__ = (
+        Index(
+            "algorithm_calibration_snapshot_algo_at_idx",
+            "algorithm_id",
+            "snapshot_at",
+        ),
+    )
+    id: str = Field(primary_key=True)
+    algorithm_id: str = Field(index=True)
+    organization_id: str = Field(index=True)
+    snapshot_at: datetime = Field(default_factory=_utcnow)
+
+    total_invocations: int = Field(default=0)
+    resolved_invocations: int = Field(default=0)
+    accuracy: Optional[float] = Field(default=None)
+    mean_brier: Optional[float] = Field(default=None)
+    mean_horizon_error: Optional[float] = Field(default=None)
+    directional_accuracy: Optional[float] = Field(default=None)
+    confidence_calibration_drift: Optional[float] = Field(default=None)
+    last_30d_accuracy: Optional[float] = Field(default=None)
+    last_30d_resolved: int = Field(default=0)
+    probabilistic_resolved: int = Field(default=0)
+    directional_resolved: int = Field(default=0)
+    confidence_band_resolved: int = Field(default=0)
+
+
+class StoredAlgorithmTriageRecommendation(SQLModel, table=True):
+    """Pending / accepted / rejected calibration triage row."""
+
+    __tablename__ = "algorithm_triage_recommendation"
+    __table_args__ = (
+        Index(
+            "algorithm_triage_recommendation_status_idx",
+            "organization_id",
+            "status",
+        ),
+    )
+    id: str = Field(primary_key=True)
+    algorithm_id: str = Field(index=True)
+    organization_id: str = Field(index=True)
+    recommended_at: datetime = Field(default_factory=_utcnow)
+    recommended_action: str = Field(default="NONE")
+    trigger_reasons_json: str = Field(default="[]")
+    recommended_multiplier: float = Field(default=1.0)
+    narrative: str = Field(default="")
+    status: str = Field(default="PENDING", index=True)
+    resolved_by: Optional[str] = Field(default=None)
+    resolved_at: Optional[datetime] = Field(default=None)
+    resolution_note: Optional[str] = Field(default=None)
+
+
+class StoredContradictionResult(SQLModel, table=True):
+    """Persisted output of the canonical contradiction engine (R19/p06).
+
+    Mirrors the Prisma ``Contradiction`` table's new columns
+    (``score``, ``confidence_low``, ``confidence_high``, ``axis``,
+    ``human_explanation``, ``detection_method``). Lives in the noosphere
+    store so CLI sweeps and tests can persist without depending on the
+    Codex DB. Legacy contradictions written by the six-heuristic vote
+    are NOT migrated into this table — they stay on the Prisma side
+    with their heuristic provenance.
+    """
+
+    __tablename__ = "contradiction_result"
+    __table_args__ = (
+        Index(
+            "contradiction_result_pair_idx",
+            "principle_a_id",
+            "principle_b_id",
+        ),
+        Index(
+            "contradiction_result_method_at_idx",
+            "detection_method",
+            "detected_at",
+        ),
+    )
+    id: str = Field(primary_key=True)
+    principle_a_id: str = Field(index=True)
+    principle_b_id: str = Field(index=True)
+    score: float = Field(default=0.0)
+    confidence_low: float = Field(default=0.0)
+    confidence_high: float = Field(default=0.0)
+    verdict: str = Field(default="INDEPENDENT", index=True)
+    axis: Optional[str] = Field(default=None)
+    human_explanation: Optional[str] = Field(default=None)
+    detection_method: str = Field(default="", index=True)
+    detected_at: datetime = Field(default_factory=_utcnow)
+    raw_sparsity: float = Field(default=0.0)
+    direction_method: str = Field(default="")
+    extras_json: str = Field(default="{}")
+    status: str = Field(default="active", index=True)
+    dispute_count: int = Field(default=0)
+    last_dispute_at: Optional[datetime] = Field(default=None)
+
+
+class StoredContradictionDispute(SQLModel, table=True):
+    """Founder DISPUTE on a ContradictionResult. Multiple disputes on the
+    same ``detection_method`` trigger a calibration review (handled outside
+    this module; the count threshold lives in the operator UI).
+    """
+
+    __tablename__ = "contradiction_dispute"
+    __table_args__ = (
+        Index(
+            "contradiction_dispute_method_at_idx",
+            "detection_method",
+            "created_at",
+        ),
+    )
+    id: str = Field(primary_key=True)
+    contradiction_result_id: str = Field(index=True)
+    detection_method: str = Field(default="", index=True)
+    disputed_by: str = Field(default="")
+    reason: str = Field(default="")
+    created_at: datetime = Field(default_factory=_utcnow)
+
+
+class StoredContradictionLifecycle(SQLModel, table=True):
+    """Lifecycle of one contradiction (Round 19 prompt 19).
+
+    A contradiction is created in DETECTED, then transitions through
+    STANDING / WEAKENED / RESOLVED_BY_SOURCE based on subsequent source
+    ingestion, or terminates in DISPUTED_AS_ERROR (founder rejected the
+    engine's verdict) or SUBSUMED_BY_SYNTHESIS (a new synthesis principle
+    supersedes both sides; requires explicit founder confirmation).
+
+    ``events_json`` is the append-only event log; every transition adds
+    one record but never overwrites earlier ones. The denormalised
+    ``current_status`` / ``last_transition_at`` columns mirror the tail
+    of the log so the lifecycle queue is a cheap range scan.
+    """
+
+    __tablename__ = "contradiction_lifecycle"
+    __table_args__ = (
+        Index(
+            "contradiction_lifecycle_status_idx",
+            "current_status",
+            "last_transition_at",
+        ),
+        Index(
+            "contradiction_lifecycle_target_idx",
+            "contradiction_id",
+        ),
+    )
+    id: str = Field(primary_key=True)
+    contradiction_id: str = Field(index=True)
+    current_status: str = Field(default="DETECTED", index=True)
+    last_transition_at: datetime = Field(default_factory=_utcnow)
+    events_json: str = Field(default="[]")
+    supported_principle_id: Optional[str] = Field(default=None)
+    subsuming_principle_id: Optional[str] = Field(default=None)
+    pending_subsumption_principle_id: Optional[str] = Field(default=None)
+
+
+# ── Round 19 prompt 07: cluster index for contradiction-test scheduling ────
+
+
+class StoredPrincipleCluster(SQLModel, table=True):
+    """Cluster assignment for one Principle. Versioned by ``assignment_method``
+    so a replay query ("which cluster was P in on date Y") is a range scan.
+    """
+
+    __tablename__ = "principle_cluster"
+    __table_args__ = (
+        Index(
+            "principle_cluster_cluster_idx", "cluster_id", "assigned_at"
+        ),
+    )
+    principle_id: str = Field(primary_key=True)
+    cluster_id: str = Field(index=True)
+    assigned_at: datetime = Field(default_factory=_utcnow)
+    assignment_method: str = Field(default="incremental/v1")
+
+
+class StoredClusterCentroid(SQLModel, table=True):
+    """Per-cluster centroid (float32 packed) + member count."""
+
+    __tablename__ = "principle_cluster_centroid"
+    cluster_id: str = Field(primary_key=True)
+    centroid_vec: bytes = Field(default=b"")
+    dim: int = Field(default=0)
+    member_count: int = Field(default=0)
+    assignment_method: str = Field(default="incremental/v1")
+    updated_at: datetime = Field(default_factory=_utcnow)
+
+
+class StoredContradictionTestTask(SQLModel, table=True):
+    """Work queue entry: one pair scheduled for the contradiction engine.
+
+    ``pair_key`` is the deterministic ``stable_pair_id(a,b)`` so dedupe is a
+    string equality lookup; ``priority`` orders the drain, ``status`` tracks
+    lifecycle. Append-only; result_id points to the ContradictionResult once
+    detection runs.
+    """
+
+    __tablename__ = "contradiction_test_task"
+    __table_args__ = (
+        Index(
+            "contradiction_test_task_status_priority_idx",
+            "status",
+            "priority",
+            "enqueued_at",
+        ),
+        Index(
+            "contradiction_test_task_pair_idx",
+            "pair_key",
+            "enqueued_at",
+        ),
+    )
+    id: str = Field(primary_key=True)
+    principle_a_id: str = Field(index=True)
+    principle_b_id: str = Field(index=True)
+    pair_key: str = Field(index=True, default="")
+    priority: str = Field(default="NORMAL", index=True)
+    status: str = Field(default="PENDING", index=True)
+    enqueued_at: datetime = Field(default_factory=_utcnow)
+    started_at: Optional[datetime] = Field(default=None)
+    finished_at: Optional[datetime] = Field(default=None)
+    result_id: Optional[str] = Field(default=None)
+    last_error: Optional[str] = Field(default=None)
+
+
+class StoredClusterReindexProposal(SQLModel, table=True):
+    """Resweep proposal — operator-acknowledged row when drift > threshold."""
+
+    __tablename__ = "cluster_reindex_proposal"
+    id: str = Field(primary_key=True)
+    proposed_at: datetime = Field(default_factory=_utcnow)
+    drift: float = Field(default=0.0)
+    cluster_count_before: int = Field(default=0)
+    cluster_count_after: int = Field(default=0)
+    summary_json: str = Field(default="{}")
+    status: str = Field(default="PENDING", index=True)
+    resolved_by: Optional[str] = Field(default=None)
+    resolved_at: Optional[datetime] = Field(default=None)
+
+
+class StoredSynthesizerTask(SQLModel, table=True):
+    """Queue row for one synthesis task (prompt 10).
+
+    PENDING rows are drained by the scheduler's ``synthesizer_tick``.
+    Operator-initiated queries typically bypass the queue and run
+    inline; algorithm- and currents-triggered tasks enqueue here so
+    the producing tick is not blocked by the synthesizer's LLM round-
+    trip.
+    """
+
+    __tablename__ = "synthesizer_task"
+    __table_args__ = (
+        Index(
+            "synthesizer_task_status_enqueued_idx",
+            "status",
+            "enqueued_at",
+        ),
+        Index(
+            "synthesizer_task_org_status_idx",
+            "organization_id",
+            "status",
+        ),
+    )
+    id: str = Field(primary_key=True)
+    organization_id: str = Field(index=True)
+    trigger: str = Field(default="OPERATOR", index=True)
+    status: str = Field(default="PENDING", index=True)
+    enqueued_at: datetime = Field(default_factory=_utcnow)
+    started_at: Optional[datetime] = Field(default=None)
+    finished_at: Optional[datetime] = Field(default=None)
+    invocation_id: Optional[str] = Field(default=None, index=True)
+    current_event_id: Optional[str] = Field(default=None, index=True)
+    memo_id: Optional[str] = Field(default=None)
+    outcome: Optional[str] = Field(default=None)
+    payload_json: str = Field(default="{}")
+
+
+class StoredSynthesizerMemo(SQLModel, table=True):
+    """Persisted synthesizer memo — the audit-shaped conclusion.
+
+    Prompt 11 will replace the inline memo body with the full
+    investment-memo format; both shapes share this row's ``id`` and
+    the JSON payload's ``conclusion`` key so consumers don't need to
+    be rewritten when prompt 11 lands.
+    """
+
+    __tablename__ = "synthesizer_memo"
+    __table_args__ = (
+        Index(
+            "synthesizer_memo_org_created_idx",
+            "organization_id",
+            "created_at",
+        ),
+    )
+    id: str = Field(primary_key=True)
+    organization_id: str = Field(index=True)
+    created_at: datetime = Field(default_factory=_utcnow)
+    synthesizer_version: str = Field(default="synthesizer/v1", index=True)
+    question: str = Field(default="")
+    payload_json: str = Field(default="{}")
+
+
+class StoredInvestmentMemo(SQLModel, table=True):
+    """Persisted investment memo (Round 19 prompt 11).
+
+    The full, structured memo addressed to a portfolio agent or human
+    reviewer. Distinct from :class:`StoredSynthesizerMemo`, which is the
+    raw audit payload the synthesizer engine emits; this row carries
+    the rendered 10-section body, the lifecycle status, and the file
+    paths under ``docs/memos/<yyyy>/<mm>/``.
+    """
+
+    __tablename__ = "investment_memo"
+    __table_args__ = (
+        Index(
+            "investment_memo_org_status_idx",
+            "organization_id",
+            "status",
+        ),
+        Index(
+            "investment_memo_org_created_idx",
+            "organization_id",
+            "created_at",
+        ),
+        Index(
+            "investment_memo_slug_idx",
+            "slug",
+        ),
+    )
+    id: str = Field(primary_key=True)
+    organization_id: str = Field(index=True)
+    synthesizer_result_id: Optional[str] = Field(default=None, index=True)
+    title: str = Field(default="")
+    slug: str = Field(default="", index=True)
+    status: str = Field(default="DRAFT", index=True)
+    addressee: str = Field(default="")
+    question_type: str = Field(default="EXPLANATORY")
+    md_path: Optional[str] = Field(default=None)
+    pdf_path: Optional[str] = Field(default=None)
+    created_at: datetime = Field(default_factory=_utcnow)
+    updated_at: datetime = Field(default_factory=_utcnow)
+    sent_at: Optional[datetime] = Field(default=None)
+    acknowledged_at: Optional[datetime] = Field(default=None)
+    published_at: Optional[datetime] = Field(default=None)
+    archived_at: Optional[datetime] = Field(default=None)
+    synthesizer_version: str = Field(default="synthesizer/v1")
+    payload_json: str = Field(default="{}")
+
+
+class StoredPortfolioAgent(SQLModel, table=True):
+    """Persisted :class:`noosphere.models.PortfolioAgent` row (prompt 12).
+
+    The subscriptions list, default ceiling, and other fields all
+    round-trip through ``payload_json`` so the Pydantic shape can
+    evolve without a migration. Indexed columns are the ones the
+    router consults at dispatch time.
+    """
+
+    __tablename__ = "portfolio_agent"
+    __table_args__ = (
+        Index(
+            "portfolio_agent_org_status_idx",
+            "organization_id",
+            "status",
+        ),
+    )
+    id: str = Field(primary_key=True)
+    organization_id: str = Field(index=True)
+    name: str = Field(default="")
+    kind: str = Field(default="HUMAN", index=True)
+    status: str = Field(default="ACTIVE", index=True)
+    default_bet_ceiling_usd: float = Field(default=50.0)
+    created_at: datetime = Field(default_factory=_utcnow)
+    updated_at: datetime = Field(default_factory=_utcnow)
+    payload_json: str = Field(default="{}")
+
+
+class StoredMemoDispatch(SQLModel, table=True):
+    """Persisted :class:`noosphere.models.MemoDispatch` row (prompt 12).
+
+    Each row records one delivery of one memo to one portfolio
+    agent. ``outcome_action`` carries the lifecycle state — PENDING
+    rows are the HUMAN-mode inbox; the other states are terminal (or
+    DEFERRED, which moves back to PENDING when the deferred-until
+    timestamp passes).
+    """
+
+    __tablename__ = "memo_dispatch"
+    __table_args__ = (
+        Index(
+            "memo_dispatch_agent_outcome_idx",
+            "agent_id",
+            "outcome_action",
+        ),
+        Index(
+            "memo_dispatch_org_dispatched_idx",
+            "organization_id",
+            "dispatched_at",
+        ),
+        Index(
+            "memo_dispatch_memo_idx",
+            "memo_id",
+        ),
+    )
+    id: str = Field(primary_key=True)
+    organization_id: str = Field(index=True)
+    memo_id: str = Field(index=True)
+    agent_id: str = Field(index=True)
+    dispatched_at: datetime = Field(default_factory=_utcnow)
+    outcome_action: str = Field(default="PENDING", index=True)
+    bet_link: Optional[str] = Field(default=None)
+    bet_link_kind: Optional[str] = Field(default=None)
+    acknowledged_by: str = Field(default="")
+    acknowledged_at: Optional[datetime] = Field(default=None)
+    rationale: str = Field(default="")
+    deferred_until: Optional[datetime] = Field(default=None)
+    failure_reason: str = Field(default="")
+    payload_json: str = Field(default="{}")
+
+
+class StoredGraphSnapshot(SQLModel, table=True):
+    """Append-only snapshot of a knowledge-graph build (prompt 13).
+
+    The graph is a *projection* over the principle / algorithm / memo /
+    contradiction tables — those remain authoritative. Snapshots are
+    versioned and persisted so the public ``/knowledge-graph`` view can
+    serve the latest pre-computed shape at low latency, and so an
+    operator can audit how the graph evolved over time.
+    """
+
+    __tablename__ = "graph_snapshot"
+    __table_args__ = (
+        Index(
+            "graph_snapshot_org_snapat_idx",
+            "organization_id",
+            "snapshot_at",
+        ),
+    )
+    id: str = Field(primary_key=True)
+    organization_id: str = Field(index=True)
+    snapshot_at: datetime = Field(default_factory=_utcnow, index=True)
+    version: str = Field(default="kg/v1")
+    nodes_json: str = Field(default="[]")
+    edges_json: str = Field(default="[]")
+    node_count: int = Field(default=0)
+    edge_count: int = Field(default=0)
+    notes: str = Field(default="")
+
+
+class StoredGraphEdgeReasoning(SQLModel, table=True):
+    """Cached agent reasoning over a graph edge (prompt 13).
+
+    Operators can pre-compute reasoning for the top-N highest-degree
+    edges so a public click feels instant. Keyed by (src, dst, kind)
+    so the panel can look up a hit in O(1).
+    """
+
+    __tablename__ = "graph_edge_reasoning"
+    __table_args__ = (
+        Index(
+            "graph_edge_reasoning_triple_idx",
+            "organization_id",
+            "src",
+            "dst",
+            "kind",
+        ),
+    )
+    id: str = Field(primary_key=True)
+    organization_id: str = Field(index=True)
+    src: str = Field(index=True)
+    dst: str = Field(index=True)
+    kind: str = Field(index=True)
+    payload_json: str = Field(default="{}")
+    generated_at: datetime = Field(default_factory=_utcnow)
+
+
+# ── Round 19 prompt 14: Dialectic live recording ────────────────────────────
+
+
+class StoredDialecticSession(SQLModel, table=True):
+    """A recorded conversation (podcast / meeting). See models.DialecticSession."""
+
+    __tablename__ = "dialectic_session"
+    __table_args__ = (
+        Index("dialectic_session_org_status_idx", "organization_id", "status"),
+        Index("dialectic_session_started_idx", "started_at"),
+    )
+    id: str = Field(primary_key=True)
+    organization_id: str = Field(index=True)
+    title: str = Field(default="")
+    started_at: datetime = Field(default_factory=_utcnow)
+    ended_at: Optional[datetime] = Field(default=None)
+    participants_json: str = Field(default="[]")
+    audio_path: str = Field(default="")
+    transcript_path: str = Field(default="")
+    status: str = Field(default="RECORDING")
+    visibility: str = Field(default="PRIVATE")
+    live_contradictions_detected: int = Field(default=0)
+    principles_extracted: int = Field(default=0)
+    summary_memo_id: Optional[str] = Field(default=None)
+    created_at: datetime = Field(default_factory=_utcnow)
+    updated_at: datetime = Field(default_factory=_utcnow)
+
+
+class StoredDialecticUtterance(SQLModel, table=True):
+    """One transcribed speaker-turn. See models.DialecticUtterance."""
+
+    __tablename__ = "dialectic_utterance"
+    __table_args__ = (
+        Index(
+            "dialectic_utterance_session_start_idx",
+            "session_id",
+            "start_time",
+        ),
+        Index("dialectic_utterance_speaker_idx", "speaker_id"),
+    )
+    id: str = Field(primary_key=True)
+    session_id: str = Field(index=True)
+    speaker_id: str = Field(index=True)
+    start_time: float = Field(default=0.0)
+    end_time: float = Field(default=0.0)
+    text: str = Field(default="")
+    extracted_claim_ids_json: str = Field(default="[]")
+    derived_principle_ids_json: str = Field(default="[]")
+    live_contradiction_flags_json: str = Field(default="[]")
+    created_at: datetime = Field(default_factory=_utcnow)
+
+
+class StoredDialecticContradictionFlag(SQLModel, table=True):
+    """Contradiction event fired during live recording.
+
+    See models.DialecticContradictionFlag.
+    """
+
+    __tablename__ = "dialectic_contradiction_flag"
+    __table_args__ = (
+        Index(
+            "dialectic_contradiction_flag_utterance_idx",
+            "utterance_id",
+        ),
+        Index(
+            "dialectic_contradiction_flag_kind_idx",
+            "flag_kind",
+        ),
+    )
+    id: str = Field(primary_key=True)
+    utterance_id: str = Field(index=True)
+    flag_kind: str = Field(default="INTRA_SESSION")
+    prior_utterance_id: Optional[str] = Field(default=None)
+    prior_principle_id: Optional[str] = Field(default=None)
+    prior_speaker_id: Optional[str] = Field(default=None)
+    contradiction_score: float = Field(default=0.0)
+    axis: Optional[str] = Field(default=None)
+    human_explanation: Optional[str] = Field(default=None)
+    detection_method: str = Field(default="")
+    acknowledged_at: Optional[datetime] = Field(default=None)
+    acknowledged_by: Optional[str] = Field(default=None)
+    acknowledgment_note: Optional[str] = Field(default=None)
+    detected_at: datetime = Field(default_factory=_utcnow)
+
+
+# ── Round 19 prompt 15: Polymorphic bet abstraction ─────────────────────────
+
+
+class StoredBetSpec(SQLModel, table=True):
+    """Persisted :class:`noosphere.bets.spec.BetSpec`.
+
+    The kind-specific sub-spec (market / advisory / strategic /
+    scientific) is round-tripped through ``payload_json``; the indexed
+    columns are the ones the lifecycle ticker and CLI consult at scan
+    time. See ``noosphere.bets.spec`` for the canonical shape.
+    """
+
+    __tablename__ = "bet_spec"
+    __table_args__ = (
+        Index("bet_spec_org_kind_status_idx", "organization_id", "kind", "status"),
+        Index("bet_spec_horizon_idx", "horizon_at"),
+        Index("bet_spec_memo_idx", "created_by_memo_id"),
+    )
+    id: str = Field(primary_key=True)
+    organization_id: str = Field(default="", index=True)
+    kind: str = Field(default="MARKET_BET", index=True)
+    status: str = Field(default="PROPOSED", index=True)
+    proposition: str = Field(default="")
+    resolution_criterion: str = Field(default="")
+    horizon_at: datetime = Field(default_factory=_utcnow)
+    created_by_memo_id: Optional[str] = Field(default=None, index=True)
+    originating_algorithm_id: Optional[str] = Field(default=None, index=True)
+    created_at: datetime = Field(default_factory=_utcnow)
+    updated_at: datetime = Field(default_factory=_utcnow)
+    resolved_at: Optional[datetime] = Field(default=None)
+    outcome: Optional[str] = Field(default=None)
+    outcome_note: Optional[str] = Field(default=None)
+    payload_json: str = Field(default="{}")
+
+
+class StoredBetResolution(SQLModel, table=True):
+    """Append-only resolution record (one row per BetSpec resolution)."""
+
+    __tablename__ = "bet_resolution"
+    __table_args__ = (
+        Index("bet_resolution_spec_idx", "bet_spec_id"),
+        Index("bet_resolution_resolved_idx", "resolved_at"),
+    )
+    id: str = Field(primary_key=True)
+    bet_spec_id: str = Field(index=True)
+    resolved_at: datetime = Field(default_factory=_utcnow)
+    outcome: str = Field(default="UNDETERMINED")
+    evidence_note: str = Field(default="")
+    resolved_by: str = Field(default="agent")
+    pnl_usd: Optional[float] = Field(default=None)
+    cost_realized: Optional[float] = Field(default=None)
+    accuracy_score: Optional[float] = Field(default=None)
+    audience_response: Optional[str] = Field(default=None)
+    payload_json: str = Field(default="{}")
+
+
+def _sqlite_migrate_provenance_columns(engine: Engine) -> None:
+    """Backfill the prompt-09 provenance columns on legacy SQLite databases.
+
+    The Alembic migration handles fresh deploys + Postgres; this keeps
+    test fixtures and developer databases from breaking on the next boot
+    after upgrade. All existing rows default to PROPRIETARY — the
+    founder reviews them via the triage flow.
+    """
+    if not str(engine.url).startswith("sqlite"):
+        return
+    insp = inspect(engine)
+    tables = set(insp.get_table_names())
+    targets = {
+        "artifact": [
+            ("provenance", "VARCHAR NOT NULL DEFAULT 'PROPRIETARY'"),
+            ("provenance_rationale", "VARCHAR NOT NULL DEFAULT ''"),
+        ],
+        "claim": [
+            ("provenance", "VARCHAR NOT NULL DEFAULT 'PROPRIETARY'"),
+        ],
+        "conclusion": [
+            ("provenance", "VARCHAR NOT NULL DEFAULT 'PROPRIETARY'"),
+        ],
+        "logical_algorithm": [
+            ("provenance", "VARCHAR NOT NULL DEFAULT 'PROPRIETARY'"),
+        ],
+    }
+    with engine.begin() as conn:
+        for table, columns in targets.items():
+            if table not in tables:
+                continue
+            existing = {c["name"] for c in insp.get_columns(table)}
+            for col, spec in columns:
+                if col not in existing:
+                    conn.execute(
+                        text(f'ALTER TABLE "{table}" ADD COLUMN "{col}" {spec}')
+                    )
+
+
 def _sqlite_migrate_literature_columns(engine: Engine) -> None:
     if not str(engine.url).startswith("sqlite"):
         return
@@ -749,6 +1542,14 @@ def _sqlite_migrate_forecast_columns(engine: Engine) -> None:
                 conn.execute(
                     text('ALTER TABLE "ForecastResolution" ADD COLUMN "sourceUrl" TEXT')
                 )
+        # Round 19 prompt 15: betSpecId on ForecastBet / EquityPosition.
+        for table in ("ForecastBet", "EquityPosition"):
+            if table in tables:
+                cols = {c["name"] for c in insp.get_columns(table)}
+                if "betSpecId" not in cols:
+                    conn.execute(
+                        text(f'ALTER TABLE "{table}" ADD COLUMN "betSpecId" VARCHAR')
+                    )
 
 
 def _sqlite_migrate_publication_columns(engine: Engine) -> None:
@@ -780,6 +1581,33 @@ def _sqlite_migrate_currents_columns(engine: Engine) -> None:
         if "revokedAt" not in cols:
             conn.execute(
                 text('ALTER TABLE "OpinionCitation" ADD COLUMN "revokedAt" DATETIME')
+            )
+
+
+def _sqlite_migrate_algorithm_calibration_columns(engine: Engine) -> None:
+    """Backfill the prompt-05 calibration columns on existing SQLite DBs.
+
+    Adds ``weighting_multiplier`` to ``logical_algorithm`` so older
+    rows can be read back without breaking. The two new tables
+    (``algorithm_calibration_snapshot``, ``algorithm_triage_recommendation``)
+    are created by ``SQLModel.metadata.create_all``; this helper is
+    only for the additive column.
+    """
+
+    if not str(engine.url).startswith("sqlite"):
+        return
+    insp = inspect(engine)
+    tables = insp.get_table_names()
+    if "logical_algorithm" not in tables:
+        return
+    cols = {c["name"] for c in insp.get_columns("logical_algorithm")}
+    if "weighting_multiplier" not in cols:
+        with engine.begin() as conn:
+            conn.execute(
+                text(
+                    "ALTER TABLE logical_algorithm "
+                    "ADD COLUMN weighting_multiplier FLOAT DEFAULT 1.0"
+                )
             )
 
 
@@ -871,6 +1699,8 @@ class Store:
         _sqlite_migrate_currents_columns(eng)
         _sqlite_migrate_forecast_columns(eng)
         _sqlite_migrate_publication_columns(eng)
+        _sqlite_migrate_algorithm_calibration_columns(eng)
+        _sqlite_migrate_provenance_columns(eng)
         _backfill_artifact_effective_times(eng)
         _seed_embedding_model_versions(eng)
         return cls(eng)
@@ -901,6 +1731,9 @@ class Store:
             else:
                 eff = _dt(a.created_at)
                 eff_inferred = True
+        # ProvenanceKind enums survive Pydantic serialization as the
+        # string value; coerce defensively so callers can pass either.
+        prov_value = getattr(a.provenance, "value", a.provenance) or "PROPRIETARY"
         row = StoredArtifact(
             id=a.id,
             uri=a.uri,
@@ -916,6 +1749,8 @@ class Store:
             effective_at_inferred=eff_inferred,
             license_status=a.license_status or "unknown",
             literature_connector=a.literature_connector or "",
+            provenance=str(prov_value),
+            provenance_rationale=a.provenance_rationale or "",
         )
         with self.session() as s:
             existing = s.get(StoredArtifact, a.id)
@@ -944,6 +1779,9 @@ class Store:
             sup = getattr(r, "superseded_at", None)
             if sup is not None and sup.tzinfo is None:
                 sup = sup.replace(tzinfo=timezone.utc)
+            from noosphere.models import ProvenanceKind, coerce_provenance
+
+            prov = coerce_provenance(getattr(r, "provenance", None))
             return Artifact(
                 id=r.id,
                 uri=r.uri,
@@ -960,6 +1798,10 @@ class Store:
                 license_status=str(getattr(r, "license_status", None) or "unknown"),
                 literature_connector=str(
                     getattr(r, "literature_connector", None) or ""
+                ),
+                provenance=prov,
+                provenance_rationale=str(
+                    getattr(r, "provenance_rationale", None) or ""
                 ),
             )
 
@@ -1007,11 +1849,17 @@ class Store:
 
     # --- Claim ---
     def put_claim(self, c: Claim) -> None:
-        row = StoredClaim(id=c.id, payload_json=c.model_dump_json())
+        prov_value = str(getattr(c.provenance, "value", c.provenance) or "PROPRIETARY")
+        row = StoredClaim(
+            id=c.id,
+            payload_json=c.model_dump_json(),
+            provenance=prov_value,
+        )
         with self.session() as s:
             existing = s.get(StoredClaim, c.id)
             if existing:
                 existing.payload_json = row.payload_json
+                existing.provenance = prov_value
                 s.add(existing)
             else:
                 s.add(row)
@@ -1265,6 +2113,214 @@ class Store:
                 r.confidence,
             )
 
+    # --- Contradiction engine (R19/p06) ---
+    def put_contradiction_result(
+        self,
+        *,
+        result_id: str,
+        principle_a_id: str,
+        principle_b_id: str,
+        score: float,
+        confidence_low: float,
+        confidence_high: float,
+        verdict: str,
+        axis: Optional[str],
+        human_explanation: Optional[str],
+        detection_method: str,
+        detected_at: datetime,
+        raw_sparsity: float,
+        direction_method: str,
+        extras: Optional[dict[str, Any]] = None,
+    ) -> None:
+        import json as _json
+
+        row = StoredContradictionResult(
+            id=result_id,
+            principle_a_id=principle_a_id,
+            principle_b_id=principle_b_id,
+            score=score,
+            confidence_low=confidence_low,
+            confidence_high=confidence_high,
+            verdict=verdict,
+            axis=axis,
+            human_explanation=human_explanation,
+            detection_method=detection_method,
+            detected_at=detected_at,
+            raw_sparsity=raw_sparsity,
+            direction_method=direction_method,
+            extras_json=_json.dumps(extras or {}, default=str),
+        )
+        with self.session() as s:
+            existing = s.get(StoredContradictionResult, result_id)
+            if existing:
+                for k, v in row.model_dump(
+                    exclude={"id", "status", "dispute_count", "last_dispute_at"}
+                ).items():
+                    setattr(existing, k, v)
+                s.add(existing)
+            else:
+                s.add(row)
+            s.commit()
+
+    def get_contradiction_result(
+        self, result_id: str
+    ) -> Optional[StoredContradictionResult]:
+        with self.session() as s:
+            return s.get(StoredContradictionResult, result_id)
+
+    def list_contradiction_results(
+        self,
+        *,
+        method: Optional[str] = None,
+        verdict: Optional[str] = None,
+        limit: int = 200,
+    ) -> list[StoredContradictionResult]:
+        with self.session() as s:
+            stmt = select(StoredContradictionResult)
+            if method is not None:
+                stmt = stmt.where(
+                    StoredContradictionResult.detection_method == method
+                )
+            if verdict is not None:
+                stmt = stmt.where(
+                    StoredContradictionResult.verdict == verdict
+                )
+            rows = list(s.exec(stmt).all())
+            rows.sort(key=lambda r: r.detected_at, reverse=True)
+            return rows[:limit]
+
+    def record_contradiction_dispute(
+        self,
+        *,
+        dispute_id: str,
+        contradiction_result_id: str,
+        disputed_by: str,
+        reason: str,
+    ) -> StoredContradictionDispute:
+        with self.session() as s:
+            target = s.get(
+                StoredContradictionResult, contradiction_result_id
+            )
+            if target is None:
+                raise ValueError(
+                    f"unknown contradiction_result_id: {contradiction_result_id}"
+                )
+            dispute = StoredContradictionDispute(
+                id=dispute_id,
+                contradiction_result_id=contradiction_result_id,
+                detection_method=target.detection_method,
+                disputed_by=disputed_by,
+                reason=reason,
+            )
+            target.dispute_count = (target.dispute_count or 0) + 1
+            target.last_dispute_at = dispute.created_at
+            target.status = "disputed"
+            s.add(dispute)
+            s.add(target)
+            s.commit()
+            s.refresh(dispute)
+            return dispute
+
+    def list_contradiction_disputes(
+        self, *, method: Optional[str] = None, limit: int = 200
+    ) -> list[StoredContradictionDispute]:
+        with self.session() as s:
+            stmt = select(StoredContradictionDispute)
+            if method is not None:
+                stmt = stmt.where(
+                    StoredContradictionDispute.detection_method == method
+                )
+            rows = list(s.exec(stmt).all())
+            rows.sort(key=lambda r: r.created_at, reverse=True)
+            return rows[:limit]
+
+    # --- Contradiction lifecycle (R19/p19) ---
+    def put_contradiction_lifecycle(
+        self,
+        *,
+        lifecycle_id: str,
+        contradiction_id: str,
+        current_status: str,
+        last_transition_at: datetime,
+        events_json: str,
+        supported_principle_id: Optional[str] = None,
+        subsuming_principle_id: Optional[str] = None,
+        pending_subsumption_principle_id: Optional[str] = None,
+    ) -> None:
+        """Upsert one lifecycle row. The events column is append-only by
+        contract — callers always pass the full serialized log; we never
+        overwrite an existing log with a shorter one (callers that try
+        will see a ValueError).
+        """
+
+        with self.session() as s:
+            existing = s.get(StoredContradictionLifecycle, lifecycle_id)
+            if existing is not None:
+                # Append-only guard: the new payload must contain at least
+                # as many events as what's already on disk.
+                try:
+                    on_disk = json.loads(existing.events_json or "[]")
+                except (TypeError, ValueError):
+                    on_disk = []
+                try:
+                    incoming = json.loads(events_json or "[]")
+                except (TypeError, ValueError):
+                    incoming = []
+                if len(incoming) < len(on_disk):
+                    raise ValueError(
+                        "contradiction lifecycle events are append-only; "
+                        f"refusing shorter log ({len(incoming)} < {len(on_disk)})"
+                    )
+                existing.current_status = current_status
+                existing.last_transition_at = last_transition_at
+                existing.events_json = events_json
+                existing.supported_principle_id = supported_principle_id
+                existing.subsuming_principle_id = subsuming_principle_id
+                existing.pending_subsumption_principle_id = (
+                    pending_subsumption_principle_id
+                )
+                s.add(existing)
+            else:
+                s.add(
+                    StoredContradictionLifecycle(
+                        id=lifecycle_id,
+                        contradiction_id=contradiction_id,
+                        current_status=current_status,
+                        last_transition_at=last_transition_at,
+                        events_json=events_json,
+                        supported_principle_id=supported_principle_id,
+                        subsuming_principle_id=subsuming_principle_id,
+                        pending_subsumption_principle_id=pending_subsumption_principle_id,
+                    )
+                )
+            s.commit()
+
+    def get_contradiction_lifecycle(
+        self, contradiction_id: str
+    ) -> Optional[StoredContradictionLifecycle]:
+        with self.session() as s:
+            stmt = select(StoredContradictionLifecycle).where(
+                StoredContradictionLifecycle.contradiction_id == contradiction_id
+            )
+            return s.exec(stmt).first()
+
+    def list_contradiction_lifecycles(
+        self,
+        *,
+        statuses: Optional[Iterable[str]] = None,
+        limit: int = 500,
+    ) -> list[StoredContradictionLifecycle]:
+        with self.session() as s:
+            stmt = select(StoredContradictionLifecycle)
+            if statuses is not None:
+                wanted = list(statuses)
+                stmt = stmt.where(
+                    StoredContradictionLifecycle.current_status.in_(wanted)  # type: ignore[attr-defined]
+                )
+            rows = list(s.exec(stmt).all())
+            rows.sort(key=lambda r: r.last_transition_at, reverse=True)
+            return rows[:limit]
+
     # --- Drift ---
     def put_drift_event(self, e: DriftEvent) -> None:
         row = StoredDriftEvent(id=e.id, payload_json=e.model_dump_json())
@@ -1297,11 +2353,17 @@ class Store:
 
     # --- Conclusion (tiered) ---
     def put_conclusion(self, c: Conclusion) -> None:
-        row = StoredConclusion(id=c.id, payload_json=c.model_dump_json())
+        prov_value = str(getattr(c.provenance, "value", c.provenance) or "PROPRIETARY")
+        row = StoredConclusion(
+            id=c.id,
+            payload_json=c.model_dump_json(),
+            provenance=prov_value,
+        )
         with self.session() as s:
             existing = s.get(StoredConclusion, c.id)
             if existing:
                 existing.payload_json = row.payload_json
+                existing.provenance = prov_value
                 s.add(existing)
             else:
                 s.add(row)
@@ -1534,6 +2596,1206 @@ class Store:
                 except Exception:
                     continue
             return out
+
+    # ── Logical Algorithm layer (prompt 01, Round 19) ───────────────────────
+
+    @staticmethod
+    def _algorithm_status_value(status: AlgorithmStatus | str) -> str:
+        return status.value if hasattr(status, "value") else str(status)
+
+    def put_algorithm(
+        self,
+        algorithm: LogicalAlgorithm,
+        *,
+        revoked_principle_ids: Iterable[str] | None = None,
+    ) -> None:
+        """Insert or replace a LogicalAlgorithm row.
+
+        Runs the full validator stack — inputs, output schema,
+        reasoning chain, trigger predicate — and refuses to persist a
+        promotion to ACTIVE while any source principle is revoked.
+        ``revoked_principle_ids`` defaults to the empty set; callers
+        outside tests should pass the live set fetched from the
+        Codex ``Principle`` table.
+        """
+
+        validate_inputs(algorithm.inputs)
+        validate_output_schema(algorithm.output)
+        validate_reasoning_chain(
+            algorithm.reasoning_chain,
+            source_principle_ids=algorithm.source_principle_ids,
+        )
+        validate_trigger_predicate(
+            algorithm.trigger_predicate,
+            input_names=[inp.name for inp in algorithm.inputs],
+        )
+
+        algorithm.updated_at = datetime.now()
+        status_value = self._algorithm_status_value(algorithm.status)
+
+        with self.session() as s:
+            existing = s.get(StoredLogicalAlgorithm, algorithm.id)
+            previous_status = existing.status if existing is not None else None
+            validate_promotion_to_active(
+                current_status=previous_status or AlgorithmStatus.DRAFT,
+                new_status=status_value,
+                source_principle_ids=algorithm.source_principle_ids,
+                revoked_principle_ids=revoked_principle_ids or (),
+            )
+            payload_json = algorithm.model_dump_json()
+            multiplier = max(
+                0.0, min(2.0, float(getattr(algorithm, "weighting_multiplier", 1.0)))
+            )
+            prov_value = str(
+                getattr(algorithm.provenance, "value", algorithm.provenance)
+                or "PROPRIETARY"
+            )
+            if existing is not None:
+                existing.organization_id = algorithm.organization_id
+                existing.name = algorithm.name
+                existing.status = status_value
+                existing.payload_json = payload_json
+                existing.weighting_multiplier = multiplier
+                existing.provenance = prov_value
+                existing.updated_at = algorithm.updated_at
+                existing.last_invoked_at = algorithm.last_invoked_at
+                s.add(existing)
+            else:
+                row = StoredLogicalAlgorithm(
+                    id=algorithm.id,
+                    organization_id=algorithm.organization_id,
+                    name=algorithm.name,
+                    status=status_value,
+                    payload_json=payload_json,
+                    weighting_multiplier=multiplier,
+                    provenance=prov_value,
+                    created_at=algorithm.created_at,
+                    updated_at=algorithm.updated_at,
+                    last_invoked_at=algorithm.last_invoked_at,
+                )
+                s.add(row)
+            try:
+                s.commit()
+            except IntegrityError as exc:
+                s.rollback()
+                raise AlgorithmValidationError(
+                    f"LogicalAlgorithm ({algorithm.organization_id!r}, "
+                    f"{algorithm.name!r}) violates compound unique key"
+                ) from exc
+
+    def get_algorithm(self, algorithm_id: str) -> Optional[LogicalAlgorithm]:
+        with self.session() as s:
+            row = s.get(StoredLogicalAlgorithm, algorithm_id)
+            if row is None:
+                return None
+            try:
+                return LogicalAlgorithm.model_validate_json(row.payload_json)
+            except Exception:
+                return None
+
+    def list_algorithms_for_org(
+        self,
+        organization_id: str,
+        *,
+        status: Optional[AlgorithmStatus | str] = None,
+    ) -> list[LogicalAlgorithm]:
+        with self.session() as s:
+            stmt = select(StoredLogicalAlgorithm).where(
+                StoredLogicalAlgorithm.organization_id == organization_id
+            )
+            if status is not None:
+                stmt = stmt.where(
+                    StoredLogicalAlgorithm.status
+                    == self._algorithm_status_value(status)
+                )
+            stmt = stmt.order_by(asc(StoredLogicalAlgorithm.created_at))
+            rows = s.exec(stmt).all()
+            out: list[LogicalAlgorithm] = []
+            for r in rows:
+                try:
+                    out.append(
+                        LogicalAlgorithm.model_validate_json(r.payload_json)
+                    )
+                except Exception:
+                    continue
+            return out
+
+    def list_active_algorithms(
+        self, *, organization_id: Optional[str] = None
+    ) -> list[LogicalAlgorithm]:
+        with self.session() as s:
+            stmt = select(StoredLogicalAlgorithm).where(
+                StoredLogicalAlgorithm.status == AlgorithmStatus.ACTIVE.value
+            )
+            if organization_id is not None:
+                stmt = stmt.where(
+                    StoredLogicalAlgorithm.organization_id == organization_id
+                )
+            stmt = stmt.order_by(asc(StoredLogicalAlgorithm.created_at))
+            rows = s.exec(stmt).all()
+            out: list[LogicalAlgorithm] = []
+            for r in rows:
+                try:
+                    out.append(
+                        LogicalAlgorithm.model_validate_json(r.payload_json)
+                    )
+                except Exception:
+                    continue
+            return out
+
+    def set_algorithm_status(
+        self,
+        algorithm_id: str,
+        new_status: AlgorithmStatus | str,
+        *,
+        revoked_principle_ids: Iterable[str] | None = None,
+        retired_reason: Optional[str] = None,
+    ) -> LogicalAlgorithm:
+        """Promote / pause / retire an algorithm.
+
+        Enforces both the generic status-transition rules and the
+        revoked-principle guard. ``retired_reason`` is required when
+        transitioning to RETIRED — the founder needs to capture *why*
+        for the audit log.
+        """
+
+        new_value = self._algorithm_status_value(new_status)
+        with self.session() as s:
+            row = s.get(StoredLogicalAlgorithm, algorithm_id)
+            if row is None:
+                raise AlgorithmValidationError(
+                    f"LogicalAlgorithm {algorithm_id!r} not found"
+                )
+            validate_status_transition(
+                current_status=row.status, new_status=new_value
+            )
+            try:
+                algorithm = LogicalAlgorithm.model_validate_json(row.payload_json)
+            except Exception as exc:
+                raise AlgorithmValidationError(
+                    f"LogicalAlgorithm {algorithm_id!r} payload is malformed"
+                ) from exc
+            validate_promotion_to_active(
+                current_status=row.status,
+                new_status=new_value,
+                source_principle_ids=algorithm.source_principle_ids,
+                revoked_principle_ids=revoked_principle_ids or (),
+            )
+            if new_value == AlgorithmStatus.RETIRED.value:
+                if not (retired_reason or "").strip():
+                    raise AlgorithmValidationError(
+                        "Retiring an algorithm requires a retired_reason"
+                    )
+                algorithm.retired_reason = retired_reason
+            algorithm.status = new_value
+            algorithm.updated_at = datetime.now()
+            row.status = new_value
+            row.payload_json = algorithm.model_dump_json()
+            row.updated_at = algorithm.updated_at
+            s.add(row)
+            s.commit()
+            return algorithm
+
+    def put_invocation(self, invocation: AlgorithmInvocation) -> None:
+        """Persist an AlgorithmInvocation and bump the algorithm's lastInvokedAt."""
+
+        payload_json = invocation.model_dump_json()
+        correctness_value = (
+            invocation.correctness.value
+            if hasattr(invocation.correctness, "value")
+            else invocation.correctness
+        )
+        with self.session() as s:
+            existing = s.get(StoredAlgorithmInvocation, invocation.id)
+            if existing is not None:
+                existing.algorithm_id = invocation.algorithm_id
+                existing.organization_id = invocation.organization_id
+                existing.invoked_at = invocation.invoked_at
+                existing.resolved_at = invocation.resolved_at
+                existing.correctness = correctness_value
+                existing.payload_json = payload_json
+                s.add(existing)
+            else:
+                row = StoredAlgorithmInvocation(
+                    id=invocation.id,
+                    algorithm_id=invocation.algorithm_id,
+                    organization_id=invocation.organization_id,
+                    invoked_at=invocation.invoked_at,
+                    resolved_at=invocation.resolved_at,
+                    correctness=correctness_value,
+                    payload_json=payload_json,
+                )
+                s.add(row)
+            # Bump lastInvokedAt on the parent algorithm so the surface
+            # can sort "recently fired" without scanning the invocation
+            # table — the algorithm row carries a denormalised pointer.
+            algo_row = s.get(StoredLogicalAlgorithm, invocation.algorithm_id)
+            if algo_row is not None:
+                if (
+                    algo_row.last_invoked_at is None
+                    or invocation.invoked_at > algo_row.last_invoked_at
+                ):
+                    algo_row.last_invoked_at = invocation.invoked_at
+                    try:
+                        algorithm = LogicalAlgorithm.model_validate_json(
+                            algo_row.payload_json
+                        )
+                        algorithm.last_invoked_at = invocation.invoked_at
+                        algo_row.payload_json = algorithm.model_dump_json()
+                    except Exception:
+                        pass
+                    s.add(algo_row)
+            s.commit()
+
+    def get_invocation(
+        self, invocation_id: str
+    ) -> Optional[AlgorithmInvocation]:
+        with self.session() as s:
+            row = s.get(StoredAlgorithmInvocation, invocation_id)
+            if row is None:
+                return None
+            try:
+                return AlgorithmInvocation.model_validate_json(row.payload_json)
+            except Exception:
+                return None
+
+    def list_invocations_for_algorithm(
+        self,
+        algorithm_id: str,
+        *,
+        limit: int = 200,
+    ) -> list[AlgorithmInvocation]:
+        with self.session() as s:
+            stmt = (
+                select(StoredAlgorithmInvocation)
+                .where(StoredAlgorithmInvocation.algorithm_id == algorithm_id)
+                .order_by(desc(StoredAlgorithmInvocation.invoked_at))
+                .limit(limit)
+            )
+            rows = s.exec(stmt).all()
+            out: list[AlgorithmInvocation] = []
+            for r in rows:
+                try:
+                    out.append(
+                        AlgorithmInvocation.model_validate_json(r.payload_json)
+                    )
+                except Exception:
+                    continue
+            return out
+
+    def list_unresolved_invocations(
+        self,
+        *,
+        organization_id: Optional[str] = None,
+        limit: int = 200,
+    ) -> list[AlgorithmInvocation]:
+        with self.session() as s:
+            stmt = select(StoredAlgorithmInvocation).where(
+                StoredAlgorithmInvocation.resolved_at.is_(None)
+            )
+            if organization_id is not None:
+                stmt = stmt.where(
+                    StoredAlgorithmInvocation.organization_id == organization_id
+                )
+            stmt = stmt.order_by(
+                asc(StoredAlgorithmInvocation.invoked_at)
+            ).limit(limit)
+            rows = s.exec(stmt).all()
+            out: list[AlgorithmInvocation] = []
+            for r in rows:
+                try:
+                    out.append(
+                        AlgorithmInvocation.model_validate_json(r.payload_json)
+                    )
+                except Exception:
+                    continue
+            return out
+
+    def set_invocation_resolution(
+        self,
+        invocation_id: str,
+        *,
+        actual_outcome: dict[str, Any],
+        correctness: AlgorithmCorrectness | str,
+        brier_equivalent: Optional[float] = None,
+        resolved_at: Optional[datetime] = None,
+    ) -> AlgorithmInvocation:
+        """Record reality's verdict on a previous invocation."""
+
+        correctness_value = (
+            correctness.value
+            if hasattr(correctness, "value")
+            else str(correctness)
+        )
+        with self.session() as s:
+            row = s.get(StoredAlgorithmInvocation, invocation_id)
+            if row is None:
+                raise AlgorithmValidationError(
+                    f"AlgorithmInvocation {invocation_id!r} not found"
+                )
+            try:
+                invocation = AlgorithmInvocation.model_validate_json(
+                    row.payload_json
+                )
+            except Exception as exc:
+                raise AlgorithmValidationError(
+                    f"AlgorithmInvocation {invocation_id!r} payload is malformed"
+                ) from exc
+            resolved_dt = resolved_at or datetime.now()
+            invocation.resolved_at = resolved_dt
+            invocation.actual_outcome = actual_outcome
+            invocation.correctness = correctness_value
+            invocation.brier_equivalent = brier_equivalent
+            row.resolved_at = resolved_dt
+            row.correctness = correctness_value
+            row.payload_json = invocation.model_dump_json()
+            s.add(row)
+            s.commit()
+            return invocation
+
+    def put_input_observation(
+        self, observation: AlgorithmInputObservation
+    ) -> None:
+        value_json = json.dumps(observation.value, default=str)
+        with self.session() as s:
+            existing = s.get(StoredAlgorithmInputObservation, observation.id)
+            if existing is not None:
+                existing.invocation_id = observation.invocation_id
+                existing.input_name = observation.input_name
+                existing.value_json = value_json
+                existing.observed_at = observation.observed_at
+                existing.source_artifact_id = observation.source_artifact_id
+                existing.source_url = observation.source_url
+                s.add(existing)
+            else:
+                row = StoredAlgorithmInputObservation(
+                    id=observation.id,
+                    invocation_id=observation.invocation_id,
+                    input_name=observation.input_name,
+                    value_json=value_json,
+                    observed_at=observation.observed_at,
+                    source_artifact_id=observation.source_artifact_id,
+                    source_url=observation.source_url,
+                )
+                s.add(row)
+            s.commit()
+
+    def list_observations_for_invocation(
+        self, invocation_id: str
+    ) -> list[AlgorithmInputObservation]:
+        with self.session() as s:
+            stmt = (
+                select(StoredAlgorithmInputObservation)
+                .where(
+                    StoredAlgorithmInputObservation.invocation_id
+                    == invocation_id
+                )
+                .order_by(asc(StoredAlgorithmInputObservation.observed_at))
+            )
+            rows = s.exec(stmt).all()
+            out: list[AlgorithmInputObservation] = []
+            for r in rows:
+                try:
+                    value = json.loads(r.value_json) if r.value_json else None
+                except json.JSONDecodeError:
+                    value = None
+                out.append(
+                    AlgorithmInputObservation(
+                        id=r.id,
+                        invocation_id=r.invocation_id,
+                        input_name=r.input_name,
+                        value=value,
+                        observed_at=r.observed_at,
+                        source_artifact_id=r.source_artifact_id,
+                        source_url=r.source_url,
+                    )
+                )
+            return out
+
+    # ── Synthesizer (prompt 10, Round 19) ────────────────────────────────────
+
+    def put_synthesizer_task(self, task: SynthesizerTask) -> None:
+        """Upsert one synthesis task on the queue."""
+
+        payload_json = task.model_dump_json()
+        with self.session() as s:
+            existing = s.get(StoredSynthesizerTask, task.id)
+            status = (
+                task.status.value
+                if hasattr(task.status, "value")
+                else str(task.status)
+            )
+            trigger = (
+                task.trigger.value
+                if hasattr(task.trigger, "value")
+                else str(task.trigger)
+            )
+            if existing is not None:
+                existing.organization_id = task.organization_id
+                existing.trigger = trigger
+                existing.status = status
+                existing.enqueued_at = task.enqueued_at
+                existing.started_at = task.started_at
+                existing.finished_at = task.finished_at
+                existing.invocation_id = task.invocation_id
+                existing.current_event_id = task.current_event_id
+                existing.memo_id = task.memo_id
+                existing.outcome = task.outcome
+                existing.payload_json = payload_json
+                s.add(existing)
+            else:
+                s.add(
+                    StoredSynthesizerTask(
+                        id=task.id,
+                        organization_id=task.organization_id,
+                        trigger=trigger,
+                        status=status,
+                        enqueued_at=task.enqueued_at,
+                        started_at=task.started_at,
+                        finished_at=task.finished_at,
+                        invocation_id=task.invocation_id,
+                        current_event_id=task.current_event_id,
+                        memo_id=task.memo_id,
+                        outcome=task.outcome,
+                        payload_json=payload_json,
+                    )
+                )
+            s.commit()
+
+    def list_pending_synthesizer_tasks(
+        self,
+        *,
+        organization_id: Optional[str] = None,
+        limit: int = 50,
+    ) -> list[SynthesizerTask]:
+        """Return PENDING synthesis tasks ordered by enqueued_at ASC."""
+
+        with self.session() as s:
+            stmt = select(StoredSynthesizerTask).where(
+                StoredSynthesizerTask.status == "PENDING"
+            )
+            if organization_id is not None:
+                stmt = stmt.where(
+                    StoredSynthesizerTask.organization_id == organization_id
+                )
+            stmt = stmt.order_by(asc(StoredSynthesizerTask.enqueued_at)).limit(limit)
+            rows = s.exec(stmt).all()
+            out: list[SynthesizerTask] = []
+            for row in rows:
+                try:
+                    out.append(SynthesizerTask.model_validate_json(row.payload_json))
+                except Exception:
+                    continue
+            return out
+
+    def put_synthesizer_memo(
+        self,
+        memo: Any,
+    ) -> None:
+        """Persist a synthesizer memo. Accepts a :class:`SynthesizerMemo`
+        or a plain mapping with ``id``, ``organization_id``, ``question``,
+        and a ``conclusion`` dict.
+        """
+
+        if isinstance(memo, SynthesizerMemo):
+            data = memo
+        else:
+            payload = dict(memo)
+            data = SynthesizerMemo(
+                id=str(payload["id"]),
+                organization_id=str(payload.get("organization_id") or ""),
+                question=str(payload.get("question") or ""),
+                conclusion_json=dict(payload.get("conclusion") or {}),
+                synthesizer_version=str(
+                    payload.get("synthesizer_version") or "synthesizer/v1"
+                ),
+            )
+        row_payload = data.model_dump_json()
+        with self.session() as s:
+            existing = s.get(StoredSynthesizerMemo, data.id)
+            if existing is not None:
+                existing.organization_id = data.organization_id
+                existing.created_at = data.created_at
+                existing.synthesizer_version = data.synthesizer_version
+                existing.question = data.question
+                existing.payload_json = row_payload
+                s.add(existing)
+            else:
+                s.add(
+                    StoredSynthesizerMemo(
+                        id=data.id,
+                        organization_id=data.organization_id,
+                        created_at=data.created_at,
+                        synthesizer_version=data.synthesizer_version,
+                        question=data.question,
+                        payload_json=row_payload,
+                    )
+                )
+            s.commit()
+
+    def get_synthesizer_memo(self, memo_id: str) -> Optional[SynthesizerMemo]:
+        with self.session() as s:
+            row = s.get(StoredSynthesizerMemo, memo_id)
+            if row is None:
+                return None
+            try:
+                return SynthesizerMemo.model_validate_json(row.payload_json)
+            except Exception:
+                return None
+
+    def list_synthesizer_memos(
+        self,
+        *,
+        organization_id: Optional[str] = None,
+        limit: int = 50,
+    ) -> list[SynthesizerMemo]:
+        with self.session() as s:
+            stmt = select(StoredSynthesizerMemo)
+            if organization_id is not None:
+                stmt = stmt.where(
+                    StoredSynthesizerMemo.organization_id == organization_id
+                )
+            stmt = stmt.order_by(desc(StoredSynthesizerMemo.created_at)).limit(limit)
+            rows = s.exec(stmt).all()
+            out: list[SynthesizerMemo] = []
+            for row in rows:
+                try:
+                    out.append(
+                        SynthesizerMemo.model_validate_json(row.payload_json)
+                    )
+                except Exception:
+                    continue
+            return out
+
+    # ── Investment memos (prompt 11, Round 19) ──────────────────────────────
+
+    def put_investment_memo(self, memo: InvestmentMemo) -> InvestmentMemo:
+        """Persist (insert or update) an :class:`InvestmentMemo` row."""
+
+        memo.updated_at = _utcnow()
+        payload = memo.model_dump_json()
+        with self.session() as s:
+            existing = s.get(StoredInvestmentMemo, memo.id)
+            if existing is not None:
+                existing.organization_id = memo.organization_id
+                existing.synthesizer_result_id = memo.synthesizer_result_id
+                existing.title = memo.title
+                existing.slug = memo.slug
+                existing.status = (
+                    memo.status.value
+                    if isinstance(memo.status, MemoStatus)
+                    else str(memo.status)
+                )
+                existing.addressee = memo.addressee
+                existing.question_type = (
+                    memo.question_type.value
+                    if hasattr(memo.question_type, "value")
+                    else str(memo.question_type)
+                )
+                existing.md_path = memo.md_path
+                existing.pdf_path = memo.pdf_path
+                existing.updated_at = memo.updated_at
+                existing.sent_at = memo.sent_at
+                existing.acknowledged_at = memo.acknowledged_at
+                existing.published_at = memo.published_at
+                existing.archived_at = memo.archived_at
+                existing.synthesizer_version = memo.synthesizer_version
+                existing.payload_json = payload
+                s.add(existing)
+            else:
+                s.add(
+                    StoredInvestmentMemo(
+                        id=memo.id,
+                        organization_id=memo.organization_id,
+                        synthesizer_result_id=memo.synthesizer_result_id,
+                        title=memo.title,
+                        slug=memo.slug,
+                        status=(
+                            memo.status.value
+                            if isinstance(memo.status, MemoStatus)
+                            else str(memo.status)
+                        ),
+                        addressee=memo.addressee,
+                        question_type=(
+                            memo.question_type.value
+                            if hasattr(memo.question_type, "value")
+                            else str(memo.question_type)
+                        ),
+                        md_path=memo.md_path,
+                        pdf_path=memo.pdf_path,
+                        created_at=memo.created_at,
+                        updated_at=memo.updated_at,
+                        sent_at=memo.sent_at,
+                        acknowledged_at=memo.acknowledged_at,
+                        published_at=memo.published_at,
+                        archived_at=memo.archived_at,
+                        synthesizer_version=memo.synthesizer_version,
+                        payload_json=payload,
+                    )
+                )
+            s.commit()
+        return memo
+
+    def get_investment_memo(self, memo_id: str) -> Optional[InvestmentMemo]:
+        with self.session() as s:
+            row = s.get(StoredInvestmentMemo, memo_id)
+            if row is None:
+                return None
+            try:
+                return InvestmentMemo.model_validate_json(row.payload_json)
+            except Exception:
+                return None
+
+    def get_investment_memo_by_slug(self, slug: str) -> Optional[InvestmentMemo]:
+        with self.session() as s:
+            row = s.exec(
+                select(StoredInvestmentMemo).where(
+                    StoredInvestmentMemo.slug == slug
+                )
+            ).first()
+            if row is None:
+                return None
+            try:
+                return InvestmentMemo.model_validate_json(row.payload_json)
+            except Exception:
+                return None
+
+    def list_investment_memos(
+        self,
+        *,
+        organization_id: Optional[str] = None,
+        status: Optional[MemoStatus] = None,
+        since: Optional[datetime] = None,
+        limit: int = 50,
+    ) -> list[InvestmentMemo]:
+        with self.session() as s:
+            stmt = select(StoredInvestmentMemo)
+            if organization_id is not None:
+                stmt = stmt.where(
+                    StoredInvestmentMemo.organization_id == organization_id
+                )
+            if status is not None:
+                value = (
+                    status.value
+                    if isinstance(status, MemoStatus)
+                    else str(status)
+                )
+                stmt = stmt.where(StoredInvestmentMemo.status == value)
+            if since is not None:
+                stmt = stmt.where(StoredInvestmentMemo.created_at >= since)
+            stmt = stmt.order_by(
+                desc(StoredInvestmentMemo.created_at)
+            ).limit(limit)
+            rows = s.exec(stmt).all()
+            out: list[InvestmentMemo] = []
+            for row in rows:
+                try:
+                    out.append(
+                        InvestmentMemo.model_validate_json(row.payload_json)
+                    )
+                except Exception:
+                    continue
+            return out
+
+    def update_investment_memo_status(
+        self,
+        memo_id: str,
+        status: MemoStatus,
+        *,
+        addressee: Optional[str] = None,
+    ) -> Optional[InvestmentMemo]:
+        """Transition a memo's lifecycle. Stamps the relevant timestamp.
+
+        Lifecycle transitions are intentionally permissive — the
+        operator surface enforces business rules (e.g. DRAFT → SENT
+        requires an addressee). This helper only stamps timestamps.
+        """
+
+        memo = self.get_investment_memo(memo_id)
+        if memo is None:
+            return None
+        memo.status = status
+        now = _utcnow()
+        if status == MemoStatus.SENT:
+            memo.sent_at = now
+        elif status == MemoStatus.PUBLIC:
+            memo.published_at = now
+        elif status == MemoStatus.ARCHIVED:
+            memo.archived_at = now
+        if addressee is not None:
+            memo.addressee = addressee
+        return self.put_investment_memo(memo)
+
+    # ── Portfolio agents + memo dispatches (prompt 12, Round 19) ───────────
+
+    def put_portfolio_agent(self, agent: PortfolioAgent) -> PortfolioAgent:
+        """Persist (insert or update) a :class:`PortfolioAgent`."""
+
+        agent.updated_at = _utcnow()
+        payload = agent.model_dump_json()
+        kind_value = (
+            agent.kind.value
+            if isinstance(agent.kind, PortfolioAgentKind)
+            else str(agent.kind)
+        )
+        status_value = (
+            agent.status.value
+            if isinstance(agent.status, PortfolioAgentStatus)
+            else str(agent.status)
+        )
+        with self.session() as s:
+            existing = s.get(StoredPortfolioAgent, agent.id)
+            if existing is not None:
+                existing.organization_id = agent.organization_id
+                existing.name = agent.name
+                existing.kind = kind_value
+                existing.status = status_value
+                existing.default_bet_ceiling_usd = float(
+                    agent.default_bet_ceiling_usd
+                )
+                existing.updated_at = agent.updated_at
+                existing.payload_json = payload
+                s.add(existing)
+            else:
+                s.add(
+                    StoredPortfolioAgent(
+                        id=agent.id,
+                        organization_id=agent.organization_id,
+                        name=agent.name,
+                        kind=kind_value,
+                        status=status_value,
+                        default_bet_ceiling_usd=float(
+                            agent.default_bet_ceiling_usd
+                        ),
+                        created_at=agent.created_at,
+                        updated_at=agent.updated_at,
+                        payload_json=payload,
+                    )
+                )
+            s.commit()
+        return agent
+
+    def get_portfolio_agent(self, agent_id: str) -> Optional[PortfolioAgent]:
+        with self.session() as s:
+            row = s.get(StoredPortfolioAgent, agent_id)
+            if row is None:
+                return None
+            try:
+                return PortfolioAgent.model_validate_json(row.payload_json)
+            except Exception:
+                return None
+
+    def list_portfolio_agents(
+        self,
+        *,
+        organization_id: Optional[str] = None,
+        status: Optional[PortfolioAgentStatus] = None,
+        limit: int = 200,
+    ) -> list[PortfolioAgent]:
+        with self.session() as s:
+            stmt = select(StoredPortfolioAgent)
+            if organization_id is not None:
+                stmt = stmt.where(
+                    StoredPortfolioAgent.organization_id == organization_id
+                )
+            if status is not None:
+                value = (
+                    status.value
+                    if isinstance(status, PortfolioAgentStatus)
+                    else str(status)
+                )
+                stmt = stmt.where(StoredPortfolioAgent.status == value)
+            stmt = stmt.order_by(
+                desc(StoredPortfolioAgent.created_at)
+            ).limit(limit)
+            rows = s.exec(stmt).all()
+            out: list[PortfolioAgent] = []
+            for row in rows:
+                try:
+                    out.append(
+                        PortfolioAgent.model_validate_json(row.payload_json)
+                    )
+                except Exception:
+                    continue
+            return out
+
+    def put_memo_dispatch(self, dispatch: MemoDispatch) -> MemoDispatch:
+        """Persist (insert or update) a :class:`MemoDispatch`."""
+
+        payload = dispatch.model_dump_json()
+        outcome_value = (
+            dispatch.outcome_action.value
+            if isinstance(dispatch.outcome_action, MemoDispatchOutcome)
+            else str(dispatch.outcome_action)
+        )
+        bet_link_kind_value = None
+        if dispatch.bet_link_kind is not None:
+            bet_link_kind_value = (
+                dispatch.bet_link_kind.value
+                if isinstance(dispatch.bet_link_kind, MemoDispatchBetKind)
+                else str(dispatch.bet_link_kind)
+            )
+        with self.session() as s:
+            existing = s.get(StoredMemoDispatch, dispatch.id)
+            if existing is not None:
+                existing.organization_id = dispatch.organization_id
+                existing.memo_id = dispatch.memo_id
+                existing.agent_id = dispatch.agent_id
+                existing.dispatched_at = dispatch.dispatched_at
+                existing.outcome_action = outcome_value
+                existing.bet_link = dispatch.bet_link
+                existing.bet_link_kind = bet_link_kind_value
+                existing.acknowledged_by = dispatch.acknowledged_by
+                existing.acknowledged_at = dispatch.acknowledged_at
+                existing.rationale = dispatch.rationale
+                existing.deferred_until = dispatch.deferred_until
+                existing.failure_reason = dispatch.failure_reason
+                existing.payload_json = payload
+                s.add(existing)
+            else:
+                s.add(
+                    StoredMemoDispatch(
+                        id=dispatch.id,
+                        organization_id=dispatch.organization_id,
+                        memo_id=dispatch.memo_id,
+                        agent_id=dispatch.agent_id,
+                        dispatched_at=dispatch.dispatched_at,
+                        outcome_action=outcome_value,
+                        bet_link=dispatch.bet_link,
+                        bet_link_kind=bet_link_kind_value,
+                        acknowledged_by=dispatch.acknowledged_by,
+                        acknowledged_at=dispatch.acknowledged_at,
+                        rationale=dispatch.rationale,
+                        deferred_until=dispatch.deferred_until,
+                        failure_reason=dispatch.failure_reason,
+                        payload_json=payload,
+                    )
+                )
+            s.commit()
+        return dispatch
+
+    def get_memo_dispatch(self, dispatch_id: str) -> Optional[MemoDispatch]:
+        with self.session() as s:
+            row = s.get(StoredMemoDispatch, dispatch_id)
+            if row is None:
+                return None
+            try:
+                return MemoDispatch.model_validate_json(row.payload_json)
+            except Exception:
+                return None
+
+    def list_memo_dispatches(
+        self,
+        *,
+        organization_id: Optional[str] = None,
+        agent_id: Optional[str] = None,
+        memo_id: Optional[str] = None,
+        outcome: Optional[MemoDispatchOutcome] = None,
+        limit: int = 200,
+    ) -> list[MemoDispatch]:
+        with self.session() as s:
+            stmt = select(StoredMemoDispatch)
+            if organization_id is not None:
+                stmt = stmt.where(
+                    StoredMemoDispatch.organization_id == organization_id
+                )
+            if agent_id is not None:
+                stmt = stmt.where(StoredMemoDispatch.agent_id == agent_id)
+            if memo_id is not None:
+                stmt = stmt.where(StoredMemoDispatch.memo_id == memo_id)
+            if outcome is not None:
+                value = (
+                    outcome.value
+                    if isinstance(outcome, MemoDispatchOutcome)
+                    else str(outcome)
+                )
+                stmt = stmt.where(StoredMemoDispatch.outcome_action == value)
+            stmt = stmt.order_by(
+                desc(StoredMemoDispatch.dispatched_at)
+            ).limit(limit)
+            rows = s.exec(stmt).all()
+            out: list[MemoDispatch] = []
+            for row in rows:
+                try:
+                    out.append(
+                        MemoDispatch.model_validate_json(row.payload_json)
+                    )
+                except Exception:
+                    continue
+            return out
+
+    # ── Algorithm calibration loop (prompt 05, Round 19) ────────────────────
+
+    def get_algorithm_weighting_multiplier(self, algorithm_id: str) -> float:
+        """Return the persisted weighting_multiplier for the algorithm."""
+
+        with self.session() as s:
+            row = s.get(StoredLogicalAlgorithm, algorithm_id)
+            if row is None:
+                return 1.0
+            return float(row.weighting_multiplier or 1.0)
+
+    def set_algorithm_weighting_multiplier(
+        self, algorithm_id: str, multiplier: float
+    ) -> LogicalAlgorithm:
+        """Update an algorithm's weighting_multiplier, bounded to [0, 2]."""
+
+        bounded = max(0.0, min(2.0, float(multiplier)))
+        with self.session() as s:
+            row = s.get(StoredLogicalAlgorithm, algorithm_id)
+            if row is None:
+                raise AlgorithmValidationError(
+                    f"LogicalAlgorithm {algorithm_id!r} not found"
+                )
+            try:
+                algorithm = LogicalAlgorithm.model_validate_json(row.payload_json)
+            except Exception as exc:
+                raise AlgorithmValidationError(
+                    f"LogicalAlgorithm {algorithm_id!r} payload is malformed"
+                ) from exc
+            algorithm.weighting_multiplier = bounded
+            algorithm.updated_at = datetime.now()
+            row.weighting_multiplier = bounded
+            row.payload_json = algorithm.model_dump_json()
+            row.updated_at = algorithm.updated_at
+            s.add(row)
+            s.commit()
+            return algorithm
+
+    def put_calibration_snapshot(
+        self, snapshot: AlgorithmCalibrationSnapshot
+    ) -> AlgorithmCalibrationSnapshot:
+        """Persist an append-only calibration snapshot.
+
+        Re-running calibration produces a NEW row; existing snapshots
+        are never overwritten. The id field is preserved if the caller
+        supplied one (deterministic tests), otherwise the model's
+        default ``uuid4`` is used.
+        """
+
+        with self.session() as s:
+            row = StoredAlgorithmCalibrationSnapshot(
+                id=snapshot.id,
+                algorithm_id=snapshot.algorithm_id,
+                organization_id=snapshot.organization_id,
+                snapshot_at=snapshot.snapshot_at,
+                total_invocations=snapshot.total_invocations,
+                resolved_invocations=snapshot.resolved_invocations,
+                accuracy=snapshot.accuracy,
+                mean_brier=snapshot.mean_brier,
+                mean_horizon_error=snapshot.mean_horizon_error,
+                directional_accuracy=snapshot.directional_accuracy,
+                confidence_calibration_drift=snapshot.confidence_calibration_drift,
+                last_30d_accuracy=snapshot.last_30d_accuracy,
+                last_30d_resolved=snapshot.last_30d_resolved,
+                probabilistic_resolved=snapshot.probabilistic_resolved,
+                directional_resolved=snapshot.directional_resolved,
+                confidence_band_resolved=snapshot.confidence_band_resolved,
+            )
+            s.add(row)
+            s.commit()
+            return snapshot
+
+    def list_calibration_snapshots(
+        self, algorithm_id: str, *, limit: int = 200
+    ) -> list[AlgorithmCalibrationSnapshot]:
+        """Time-series of snapshots for an algorithm, newest first."""
+
+        with self.session() as s:
+            stmt = (
+                select(StoredAlgorithmCalibrationSnapshot)
+                .where(
+                    StoredAlgorithmCalibrationSnapshot.algorithm_id
+                    == algorithm_id
+                )
+                .order_by(desc(StoredAlgorithmCalibrationSnapshot.snapshot_at))
+                .limit(limit)
+            )
+            rows = s.exec(stmt).all()
+            return [
+                AlgorithmCalibrationSnapshot(
+                    id=r.id,
+                    algorithm_id=r.algorithm_id,
+                    organization_id=r.organization_id,
+                    snapshot_at=r.snapshot_at,
+                    total_invocations=r.total_invocations,
+                    resolved_invocations=r.resolved_invocations,
+                    accuracy=r.accuracy,
+                    mean_brier=r.mean_brier,
+                    mean_horizon_error=r.mean_horizon_error,
+                    directional_accuracy=r.directional_accuracy,
+                    confidence_calibration_drift=r.confidence_calibration_drift,
+                    last_30d_accuracy=r.last_30d_accuracy,
+                    last_30d_resolved=r.last_30d_resolved,
+                    probabilistic_resolved=r.probabilistic_resolved,
+                    directional_resolved=r.directional_resolved,
+                    confidence_band_resolved=r.confidence_band_resolved,
+                )
+                for r in rows
+            ]
+
+    def latest_calibration_snapshot(
+        self, algorithm_id: str
+    ) -> Optional[AlgorithmCalibrationSnapshot]:
+        rows = self.list_calibration_snapshots(algorithm_id, limit=1)
+        return rows[0] if rows else None
+
+    def put_triage_recommendation(
+        self, rec: AlgorithmTriageRecommendation
+    ) -> AlgorithmTriageRecommendation:
+        """Persist a calibration triage recommendation row."""
+
+        with self.session() as s:
+            existing = s.get(StoredAlgorithmTriageRecommendation, rec.id)
+            action_value = (
+                rec.recommended_action.value
+                if hasattr(rec.recommended_action, "value")
+                else str(rec.recommended_action)
+            )
+            status_value = (
+                rec.status.value
+                if hasattr(rec.status, "value")
+                else str(rec.status)
+            )
+            reasons_json = json.dumps(rec.trigger_reasons)
+            if existing is not None:
+                existing.algorithm_id = rec.algorithm_id
+                existing.organization_id = rec.organization_id
+                existing.recommended_at = rec.recommended_at
+                existing.recommended_action = action_value
+                existing.trigger_reasons_json = reasons_json
+                existing.recommended_multiplier = rec.recommended_multiplier
+                existing.narrative = rec.narrative
+                existing.status = status_value
+                existing.resolved_by = rec.resolved_by
+                existing.resolved_at = rec.resolved_at
+                existing.resolution_note = rec.resolution_note
+                s.add(existing)
+            else:
+                row = StoredAlgorithmTriageRecommendation(
+                    id=rec.id,
+                    algorithm_id=rec.algorithm_id,
+                    organization_id=rec.organization_id,
+                    recommended_at=rec.recommended_at,
+                    recommended_action=action_value,
+                    trigger_reasons_json=reasons_json,
+                    recommended_multiplier=rec.recommended_multiplier,
+                    narrative=rec.narrative,
+                    status=status_value,
+                    resolved_by=rec.resolved_by,
+                    resolved_at=rec.resolved_at,
+                    resolution_note=rec.resolution_note,
+                )
+                s.add(row)
+            s.commit()
+            return rec
+
+    def list_triage_recommendations(
+        self,
+        *,
+        organization_id: Optional[str] = None,
+        status: Optional[TriageRecommendationStatus | str] = None,
+        algorithm_id: Optional[str] = None,
+        limit: int = 200,
+    ) -> list[AlgorithmTriageRecommendation]:
+        with self.session() as s:
+            stmt = select(StoredAlgorithmTriageRecommendation)
+            if organization_id is not None:
+                stmt = stmt.where(
+                    StoredAlgorithmTriageRecommendation.organization_id
+                    == organization_id
+                )
+            if status is not None:
+                status_value = (
+                    status.value if hasattr(status, "value") else str(status)
+                )
+                stmt = stmt.where(
+                    StoredAlgorithmTriageRecommendation.status == status_value
+                )
+            if algorithm_id is not None:
+                stmt = stmt.where(
+                    StoredAlgorithmTriageRecommendation.algorithm_id == algorithm_id
+                )
+            stmt = stmt.order_by(
+                desc(StoredAlgorithmTriageRecommendation.recommended_at)
+            ).limit(limit)
+            rows = s.exec(stmt).all()
+            return [self._triage_row_to_model(r) for r in rows]
+
+    def get_triage_recommendation(
+        self, recommendation_id: str
+    ) -> Optional[AlgorithmTriageRecommendation]:
+        with self.session() as s:
+            row = s.get(StoredAlgorithmTriageRecommendation, recommendation_id)
+            if row is None:
+                return None
+            return self._triage_row_to_model(row)
+
+    @staticmethod
+    def _triage_row_to_model(
+        row: StoredAlgorithmTriageRecommendation,
+    ) -> AlgorithmTriageRecommendation:
+        try:
+            reasons = json.loads(row.trigger_reasons_json or "[]")
+            if not isinstance(reasons, list):
+                reasons = []
+        except json.JSONDecodeError:
+            reasons = []
+        return AlgorithmTriageRecommendation(
+            id=row.id,
+            algorithm_id=row.algorithm_id,
+            organization_id=row.organization_id,
+            recommended_at=row.recommended_at,
+            recommended_action=row.recommended_action,
+            trigger_reasons=reasons,
+            recommended_multiplier=row.recommended_multiplier,
+            narrative=row.narrative,
+            status=row.status,
+            resolved_by=row.resolved_by,
+            resolved_at=row.resolved_at,
+            resolution_note=row.resolution_note,
+        )
+
+    def resolve_triage_recommendation(
+        self,
+        recommendation_id: str,
+        *,
+        new_status: TriageRecommendationStatus | str,
+        resolved_by: str,
+        resolution_note: Optional[str] = None,
+        resolved_at: Optional[datetime] = None,
+    ) -> AlgorithmTriageRecommendation:
+        """Accept / reject / defer a pending triage recommendation.
+
+        REJECTED requires a resolution_note of >= 20 characters per
+        the prompt spec — the founder must record *why* the agent's
+        recommendation was overruled. Accept actions are applied by
+        the caller (status change / multiplier bump) before the row
+        is closed; this helper only owns the queue-row transition.
+        """
+
+        status_value = (
+            new_status.value if hasattr(new_status, "value") else str(new_status)
+        )
+        if status_value == TriageRecommendationStatus.REJECTED.value:
+            note = (resolution_note or "").strip()
+            if len(note) < 20:
+                raise ValueError(
+                    "REJECT requires a resolution_note of at least 20 characters"
+                )
+        with self.session() as s:
+            row = s.get(StoredAlgorithmTriageRecommendation, recommendation_id)
+            if row is None:
+                raise ValueError(
+                    f"AlgorithmTriageRecommendation {recommendation_id!r} not found"
+                )
+            row.status = status_value
+            row.resolved_by = resolved_by
+            row.resolved_at = resolved_at or datetime.now()
+            row.resolution_note = resolution_note
+            s.add(row)
+            s.commit()
+            return self._triage_row_to_model(row)
 
     def list_principles(self) -> list[Principle]:
         """Return Principle objects derived from the Codex Principle table.
@@ -4002,3 +6264,969 @@ class Store:
         with self.session() as s:
             rows = s.exec(select(StoredMIPManifest)).all()
             return [MIPManifest.model_validate_json(r.payload_json) for r in rows]
+
+    # ── Round 19 prompt 07: cluster index + contradiction test queue ──────
+
+    def upsert_principle_cluster(
+        self,
+        *,
+        principle_id: str,
+        cluster_id: str,
+        assignment_method: str,
+        assigned_at: datetime | None = None,
+    ) -> None:
+        row = StoredPrincipleCluster(
+            principle_id=principle_id,
+            cluster_id=cluster_id,
+            assignment_method=assignment_method,
+            assigned_at=assigned_at or _utcnow(),
+        )
+        with self.session() as s:
+            existing = s.get(StoredPrincipleCluster, principle_id)
+            if existing:
+                existing.cluster_id = row.cluster_id
+                existing.assignment_method = row.assignment_method
+                existing.assigned_at = row.assigned_at
+                s.add(existing)
+            else:
+                s.add(row)
+            s.commit()
+
+    def get_principle_cluster(self, principle_id: str) -> Optional[dict[str, Any]]:
+        with self.session() as s:
+            r = s.get(StoredPrincipleCluster, principle_id)
+            if r is None:
+                return None
+            return {
+                "principle_id": r.principle_id,
+                "cluster_id": r.cluster_id,
+                "assignment_method": r.assignment_method,
+                "assigned_at": r.assigned_at,
+            }
+
+    def delete_principle_cluster(self, principle_id: str) -> bool:
+        with self.session() as s:
+            r = s.get(StoredPrincipleCluster, principle_id)
+            if r is None:
+                return False
+            s.delete(r)
+            s.commit()
+            return True
+
+    def list_principle_cluster_assignments(self) -> list[dict[str, Any]]:
+        with self.session() as s:
+            rows = s.exec(select(StoredPrincipleCluster)).all()
+            return [
+                {
+                    "principle_id": r.principle_id,
+                    "cluster_id": r.cluster_id,
+                    "assignment_method": r.assignment_method,
+                    "assigned_at": r.assigned_at,
+                }
+                for r in rows
+            ]
+
+    def upsert_cluster_centroid(
+        self,
+        *,
+        cluster_id: str,
+        centroid: list[float],
+        member_count: int,
+        assignment_method: str,
+    ) -> None:
+        blob = _float32_bytes(centroid)
+        dim = len(centroid)
+        with self.session() as s:
+            existing = s.get(StoredClusterCentroid, cluster_id)
+            if existing:
+                existing.centroid_vec = blob
+                existing.dim = dim
+                existing.member_count = member_count
+                existing.assignment_method = assignment_method
+                existing.updated_at = _utcnow()
+                s.add(existing)
+            else:
+                s.add(
+                    StoredClusterCentroid(
+                        cluster_id=cluster_id,
+                        centroid_vec=blob,
+                        dim=dim,
+                        member_count=member_count,
+                        assignment_method=assignment_method,
+                    )
+                )
+            s.commit()
+
+    def delete_cluster_centroid(self, cluster_id: str) -> bool:
+        with self.session() as s:
+            r = s.get(StoredClusterCentroid, cluster_id)
+            if r is None:
+                return False
+            s.delete(r)
+            s.commit()
+            return True
+
+    def list_cluster_centroids(self) -> list[dict[str, Any]]:
+        with self.session() as s:
+            rows = s.exec(select(StoredClusterCentroid)).all()
+            return [
+                {
+                    "cluster_id": r.cluster_id,
+                    "centroid": _float_vector(r.centroid_vec),
+                    "dim": r.dim,
+                    "member_count": r.member_count,
+                    "assignment_method": r.assignment_method,
+                    "updated_at": r.updated_at,
+                }
+                for r in rows
+            ]
+
+    def enqueue_contradiction_test_task(
+        self,
+        *,
+        principle_a_id: str,
+        principle_b_id: str,
+        priority: str,
+        pair_key: str,
+        dedupe_window_hours: int = 24,
+    ) -> Optional[str]:
+        """Insert a new task; return its id, or None if a recent dupe exists.
+
+        Dedupe key is ``pair_key`` within the trailing
+        ``dedupe_window_hours`` (default 24h). The pair_key is computed by
+        callers (``stable_pair_id`` over sorted ids), so (A,B) and (B,A)
+        collide.
+        """
+
+        now = _utcnow()
+        window_start = now - timedelta(hours=dedupe_window_hours)
+        with self.session() as s:
+            existing = s.exec(
+                select(StoredContradictionTestTask)
+                .where(StoredContradictionTestTask.pair_key == pair_key)
+                .where(StoredContradictionTestTask.enqueued_at >= window_start)
+                .limit(1)
+            ).first()
+            if existing is not None:
+                return None
+            task_id = str(uuid.uuid4())
+            s.add(
+                StoredContradictionTestTask(
+                    id=task_id,
+                    principle_a_id=principle_a_id,
+                    principle_b_id=principle_b_id,
+                    pair_key=pair_key,
+                    priority=priority,
+                    status="PENDING",
+                    enqueued_at=now,
+                )
+            )
+            s.commit()
+            return task_id
+
+    _PRIORITY_RANK = {"HIGH": 0, "NORMAL": 1, "LOW": 2}
+
+    def list_pending_contradiction_test_tasks(
+        self, *, limit: int = 100
+    ) -> list[dict[str, Any]]:
+        with self.session() as s:
+            rows = s.exec(
+                select(StoredContradictionTestTask)
+                .where(StoredContradictionTestTask.status == "PENDING")
+                .limit(max(1, limit))
+            ).all()
+        ordered = sorted(
+            rows,
+            key=lambda r: (
+                self._PRIORITY_RANK.get(r.priority, 9),
+                r.enqueued_at,
+            ),
+        )
+        return [
+            {
+                "id": r.id,
+                "principle_a_id": r.principle_a_id,
+                "principle_b_id": r.principle_b_id,
+                "pair_key": r.pair_key,
+                "priority": r.priority,
+                "status": r.status,
+                "enqueued_at": r.enqueued_at,
+            }
+            for r in ordered
+        ]
+
+    def mark_contradiction_test_task(
+        self,
+        task_id: str,
+        *,
+        status: str,
+        result_id: Optional[str] = None,
+        last_error: Optional[str] = None,
+        started_at: datetime | None = None,
+        finished_at: datetime | None = None,
+    ) -> None:
+        with self.session() as s:
+            r = s.get(StoredContradictionTestTask, task_id)
+            if r is None:
+                return
+            r.status = status
+            if result_id is not None:
+                r.result_id = result_id
+            if last_error is not None:
+                r.last_error = last_error
+            if started_at is not None:
+                r.started_at = started_at
+            if finished_at is not None:
+                r.finished_at = finished_at
+            s.add(r)
+            s.commit()
+
+    def contradiction_test_queue_stats(self) -> dict[str, int]:
+        out = {
+            "PENDING": 0,
+            "RUNNING": 0,
+            "DONE": 0,
+            "FAILED": 0,
+        }
+        with self.session() as s:
+            rows = s.exec(select(StoredContradictionTestTask)).all()
+        for r in rows:
+            out[r.status] = out.get(r.status, 0) + 1
+        return out
+
+    def insert_cluster_reindex_proposal(
+        self,
+        *,
+        drift: float,
+        cluster_count_before: int,
+        cluster_count_after: int,
+        summary: dict[str, Any],
+    ) -> str:
+        pid = str(uuid.uuid4())
+        with self.session() as s:
+            s.add(
+                StoredClusterReindexProposal(
+                    id=pid,
+                    drift=float(drift),
+                    cluster_count_before=int(cluster_count_before),
+                    cluster_count_after=int(cluster_count_after),
+                    summary_json=json.dumps(summary, default=str),
+                )
+            )
+            s.commit()
+        return pid
+
+    def list_cluster_reindex_proposals(
+        self, *, status: Optional[str] = None
+    ) -> list[dict[str, Any]]:
+        with self.session() as s:
+            stmt = select(StoredClusterReindexProposal)
+            if status:
+                stmt = stmt.where(StoredClusterReindexProposal.status == status)
+            rows = s.exec(stmt).all()
+        return [
+            {
+                "id": r.id,
+                "proposed_at": r.proposed_at,
+                "drift": r.drift,
+                "cluster_count_before": r.cluster_count_before,
+                "cluster_count_after": r.cluster_count_after,
+                "summary": json.loads(r.summary_json or "{}"),
+                "status": r.status,
+                "resolved_by": r.resolved_by,
+                "resolved_at": r.resolved_at,
+            }
+            for r in rows
+        ]
+
+    # ── Provenance helpers (prompt 09) ────────────────────────────────────
+    def set_artifact_provenance(
+        self,
+        artifact_id: str,
+        provenance: str,
+        *,
+        rationale: str = "",
+    ) -> bool:
+        """Re-tag an artifact's provenance. CLI/UI only; never inferred.
+
+        Returns True if the row was updated, False if no such artifact.
+        Raises ValueError if the new provenance is not a known kind or if an
+        external kind is set without a sufficient rationale.
+        """
+        from noosphere.models import (
+            ProvenanceKind,
+            coerce_provenance,
+            validate_provenance_rationale,
+        )
+
+        kind = ProvenanceKind(str(provenance).upper())
+        rationale = validate_provenance_rationale(kind, rationale)
+        with self.session() as s:
+            row = s.get(StoredArtifact, artifact_id)
+            if row is None:
+                return False
+            row.provenance = kind.value
+            row.provenance_rationale = rationale
+            s.add(row)
+            s.commit()
+        return True
+
+    def list_artifacts_by_provenance(
+        self,
+        provenance: str | None = None,
+        *,
+        limit: int = 500,
+    ) -> list[Artifact]:
+        """List artifacts, optionally filtered by provenance kind."""
+        with self.session() as s:
+            stmt = select(StoredArtifact)
+            if provenance:
+                stmt = stmt.where(StoredArtifact.provenance == str(provenance).upper())
+            stmt = stmt.order_by(desc(StoredArtifact.created_at)).limit(limit)
+            rows = list(s.exec(stmt).all())
+        out: list[Artifact] = []
+        for r in rows:
+            art = self.get_artifact(r.id)
+            if art is not None:
+                out.append(art)
+        return out
+
+    def count_artifacts_by_provenance(self) -> dict[str, int]:
+        """Return {provenance_kind_value: count} across all artifacts."""
+        from noosphere.models import PROVENANCE_KIND_VALUES
+
+        counts: dict[str, int] = {v: 0 for v in PROVENANCE_KIND_VALUES}
+        with self.session() as s:
+            rows = s.exec(select(StoredArtifact)).all()
+        for r in rows:
+            key = (r.provenance or "PROPRIETARY").upper()
+            counts[key] = counts.get(key, 0) + 1
+        return counts
+
+    def list_conclusions_by_provenance(
+        self, provenances: Iterable[str] | None = None, *, limit: int = 500
+    ) -> list[Conclusion]:
+        """Conclusion fetch filtered to the given provenance set (post-tag)."""
+        wanted = (
+            {str(p).upper() for p in provenances} if provenances is not None else None
+        )
+        with self.session() as s:
+            stmt = select(StoredConclusion)
+            if wanted is not None:
+                stmt = stmt.where(StoredConclusion.provenance.in_(tuple(wanted)))
+            stmt = stmt.limit(limit)
+            rows = list(s.exec(stmt).all())
+        out: list[Conclusion] = []
+        for r in rows:
+            try:
+                out.append(Conclusion.model_validate_json(r.payload_json))
+            except Exception:
+                continue
+        return out
+
+    def list_claims_by_provenance(
+        self, provenances: Iterable[str] | None = None, *, limit: int = 500
+    ) -> list[Claim]:
+        wanted = (
+            {str(p).upper() for p in provenances} if provenances is not None else None
+        )
+        with self.session() as s:
+            stmt = select(StoredClaim)
+            if wanted is not None:
+                stmt = stmt.where(StoredClaim.provenance.in_(tuple(wanted)))
+            stmt = stmt.limit(limit)
+            rows = list(s.exec(stmt).all())
+        out: list[Claim] = []
+        for r in rows:
+            try:
+                out.append(Claim.model_validate_json(r.payload_json))
+            except Exception:
+                continue
+        return out
+
+    def list_untagged_artifacts(self, *, limit: int = 500) -> list[Artifact]:
+        """Founder triage helper: artifacts left at the PROPRIETARY default.
+
+        Backfilled rows land here so the founder can review the count and
+        re-tag any that should be external. Differs from
+        ``list_artifacts_by_provenance("PROPRIETARY")`` only in intent —
+        the migration's count-summary points here.
+        """
+        return self.list_artifacts_by_provenance("PROPRIETARY", limit=limit)
+
+    # --- Knowledge graph snapshots (prompt 13) ---
+
+    def put_graph_snapshot(self, snap) -> None:  # noqa: ANN001
+        """Append a knowledge-graph snapshot. Append-only by contract.
+
+        Callers pass a :class:`noosphere.models.GraphSnapshot`.
+        """
+        nodes_json = json.dumps(
+            [n.model_dump(mode="json") for n in snap.nodes], ensure_ascii=False
+        )
+        edges_json = json.dumps(
+            [e.model_dump(mode="json") for e in snap.edges], ensure_ascii=False
+        )
+        row = StoredGraphSnapshot(
+            id=snap.id,
+            organization_id=snap.organization_id,
+            snapshot_at=snap.snapshot_at,
+            version=snap.version,
+            nodes_json=nodes_json,
+            edges_json=edges_json,
+            node_count=snap.node_count or len(snap.nodes),
+            edge_count=snap.edge_count or len(snap.edges),
+            notes=snap.notes or "",
+        )
+        with self.session() as s:
+            s.add(row)
+            s.commit()
+
+    def get_latest_graph_snapshot(self, organization_id: str):  # noqa: ANN201
+        from noosphere.models import GraphSnapshot, KGEdge, KGNode
+
+        with self.session() as s:
+            stmt = (
+                select(StoredGraphSnapshot)
+                .where(StoredGraphSnapshot.organization_id == organization_id)
+                .order_by(desc(StoredGraphSnapshot.snapshot_at))
+                .limit(1)
+            )
+            row = s.exec(stmt).first()
+        if row is None:
+            return None
+        try:
+            nodes = [KGNode.model_validate(n) for n in json.loads(row.nodes_json)]
+        except Exception:
+            nodes = []
+        try:
+            edges = [KGEdge.model_validate(e) for e in json.loads(row.edges_json)]
+        except Exception:
+            edges = []
+        return GraphSnapshot(
+            id=row.id,
+            organization_id=row.organization_id,
+            snapshot_at=row.snapshot_at,
+            version=row.version,
+            nodes=nodes,
+            edges=edges,
+            node_count=row.node_count,
+            edge_count=row.edge_count,
+            notes=row.notes,
+        )
+
+    def list_graph_snapshots(
+        self,
+        organization_id: str,
+        *,
+        limit: int = 50,
+    ) -> list[dict[str, Any]]:
+        """Lightweight summary list for the operator audit panel.
+
+        Returns one dict per snapshot — does NOT decode the (potentially
+        large) nodes/edges JSON, so the operator history is cheap to
+        render even with hundreds of snapshots.
+        """
+        with self.session() as s:
+            stmt = (
+                select(StoredGraphSnapshot)
+                .where(StoredGraphSnapshot.organization_id == organization_id)
+                .order_by(desc(StoredGraphSnapshot.snapshot_at))
+                .limit(limit)
+            )
+            rows = list(s.exec(stmt).all())
+        return [
+            {
+                "id": r.id,
+                "snapshot_at": r.snapshot_at,
+                "version": r.version,
+                "node_count": r.node_count,
+                "edge_count": r.edge_count,
+                "notes": r.notes,
+            }
+            for r in rows
+        ]
+
+    def put_edge_reasoning(
+        self,
+        organization_id: str,
+        src: str,
+        dst: str,
+        kind: str,
+        payload: dict[str, Any],
+    ) -> str:
+        from uuid import uuid4
+
+        row_id = f"kgreason_{uuid4().hex[:24]}"
+        row = StoredGraphEdgeReasoning(
+            id=row_id,
+            organization_id=organization_id,
+            src=src,
+            dst=dst,
+            kind=str(kind),
+            payload_json=json.dumps(payload, ensure_ascii=False, default=str),
+        )
+        with self.session() as s:
+            s.add(row)
+            s.commit()
+        return row_id
+
+    def get_edge_reasoning(
+        self,
+        organization_id: str,
+        src: str,
+        dst: str,
+        kind: str,
+    ) -> Optional[dict[str, Any]]:
+        with self.session() as s:
+            stmt = (
+                select(StoredGraphEdgeReasoning)
+                .where(StoredGraphEdgeReasoning.organization_id == organization_id)
+                .where(StoredGraphEdgeReasoning.src == src)
+                .where(StoredGraphEdgeReasoning.dst == dst)
+                .where(StoredGraphEdgeReasoning.kind == str(kind))
+                .order_by(desc(StoredGraphEdgeReasoning.generated_at))
+                .limit(1)
+            )
+            row = s.exec(stmt).first()
+        if row is None:
+            return None
+        try:
+            return json.loads(row.payload_json)
+        except Exception:
+            return None
+
+    # --- Dialectic live recording (prompt 14) ---
+
+    def put_dialectic_session(self, session) -> None:  # noqa: ANN001
+        """Insert or update a DialecticSession row."""
+
+        participants = [
+            p.model_dump(mode="json") if hasattr(p, "model_dump") else dict(p)
+            for p in (session.participants or [])
+        ]
+        row = StoredDialecticSession(
+            id=session.id,
+            organization_id=session.organization_id,
+            title=session.title or "",
+            started_at=_dt(session.started_at) if session.started_at else _utcnow(),
+            ended_at=_dt(session.ended_at) if session.ended_at else None,
+            participants_json=json.dumps(participants, default=str),
+            audio_path=session.audio_path or "",
+            transcript_path=session.transcript_path or "",
+            status=str(getattr(session.status, "value", session.status)),
+            visibility=str(getattr(session.visibility, "value", session.visibility)),
+            live_contradictions_detected=int(session.live_contradictions_detected or 0),
+            principles_extracted=int(session.principles_extracted or 0),
+            summary_memo_id=session.summary_memo_id,
+            created_at=_dt(session.created_at) if session.created_at else _utcnow(),
+            updated_at=_utcnow(),
+        )
+        with self.session() as s:
+            existing = s.get(StoredDialecticSession, session.id)
+            if existing is None:
+                s.add(row)
+            else:
+                _copy_sqlmodel_fields(existing, row, exclude={"id", "created_at"})
+            s.commit()
+
+    def _hydrate_dialectic_session(self, row):  # noqa: ANN001
+        from noosphere.models import (
+            DialecticParticipant,
+            DialecticSession,
+            DialecticSessionStatus,
+            DialecticVisibility,
+        )
+
+        try:
+            participants_raw = json.loads(row.participants_json or "[]")
+        except Exception:
+            participants_raw = []
+        participants = []
+        for p in participants_raw:
+            try:
+                participants.append(DialecticParticipant.model_validate(p))
+            except Exception:
+                continue
+        return DialecticSession(
+            id=row.id,
+            organization_id=row.organization_id,
+            title=row.title,
+            started_at=row.started_at,
+            ended_at=row.ended_at,
+            participants=participants,
+            audio_path=row.audio_path,
+            transcript_path=row.transcript_path,
+            status=DialecticSessionStatus(row.status),
+            visibility=DialecticVisibility(row.visibility),
+            live_contradictions_detected=row.live_contradictions_detected,
+            principles_extracted=row.principles_extracted,
+            summary_memo_id=row.summary_memo_id,
+            created_at=row.created_at,
+            updated_at=row.updated_at,
+        )
+
+    def get_dialectic_session(self, session_id: str):  # noqa: ANN201
+        with self.session() as s:
+            row = s.get(StoredDialecticSession, session_id)
+        return self._hydrate_dialectic_session(row) if row is not None else None
+
+    def list_dialectic_sessions(
+        self,
+        organization_id: str,
+        *,
+        status: Optional[str] = None,
+        limit: int = 50,
+    ):
+        with self.session() as s:
+            stmt = select(StoredDialecticSession).where(
+                StoredDialecticSession.organization_id == organization_id
+            )
+            if status:
+                stmt = stmt.where(StoredDialecticSession.status == status)
+            stmt = stmt.order_by(desc(StoredDialecticSession.started_at)).limit(limit)
+            rows = list(s.exec(stmt).all())
+        return [self._hydrate_dialectic_session(r) for r in rows]
+
+    def put_dialectic_utterance(self, utterance) -> None:  # noqa: ANN001
+        row = StoredDialecticUtterance(
+            id=utterance.id,
+            session_id=utterance.session_id,
+            speaker_id=utterance.speaker_id,
+            start_time=float(utterance.start_time or 0.0),
+            end_time=float(utterance.end_time or 0.0),
+            text=utterance.text or "",
+            extracted_claim_ids_json=json.dumps(
+                list(utterance.extracted_claim_ids or [])
+            ),
+            derived_principle_ids_json=json.dumps(
+                list(utterance.derived_principle_ids or [])
+            ),
+            live_contradiction_flags_json=json.dumps(
+                list(utterance.live_contradiction_flags or []),
+                default=str,
+            ),
+            created_at=_dt(utterance.created_at) if utterance.created_at else _utcnow(),
+        )
+        with self.session() as s:
+            existing = s.get(StoredDialecticUtterance, utterance.id)
+            if existing is None:
+                s.add(row)
+            else:
+                _copy_sqlmodel_fields(existing, row, exclude={"id", "created_at"})
+            s.commit()
+
+    def list_dialectic_utterances(self, session_id: str):
+        from noosphere.models import DialecticUtterance
+
+        with self.session() as s:
+            stmt = (
+                select(StoredDialecticUtterance)
+                .where(StoredDialecticUtterance.session_id == session_id)
+                .order_by(StoredDialecticUtterance.start_time)
+            )
+            rows = list(s.exec(stmt).all())
+
+        def _safe_load(payload: str, fallback: Any) -> Any:
+            try:
+                return json.loads(payload)
+            except Exception:
+                return fallback
+
+        return [
+            DialecticUtterance(
+                id=r.id,
+                session_id=r.session_id,
+                speaker_id=r.speaker_id,
+                start_time=r.start_time,
+                end_time=r.end_time,
+                text=r.text,
+                extracted_claim_ids=_safe_load(r.extracted_claim_ids_json, []),
+                derived_principle_ids=_safe_load(r.derived_principle_ids_json, []),
+                live_contradiction_flags=_safe_load(
+                    r.live_contradiction_flags_json, []
+                ),
+                created_at=r.created_at,
+            )
+            for r in rows
+        ]
+
+    def put_dialectic_contradiction_flag(self, flag) -> None:  # noqa: ANN001
+        row = StoredDialecticContradictionFlag(
+            id=flag.id,
+            utterance_id=flag.utterance_id,
+            flag_kind=str(getattr(flag.flag_kind, "value", flag.flag_kind)),
+            prior_utterance_id=flag.prior_utterance_id,
+            prior_principle_id=flag.prior_principle_id,
+            prior_speaker_id=flag.prior_speaker_id,
+            contradiction_score=float(flag.contradiction_score or 0.0),
+            axis=flag.axis,
+            human_explanation=flag.human_explanation,
+            detection_method=flag.detection_method or "",
+            acknowledged_at=_dt(flag.acknowledged_at) if flag.acknowledged_at else None,
+            acknowledged_by=flag.acknowledged_by,
+            acknowledgment_note=flag.acknowledgment_note,
+            detected_at=_dt(flag.detected_at) if flag.detected_at else _utcnow(),
+        )
+        with self.session() as s:
+            existing = s.get(StoredDialecticContradictionFlag, flag.id)
+            if existing is None:
+                s.add(row)
+            else:
+                _copy_sqlmodel_fields(existing, row, exclude={"id"})
+            s.commit()
+
+    def list_dialectic_flags_for_session(self, session_id: str):
+        from noosphere.models import (
+            DialecticContradictionFlag,
+            DialecticContradictionFlagKind,
+        )
+
+        with self.session() as s:
+            stmt = (
+                select(StoredDialecticContradictionFlag)
+                .join(
+                    StoredDialecticUtterance,
+                    StoredDialecticUtterance.id
+                    == StoredDialecticContradictionFlag.utterance_id,
+                )
+                .where(StoredDialecticUtterance.session_id == session_id)
+                .order_by(StoredDialecticContradictionFlag.detected_at)
+            )
+            rows = list(s.exec(stmt).all())
+        out = []
+        for r in rows:
+            out.append(
+                DialecticContradictionFlag(
+                    id=r.id,
+                    utterance_id=r.utterance_id,
+                    flag_kind=DialecticContradictionFlagKind(r.flag_kind),
+                    prior_utterance_id=r.prior_utterance_id,
+                    prior_principle_id=r.prior_principle_id,
+                    prior_speaker_id=r.prior_speaker_id,
+                    contradiction_score=r.contradiction_score,
+                    axis=r.axis,
+                    human_explanation=r.human_explanation,
+                    detection_method=r.detection_method,
+                    acknowledged_at=r.acknowledged_at,
+                    acknowledged_by=r.acknowledged_by,
+                    acknowledgment_note=r.acknowledgment_note,
+                    detected_at=r.detected_at,
+                )
+            )
+        return out
+
+    def acknowledge_dialectic_flag(
+        self,
+        flag_id: str,
+        *,
+        acknowledged_by: str,
+        note: str = "",
+    ) -> bool:
+        with self.session() as s:
+            row = s.get(StoredDialecticContradictionFlag, flag_id)
+            if row is None:
+                return False
+            row.acknowledged_at = _utcnow()
+            row.acknowledged_by = acknowledged_by
+            row.acknowledgment_note = note or None
+            s.add(row)
+            s.commit()
+        return True
+
+    def delete_dialectic_session_audio(self, session_id: str) -> bool:
+        """Erase the audio for a session past its retention window.
+
+        Transcript / utterances / flags are kept; only the binary blob path
+        is cleared and the row is updated. Returns True if anything changed.
+        """
+        with self.session() as s:
+            row = s.get(StoredDialecticSession, session_id)
+            if row is None or not row.audio_path:
+                return False
+            audio_path = row.audio_path
+            row.audio_path = ""
+            row.updated_at = _utcnow()
+            s.add(row)
+            s.commit()
+        try:
+            from pathlib import Path as _Path
+            p = _Path(audio_path)
+            if p.exists() and p.is_file():
+                p.unlink()
+        except Exception:
+            pass
+        return True
+
+    # ── Round 19 prompt 15: BetSpec / BetResolution ─────────────────────────
+
+    def put_bet_spec(self, spec: Any) -> Any:
+        """Persist (insert or update) a :class:`noosphere.bets.spec.BetSpec`."""
+
+        from noosphere.bets.spec import BetSpec  # local import to avoid cycle
+
+        if not isinstance(spec, BetSpec):
+            raise TypeError(f"put_bet_spec expects BetSpec, got {type(spec)!r}")
+        spec.updated_at = _utcnow()
+        payload = spec.model_dump_json()
+        kind = (
+            spec.kind.value if hasattr(spec.kind, "value") else str(spec.kind)
+        )
+        status = (
+            spec.status.value if hasattr(spec.status, "value") else str(spec.status)
+        )
+        outcome = (
+            spec.outcome.value if hasattr(spec.outcome, "value") else spec.outcome
+        )
+        with self.session() as s:
+            existing = s.get(StoredBetSpec, spec.id)
+            if existing is not None:
+                existing.organization_id = spec.organization_id
+                existing.kind = kind
+                existing.status = status
+                existing.proposition = spec.proposition
+                existing.resolution_criterion = spec.resolution_criterion
+                existing.horizon_at = spec.horizon_at
+                existing.created_by_memo_id = spec.created_by_memo_id
+                existing.originating_algorithm_id = spec.originating_algorithm_id
+                existing.updated_at = spec.updated_at
+                existing.resolved_at = spec.resolved_at
+                existing.outcome = outcome
+                existing.outcome_note = spec.outcome_note
+                existing.payload_json = payload
+                s.add(existing)
+            else:
+                s.add(
+                    StoredBetSpec(
+                        id=spec.id,
+                        organization_id=spec.organization_id,
+                        kind=kind,
+                        status=status,
+                        proposition=spec.proposition,
+                        resolution_criterion=spec.resolution_criterion,
+                        horizon_at=spec.horizon_at,
+                        created_by_memo_id=spec.created_by_memo_id,
+                        originating_algorithm_id=spec.originating_algorithm_id,
+                        created_at=spec.created_at,
+                        updated_at=spec.updated_at,
+                        resolved_at=spec.resolved_at,
+                        outcome=outcome,
+                        outcome_note=spec.outcome_note,
+                        payload_json=payload,
+                    )
+                )
+            s.commit()
+        return spec
+
+    def get_bet_spec(self, spec_id: str) -> Optional[Any]:
+        from noosphere.bets.spec import BetSpec  # local import
+
+        with self.session() as s:
+            row = s.get(StoredBetSpec, spec_id)
+            if row is None:
+                return None
+            try:
+                return BetSpec.model_validate_json(row.payload_json)
+            except Exception:
+                return None
+
+    def list_bet_specs(
+        self,
+        *,
+        organization_id: Optional[str] = None,
+        kind: Optional[str] = None,
+        status: Optional[str] = None,
+        memo_id: Optional[str] = None,
+        limit: int = 200,
+    ) -> list[Any]:
+        from noosphere.bets.spec import BetSpec
+
+        with self.session() as s:
+            stmt = select(StoredBetSpec)
+            if organization_id is not None:
+                stmt = stmt.where(StoredBetSpec.organization_id == organization_id)
+            if kind is not None:
+                stmt = stmt.where(StoredBetSpec.kind == kind)
+            if status is not None:
+                stmt = stmt.where(StoredBetSpec.status == status)
+            if memo_id is not None:
+                stmt = stmt.where(StoredBetSpec.created_by_memo_id == memo_id)
+            stmt = stmt.order_by(desc(StoredBetSpec.created_at)).limit(limit)
+            rows = s.exec(stmt).all()
+        out: list[BetSpec] = []
+        for row in rows:
+            try:
+                out.append(BetSpec.model_validate_json(row.payload_json))
+            except Exception:
+                continue
+        return out
+
+    def put_bet_resolution(self, resolution: Any) -> Any:
+        """Persist a :class:`noosphere.bets.spec.BetResolution` row."""
+
+        from noosphere.bets.spec import BetResolution
+
+        if not isinstance(resolution, BetResolution):
+            raise TypeError(
+                f"put_bet_resolution expects BetResolution, got {type(resolution)!r}"
+            )
+        payload = resolution.model_dump_json()
+        outcome = (
+            resolution.outcome.value
+            if hasattr(resolution.outcome, "value")
+            else str(resolution.outcome)
+        )
+        with self.session() as s:
+            existing = s.get(StoredBetResolution, resolution.id)
+            if existing is not None:
+                existing.bet_spec_id = resolution.bet_spec_id
+                existing.resolved_at = resolution.resolved_at
+                existing.outcome = outcome
+                existing.evidence_note = resolution.evidence_note
+                existing.resolved_by = resolution.resolved_by
+                existing.pnl_usd = resolution.pnl_usd
+                existing.cost_realized = resolution.cost_realized
+                existing.accuracy_score = resolution.accuracy_score
+                existing.audience_response = resolution.audience_response
+                existing.payload_json = payload
+                s.add(existing)
+            else:
+                s.add(
+                    StoredBetResolution(
+                        id=resolution.id,
+                        bet_spec_id=resolution.bet_spec_id,
+                        resolved_at=resolution.resolved_at,
+                        outcome=outcome,
+                        evidence_note=resolution.evidence_note,
+                        resolved_by=resolution.resolved_by,
+                        pnl_usd=resolution.pnl_usd,
+                        cost_realized=resolution.cost_realized,
+                        accuracy_score=resolution.accuracy_score,
+                        audience_response=resolution.audience_response,
+                        payload_json=payload,
+                    )
+                )
+            s.commit()
+        return resolution
+
+    def list_bet_resolutions(
+        self,
+        *,
+        bet_spec_id: Optional[str] = None,
+        limit: int = 100,
+    ) -> list[Any]:
+        from noosphere.bets.spec import BetResolution
+
+        with self.session() as s:
+            stmt = select(StoredBetResolution)
+            if bet_spec_id is not None:
+                stmt = stmt.where(StoredBetResolution.bet_spec_id == bet_spec_id)
+            stmt = stmt.order_by(desc(StoredBetResolution.resolved_at)).limit(limit)
+            rows = s.exec(stmt).all()
+        out: list[BetResolution] = []
+        for row in rows:
+            try:
+                out.append(BetResolution.model_validate_json(row.payload_json))
+            except Exception:
+                continue
+        return out

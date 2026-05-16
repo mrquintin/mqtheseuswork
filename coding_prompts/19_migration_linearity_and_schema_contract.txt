@@ -1,0 +1,123 @@
+You are operating in /Users/michaelquintin/Desktop/Theseus.
+
+Goal: enforce migration integrity across Prisma and Alembic and
+the Prisma-vs-SQLModel schema contract. Round 19 added 9+ new
+migrations on top of Round 18's stack; without explicit linearity
+and contract tests, a single drift produces silent runtime errors
+that surface as 500s in production weeks later. This prompt
+ships the tests + the pre-commit gate that catches that drift
+before it hits sync.
+
+What "linearity" means here:
+
+- Prisma: every migration directory has a strict total order; no
+  branching, no skipped sequence numbers; every migration's
+  `migration.sql` applies cleanly from a fresh DB to HEAD in
+  filename-sorted order.
+- Alembic: every revision has exactly one `down_revision` (or
+  null for the base); the chain has no branches, no orphans,
+  no duplicate revision ids.
+- The Prisma migration HEAD and the Alembic HEAD describe the
+  same logical schema (modulo Prisma-only Next-specific tables
+  and Alembic-only noosphere internals).
+
+What "schema contract" means:
+
+- Every Prisma model that has a SQLModel mirror MUST have:
+  - same table name
+  - same column names
+  - column types compatible (Prisma `String` ↔ SQLModel `str`;
+    Prisma `Int` ↔ SQLModel `int`; etc. with documented mapping)
+  - same NOT NULL / nullable
+  - same indexes (compound key columns + order)
+- A documented allow-list of Prisma-only and SQLModel-only
+  tables.
+
+Before you start — read:
+1. Every migration directory under
+   `theseus-codex/prisma/migrations/`.
+2. Every Alembic revision under `noosphere/alembic/versions/`.
+3. The Prisma schema and the SQLModel definitions.
+
+Implement:
+
+A. `tests/migration/test_migration_linearity.py` (extend the
+   existing test from Round 18 if it landed):
+   - Lists every Prisma migration directory; asserts the
+     filename-sorted order is unbroken, no gaps in the
+     timestamp prefix, no two directories with identical
+     timestamps.
+   - Applies every migration in order against a fresh SQLite
+     (or Postgres if `TEST_POSTGRES_URL` is set) and asserts
+     the final schema matches `prisma migrate diff` against
+     the schema file.
+   - Same checks for Alembic: walks the revision chain from
+     base to head; asserts no branches, no duplicates, no
+     orphans; runs `alembic upgrade head`; runs
+     `alembic downgrade base`; runs `alembic upgrade head`
+     again. All three transitions must succeed.
+
+B. `tests/migration/test_prisma_alembic_parity.py`:
+   - Builds the canonical table list from Prisma's resolved
+     schema (via `prisma migrate diff --to-empty` or the
+     equivalent JSON output).
+   - Builds the canonical table list from Alembic's resolved
+     models (via SQLAlchemy's MetaData).
+   - For every table that appears in both, asserts column
+     name / type / null / index parity per the contract above.
+   - For every table that appears in only one, asserts it's in
+     the documented allow-list at
+     `docs/architecture/Prisma_Alembic_Allowlist.md`.
+   - Test fails with a structured diff identifying the divergent
+     table + column.
+
+C. `docs/architecture/Prisma_Alembic_Allowlist.md`:
+   - Two short tables: "Prisma-only" and "SQLModel-only", each
+     row naming the table + the single-sentence reason it's
+     unique to that surface.
+   - Any new table added to one side must add a row here, OR
+     gain a mirror on the other side. The test in B enforces.
+
+D. `scripts/check_migration_linearity.py`:
+   - The script form of the test (so the pre-commit hook from
+     Round 18 prompt 70 can call it without spinning up
+     pytest).
+   - Exits non-zero on any linearity or parity violation,
+     prints the specific divergence.
+
+E. Pre-commit hook extension. The hook from Round 18 prompt 70
+   (`scripts/hooks/pre-commit.sh`) is extended to run
+   `scripts/check_migration_linearity.py`. Failing migration
+   linearity refuses the commit.
+
+F. Sync-to-github extension. The sync script from prior rounds
+   gains a pre-push migration check. If `--skip-migration-check`
+   is not set and migration linearity is broken, sync refuses
+   with a structured error pointing at the divergent migration.
+
+G. Tests:
+   - Synthetic test fixture with a planted broken migration
+     (timestamp gap, missing down_revision, schema parity
+     drift). Each fixture must produce the correct failure
+     mode from the linearity test.
+   - Happy path on the current real migration set passes.
+
+Constraints
+- The test runs against SQLite by default. Postgres-only features
+  (RLS, GIN, etc.) are documented exceptions; the test skips
+  those checks but flags them in a manifest.
+- The allowlist is not a dumping ground. Every row must have a
+  one-sentence reason. Reviewers will look for this.
+- A failing linearity test BLOCKS sync. There's no `--force`
+  flag.
+
+SCOPE
+- `tests/migration/test_migration_linearity.py` CREATE-OR-MODIFY
+- `tests/migration/test_prisma_alembic_parity.py` CREATE
+- `docs/architecture/Prisma_Alembic_Allowlist.md` CREATE
+- `scripts/check_migration_linearity.py` CREATE-OR-MODIFY
+- `scripts/hooks/pre-commit.sh` MODIFY
+- `scripts/sync-to-github.sh` MODIFY
+- `tests/migration/fixtures/broken_timestamp_gap/` CREATE
+- `tests/migration/fixtures/broken_down_revision/` CREATE
+- `tests/migration/fixtures/broken_parity_drift/` CREATE

@@ -36,6 +36,7 @@ sys.modules.setdefault("current_events_api_tests_support", sys.modules[__name__]
 def client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setenv("DATABASE_URL", f"sqlite:///{tmp_path / 'currents.db'}")
     monkeypatch.setenv("NOOSPHERE_DATA_DIR", str(tmp_path))
+    monkeypatch.setenv("THESEUS_SKIP_BOOT_CHECK", "1")
     from current_events_api.main import app
 
     with TestClient(app) as test_client:

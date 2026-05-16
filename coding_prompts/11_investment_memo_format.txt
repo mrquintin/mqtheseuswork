@@ -1,0 +1,198 @@
+You are operating in /Users/michaelquintin/Desktop/Theseus.
+
+Goal: the MEMO. Speaker 4 in the meeting: "those conclusions get
+transferred into portfolio agents... as files, as memos." The
+memo is the canonical artifact emitted by the synthesizer
+(prompt 10) and consumed by the portfolio agent (prompt 12).
+It is also a public-readable document the firm publishes selectively
+to demonstrate its thinking.
+
+The memo is somewhere between an investment-committee memo and a
+Currents opinion piece — closer to the former. Structured
+sections, every claim cited, the bet implied, the reasoning
+auditable end-to-end.
+
+Memo structure (load-bearing — every memo follows this):
+
+1. **Header**:
+   - Title (auto-generated from the conclusion's assertion)
+   - Author: "Theseus — synthesizer v<X>" + the algorithm
+     invocations that contributed
+   - Date
+   - Question type (INVESTMENT_DECISION / FORECAST / EXPLANATORY /
+     STRATEGIC)
+   - Confidence band
+
+2. **TL;DR** (single paragraph, ≤ 80 words)
+   - The conclusion's assertion in plain English
+   - The single most-important governing principle
+   - The implied bet (if any)
+
+3. **Question constituted** (≤ 40 words)
+   - What exactly was asked, in canonical form
+
+4. **Governing principles** (numbered list)
+   - Each principle: text, source, link to detail page
+   - Why this principle governs the question
+
+5. **Observed inputs** (table)
+   - Each input: name, value at memo time, source artifact,
+     observed-at timestamp
+
+6. **Reasoning chain** (numbered, each step its own paragraph)
+   - "Step N: applied principle <name> to observation <input>
+      → derived: <intermediate fact>"
+   - The synthesis step explicitly labeled
+
+7. **Implied bet** (if any)
+   - Bet kind: equity / prediction-market / private-market /
+     advisory / non-financial
+   - Bet shape: stake range, side, horizon, ceilings
+   - Eight-gate readiness: which of the eight gates currently
+     pass / fail (so the operator sees what would need to be
+     true for the bet to fire)
+
+8. **What would update us** (≤ 100 words)
+   - The specific observation(s) that would invalidate the
+     conclusion
+   - The specific observation(s) that would strengthen it
+
+9. **Abstentions and caveats** (≤ 80 words)
+   - Any principles that ALMOST governed but were excluded,
+     with reason
+   - Contradictions in the firm's database that bear on this
+     question, with their lifecycle status
+   - Confidence band rationale
+
+10. **Provenance audit**
+    - Which provenance kinds were active (prompt 09)
+    - With what weighting
+    - Sources by provenance kind, count
+
+Before you start — read:
+1. The synthesizer engine from prompt 10 — the
+   `SynthesisResult` shape feeds this prompt directly.
+2. Round 18's existing memo precedents:
+   - `docs/research/internal/*` — those are research memos.
+   - Round 18 prompt 17's `Principle_Distillation_*.md`.
+3. The pdflatex pipeline from Round 18 prompt 67 (PDF guides).
+
+Implement:
+
+A. New entity `InvestmentMemo`:
+   - `id`, `organizationId` FK
+   - `synthesizerResultId` FK to the SynthesisResult that produced it
+   - `title`, `tldr`, `questionConstituted`
+   - `governingPrincipleIds`, `observedInputIds`,
+     `reasoningChain` (JSON)
+   - `impliedBet` (JSON; nullable)
+   - `whatWouldUpdateUs`, `abstentionsAndCaveats`
+   - `provenanceAudit` (JSON)
+   - `status` enum: DRAFT | UNDER_REVIEW | SENT | ARCHIVED |
+     PUBLIC
+   - `addressee` — text; the portfolio agent or human reviewer
+     this memo is addressed to. Default "Portfolio Agent —
+     <track name>".
+   - `pdfPath` — filesystem path under
+     `docs/memos/<yyyy>/<mm>/<slug>.pdf`
+   - `mdPath` — filesystem path under
+     `docs/memos/<yyyy>/<mm>/<slug>.md`
+   - `createdAt`, `updatedAt`, `sentAt`, `acknowledgedAt`,
+     `publishedAt`
+
+B. `noosphere/noosphere/synthesizer/memo_builder.py`:
+   - `def build_memo(synthesis_result, *, store) -> InvestmentMemo`:
+     1. Render the structured markdown body from the result's
+        reasoning chain + governing principles + inputs.
+     2. Validate the body against the 10-section contract
+        (every section present, length bounds respected).
+     3. Persist the InvestmentMemo row.
+     4. Write markdown to `mdPath`.
+     5. Trigger `build_memo_pdf` (below) to produce the PDF.
+     6. Return the InvestmentMemo.
+
+C. `noosphere/noosphere/synthesizer/memo_pdf.py`:
+   - `def build_memo_pdf(memo) -> str`:
+     - Renders the markdown body through a pdflatex template
+       (`docs/memos/_template.tex`).
+     - The template is restrained: 11pt body, Charter or
+       Palatino, narrow margins, no logo on body pages but
+       a small cover.
+     - The cover page repeats the title + TL;DR + addressee +
+       date.
+     - Two-pass compilation (refs + bibliography).
+     - Build script `docs/memos/build_memo_pdf.sh` is the
+       canonical entrypoint.
+
+D. Memo addressing. Portfolio agents are configured with
+   subscriptions to memo question_types / topics. When a memo
+   is built, the addressee is auto-filled. Operator can
+   re-address before SENDING.
+
+E. Memo lifecycle:
+   - DRAFT → built by the synthesizer; operator reviews.
+   - UNDER_REVIEW → optional intermediate state.
+   - SENT → dispatched to the portfolio agent (prompt 12).
+   - ARCHIVED → no action taken; reasons recorded.
+   - PUBLIC → operator chose to publish; appears on
+     `/memos` public surface.
+
+F. Public memos surface. New `/memos` page (gated by status =
+   PUBLIC). Each memo:
+   - The full 10-section structure, beautifully rendered.
+   - "Download PDF" link.
+   - "What we did" footer: was the implied bet taken? what
+     happened? (links to the portfolio agent's execution record.)
+
+G. Operator surface. `/(authed)/memos`:
+   - List of memos by status with filters.
+   - Per-memo detail page with edit-and-send controls.
+   - Send action: transitions DRAFT/UNDER_REVIEW → SENT, fires
+     the portfolio agent webhook (prompt 12).
+
+H. CLI:
+   - `noosphere memo build --synthesis <id>`
+   - `noosphere memo send --id <id>` — dispatches to portfolio
+     agent.
+   - `noosphere memo publish --id <id>` — makes public.
+   - `noosphere memo list --status SENT --since <iso>`
+
+I. Tests:
+   - Memo body validates against the 10-section contract.
+   - PDF builds cleanly on a synthetic fixture; size < 5MB.
+   - DRAFT → SENT lifecycle round-trip.
+   - Public surface renders only PUBLIC memos.
+   - Provenance audit accurately reflects the synthesis_result's
+     provenance_filter.
+   - Implied-bet section renders the eight-gate readiness panel.
+
+Constraints
+- Memos are NEVER auto-sent. The operator (or an explicit
+  pipeline rule) sends.
+- Memos in DRAFT status do NOT trigger bets.
+- The 10-section contract is non-optional. A memo missing any
+  section is REJECTED at build time, not silently shipped.
+- PDF rendering uses pdflatex (founder preference).
+- Memos addressed to a machine portfolio agent are still
+  reviewed by the operator before SENT (the operator can configure
+  an auto-send rule per topic; default is manual).
+
+SCOPE
+- `noosphere/noosphere/synthesizer/memo_builder.py` CREATE
+- `noosphere/noosphere/synthesizer/memo_pdf.py` CREATE
+- `noosphere/noosphere/synthesizer/memo_validator.py` CREATE
+- `noosphere/noosphere/models.py` MODIFY
+- `noosphere/noosphere/store.py` MODIFY
+- `theseus-codex/prisma/schema.prisma` MODIFY
+- `theseus-codex/prisma/migrations/<ts>_investment_memo/migration.sql` CREATE
+- `noosphere/alembic/versions/<rev>_investment_memo.py` CREATE
+- `docs/memos/_template.tex` CREATE
+- `docs/memos/build_memo_pdf.sh` CREATE
+- `docs/memos/.gitkeep` CREATE
+- `theseus-codex/src/app/memos/page.tsx` CREATE
+- `theseus-codex/src/app/memos/[slug]/page.tsx` CREATE
+- `theseus-codex/src/app/(authed)/memos/page.tsx` CREATE
+- `theseus-codex/src/app/(authed)/memos/[id]/page.tsx` CREATE
+- `noosphere/noosphere/cli.py` MODIFY
+- `noosphere/tests/test_memo_builder.py` CREATE
+- `noosphere/tests/test_memo_validator.py` CREATE

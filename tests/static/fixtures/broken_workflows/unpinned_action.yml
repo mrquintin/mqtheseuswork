@@ -1,0 +1,12 @@
+name: unpinned action
+on:
+  pull_request:
+jobs:
+  bad:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # This third-party action is intentionally NOT listed in
+      # .github/action_pins.yml — the integrity check must refuse it.
+      - uses: some-random-org/some-random-action@v1
+      - run: echo hello

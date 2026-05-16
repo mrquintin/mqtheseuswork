@@ -1,0 +1,116 @@
+You are operating in /Users/michaelquintin/Desktop/Theseus.
+
+Goal: confirm that prompts 19-27 — the bug-testing wave — are
+themselves correctly wired. This is the meta-verification: tests
+have tests; the gate has a gate. If THIS prompt passes, the
+operator can trust the rest of the bug-testing infrastructure
+to actually catch what it claims to catch.
+
+This prompt is structurally similar to Round 19 prompt 18 (the
+invariants pass for the algorithm layer) but scoped to the
+bug-testing infrastructure.
+
+The 12 meta-invariants this verifies:
+
+M1. **The migration linearity test catches a planted timestamp gap.**
+M2. **The Prisma/Alembic parity test catches a planted column drift.**
+M3. **The import-linter contract catches a planted forbidden import.**
+M4. **The type-contract test catches a planted Pydantic-to-TypeScript drift.**
+M5. **The smoke harness catches a planted 500-returning route.**
+M6. **The algorithm pipeline integration test catches a planted broken stage.**
+M7. **The env validator boot check refuses startup on a missing required var.**
+M8. **The sandbox test catches an adversarial trigger predicate.**
+M9. **The verbatim citation test catches a one-character-off citation.**
+M10. **The no-secrets-in-logs test catches a planted secret leak.**
+M11. **The bug-replay catalog has a 1:1 correspondence between BUG_CATALOG.md
+     entries and test functions.**
+M12. **The ready-to-sync gate fails cleanly when any step fails AND succeeds
+     cleanly when all steps pass.**
+
+Before you start — read:
+1. Every prompt 19-27's tests + scripts. Note where each
+   plants its synthetic fixtures.
+2. Round 19 prompt 18's verification structure — same shape
+   applies here.
+
+Implement:
+
+A. `tests/meta/test_bugtesting_meta_invariants.py`:
+   - One test per Mxx above.
+   - Each test plants the documented synthetic fixture and runs
+     the corresponding check, asserting it FAILS (because the
+     check is supposed to catch the planted bug).
+   - Then removes the planted fixture and asserts the check
+     PASSES.
+   - Pattern: "the test that tests the test."
+
+B. Comprehensive dry-run.
+   `scripts/meta/dry_run_ready_to_sync.sh`:
+   - Runs `scripts/ready-to-sync.sh --dry-run` against the
+     current state.
+   - Asserts every step completes without halting (passes or
+     warns, never errors).
+   - Captures the structured-log output and verifies it has
+     the expected schema:
+     `{ step_name, duration_s, status: PASS|WARN|FAIL,
+        details? }`.
+
+C. Coverage report. `tests/meta/test_coverage_of_round19_changes.py`:
+   - Walks every CREATE'd file under Round 19's 18 prompts.
+   - For each file, computes test coverage (line + branch).
+   - Asserts every Round 19 CREATE'd Python file has ≥ 60%
+     line coverage (the round's stated bar; tighter bars
+     come in later rounds).
+   - Frontend coverage (TS/TSX) ≥ 50%.
+   - Files exempt by category: generated types, fixture data,
+     dev-only scripts. Exempt list lives at
+     `tests/meta/coverage_exemptions.yml`.
+
+D. Round 19b summary report.
+   `docs/verification/round19b_bugtesting_2026_05_15/SUMMARY.md`:
+   - One paragraph per prompt 19-27 with status (SHIPPED /
+     PARTIAL) and an evidence pointer (the test file + the
+     CI workflow link).
+   - Each meta-invariant M1..M12 with PASS / FAIL.
+   - Per-step timing for `ready-to-sync.sh` on the operator's
+     Mac (the gate's wall-clock perf).
+   - "How to use this infrastructure going forward":
+     - Daily: run `make ready-to-sync` before pushing.
+     - When something fails: read the structured-log report
+       at the path the gate prints.
+     - When adding a new bug class: add a test to the
+       regression catalog (prompt 25) AND a Bxx entry in
+       BUG_CATALOG.md.
+
+E. README "bug-testing" footer. Append to
+   `coding_prompts/README.md`:
+   - Brief description of Round 19b (prompts 19-28).
+   - The `ready-to-sync` command as the daily driver.
+   - Pointer to the SUMMARY.md.
+
+F. CHANGELOG entry. `CHANGELOG.md` appended:
+   - "Round 19b — bug-testing infrastructure. 10 prompts adding
+     migration linearity, import-cycle enforcement, smoke
+     harness, pipeline integration test, env validation, sandbox
+     + safety regression, bug-replay catalog, CI/doc freshness,
+     pre-sync gate, and meta-verification. Sync to GitHub now
+     pre-flighted by `ready-to-sync`."
+
+Constraints
+- This prompt VERIFIES. It does not implement new bug-testing
+  features. Any gap is filed for Round 20.
+- A FAIL on any Mxx halts with a structured summary.
+- The coverage report's exempt list is intentionally short; a
+  long exempt list is a code smell.
+- This prompt is the LAST one in the round. After it passes,
+  the operator runs `make ready-to-sync && make sync` and the
+  round is done.
+
+SCOPE
+- `tests/meta/test_bugtesting_meta_invariants.py` CREATE
+- `tests/meta/test_coverage_of_round19_changes.py` CREATE
+- `tests/meta/coverage_exemptions.yml` CREATE
+- `scripts/meta/dry_run_ready_to_sync.sh` CREATE
+- `docs/verification/round19b_bugtesting_2026_05_15/SUMMARY.md` CREATE
+- `coding_prompts/README.md` MODIFY
+- `CHANGELOG.md` MODIFY

@@ -1,0 +1,15 @@
+% Adversarial pdflatex input — verifies that the canonical build
+% script refuses shell-escape. \write18 is the LaTeX primitive that,
+% under -shell-escape, executes the argument in /bin/sh. With
+% shell-escape disabled (the canonical build configuration) pdflatex
+% must either ignore the directive or refuse the document.
+%
+% A successful run that produced /tmp/theseus-shell-escape-canary
+% would prove the safety property is broken. The test cleans the
+% canary path before AND after the run regardless of outcome.
+\documentclass{article}
+\begin{document}
+Adversarial canary.
+\immediate\write18{touch /tmp/theseus-shell-escape-canary}
+End.
+\end{document}

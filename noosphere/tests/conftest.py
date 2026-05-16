@@ -413,3 +413,236 @@ def equities_seed():
         "positions": [position],
         "portfolio": portfolio,
     }
+
+
+@pytest.fixture
+def algorithm_layer_seed():
+    """Round-19 Layer-3 fixture.
+
+    Seeds two LogicalAlgorithm rows that exercise the schema's
+    full range:
+
+    * ``arms_race_escalation`` — DRAFT, modelled after the
+      Arms-Race Escalation Predictor example. Two pre-seeded
+      principles, a non-trivial trigger predicate, and a 4-step
+      reasoning chain (DETECT → APPLY_PRINCIPLE × 2 → SYNTHESIZE
+      → OUTPUT).
+    * ``founder_quality`` — ACTIVE, modelled after the
+      Founder-Quality Discriminator from the VC preset. Carries
+      the BetImplied pointer so the calibration layer has an
+      example with downstream effect.
+
+    Both algorithms share the same fictitious org. Tests can mutate
+    the seed freely; the underlying ``Store`` is in-memory.
+    """
+
+    from datetime import datetime, timezone
+
+    from noosphere.algorithms.schemas import (
+        AlgorithmBetImplied,
+        AlgorithmInput,
+        AlgorithmInputType,
+        AlgorithmOutput,
+        AlgorithmOutputType,
+        AlgorithmStatus,
+        ReasoningStep,
+        ReasoningStepKind,
+    )
+    from noosphere.models import LogicalAlgorithm
+    from noosphere.store import Store
+
+    st = Store.from_database_url("sqlite:///:memory:")
+    now = datetime(2026, 5, 15, 12, 0, tzinfo=timezone.utc)
+    org_id = "org_algorithm"
+
+    arms_race_principle_a = "principle_security_dilemma"
+    arms_race_principle_b = "principle_domestic_lockin"
+
+    arms_race = LogicalAlgorithm(
+        id="algorithm_arms_race_escalation",
+        organization_id=org_id,
+        name="Arms-Race Escalation Predictor",
+        description=(
+            "Detects bilateral arms-race onset between two states and "
+            "projects spending growth over a horizon."
+        ),
+        source_principle_ids=[arms_race_principle_a, arms_race_principle_b],
+        inputs=[
+            AlgorithmInput(
+                name="side_a_spending_delta",
+                type=AlgorithmInputType.RATIO,
+                description="State A YoY military spending delta.",
+                observability_source="currents.macro.defense_spending.side_a",
+            ),
+            AlgorithmInput(
+                name="side_b_spending_delta",
+                type=AlgorithmInputType.RATIO,
+                description="State B YoY military spending delta.",
+                observability_source="currents.macro.defense_spending.side_b",
+            ),
+            AlgorithmInput(
+                name="escalation_index",
+                type=AlgorithmInputType.INDEX,
+                description="Rhetoric escalation index derived from public statements.",
+                observability_source="currents.x.rhetoric_index",
+            ),
+            AlgorithmInput(
+                name="mediator_present",
+                type=AlgorithmInputType.BOOL,
+                description="Whether a credible third-party mediator is present.",
+                observability_source="manual.operator.entered",
+            ),
+        ],
+        output=AlgorithmOutput(
+            name="arms_race_projection",
+            type=AlgorithmOutputType.STRUCTURED,
+            description=(
+                "Per-side projected spending increase and confidence band "
+                "over a fixed horizon."
+            ),
+            fields=[
+                {"name": "side_a_spending_increase_pct", "type": "RATIO"},
+                {"name": "side_b_spending_increase_pct", "type": "RATIO"},
+                {"name": "horizon_months", "type": "NUMBER"},
+                {"name": "confidence_low", "type": "RATIO"},
+                {"name": "confidence_high", "type": "RATIO"},
+            ],
+        ),
+        reasoning_chain=[
+            ReasoningStep(
+                step_kind=ReasoningStepKind.DETECT,
+                predicate=(
+                    "input.side_a_spending_delta > 0 and "
+                    "input.side_b_spending_delta > 0 and "
+                    "input.escalation_index > 0.6 and "
+                    "input.mediator_present == False"
+                ),
+                derived_fact="Both states show positive spending delta with rising rhetoric and no mediator.",
+            ),
+            ReasoningStep(
+                step_kind=ReasoningStepKind.APPLY_PRINCIPLE,
+                principle_id=arms_race_principle_a,
+                derived_fact="Security-dilemma feedback loop projects continued mutual spending growth.",
+            ),
+            ReasoningStep(
+                step_kind=ReasoningStepKind.APPLY_PRINCIPLE,
+                principle_id=arms_race_principle_b,
+                derived_fact="Domestic-incentive lock-in reduces probability of reversal absent elite cost.",
+            ),
+            ReasoningStep(
+                step_kind=ReasoningStepKind.OUTPUT,
+                derived_fact="Project per-side spending growth with confidence band over horizon.",
+            ),
+        ],
+        trigger_predicate=(
+            "input.side_a_spending_delta > 0 and "
+            "input.side_b_spending_delta > 0 and "
+            "input.escalation_index > 0.6 and "
+            "input.mediator_present == False"
+        ),
+        status=AlgorithmStatus.DRAFT,
+        created_at=now,
+        updated_at=now,
+    )
+    st.put_algorithm(arms_race)
+
+    founder_principle_a = "principle_sustained_obsession"
+    founder_principle_b = "principle_track_record_prior"
+
+    founder_quality = LogicalAlgorithm(
+        id="algorithm_founder_quality",
+        organization_id=org_id,
+        name="Founder-Quality Discriminator",
+        description=(
+            "Scores a founder on sustained obsession, domain mastery, and "
+            "prior outcomes to inform investment recommendations."
+        ),
+        source_principle_ids=[founder_principle_a, founder_principle_b],
+        inputs=[
+            AlgorithmInput(
+                name="years_on_problem",
+                type=AlgorithmInputType.NUMBER,
+                description="Years the founder has been working on the problem.",
+                observability_source="manual.operator.entered",
+                units="years",
+            ),
+            AlgorithmInput(
+                name="domain_mastery_score",
+                type=AlgorithmInputType.INDEX,
+                description="Heuristic 0..1 score for domain mastery signals.",
+                observability_source="manual.operator.entered",
+            ),
+            AlgorithmInput(
+                name="prior_exits",
+                type=AlgorithmInputType.NUMBER,
+                description="Number of prior companies the founder has exited.",
+                observability_source="manual.operator.entered",
+            ),
+        ],
+        output=AlgorithmOutput(
+            name="founder_quality_score",
+            type=AlgorithmOutputType.SCORE,
+            description="Composite founder quality score in [0, 1].",
+            range=[0.0, 1.0],
+        ),
+        reasoning_chain=[
+            ReasoningStep(
+                step_kind=ReasoningStepKind.DETECT,
+                predicate="input.years_on_problem >= 3",
+                derived_fact="Founder has at least three years on the problem.",
+            ),
+            ReasoningStep(
+                step_kind=ReasoningStepKind.APPLY_PRINCIPLE,
+                principle_id=founder_principle_a,
+                derived_fact="Sustained-obsession principle elevates the prior on competence.",
+            ),
+            ReasoningStep(
+                step_kind=ReasoningStepKind.APPLY_PRINCIPLE,
+                principle_id=founder_principle_b,
+                derived_fact="Track-record principle updates the prior using prior outcomes.",
+            ),
+            ReasoningStep(
+                step_kind=ReasoningStepKind.SYNTHESIZE,
+                derived_fact="Combine signals into a composite founder-quality score.",
+            ),
+            ReasoningStep(
+                step_kind=ReasoningStepKind.OUTPUT,
+                derived_fact="Emit composite score with implied investment recommendation.",
+            ),
+        ],
+        trigger_predicate="input.years_on_problem >= 3",
+        status=AlgorithmStatus.DRAFT,
+        created_at=now,
+        updated_at=now,
+    )
+    st.put_algorithm(founder_quality)
+    # Promote to ACTIVE through the store helper so the validator
+    # stack is exercised on the path founders will actually use.
+    st.set_algorithm_status(
+        founder_quality.id,
+        AlgorithmStatus.ACTIVE,
+        revoked_principle_ids=set(),
+    )
+
+    return {
+        "store": st,
+        "organization_id": org_id,
+        "now": now,
+        "draft_algorithm_id": arms_race.id,
+        "active_algorithm_id": founder_quality.id,
+        "arms_race_principle_ids": [
+            arms_race_principle_a,
+            arms_race_principle_b,
+        ],
+        "founder_principle_ids": [
+            founder_principle_a,
+            founder_principle_b,
+        ],
+        "sample_bet": AlgorithmBetImplied(
+            venue="ic_partner_vote",
+            instrument="seed_check",
+            direction="invest",
+            sizing_hint="standard_seed_ticket",
+            rationale="Composite founder-quality score crossed firm threshold.",
+        ),
+    }

@@ -8,6 +8,7 @@ import { requireTenantContext } from "@/lib/tenant";
 import { AS_OF_ISO, asOfEndUtc } from "@/lib/replayDate";
 import JsonToggle from "./json-toggle";
 import ContradictionActions from "./contradiction-actions";
+import EngineActions from "./engine-actions";
 
 // Six coherence layers in the order the radar component expects.
 const LAYER_KEYS = [
@@ -432,6 +433,14 @@ type Row = {
   sixLayerJson: string | null;
   narrative: string;
   status: string;
+  // Canonical engine fields (R19/p06); null on legacy heuristic rows.
+  score?: number | null;
+  confidenceLow?: number | null;
+  confidenceHigh?: number | null;
+  axis?: string | null;
+  humanExplanation?: string | null;
+  detectionMethod?: string | null;
+  disputeCount?: number | null;
 };
 
 function ContradictionBand({
@@ -697,10 +706,18 @@ function ContradictionCard({
 
           {row.sixLayerJson && <JsonToggle json={row.sixLayerJson} />}
 
+          <EngineDetailsPanel row={row} />
+
           <ContradictionActions
             contradictionId={row.id}
             status={row.status}
           />
+          {row.detectionMethod ? (
+            <EngineActions
+              contradictionId={row.id}
+              status={row.status}
+            />
+          ) : null}
         </div>
       </details>
     </li>
@@ -895,6 +912,136 @@ function DetectionSummary({
         six-layer radar will appear here once the pipeline produces
         per-pair layer breakdowns.
       </p>
+    </div>
+  );
+}
+
+function EngineDetailsPanel({ row }: { row: Row }) {
+  if (!row.detectionMethod) return null;
+  const score = typeof row.score === "number" ? row.score : null;
+  const low =
+    typeof row.confidenceLow === "number" ? row.confidenceLow : null;
+  const high =
+    typeof row.confidenceHigh === "number" ? row.confidenceHigh : null;
+  return (
+    <div
+      style={{
+        marginTop: "0.85rem",
+        padding: "0.85rem 1rem",
+        border: "1px solid var(--stone-mid)",
+        borderLeft: "3px solid var(--gold)",
+        borderRadius: 2,
+        background: "rgba(212,160,23,0.04)",
+        fontSize: "0.78rem",
+        lineHeight: 1.55,
+        color: "var(--parchment)",
+      }}
+    >
+      <div
+        className="mono"
+        style={{
+          fontSize: "0.6rem",
+          letterSpacing: "0.18em",
+          textTransform: "uppercase",
+          color: "var(--amber-dim)",
+          marginBottom: "0.5rem",
+        }}
+      >
+        Contradiction engine · {row.detectionMethod}
+      </div>
+      <div
+        style={{
+          display: "grid",
+          gridTemplateColumns: "repeat(3, minmax(0, 1fr))",
+          gap: "0.9rem",
+          marginBottom: "0.6rem",
+        }}
+      >
+        <div>
+          <div
+            className="mono"
+            style={{
+              fontSize: "0.55rem",
+              color: "var(--parchment-dim)",
+              textTransform: "uppercase",
+            }}
+          >
+            Score
+          </div>
+          <div style={{ marginTop: "0.15rem" }}>
+            {score !== null ? score.toFixed(3) : "—"}
+          </div>
+        </div>
+        <div>
+          <div
+            className="mono"
+            style={{
+              fontSize: "0.55rem",
+              color: "var(--parchment-dim)",
+              textTransform: "uppercase",
+            }}
+          >
+            Confidence band
+          </div>
+          <div style={{ marginTop: "0.15rem" }}>
+            {low !== null && high !== null
+              ? `[${low.toFixed(3)}, ${high.toFixed(3)}]`
+              : "—"}
+          </div>
+        </div>
+        <div>
+          <div
+            className="mono"
+            style={{
+              fontSize: "0.55rem",
+              color: "var(--parchment-dim)",
+              textTransform: "uppercase",
+            }}
+          >
+            Axis
+          </div>
+          <div style={{ marginTop: "0.15rem" }}>{row.axis || "—"}</div>
+        </div>
+      </div>
+      {row.humanExplanation ? (
+        <p
+          style={{
+            margin: 0,
+            fontStyle: "italic",
+            color: "var(--parchment)",
+          }}
+        >
+          “{row.humanExplanation}”
+        </p>
+      ) : (
+        <p
+          style={{
+            margin: 0,
+            color: "var(--parchment-dim)",
+            fontStyle: "italic",
+            fontSize: "0.72rem",
+          }}
+        >
+          Engine detected this geometrically; no grounded human
+          explanation was produced (the explainer could not quote both
+          principles verbatim, so it abstained).
+        </p>
+      )}
+      {row.disputeCount && row.disputeCount > 0 ? (
+        <p
+          className="mono"
+          style={{
+            margin: "0.5rem 0 0",
+            fontSize: "0.62rem",
+            color: "var(--ember)",
+            letterSpacing: "0.12em",
+            textTransform: "uppercase",
+          }}
+        >
+          {row.disputeCount} dispute{row.disputeCount === 1 ? "" : "s"} on
+          file
+        </p>
+      ) : null}
     </div>
   );
 }

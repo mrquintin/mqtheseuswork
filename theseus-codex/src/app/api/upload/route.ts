@@ -129,6 +129,48 @@ export async function POST(req: Request) {
       );
     }
 
+    // Prompt 09 — provenance demarcation. Distinct from visibility; set
+    // by the founder at upload time. Reject unknown kinds outright so a
+    // typo can't quietly fall back to PROPRIETARY. External choices
+    // require a rationale of at least 30 characters.
+    const KNOWN_PROVENANCE = new Set([
+      "PROPRIETARY",
+      "ENDORSED_EXTERNAL",
+      "STUDIED_EXTERNAL",
+      "OPPOSING_EXTERNAL",
+    ] as const);
+    type ProvenanceKindStr =
+      | "PROPRIETARY"
+      | "ENDORSED_EXTERNAL"
+      | "STUDIED_EXTERNAL"
+      | "OPPOSING_EXTERNAL";
+    const rawProvenance = (
+      (formData.get("provenance") as string) || "PROPRIETARY"
+    ).toUpperCase();
+    if (!KNOWN_PROVENANCE.has(rawProvenance as ProvenanceKindStr)) {
+      return NextResponse.json(
+        { error: `Unknown provenance kind: ${rawProvenance}` },
+        { status: 400 },
+      );
+    }
+    const provenance = rawProvenance as ProvenanceKindStr;
+    const provenanceRationaleRaw = (
+      (formData.get("provenanceRationale") as string) || ""
+    ).trim();
+    const isExternalProvenance = provenance !== "PROPRIETARY";
+    if (isExternalProvenance && provenanceRationaleRaw.length < 30) {
+      return NextResponse.json(
+        {
+          error:
+            "External provenance requires a rationale of at least 30 characters explaining why this source is in our library.",
+        },
+        { status: 400 },
+      );
+    }
+    const provenanceRationale = isExternalProvenance
+      ? provenanceRationaleRaw
+      : null;
+
     if (!file) {
       return NextResponse.json({ error: "No file provided" }, { status: 400 });
     }
@@ -286,6 +328,8 @@ export async function POST(req: Request) {
           ? sanitizeAndCap(extraction.note, 2_000)
           : null,
         visibility,
+        provenance,
+        provenanceRationale,
         audioUrl,
         ...(publishFields ?? {}),
       },
