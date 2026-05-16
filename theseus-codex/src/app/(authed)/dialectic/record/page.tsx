@@ -45,7 +45,7 @@ async function createSession(formData: FormData) {
     throw new Error(`Failed to create session (${res.status})`);
   }
   const body = (await res.json()) as { session: { id: string } };
-  redirect(`/dialectic/sessions/${body.session.id}`);
+  redirect(`/dialectic/live/${body.session.id}`);
 }
 
 export default async function DialecticRecordPage() {

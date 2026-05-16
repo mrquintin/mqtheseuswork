@@ -5,12 +5,17 @@ import { db } from "@/lib/db";
 import { requireTenantContext } from "@/lib/tenant";
 
 /**
- * `/(authed)/memos` — operator memo inbox.
+ * `/inbox` — operator memo inbox.
  *
  * Lists every memo the firm has produced, scoped to the operator's
  * organization, with filters by status. The operator drives lifecycle
  * transitions (DRAFT → UNDER_REVIEW → SENT, or → ARCHIVED, or →
- * PUBLIC) from the per-memo detail page at `/memos/[id]`.
+ * PUBLIC) from the per-memo detail page at `/inbox/[id]`.
+ *
+ * Lives at `/inbox` (not `/memos`) because the public memo reader
+ * surface owns the `/memos/...` URL namespace. Same data store, two
+ * URLs: published memos surface publicly under `/memos/[slug]`, and
+ * operators drive the full lifecycle here.
  */
 
 export const dynamic = "force-dynamic";
@@ -91,7 +96,7 @@ export default async function AuthedMemosIndexPage({
   searchParams: Promise<{ status?: string }>;
 }) {
   const tenant = await requireTenantContext();
-  if (!tenant) redirect("/login?next=%2Fmemos");
+  if (!tenant) redirect("/login?next=%2Finbox");
   const params = await searchParams;
   const status = parseStatusFilter(params.status);
   const memos = await loadMemos(tenant.organizationId, status);
@@ -115,7 +120,7 @@ export default async function AuthedMemosIndexPage({
           }}
         >
           <Link
-            href="/memos"
+            href="/inbox"
             style={{ opacity: status === null ? 1 : 0.6 }}
           >
             all
@@ -123,7 +128,7 @@ export default async function AuthedMemosIndexPage({
           {STATUS_VALUES.map((value) => (
             <Link
               key={value}
-              href={`/memos?status=${value}`}
+              href={`/inbox?status=${value}`}
               style={{ opacity: status === value ? 1 : 0.6 }}
             >
               {value.toLowerCase()}
@@ -159,7 +164,7 @@ export default async function AuthedMemosIndexPage({
             {memos.map((memo) => (
               <tr key={memo.id} style={{ borderBottom: "1px solid var(--rule)" }}>
                 <td style={{ padding: "0.5rem 0.5rem 0.5rem 0" }}>
-                  <Link href={`/memos/${memo.id}`}>{memo.title || "—"}</Link>
+                  <Link href={`/inbox/${memo.id}`}>{memo.title || "—"}</Link>
                 </td>
                 <td className="mono" style={{ padding: "0.5rem" }}>
                   {memo.status.toLowerCase()}

@@ -480,10 +480,9 @@ export async function getInvocation(
 /**
  * `manual.operator.entered` inputs land on the public surface as
  * "operator input" — the value is real, but readers should know it is
- * hand-curated rather than ingested. This predicate centralises the
- * check so the badge wording stays consistent.
+ * hand-curated rather than ingested. The actual predicate now lives
+ * in `@/lib/algorithmsInputSource` so client components can import it
+ * without pulling in the Prisma chain through this module; re-exported
+ * here to keep the existing call sites unchanged.
  */
-export function isOperatorEntered(input: AlgorithmInputRow | string): boolean {
-  const source = typeof input === "string" ? input : input.observability_source;
-  return source === "manual.operator.entered" || source.startsWith("manual.");
-}
+export { isOperatorEntered } from "@/lib/algorithmsInputSource";

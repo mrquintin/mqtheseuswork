@@ -6,7 +6,7 @@ import { db } from "@/lib/db";
 import { requireTenantContext } from "@/lib/tenant";
 
 /**
- * `/(authed)/memos/[id]` — operator detail page.
+ * `/inbox/[id]` — operator memo detail page.
  *
  * Renders the persisted memo body and exposes the lifecycle actions
  * the operator drives:
@@ -18,6 +18,9 @@ import { requireTenantContext } from "@/lib/tenant";
  *
  * The operator can re-address the memo from this page before sending.
  * Sending is NEVER automatic — the synthesizer always emits in DRAFT.
+ *
+ * Lives at `/inbox/[id]` (not `/memos/[id]`) so the public reader at
+ * `/memos/[slug]` owns the canonical memo URL without ambiguity.
  */
 
 export const dynamic = "force-dynamic";
@@ -134,8 +137,15 @@ async function transitionMemo(formData: FormData): Promise<void> {
   if (targetStatus === "ARCHIVED") data.archivedAt = now;
 
   await memoApi.update({ where: { id }, data });
-  revalidatePath(`/memos/${id}`);
-  revalidatePath("/memos");
+  revalidatePath(`/inbox/${id}`);
+  revalidatePath("/inbox");
+  // A PUBLIC transition surfaces the memo on the public reader; nudge
+  // both the index and the slug-keyed detail so a freshly-published
+  // memo appears immediately.
+  if (targetStatus === "PUBLIC") {
+    revalidatePath("/memos");
+    revalidatePath(`/memos/${id}`);
+  }
 }
 
 function renderInline(text: string): string {
@@ -248,7 +258,7 @@ export default async function AuthedMemoDetailPage({
   return (
     <main className="authed-prose" data-testid="authed-memo-detail">
       <div style={{ marginBottom: "1rem" }}>
-        <Link href="/memos" className="mono" style={{ fontSize: "0.78rem" }}>
+        <Link href="/inbox" className="mono" style={{ fontSize: "0.78rem" }}>
           ← memo inbox
         </Link>
       </div>

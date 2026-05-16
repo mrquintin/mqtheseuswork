@@ -9,7 +9,7 @@ import { db } from "@/lib/db";
  * `/memos` — the public reader surface for investment memos the firm
  * has chosen to publish. Only memos with `status = PUBLIC` are
  * exposed; DRAFT, UNDER_REVIEW, SENT, and ARCHIVED memos are
- * operator-only and rendered under `/(authed)/memos`.
+ * operator-only and rendered under `/(authed)/inbox`.
  *
  * Round 19 prompt 11 ships the canonical 10-section investment-memo
  * format. The list page surfaces the title, TL;DR, addressee, and

@@ -83,7 +83,7 @@ export default function ScientificBetsTab({ rows }: Props) {
               </td>
               <td style={{ padding: "0.4rem" }}>
                 {row.memoId ? (
-                  <Link href={`/memos/${row.memoId}`}>{row.memoId}</Link>
+                  <Link href={`/inbox/${row.memoId}`}>{row.memoId}</Link>
                 ) : (
                   <span style={{ color: "var(--amber-dim)" }}>—</span>
                 )}

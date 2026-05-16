@@ -26,6 +26,7 @@ def test_revoked_source_is_reflected_on_public_detail(monkeypatch, tmp_path) -> 
     database_url = f"sqlite:///{tmp_path / 'revoked.db'}"
     monkeypatch.setenv("DATABASE_URL", database_url)
     monkeypatch.setenv("NOOSPHERE_DATA_DIR", str(tmp_path))
+    monkeypatch.setenv("THESEUS_SKIP_BOOT_CHECK", "1")
     monkeypatch.delenv("CURRENTS_ORG_ID", raising=False)
 
     from current_events_api.main import app

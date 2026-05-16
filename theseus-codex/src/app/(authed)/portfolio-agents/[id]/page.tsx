@@ -303,7 +303,7 @@ export default async function PortfolioAgentDetailPage({
               {dispatches.map((d) => (
                 <tr key={d.id} style={{ borderBottom: "1px solid var(--rule)" }}>
                   <td style={{ padding: "0.4rem 0.4rem 0.4rem 0" }}>
-                    <Link href={`/memos/${d.memoId}`}>{d.memoId}</Link>
+                    <Link href={`/inbox/${d.memoId}`}>{d.memoId}</Link>
                     {d.failureReason ? (
                       <div
                         className="mono"

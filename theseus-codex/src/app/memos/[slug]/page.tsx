@@ -16,7 +16,7 @@ import { db } from "@/lib/db";
  *
  * Operator-only memos (DRAFT, UNDER_REVIEW, SENT, ARCHIVED) NEVER
  * surface here — the `where` clause filters to status = PUBLIC. The
- * matching authed surface at `/(authed)/memos/[id]` is the operator
+ * matching authed surface at `/(authed)/inbox/[id]` is the operator
  * read-write view.
  */
 

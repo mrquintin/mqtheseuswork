@@ -5,7 +5,7 @@ import { founderDisplayName } from "@/lib/founderDisplay";
 import { requireTenantContext } from "@/lib/tenant";
 import ConclusionsPage from "../conclusions/page";
 import ExplorerPage from "../explorer/page";
-import LibraryPage from "../library/page";
+import LibraryPage from "../library/LibraryPage";
 import RetiredRouteToast from "./RetiredRouteToast";
 import KnowledgePrinciplesTab from "./PrinciplesTab";
 import KnowledgeCasesTab from "./CasesTab";

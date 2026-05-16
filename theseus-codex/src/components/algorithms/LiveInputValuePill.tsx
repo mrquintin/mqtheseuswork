@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 
-import { isOperatorEntered } from "@/lib/algorithmsPublicApi";
+import { isOperatorEntered } from "@/lib/algorithmsInputSource";
 
 /**
  * Small pill showing the live current value of an algorithm input.

@@ -502,7 +502,7 @@ function MemoTraceSurface({ rows }: { rows: MemoTraceRow[] }) {
               <td className="mono" style={{ padding: "0.4rem" }}>{row.stake}</td>
               <td className="mono" style={{ padding: "0.4rem" }}>{row.status.toLowerCase()}</td>
               <td style={{ padding: "0.4rem" }}>
-                <Link href={`/memos/${row.memoId}`}>{row.memoTitle || row.memoId}</Link>
+                <Link href={`/inbox/${row.memoId}`}>{row.memoTitle || row.memoId}</Link>
               </td>
               <td style={{ padding: "0.4rem" }}>
                 {row.agentId ? (

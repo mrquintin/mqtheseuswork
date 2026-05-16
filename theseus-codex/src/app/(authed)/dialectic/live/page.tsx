@@ -5,8 +5,12 @@ import { db } from "@/lib/db";
 import { requireTenantContext } from "@/lib/tenant";
 
 /**
- * `/(authed)/dialectic/sessions` — operator list of every Dialectic
+ * `/(authed)/dialectic/live` — operator list of every Dialectic
  * recorded session in the org (prompt 14).
+ *
+ * Lives at `/dialectic/live` (not `/dialectic/sessions`) so the public
+ * reader surface at `/dialectic/sessions/[id]` owns the canonical
+ * session URL without ambiguity.
  *
  * Sessions surface their current status, the live contradiction
  * count, and a deep link into the per-session detail page (which is
@@ -94,7 +98,7 @@ export default async function DialecticSessionsIndexPage() {
             {sessions.map((s) => (
               <tr key={s.id} data-session-id={s.id}>
                 <td>
-                  <Link href={`/dialectic/sessions/${s.id}`}>{s.title || s.id}</Link>
+                  <Link href={`/dialectic/live/${s.id}`}>{s.title || s.id}</Link>
                 </td>
                 <td>{s.status}</td>
                 <td>{s.visibility}</td>

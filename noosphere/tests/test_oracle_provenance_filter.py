@@ -119,6 +119,7 @@ def oracle_client(tmp_path, monkeypatch):
     """Spin up the Currents FastAPI app pointed at a fresh sqlite DB."""
     monkeypatch.setenv("DATABASE_URL", f"sqlite:///{tmp_path / 'oracle.db'}")
     monkeypatch.setenv("NOOSPHERE_DATA_DIR", str(tmp_path))
+    monkeypatch.setenv("THESEUS_SKIP_BOOT_CHECK", "1")
     from fastapi.testclient import TestClient
 
     from current_events_api.main import app

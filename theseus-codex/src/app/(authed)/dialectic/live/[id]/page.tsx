@@ -5,7 +5,7 @@ import { db } from "@/lib/db";
 import { requireTenantContext } from "@/lib/tenant";
 
 /**
- * `/(authed)/dialectic/sessions/[id]` — per-session operator view
+ * `/(authed)/dialectic/live/[id]` — per-session operator view
  * (prompt 14).
  *
  * Surfaces the participant consent panel, the rolling utterance
@@ -226,7 +226,7 @@ export default async function DialecticSessionDetailPage({
 
       {session.status !== "RECORDING" ? (
         <p>
-          <Link href={`/dialectic/sessions/${session.id}/triage`}>
+          <Link href={`/dialectic/live/${session.id}/triage`}>
             Review provisional principles in triage →
           </Link>
         </p>

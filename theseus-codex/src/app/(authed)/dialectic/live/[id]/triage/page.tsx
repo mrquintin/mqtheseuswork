@@ -4,7 +4,7 @@ import { db } from "@/lib/db";
 import { requireTenantContext } from "@/lib/tenant";
 
 /**
- * `/(authed)/dialectic/sessions/[id]/triage` — founder review queue
+ * `/(authed)/dialectic/live/[id]/triage` — founder review queue
  * for provisional principles surfaced by the live recorder
  * (prompt 14).
  *
