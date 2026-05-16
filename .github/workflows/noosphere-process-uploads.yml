@@ -364,8 +364,19 @@ jobs:
           NOOSPHERE_SKIP_AUTH: "1"
         run: |
           set -eo pipefail
-          echo "+ python -m noosphere codex-reanalyze --apply --limit 500 --max-embeddings 1000"
-          python -m noosphere codex-reanalyze --apply --limit 500 --max-embeddings 1000
+          echo "+ timeout 12m python -m noosphere codex-reanalyze --apply --limit 500 --max-embeddings 1000"
+          set +e
+          timeout 12m python -m noosphere codex-reanalyze --apply --limit 500 --max-embeddings 1000
+          status=$?
+          set -e
+          if [ "$status" -eq 124 ]; then
+            echo "::warning::codex-reanalyze timed out after 12 minutes; continuing to public refresh and Ops rollups."
+            exit 0
+          fi
+          if [ "$status" -ne 0 ]; then
+            echo "::warning::codex-reanalyze exited with status $status; continuing to public refresh and Ops rollups."
+            exit 0
+          fi
 
       - name: Refresh public Currents and articles
         if: always() && steps.secretcheck.outputs.skip != 'true'
