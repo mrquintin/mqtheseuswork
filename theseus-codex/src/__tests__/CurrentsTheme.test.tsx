@@ -82,9 +82,9 @@ describe("Currents theme tokens", () => {
           "currentsBg": "#08070a",
           "currentsBgElevated": "#08070a",
           "currentsBorder": "#3a2d12",
-          "currentsMuted": "#9c8f72",
+          "currentsMuted": "#c3b28d",
           "ink": "#08070a",
-          "parchmentDim": "#9c8f72",
+          "parchmentDim": "#c3b28d",
           "stone": "#08070a",
         },
         "light": {

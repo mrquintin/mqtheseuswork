@@ -4,12 +4,13 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   getFounder: vi.fn(),
-  db: {
-    upload: { findFirst: vi.fn(), findMany: vi.fn() },
-    conclusion: { findMany: vi.fn() },
-    $queryRaw: vi.fn(),
-  },
-}));
+	  db: {
+	    upload: { findFirst: vi.fn(), findMany: vi.fn() },
+	    conclusion: { findMany: vi.fn() },
+	    principle: { findMany: vi.fn() },
+	    $queryRaw: vi.fn(),
+	  },
+	}));
 
 vi.mock("next/link", () => ({
   default: ({
@@ -120,6 +121,7 @@ describe("TranscriptPage", () => {
         },
       ],
     });
+    mocks.db.principle.findMany.mockResolvedValue([]);
     mocks.db.conclusion.findMany.mockResolvedValue([
       {
         id: "conclusion-123456",

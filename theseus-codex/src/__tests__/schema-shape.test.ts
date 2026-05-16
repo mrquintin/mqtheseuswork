@@ -143,6 +143,13 @@ describe("schema-shape — Round 18 audit invariants", () => {
       "MethodMetricRollup",
       "AlertRule",
       "AlertEvent",
+      // Global security catalog. Tenant-specific signals and positions
+      // point at the shared instrument row.
+      "EquityInstrument",
+      // Market-data / citation children derive their tenant boundary
+      // through EquityInstrument or EquitySignal respectively.
+      "EquityPriceTick",
+      "EquitySignalCitation",
       // Single root.
       "Organization",
     ]);
@@ -167,7 +174,15 @@ describe("schema-shape — Round 18 audit invariants", () => {
       "MethodMetricRollup",
       "ConclusionMethod",
     ];
-    const METHODOLOGY_STAR = ["MethodologyProfile", "MethodologyQualityScore"];
+    const METHODOLOGY_STAR = [
+      "MethodologyProfile",
+      "MethodologyQualityScore",
+      // Methodology Review Week rows are schedule/public-review artifacts,
+      // not registry-keyed methods. The naming is deliberate and documented
+      // in the Round-18 audit addendum.
+      "MethodologyReviewWeek",
+      "MethodologyReviewDaySummary",
+    ];
     for (const name of METHOD_STAR) {
       expect(MODEL_NAMES.has(name), `Method* model ${name} must exist`).toBe(true);
     }

@@ -221,8 +221,8 @@ describe("operator stream reducer", () => {
 });
 
 describe("operator auth gate", () => {
-  it("redirects the /forecasts/operator path with no cookie", () => {
-    const res = middleware(new NextRequest("http://localhost:3000/forecasts/operator"));
+  it("redirects the /forecasts/operator path with no cookie", async () => {
+    const res = await middleware(new NextRequest("http://localhost:3000/forecasts/operator"));
 
     expect(res.status).toBe(307);
     expect(res.headers.get("location")).toContain("/login?next=%2Fforecasts%2Foperator");

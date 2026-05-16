@@ -1,6 +1,5 @@
 import type { ForecastBetSide, ForecastSource } from "@prisma/client";
 
-import { db } from "@/lib/db";
 import type {
   AnalogicalTransferReport,
   DecisionAction,
@@ -446,6 +445,7 @@ function gateState(gates: TraceGateResult[]): string {
 export async function getForecastPortfolioSurface(
   organizationId: string,
 ): Promise<ForecastPortfolioSurface> {
+  const { db } = await import("@/lib/db");
   const weekAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
 
   const [

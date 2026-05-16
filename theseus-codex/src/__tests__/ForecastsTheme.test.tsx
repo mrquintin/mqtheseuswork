@@ -90,11 +90,11 @@ describe("Forecasts theme tokens", () => {
           "forecastsBgElevated": "#08070a",
           "forecastsBorder": "#3a2d12",
           "forecastsCoolGold": "#e9a338",
-          "forecastsMuted": "#9c8f72",
+          "forecastsMuted": "#c3b28d",
           "forecastsParchment": "#efe2c7",
           "ink": "#08070a",
           "parchment": "#efe2c7",
-          "parchmentDim": "#9c8f72",
+          "parchmentDim": "#c3b28d",
           "stone": "#08070a",
         },
         "light": {

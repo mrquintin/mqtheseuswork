@@ -32,7 +32,6 @@ async function loadAxe(): Promise<void> {
   if (axeImportAttempted) return;
   axeImportAttempted = true;
   try {
-    // @ts-expect-error optional devDependency; CI installs it before this runs
     const mod = (await import("@axe-core/playwright")) as {
       default?: AxeBuilderCtor;
       AxeBuilder?: AxeBuilderCtor;

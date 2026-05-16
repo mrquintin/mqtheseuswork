@@ -4,7 +4,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import OperatorPage from "@/app/(authed)/forecasts/operator/page";
-import PortfolioPage from "@/app/(authed)/forecasts/portfolio/page";
+import PortfolioPage from "@/app/(authed)/portfolio/page";
 import ForecastDetailPage from "@/app/forecasts/[id]/page";
 import ForecastsPage from "@/app/forecasts/page";
 import PublicBlogIndex from "@/app/page";
@@ -25,7 +25,7 @@ import {
   getPortfolioSummary,
   listForecasts,
 } from "@/lib/forecastsApi";
-import { listOperatorLiveBets } from "@/lib/forecastsOperatorApi";
+import { getOperatorSetupStatus, listOperatorLiveBets } from "@/lib/forecastsOperatorApi";
 import type {
   OperatorBet,
   PortfolioSummary,
@@ -34,7 +34,7 @@ import type {
   PublicForecastSource,
   PublicMarket,
 } from "@/lib/forecastsTypes";
-import { listPublishedArticles } from "@/lib/conclusionsRead";
+import { listPublishedArticles, resolvePublicOrganizationId } from "@/lib/conclusionsRead";
 import { requireTenantContext } from "@/lib/tenant";
 
 vi.mock("@/lib/auth", () => ({
@@ -43,6 +43,7 @@ vi.mock("@/lib/auth", () => ({
 
 vi.mock("@/lib/conclusionsRead", () => ({
   listPublishedArticles: vi.fn(),
+  resolvePublicOrganizationId: vi.fn(),
 }));
 
 vi.mock("@/lib/currentsApi", () => ({
@@ -60,6 +61,10 @@ vi.mock("@/lib/currentsApi", () => ({
 
 vi.mock("@/lib/db", () => ({
   db: {
+    $queryRaw: vi.fn(),
+    forecastTrace: {
+      findMany: vi.fn(),
+    },
     upload: {
       findMany: vi.fn(),
     },
@@ -83,6 +88,7 @@ vi.mock("@/lib/forecastsApi", () => ({
 }));
 
 vi.mock("@/lib/forecastsOperatorApi", () => ({
+  getOperatorSetupStatus: vi.fn(),
   listOperatorLiveBets: vi.fn(),
 }));
 
@@ -103,6 +109,9 @@ vi.mock("next/navigation", () => ({
     throw new Error("NEXT_NOT_FOUND");
   }),
   redirect: vi.fn((url: string) => {
+    throw new Error(`NEXT_REDIRECT:${url}`);
+  }),
+  permanentRedirect: vi.fn((url: string) => {
     throw new Error(`NEXT_REDIRECT:${url}`);
   }),
   usePathname: vi.fn(() => "/"),
@@ -315,6 +324,50 @@ function liveBet(overrides: Partial<OperatorBet> = {}): OperatorBet {
   };
 }
 
+function operatorSetupStatus() {
+  return {
+    checked_at: NOW,
+    exchanges: {
+      kalshi: { configured: false, optional_env_vars: [], required_env_vars: [] },
+      polymarket: { configured: false, optional_env_vars: [], required_env_vars: [] },
+    },
+    kill_switch: {
+      daily_loss_usd: 0,
+      engaged: false,
+      live_balance_usd: 0,
+      reason: null,
+      updated_at: null,
+    },
+    live_trading_enabled: false,
+    organization_id: "org-smoke",
+    readiness: {
+      blockers: ["live_trading_disabled"],
+      monitoring_active: true,
+      ready_for_live_candidates: false,
+      ready_for_live_orders: false,
+    },
+    risk_limits: {
+      kill_switch_auto_threshold_usd: null,
+      max_daily_loss_configured: false,
+      max_daily_loss_usd: 0,
+      max_stake_configured: false,
+      max_stake_usd: 0,
+    },
+    scheduler: {
+      age_seconds: null,
+      error: null,
+      fresh: false,
+      last_generate_ts: null,
+      last_ingest_ts: null,
+      last_live_submission_ts: null,
+      max_age_seconds: 900,
+      present: false,
+      status_path: "fixture/status.json",
+    },
+    trading_mode: "PAPER_ONLY",
+  };
+}
+
 async function resolveAsyncServerComponents(node: ReactNode): Promise<ReactNode> {
   if (Array.isArray(node)) {
     const resolved = await Promise.all(node.map(resolveAsyncServerComponents));
@@ -359,8 +412,11 @@ describe("forecasts smoke fallback", () => {
       organizationSlug: "smoke",
       role: "founder",
     });
+    vi.mocked(db.$queryRaw).mockResolvedValue([]);
+    vi.mocked(db.forecastTrace.findMany).mockResolvedValue([]);
     vi.mocked(db.upload.findMany).mockResolvedValue([]);
     vi.mocked(listPublishedArticles).mockResolvedValue([]);
+    vi.mocked(resolvePublicOrganizationId).mockResolvedValue("org-smoke");
     vi.mocked(listCurrents).mockResolvedValue({
       items: [opinion("1"), opinion("2"), opinion("3"), opinion("4")],
     });
@@ -387,6 +443,7 @@ describe("forecasts smoke fallback", () => {
       items: [liveBet()],
       next_offset: null,
     });
+    vi.mocked(getOperatorSetupStatus).mockResolvedValue(operatorSetupStatus());
     vi.mocked(getForecastPortfolioSurface).mockResolvedValue({
       kpis: {
         hitRate: 1,
@@ -493,19 +550,17 @@ describe("forecasts smoke fallback", () => {
   });
 
   it("renders portfolio calibration, Brier, and clear kill-switch state", async () => {
-    const html = await htmlFor(
-      await PortfolioPage({ searchParams: Promise.resolve({}) }),
-    );
+    const html = await htmlFor(await PortfolioPage());
 
-    expect(html).toContain("PAPER");
-    expect(html).toContain("Open positions");
-    expect(html).toContain("Brier score");
+    expect(html).toContain("Prediction-market calibration");
+    expect(html).toContain("Brier-bucketed reliability curve");
+    expect(html).toContain("Active positions by asset class");
+    expect(html).toContain("Forecasts · DISABLED");
     expect(html).toContain("[C:smoke-on]");
-    expect(html).toContain("paper-ready");
   });
 
   it("requires auth for operator and renders disabled confirms for a founder when live trading is off", async () => {
-    const res = middleware(new NextRequest("http://localhost:3000/forecasts/operator"));
+    const res = await middleware(new NextRequest("http://localhost:3000/forecasts/operator"));
 
     expect(res.status).toBe(307);
     expect(res.headers.get("location")).toContain("/login?next=%2Fforecasts%2Foperator");

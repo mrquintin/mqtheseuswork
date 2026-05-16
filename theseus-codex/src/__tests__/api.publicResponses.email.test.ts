@@ -15,11 +15,17 @@ const emailMock = vi.hoisted(() => ({
   notifyFounderOfResponse: vi.fn(),
 }));
 
+const triageMock = vi.hoisted(() => ({
+  seedTriageRow: vi.fn(),
+}));
+
 vi.mock("@/lib/db", () => ({
   db: dbMock,
 }));
 
 vi.mock("@/lib/responsesEmail", () => emailMock);
+
+vi.mock("@/lib/responseTriageApi", () => triageMock);
 
 import { POST } from "@/app/api/public/responses/route";
 
@@ -76,6 +82,7 @@ describe("POST /api/public/responses founder email notification", () => {
     dbMock.publishedConclusion.findFirst.mockResolvedValue(publishedConclusion);
     dbMock.publicResponse.count.mockResolvedValue(0);
     dbMock.publicResponse.create.mockResolvedValue(persistedResponse);
+    triageMock.seedTriageRow.mockResolvedValue(undefined);
     emailMock.notifyFounderOfResponse.mockResolvedValue({
       delivered: true,
       provider: "resend",
@@ -117,6 +124,7 @@ describe("POST /api/public/responses founder email notification", () => {
         submitterEmail: "reader@example.com",
         orcid: "",
         pseudonymous: false,
+        publishConsent: false,
         status: "pending",
       },
     });

@@ -137,6 +137,14 @@ Round-17 models that **do not** carry `organizationId` directly:
   have no tenant in their immediate scope. The rollup/rule/event tables
   group by `method` (a registry name), not by tenant. **This is by design,
   not drift** — see prompt 44 SCOPE.
+- `EquityInstrument` — global market/security catalog keyed by
+  `(symbol, exchange)`. Tenant-specific judgment and exposure are held by
+  `EquitySignal` and `EquityPosition`; duplicating instruments per
+  organization would corrupt price/tick joins and cross-tenant market
+  identity.
+- `EquityPriceTick` and `EquitySignalCitation` — child rows. Ticks inherit
+  market identity through the global `EquityInstrument`; citations inherit
+  tenant scope through their required `EquitySignal` parent.
 
 No repair.
 
@@ -153,6 +161,10 @@ data migration:
    describes a corpus's reasoning style, while `MethodVersion` describes a
    registered Python method snapshot — and renaming would re-link every
    relation collection on `Organization`, `Conclusion`, and `Upload`.
+   `MethodologyReviewWeek` and `MethodologyReviewDaySummary` are a later
+   schedule/review artifact: they deliberately use the `Methodology*` prefix
+   because they govern methodology review, not executable method registry
+   entries.
 2. **`*Triage` vs `*TriageItem`.** `ResponseTriage` is a 1:1 sidecar to
    `PublicResponse`; `SourceTriageItem` is a queue with multiple rows
    per source. The naming reflects the relationship cardinality (1:1 vs

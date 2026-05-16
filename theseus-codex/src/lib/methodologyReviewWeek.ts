@@ -1,8 +1,4 @@
-import { db } from "@/lib/db";
-import {
-  gatherAttentionItems,
-  type AttentionItem,
-} from "@/lib/attention";
+import type { AttentionItem } from "@/lib/attention";
 import type { AttentionQueueId } from "@/lib/attentionShared";
 import type { TenantContext } from "@/lib/tenant";
 
@@ -69,6 +65,11 @@ export type ReviewWeekStatus = (typeof REVIEW_WEEK_STATUSES)[number];
 
 export const DRAFT_BANNER =
   "**DRAFT — generated from the day's queue; the founder writes the final.**";
+
+async function loadDb() {
+  const { db } = await import("@/lib/db");
+  return db;
+}
 
 // ── Schedule generation (mirrors the Python module) ───────────────────
 
@@ -188,6 +189,7 @@ async function loadOrSeedWeekRow(
   year: number,
   quarter: number,
 ) {
+  const db = await loadDb();
   const existing = await db.methodologyReviewWeek.findUnique({
     where: {
       organizationId_year_quarter: {
@@ -242,6 +244,7 @@ export async function getActiveReviewWeek(
   tenant: TenantContext,
   now: Date = new Date(),
 ): Promise<ReviewWeek | null> {
+  const db = await loadDb();
   const candidates = await db.methodologyReviewWeek.findMany({
     where: {
       organizationId: tenant.organizationId,
@@ -276,6 +279,7 @@ export async function getCurrentOrNextWeek(
 ): Promise<ReviewWeek> {
   const active = await getActiveReviewWeek(tenant, now);
   if (active) return active;
+  const db = await loadDb();
   const upcoming = await db.methodologyReviewWeek.findFirst({
     where: {
       organizationId: tenant.organizationId,
@@ -335,6 +339,7 @@ export async function loadDayPage(
   }
   const week = await getOrSeedWeek(tenant, year, quarter);
   const day = week.days[dayIndex - 1];
+  const { gatherAttentionItems } = await import("@/lib/attention");
   const [summary, queue] = await Promise.all([
     loadDaySummary(tenant, week, dayIndex),
     gatherAttentionItems(tenant).catch((err) => {
@@ -355,6 +360,7 @@ async function loadDaySummary(
   week: ReviewWeek,
   dayIndex: number,
 ): Promise<DaySummaryRow | null> {
+  const db = await loadDb();
   const weekRow = await db.methodologyReviewWeek.findUnique({
     where: {
       organizationId_year_quarter: {
@@ -460,6 +466,7 @@ export async function listHistoricalReviewWeeks(
   options: { now?: Date; limit?: number } = {},
 ): Promise<HistoricalReviewWeek[]> {
   const now = options.now ?? new Date();
+  const db = await loadDb();
   const rows = await db.methodologyReviewWeek.findMany({
     where: {
       organizationId: tenant.organizationId,
@@ -515,6 +522,7 @@ export async function publicReviewWeekHint(
   let lastOn: Date | null = null;
   let nextOn: Date | null = null;
   try {
+    const db = await loadDb();
     const lastCompleted = await db.methodologyReviewWeek.findFirst({
       where: {
         ...orgScope,
@@ -538,7 +546,10 @@ export async function publicReviewWeekHint(
       nextOn = upcoming.startDate;
     }
   } catch (err) {
-    console.error("[methodology-review-week] public hint query failed:", err);
+    const message = err instanceof Error ? err.message : String(err);
+    if (!message.includes("DATABASE_URL must be set")) {
+      console.error("[methodology-review-week] public hint query failed:", err);
+    }
   }
   if (!nextOn) {
     try {

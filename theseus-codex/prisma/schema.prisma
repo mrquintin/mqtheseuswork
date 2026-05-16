@@ -1513,6 +1513,8 @@ model ForecastFollowUpMessage {
 
 // ── Equities — instruments, ticks, signals, positions, portfolio state ──────
 
+/// Global market instrument catalog. Tenant-specific judgment and exposure live
+/// on EquitySignal / EquityPosition; the symbol+exchange identity is shared.
 model EquityInstrument {
   id          String           @id @default(cuid())
   symbol      String           @db.VarChar(16)
@@ -1532,6 +1534,7 @@ model EquityInstrument {
   signals   EquitySignal[]
   positions EquityPosition[]
 
+  // One canonical instrument row per listed symbol on an exchange.
   @@unique([symbol, exchange])
   @@index([assetClass])
   @@index([updatedAt])

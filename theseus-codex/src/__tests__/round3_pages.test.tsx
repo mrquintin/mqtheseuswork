@@ -196,6 +196,7 @@ vi.mock("@/lib/api/round3", () => ({
     publishedAt: "2026-01-10T10:00:00Z",
     publishedBy: "Test Founder",
   }),
+  fetchMethodDriftSummary: vi.fn().mockResolvedValue(null),
   fetchMethodCandidates: vi.fn().mockResolvedValue([
     {
       id: "cand-1",

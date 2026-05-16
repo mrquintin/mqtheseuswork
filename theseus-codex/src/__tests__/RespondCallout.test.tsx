@@ -173,6 +173,7 @@ describe("RespondCallout", () => {
         submitterEmail: "reader@example.com",
         orcid: "0000-0002-1825-0097",
         pseudonymous: false,
+        publishConsent: false,
       }),
     });
   });

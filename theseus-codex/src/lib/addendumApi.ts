@@ -1,4 +1,3 @@
-import { db } from "@/lib/db";
 import type { TenantContext } from "@/lib/tenant";
 
 /**
@@ -59,6 +58,11 @@ const ADDENDUM_SELECT = {
   dismissedReason: true,
 } as const;
 
+async function loadDb() {
+  const { db } = await import("@/lib/db");
+  return db;
+}
+
 function toRecord(row: {
   id: string;
   articleSlug: string;
@@ -93,6 +97,7 @@ export async function listPublishedAddenda(
   slug: string,
 ): Promise<AddendumRecord[]> {
   try {
+    const db = await loadDb();
     const rows = await db.addendum.findMany({
       where: {
         articleSlug: slug,
@@ -117,6 +122,7 @@ export async function listAddendaForOperator(
   tenant: TenantContext,
   slug: string,
 ): Promise<AddendumRecord[]> {
+  const db = await loadDb();
   const rows = await db.addendum.findMany({
     where: {
       organizationId: tenant.organizationId,
@@ -143,6 +149,7 @@ export async function createPendingAddendum(
   if (!summary) {
     throw new Error("createPendingAddendum: summary is required");
   }
+  const db = await loadDb();
   const row = await db.addendum.create({
     data: {
       organizationId: tenant.organizationId,
@@ -169,6 +176,7 @@ export async function publishAddendum(
   id: string,
   now: Date = new Date(),
 ): Promise<AddendumRecord> {
+  const db = await loadDb();
   const existing = await db.addendum.findFirst({
     where: { id, organizationId: tenant.organizationId },
     select: ADDENDUM_SELECT,
@@ -207,6 +215,7 @@ export async function dismissAddendum(
   if (!cleanedReason) {
     throw new Error("dismissAddendum: reason is required");
   }
+  const db = await loadDb();
   const existing = await db.addendum.findFirst({
     where: { id, organizationId: tenant.organizationId },
     select: ADDENDUM_SELECT,

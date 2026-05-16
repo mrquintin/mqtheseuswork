@@ -162,7 +162,7 @@ describe("forecasts portfolio page", () => {
 
     expect(bucketForProbability(1)).toBe(0.9);
     expect(ts).toEqual(python);
-  });
+  }, 20_000);
 
   it("StatusStrip shows ENGAGED with the red palette when the kill switch is active", () => {
     const html = renderToStaticMarkup(

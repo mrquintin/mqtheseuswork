@@ -12,7 +12,6 @@ import RetirementBanner, {
   type RetirementInfo,
   type RetirementState,
 } from "@/components/RetirementBanner";
-import { db } from "@/lib/db";
 import { requireTenantContext } from "@/lib/tenant";
 import {
   describeConfidenceBand,
@@ -31,6 +30,7 @@ async function fetchRetirement(
   name: string,
 ): Promise<RetirementInfo | null> {
   try {
+    const { db } = await import("@/lib/db");
     const rows = await db.$queryRaw<
       Array<{
         state: string;

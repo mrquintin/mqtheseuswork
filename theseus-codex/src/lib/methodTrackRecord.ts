@@ -1,5 +1,3 @@
-import { db } from "@/lib/db";
-
 /**
  * Per-method track-record surface, materialized by `noosphere methods
  * track-record --rebuild` into the `MethodTrackRecord` table. The Python
@@ -82,15 +80,26 @@ export async function fetchTrackRecordsForMethod(
   methodName: string,
   methodVersion: string,
 ): Promise<MethodTrackRecordRow[]> {
-  const rows = await db.methodTrackRecord.findMany({
-    where: {
-      organizationId,
-      methodName,
-      methodVersion,
-    },
-    orderBy: [{ domain: "asc" }],
-  });
-  return rows.map(normalizeRow);
+  try {
+    const { db } = await import("@/lib/db");
+    const rows = await db.methodTrackRecord.findMany({
+      where: {
+        organizationId,
+        methodName,
+        methodVersion,
+      },
+      orderBy: [{ domain: "asc" }],
+    });
+    return rows.map(normalizeRow);
+  } catch (error) {
+    if (
+      !(error instanceof Error) ||
+      !error.message.includes("DATABASE_URL must be set")
+    ) {
+      console.error("method_track_record_fetch_failed", error);
+    }
+    return [];
+  }
 }
 
 /** Same as above, but returns a single record for the unspecified

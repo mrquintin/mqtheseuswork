@@ -80,7 +80,7 @@ export default function ForecastGridClient({ seed }: ForecastGridClientProps) {
         <EmptyForecastsMessage />
       )}
 
-      <style jsx>{`
+      <style>{`
         .forecasts-grid {
           display: grid;
           gap: 0.9rem;

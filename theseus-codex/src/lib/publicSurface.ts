@@ -12,7 +12,6 @@
  * publish path calls `revalidatePath('/')` + the matching tag below.
  */
 
-import { db } from "@/lib/db";
 import {
   listPublishedArticles,
   resolvePublicOrganizationId,
@@ -91,6 +90,16 @@ function toIsoString(value: Date | string | null | undefined): string {
   return parsed.toISOString();
 }
 
+async function loadDb() {
+  const { db } = await import("@/lib/db");
+  return db;
+}
+
+function shouldLogOptionalDbError(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error);
+  return !message.includes("DATABASE_URL must be set");
+}
+
 // Ordering rule: latest first (publishedAt DESC) with id ASC for
 // tie-break so two near-simultaneous publishes don't flip on refresh.
 function compareCardsByPublishedAtDesc<T extends { id: string; publishedAt: string }>(a: T, b: T): number {
@@ -121,6 +130,7 @@ async function listUploadArticles(
   limit: number,
 ): Promise<HomeArticleCard[]> {
   try {
+    const db = await loadDb();
     const rows = (await db.upload.findMany({
       where: {
         organizationId,
@@ -170,7 +180,9 @@ async function listUploadArticles(
       ];
     });
   } catch (error) {
-    console.error("[publicSurface] upload article query failed:", error);
+    if (shouldLogOptionalDbError(error)) {
+      console.error("[publicSurface] upload article query failed:", error);
+    }
     return [];
   }
 }
@@ -190,6 +202,7 @@ async function authorByConclusionId(
 ): Promise<Map<string, string>> {
   if (sourceConclusionIds.length === 0) return new Map();
   try {
+    const db = await loadDb();
     const rows = (await db.conclusion.findMany({
       where: { organizationId, id: { in: sourceConclusionIds } },
       select: {
@@ -288,6 +301,7 @@ export async function listHomepageConclusions(
   if (!organizationId) return [];
 
   try {
+    const db = await loadDb();
     // Use a raw query because the Prisma schema doesn't have a
     // composite filter for "kind != ARTICLE and latest version per
     // slug" that's both correct and cheap. The DISTINCT-ON pattern
@@ -343,7 +357,9 @@ export async function listHomepageConclusions(
     cards.sort(compareCardsByPublishedAtDesc);
     return cards.slice(0, limit);
   } catch (error) {
-    console.error("[publicSurface] conclusion query failed:", error);
+    if (shouldLogOptionalDbError(error)) {
+      console.error("[publicSurface] conclusion query failed:", error);
+    }
     return [];
   }
 }

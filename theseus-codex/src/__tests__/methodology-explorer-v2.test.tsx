@@ -88,6 +88,9 @@ vi.mock("@/lib/db", () => ({
     get $queryRaw() {
       return queryRaw;
     },
+    methodologyReviewWeek: {
+      findFirst: vi.fn().mockResolvedValue(null),
+    },
   },
 }));
 

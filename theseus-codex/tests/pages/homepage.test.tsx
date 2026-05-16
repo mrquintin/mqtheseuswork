@@ -7,14 +7,29 @@ import { getFounder } from "@/lib/auth";
 import { getCurrentsHealth, listCurrents } from "@/lib/currentsApi";
 import type { PublicOpinion } from "@/lib/currentsTypes";
 import { getPortfolioSummary, listForecasts } from "@/lib/forecastsApi";
-import { listPublishedArticles } from "@/lib/conclusionsRead";
+import {
+  listHomepageArticles,
+  listHomepageConclusions,
+} from "@/lib/publicSurface";
 
 vi.mock("@/lib/auth", () => ({
   getFounder: vi.fn(),
 }));
 
 vi.mock("@/lib/conclusionsRead", () => ({
-  listPublishedArticles: vi.fn(),
+  resolvePublicOrganizationId: vi.fn().mockResolvedValue("org-1"),
+  listPublishedArticles: vi.fn().mockResolvedValue([]),
+}));
+
+vi.mock("@/lib/publicSurface", () => ({
+  ARTICLES_EMPTY_COPY:
+    "Long-form articles will appear here once the firm publishes them.",
+  CONCLUSIONS_EMPTY_COPY:
+    "Reviewed conclusions will appear here once the firm publishes them.",
+  CURRENTS_EMPTY_COPY:
+    "Live opinions will appear here once events cross the firm's significance floor.",
+  listHomepageArticles: vi.fn(),
+  listHomepageConclusions: vi.fn(),
 }));
 
 vi.mock("@/lib/currentsApi", () => ({
@@ -117,7 +132,8 @@ describe("homepage performance shell", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     vi.mocked(getFounder).mockResolvedValue(null);
-    vi.mocked(listPublishedArticles).mockResolvedValue([]);
+    vi.mocked(listHomepageArticles).mockResolvedValue([]);
+    vi.mocked(listHomepageConclusions).mockResolvedValue([]);
     vi.mocked(listCurrents).mockResolvedValue({
       items: [opinion("1"), opinion("2"), opinion("3"), opinion("4")],
     });
@@ -139,7 +155,7 @@ describe("homepage performance shell", () => {
       { limit: 3 },
       {
         next: { revalidate: 60, tags: ["public-home-currents"] },
-        timeoutMs: 4_000,
+        timeoutMs: 2_000,
       },
     );
     expect(getFounder).not.toHaveBeenCalled();

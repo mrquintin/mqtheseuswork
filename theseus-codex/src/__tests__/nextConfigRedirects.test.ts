@@ -36,6 +36,11 @@ describe("next.config legacy nav redirects", () => {
     expect(resolveRedirect("/responses", appRedirects)).toBe("/");
     expect(retiredPublicRouteRedirects).toEqual([
       { source: "/responses", destination: "/", permanent: true },
+      {
+        source: "/forecasts/portfolio",
+        destination: "/portfolio",
+        permanent: true,
+      },
     ]);
   });
 

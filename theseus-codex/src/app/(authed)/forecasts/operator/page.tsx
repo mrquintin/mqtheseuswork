@@ -2,7 +2,6 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 
 import { getFounder } from "@/lib/auth";
-import { db } from "@/lib/db";
 import { normalizeDecisionTrace } from "@/lib/forecastPortfolioData";
 import { getForecast, getPortfolioSummary, listForecasts } from "@/lib/forecastsApi";
 import { getOperatorSetupStatus, listOperatorLiveBets } from "@/lib/forecastsOperatorApi";
@@ -103,6 +102,7 @@ async function decisionTracesByPrediction(predictionIds: string[]): Promise<Reco
   const unique = Array.from(new Set(predictionIds.filter(Boolean)));
   if (unique.length === 0) return {};
   try {
+    const { db } = await import("@/lib/db");
     const rows = await db.forecastTrace.findMany({
       select: { modelOutput: true, predictionId: true },
       where: { predictionId: { in: unique } },
