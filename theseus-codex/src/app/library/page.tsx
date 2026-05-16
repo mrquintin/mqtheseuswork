@@ -43,26 +43,42 @@ async function loadLibrary(): Promise<{
   // Public surface: only published rows, never the proprietary ones
   // (those have dedicated surfaces). We do NOT filter by org — the
   // library is a single public reading list.
-  const rows = (await db.upload.findMany({
-    where: {
-      deletedAt: null,
-      publishedAt: { not: null },
-      visibility: "org",
-      provenance: { in: ["ENDORSED_EXTERNAL", "STUDIED_EXTERNAL", "OPPOSING_EXTERNAL"] },
-    },
-    select: {
-      id: true,
-      title: true,
-      authorBio: true,
-      slug: true,
-      blogExcerpt: true,
-      provenance: true,
-      provenanceRationale: true,
-      publishedAt: true,
-    },
-    orderBy: { publishedAt: "desc" },
-    take: 200,
-  })) as LibraryRow[];
+  //
+  // The query is wrapped in try/catch as defense-in-depth against
+  // schema drift between code and the production DB. The columns
+  // `provenance` / `provenanceRationale` were added by migration
+  // 20260516230000_provenance_kind; if a deploy ships ahead of the
+  // migration the prerender used to crash with P2022 (ColumnNotFound),
+  // taking the entire build down for one optional surface. With this
+  // guard the page renders empty until the schema catches up, and the
+  // next `revalidate = 300` regeneration picks up the rows for free
+  // once the column exists. The error is logged so the operator still
+  // sees the drift in the deploy logs.
+  let rows: LibraryRow[] = [];
+  try {
+    rows = (await db.upload.findMany({
+      where: {
+        deletedAt: null,
+        publishedAt: { not: null },
+        visibility: "org",
+        provenance: { in: ["ENDORSED_EXTERNAL", "STUDIED_EXTERNAL", "OPPOSING_EXTERNAL"] },
+      },
+      select: {
+        id: true,
+        title: true,
+        authorBio: true,
+        slug: true,
+        blogExcerpt: true,
+        provenance: true,
+        provenanceRationale: true,
+        publishedAt: true,
+      },
+      orderBy: { publishedAt: "desc" },
+      take: 200,
+    })) as LibraryRow[];
+  } catch (err) {
+    console.error("library_load_failed", err);
+  }
 
   return {
     endorsed: rows.filter((r) => r.provenance === "ENDORSED_EXTERNAL"),
