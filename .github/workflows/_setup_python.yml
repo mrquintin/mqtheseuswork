@@ -100,7 +100,7 @@ jobs:
             echo "path=pyproject.toml" >> "$GITHUB_OUTPUT"
           fi
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: ${{ inputs.python-version }}
           cache: 'pip'

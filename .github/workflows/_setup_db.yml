@@ -92,7 +92,7 @@ jobs:
           cache: 'npm'
           cache-dependency-path: theseus-codex/package-lock.json
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v6
         if: ${{ inputs.install-python }}
         with:
           python-version: ${{ inputs.python-version }}
