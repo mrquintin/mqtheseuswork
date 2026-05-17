@@ -351,6 +351,12 @@ def _create_check_constraints() -> None:
 
 
 def upgrade() -> None:
+    # Shared-table mirror: on Postgres, the Codex's Prisma migrations own
+    # the schema for the Forecast* tables (8 tables). This alembic
+    # migration exists so noosphere unit tests can stand up a SQLite
+    # store with the same shape. The guard keeps drift impossible.
+    if op.get_bind().dialect.name == "postgresql":
+        return
     _create_pg_enum("ForecastSource", FORECAST_SOURCE)
     _create_pg_enum("ForecastMarketStatus", FORECAST_MARKET_STATUS)
     _create_pg_enum("ForecastPredictionStatus", FORECAST_PREDICTION_STATUS)
@@ -368,6 +374,8 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
+    if op.get_bind().dialect.name == "postgresql":
+        return
     for table in _TABLES:
         if _table_exists(table):
             op.drop_table(table)

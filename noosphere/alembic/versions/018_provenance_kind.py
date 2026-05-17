@@ -29,12 +29,20 @@ branch_labels = None
 depends_on = None
 
 
+# Tables that historically received the provenance column from alembic.
+# `logical_algorithm` was a Phase-2 casualty: the noosphere ORM moved
+# to the Prisma-owned PascalCase `LogicalAlgorithm` table, so adding
+# `provenance` to the now-retired snake_case mirror on Postgres would
+# be touching a table Prisma owns. The `_is_alembic_owned` guard below
+# skips it on Postgres while keeping the column-add available for
+# SQLite-based unit tests.
 _TABLES_WITH_PROVENANCE = (
     "artifact",
     "claim",
     "conclusion",
     "logical_algorithm",
 )
+_SHARED_PHASE2_TABLES_WITH_PROVENANCE = frozenset({"logical_algorithm"})
 
 
 def _table_exists(name: str) -> bool:
@@ -64,7 +72,11 @@ def upgrade() -> None:
     # Add the `provenance` column to every table that needs it; backfill
     # to PROPRIETARY for any existing row. `server_default` keeps the
     # column NOT NULL for legacy insert paths that don't know about it yet.
+    is_postgres = op.get_bind().dialect.name == "postgresql"
     for table in _TABLES_WITH_PROVENANCE:
+        # Skip Phase-2-shared tables on Postgres — Prisma owns them now.
+        if is_postgres and table in _SHARED_PHASE2_TABLES_WITH_PROVENANCE:
+            continue
         if not _table_exists(table):
             continue
         if not _column_exists(table, "provenance"):
@@ -111,8 +123,12 @@ def upgrade() -> None:
         "conclusion", "ix_conclusion_provenance"
     ):
         op.create_index("ix_conclusion_provenance", "conclusion", ["provenance"])
-    if _table_exists("logical_algorithm") and not _index_exists(
-        "logical_algorithm", "ix_logical_algorithm_provenance"
+    if (
+        not is_postgres
+        and _table_exists("logical_algorithm")
+        and not _index_exists(
+            "logical_algorithm", "ix_logical_algorithm_provenance"
+        )
     ):
         op.create_index(
             "ix_logical_algorithm_provenance",
@@ -122,6 +138,7 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
+    is_postgres = op.get_bind().dialect.name == "postgresql"
     # Best-effort reverse — only drops what upgrade() added. Uses
     # ``batch_alter_table`` so SQLite (no native DROP COLUMN before
     # 3.35) can copy-and-recreate the table.
@@ -139,12 +156,17 @@ def downgrade() -> None:
         ("conclusion", "ix_conclusion_provenance"),
         ("logical_algorithm", "ix_logical_algorithm_provenance"),
     ):
+        # Skip Phase-2-shared tables on Postgres (Prisma owns those).
+        if is_postgres and table in _SHARED_PHASE2_TABLES_WITH_PROVENANCE:
+            continue
         if _index_exists(table, index_name):
             op.drop_index(index_name, table_name=table)
     if _table_exists("artifact") and _column_exists("artifact", "provenance_rationale"):
         with op.batch_alter_table("artifact") as batch:
             batch.drop_column("provenance_rationale")
     for table in _TABLES_WITH_PROVENANCE:
+        if is_postgres and table in _SHARED_PHASE2_TABLES_WITH_PROVENANCE:
+            continue
         if _table_exists(table) and _column_exists(table, "provenance"):
             with op.batch_alter_table(table) as batch:
                 batch.drop_column("provenance")

@@ -168,36 +168,40 @@ def upgrade() -> None:
                 ["memo_id"],
             )
 
-    # Additive sourceMemoId on the noosphere-side ForecastBet table.
-    if _table_exists("ForecastBet") and not _column_exists(
-        "ForecastBet", "sourceMemoId"
-    ):
-        op.add_column(
-            "ForecastBet",
-            sa.Column("sourceMemoId", sa.String(), nullable=True),
-        )
-        if not _index_exists("ForecastBet", "ForecastBet_sourceMemoId_idx"):
-            op.create_index(
-                "ForecastBet_sourceMemoId_idx",
-                "ForecastBet",
-                ["sourceMemoId"],
-            )
-
-    if _table_exists("EquityPosition") and not _column_exists(
-        "EquityPosition", "sourceMemoId"
-    ):
-        op.add_column(
-            "EquityPosition",
-            sa.Column("sourceMemoId", sa.String(), nullable=True),
-        )
-        if not _index_exists(
-            "EquityPosition", "EquityPosition_sourceMemoId_idx"
+    # Additive sourceMemoId on the shared ForecastBet / EquityPosition
+    # tables. These are Prisma-owned on Postgres (the matching Prisma
+    # migration 20260516260000_portfolio_agent adds the same columns);
+    # skip on Postgres so the schema only ever flows from one direction.
+    if op.get_bind().dialect.name != "postgresql":
+        if _table_exists("ForecastBet") and not _column_exists(
+            "ForecastBet", "sourceMemoId"
         ):
-            op.create_index(
-                "EquityPosition_sourceMemoId_idx",
-                "EquityPosition",
-                ["sourceMemoId"],
+            op.add_column(
+                "ForecastBet",
+                sa.Column("sourceMemoId", sa.String(), nullable=True),
             )
+            if not _index_exists("ForecastBet", "ForecastBet_sourceMemoId_idx"):
+                op.create_index(
+                    "ForecastBet_sourceMemoId_idx",
+                    "ForecastBet",
+                    ["sourceMemoId"],
+                )
+
+        if _table_exists("EquityPosition") and not _column_exists(
+            "EquityPosition", "sourceMemoId"
+        ):
+            op.add_column(
+                "EquityPosition",
+                sa.Column("sourceMemoId", sa.String(), nullable=True),
+            )
+            if not _index_exists(
+                "EquityPosition", "EquityPosition_sourceMemoId_idx"
+            ):
+                op.create_index(
+                    "EquityPosition_sourceMemoId_idx",
+                    "EquityPosition",
+                    ["sourceMemoId"],
+                )
 
 
 def downgrade() -> None:

@@ -45,6 +45,10 @@ def _enum_exists(name: str) -> bool:
 
 
 def upgrade() -> None:
+    # Shared-table mirror: Deal / DealPrincipleAlignment / DealNote are
+    # Prisma-owned on Postgres. SQLite-only migration on this side.
+    if op.get_bind().dialect.name == "postgresql":
+        return
     bind = op.get_bind()
     is_pg = bind.dialect.name == "postgresql"
 
@@ -233,6 +237,8 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
+    if op.get_bind().dialect.name == "postgresql":
+        return
     for table in ("DealNote", "DealPrincipleAlignment", "Deal"):
         if _table_exists(table):
             op.drop_table(table)

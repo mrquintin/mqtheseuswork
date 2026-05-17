@@ -289,6 +289,14 @@ def _create_foreign_keys() -> None:
 
 
 def upgrade() -> None:
+    # Shared-table mirror: on Postgres, the Codex's Prisma migrations own
+    # the schema for CurrentEvent / EventOpinion / OpinionCitation /
+    # FollowUpSession / FollowUpMessage. This alembic migration exists so
+    # noosphere unit tests can stand up a SQLite store with the same
+    # shape. Running it on Postgres would risk drift (different column
+    # types, missing FKs); the guard makes that impossible.
+    if op.get_bind().dialect.name == "postgresql":
+        return
     _create_pg_enum("CurrentEventStatus", CURRENT_EVENT_STATUS)
     _create_pg_enum("CurrentEventSource", CURRENT_EVENT_SOURCE)
     _create_pg_enum("OpinionStance", OPINION_STANCE)
@@ -300,6 +308,9 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
+    # Mirror of the upgrade guard — see notes there.
+    if op.get_bind().dialect.name == "postgresql":
+        return
     for table in _TABLES:
         if _table_exists(table):
             op.drop_table(table)

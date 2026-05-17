@@ -21,9 +21,14 @@ except ImportError as exc:  # pragma: no cover - exercised only on broken local 
 else:
     _NUMPY_IMPORT_ERROR = None
 from sqlalchemy import (
+    Boolean,
     Column,
+    DateTime,
+    Float,
     Index,
+    Integer,
     LargeBinary,
+    String,
     UniqueConstraint,
     asc,
     desc,
@@ -739,27 +744,24 @@ class StoredLogicalAlgorithm(SQLModel, table=True):
     JSON. Mirrors the Codex-side ``LogicalAlgorithm`` Prisma model.
     """
 
-    __tablename__ = "logical_algorithm"
+    __tablename__ = "LogicalAlgorithm"
+
     __table_args__ = (
         UniqueConstraint(
-            "organization_id",
-            "name",
-            name="logical_algorithm_org_name_key",
-        ),
+            "organizationId",
+            "name",name="LogicalAlgorithm_org_name_key"),
     )
-    id: str = Field(primary_key=True)
-    organization_id: str = Field(index=True)
-    name: str = Field(index=True)
-    status: str = Field(default="DRAFT", index=True)
-    payload_json: str = ""
-    weighting_multiplier: float = Field(default=1.0)
-    created_at: datetime = Field(default_factory=_utcnow)
-    updated_at: datetime = Field(default_factory=_utcnow)
-    last_invoked_at: Optional[datetime] = Field(default=None)
+    id: str = Field(sa_column=Column("id", String, nullable=False, primary_key=True))
+    organization_id: str = Field(sa_column=Column("organizationId", String, nullable=False, index=True))
+    name: str = Field(sa_column=Column("name", String, nullable=False, index=True))
+    status: str = Field(sa_column=Column("status", String, nullable=False, index=True), default="DRAFT")
+    payload_json: str = Field(sa_column=Column("payloadJson", String, nullable=False), default="")
+    weighting_multiplier: float = Field(sa_column=Column("weightingMultiplier", Float, nullable=False), default=1.0)
+    created_at: datetime = Field(sa_column=Column("createdAt", DateTime, nullable=False), default_factory=_utcnow)
+    updated_at: datetime = Field(sa_column=Column("updatedAt", DateTime, nullable=False), default_factory=_utcnow)
+    last_invoked_at: Optional[datetime] = Field(sa_column=Column("lastInvokedAt", DateTime, nullable=True), default=None)
     # Prompt 09 — provenance inherited from source principles.
-    provenance: str = Field(default="PROPRIETARY", index=True)
-
-
+    provenance: str = Field(sa_column=Column("provenance", String, nullable=False, index=True), default="PROPRIETARY")
 class StoredAlgorithmInvocation(SQLModel, table=True):
     """One row per algorithm firing.
 
@@ -770,26 +772,25 @@ class StoredAlgorithmInvocation(SQLModel, table=True):
     invoked-at DESC.
     """
 
-    __tablename__ = "algorithm_invocation"
+    __tablename__ = "AlgorithmInvocation"
+
     __table_args__ = (
-        Index(
-            "algorithm_invocation_algorithm_invoked_idx",
-            "algorithm_id",
-            "invoked_at",
+        Index("AlgorithmInvocation_algorithm_invoked_idx",
+            "algorithmId",
+            "invokedAt",
         ),
-        Index(
-            "algorithm_invocation_org_invoked_idx",
-            "organization_id",
-            "invoked_at",
+        Index("AlgorithmInvocation_org_invoked_idx",
+            "organizationId",
+            "invokedAt",
         ),
     )
-    id: str = Field(primary_key=True)
-    algorithm_id: str = Field(index=True)
-    organization_id: str = Field(index=True)
-    invoked_at: datetime = Field(default_factory=_utcnow)
-    resolved_at: Optional[datetime] = Field(default=None)
-    correctness: Optional[str] = Field(default=None)
-    payload_json: str = ""
+    id: str = Field(sa_column=Column("id", String, nullable=False, primary_key=True))
+    algorithm_id: str = Field(sa_column=Column("algorithmId", String, nullable=False, index=True))
+    organization_id: str = Field(sa_column=Column("organizationId", String, nullable=False, index=True))
+    invoked_at: datetime = Field(sa_column=Column("invokedAt", DateTime, nullable=False), default_factory=_utcnow)
+    resolved_at: Optional[datetime] = Field(sa_column=Column("resolvedAt", DateTime, nullable=True), default=None)
+    correctness: Optional[str] = Field(sa_column=Column("correctness", String, nullable=True), default=None)
+    payload_json: str = Field(sa_column=Column("payloadJson", String, nullable=False), default="")
 
 
 class StoredAlgorithmInputObservation(SQLModel, table=True):
@@ -800,16 +801,15 @@ class StoredAlgorithmInputObservation(SQLModel, table=True):
     "where did this number come from?" without re-running the runtime.
     """
 
-    __tablename__ = "algorithm_input_observation"
-    id: str = Field(primary_key=True)
-    invocation_id: str = Field(index=True)
-    input_name: str = Field(index=True)
-    value_json: str = ""
-    observed_at: datetime = Field(default_factory=_utcnow)
-    source_artifact_id: Optional[str] = Field(default=None, index=True)
-    source_url: Optional[str] = Field(default=None)
+    __tablename__ = "AlgorithmInputObservation"
 
-
+    id: str = Field(sa_column=Column("id", String, nullable=False, primary_key=True))
+    invocation_id: str = Field(sa_column=Column("invocationId", String, nullable=False, index=True))
+    input_name: str = Field(sa_column=Column("inputName", String, nullable=False, index=True))
+    value_json: str = Field(sa_column=Column("valueJson", String, nullable=False), default="")
+    observed_at: datetime = Field(sa_column=Column("observedAt", DateTime, nullable=False), default_factory=_utcnow)
+    source_artifact_id: Optional[str] = Field(sa_column=Column("sourceArtifactId", String, nullable=True, index=True), default=None)
+    source_url: Optional[str] = Field(sa_column=Column("sourceUrl", String, nullable=True), default=None)
 class StoredAlgorithmCalibrationSnapshot(SQLModel, table=True):
     """Append-only calibration snapshot for an algorithm.
 
@@ -818,58 +818,53 @@ class StoredAlgorithmCalibrationSnapshot(SQLModel, table=True):
     time-series is what the calibration chart renders.
     """
 
-    __tablename__ = "algorithm_calibration_snapshot"
+    __tablename__ = "AlgorithmCalibrationSnapshot"
+
     __table_args__ = (
-        Index(
-            "algorithm_calibration_snapshot_algo_at_idx",
-            "algorithm_id",
-            "snapshot_at",
+        Index("AlgorithmCalibrationSnapshot_algo_at_idx",
+            "algorithmId",
+            "snapshotAt",
         ),
     )
-    id: str = Field(primary_key=True)
-    algorithm_id: str = Field(index=True)
-    organization_id: str = Field(index=True)
-    snapshot_at: datetime = Field(default_factory=_utcnow)
-
-    total_invocations: int = Field(default=0)
-    resolved_invocations: int = Field(default=0)
-    accuracy: Optional[float] = Field(default=None)
-    mean_brier: Optional[float] = Field(default=None)
-    mean_horizon_error: Optional[float] = Field(default=None)
-    directional_accuracy: Optional[float] = Field(default=None)
-    confidence_calibration_drift: Optional[float] = Field(default=None)
-    last_30d_accuracy: Optional[float] = Field(default=None)
-    last_30d_resolved: int = Field(default=0)
-    probabilistic_resolved: int = Field(default=0)
-    directional_resolved: int = Field(default=0)
-    confidence_band_resolved: int = Field(default=0)
-
-
+    id: str = Field(sa_column=Column("id", String, nullable=False, primary_key=True))
+    algorithm_id: str = Field(sa_column=Column("algorithmId", String, nullable=False, index=True))
+    organization_id: str = Field(sa_column=Column("organizationId", String, nullable=False, index=True))
+    snapshot_at: datetime = Field(sa_column=Column("snapshotAt", DateTime, nullable=False), default_factory=_utcnow)
+    total_invocations: int = Field(sa_column=Column("totalInvocations", Integer, nullable=False), default=0)
+    resolved_invocations: int = Field(sa_column=Column("resolvedInvocations", Integer, nullable=False), default=0)
+    accuracy: Optional[float] = Field(sa_column=Column("accuracy", Float, nullable=True), default=None)
+    mean_brier: Optional[float] = Field(sa_column=Column("meanBrier", Float, nullable=True), default=None)
+    mean_horizon_error: Optional[float] = Field(sa_column=Column("meanHorizonError", Float, nullable=True), default=None)
+    directional_accuracy: Optional[float] = Field(sa_column=Column("directionalAccuracy", Float, nullable=True), default=None)
+    confidence_calibration_drift: Optional[float] = Field(sa_column=Column("confidenceCalibrationDrift", Float, nullable=True), default=None)
+    last_30d_accuracy: Optional[float] = Field(sa_column=Column("last30dAccuracy", Float, nullable=True), default=None)
+    last_30d_resolved: int = Field(sa_column=Column("last30dResolved", Integer, nullable=False), default=0)
+    probabilistic_resolved: int = Field(sa_column=Column("probabilisticResolved", Integer, nullable=False), default=0)
+    directional_resolved: int = Field(sa_column=Column("directionalResolved", Integer, nullable=False), default=0)
+    confidence_band_resolved: int = Field(sa_column=Column("confidenceBandResolved", Integer, nullable=False), default=0)
 class StoredAlgorithmTriageRecommendation(SQLModel, table=True):
     """Pending / accepted / rejected calibration triage row."""
 
-    __tablename__ = "algorithm_triage_recommendation"
+    __tablename__ = "AlgorithmTriageRecommendation"
+
     __table_args__ = (
-        Index(
-            "algorithm_triage_recommendation_status_idx",
-            "organization_id",
+        Index("AlgorithmTriageRecommendation_status_idx",
+            "organizationId",
             "status",
         ),
     )
-    id: str = Field(primary_key=True)
-    algorithm_id: str = Field(index=True)
-    organization_id: str = Field(index=True)
-    recommended_at: datetime = Field(default_factory=_utcnow)
-    recommended_action: str = Field(default="NONE")
-    trigger_reasons_json: str = Field(default="[]")
-    recommended_multiplier: float = Field(default=1.0)
-    narrative: str = Field(default="")
-    status: str = Field(default="PENDING", index=True)
-    resolved_by: Optional[str] = Field(default=None)
-    resolved_at: Optional[datetime] = Field(default=None)
-    resolution_note: Optional[str] = Field(default=None)
-
-
+    id: str = Field(sa_column=Column("id", String, nullable=False, primary_key=True))
+    algorithm_id: str = Field(sa_column=Column("algorithmId", String, nullable=False, index=True))
+    organization_id: str = Field(sa_column=Column("organizationId", String, nullable=False, index=True))
+    recommended_at: datetime = Field(sa_column=Column("recommendedAt", DateTime, nullable=False), default_factory=_utcnow)
+    recommended_action: str = Field(sa_column=Column("recommendedAction", String, nullable=False), default="NONE")
+    trigger_reasons_json: str = Field(sa_column=Column("triggerReasonsJson", String, nullable=False), default="[]")
+    recommended_multiplier: float = Field(sa_column=Column("recommendedMultiplier", Float, nullable=False), default=1.0)
+    narrative: str = Field(sa_column=Column("narrative", String, nullable=False), default="")
+    status: str = Field(sa_column=Column("status", String, nullable=False, index=True), default="PENDING")
+    resolved_by: Optional[str] = Field(sa_column=Column("resolvedBy", String, nullable=True), default=None)
+    resolved_at: Optional[datetime] = Field(sa_column=Column("resolvedAt", DateTime, nullable=True), default=None)
+    resolution_note: Optional[str] = Field(sa_column=Column("resolutionNote", String, nullable=True), default=None)
 class StoredContradictionResult(SQLModel, table=True):
     """Persisted output of the canonical contradiction engine (R19/p06).
 
@@ -920,22 +915,20 @@ class StoredContradictionDispute(SQLModel, table=True):
     this module; the count threshold lives in the operator UI).
     """
 
-    __tablename__ = "contradiction_dispute"
+    __tablename__ = "ContradictionDispute"
+
     __table_args__ = (
-        Index(
-            "contradiction_dispute_method_at_idx",
-            "detection_method",
-            "created_at",
+        Index("ContradictionDispute_method_at_idx",
+            "detectionMethod",
+            "createdAt",
         ),
     )
-    id: str = Field(primary_key=True)
-    contradiction_result_id: str = Field(index=True)
-    detection_method: str = Field(default="", index=True)
-    disputed_by: str = Field(default="")
-    reason: str = Field(default="")
-    created_at: datetime = Field(default_factory=_utcnow)
-
-
+    id: str = Field(sa_column=Column("id", String, nullable=False, primary_key=True))
+    contradiction_result_id: str = Field(sa_column=Column("contradictionResultId", String, nullable=False, index=True))
+    detection_method: str = Field(sa_column=Column("detectionMethod", String, nullable=False, index=True), default="")
+    disputed_by: str = Field(sa_column=Column("disputedBy", String, nullable=False), default="")
+    reason: str = Field(sa_column=Column("reason", String, nullable=False), default="")
+    created_at: datetime = Field(sa_column=Column("createdAt", DateTime, nullable=False), default_factory=_utcnow)
 class StoredContradictionLifecycle(SQLModel, table=True):
     """Lifecycle of one contradiction (Round 19 prompt 19).
 
@@ -951,28 +944,25 @@ class StoredContradictionLifecycle(SQLModel, table=True):
     of the log so the lifecycle queue is a cheap range scan.
     """
 
-    __tablename__ = "contradiction_lifecycle"
+    __tablename__ = "ContradictionLifecycle"
+
     __table_args__ = (
-        Index(
-            "contradiction_lifecycle_status_idx",
-            "current_status",
-            "last_transition_at",
+        Index("ContradictionLifecycle_status_idx",
+            "currentStatus",
+            "lastTransitionAt",
         ),
-        Index(
-            "contradiction_lifecycle_target_idx",
-            "contradiction_id",
+        Index("ContradictionLifecycle_target_idx",
+            "contradictionId",
         ),
     )
-    id: str = Field(primary_key=True)
-    contradiction_id: str = Field(index=True)
-    current_status: str = Field(default="DETECTED", index=True)
-    last_transition_at: datetime = Field(default_factory=_utcnow)
-    events_json: str = Field(default="[]")
-    supported_principle_id: Optional[str] = Field(default=None)
-    subsuming_principle_id: Optional[str] = Field(default=None)
-    pending_subsumption_principle_id: Optional[str] = Field(default=None)
-
-
+    id: str = Field(sa_column=Column("id", String, nullable=False, primary_key=True))
+    contradiction_id: str = Field(sa_column=Column("contradictionId", String, nullable=False, index=True))
+    current_status: str = Field(sa_column=Column("currentStatus", String, nullable=False, index=True), default="DETECTED")
+    last_transition_at: datetime = Field(sa_column=Column("lastTransitionAt", DateTime, nullable=False), default_factory=_utcnow)
+    events_json: str = Field(sa_column=Column("eventsJson", String, nullable=False), default="[]")
+    supported_principle_id: Optional[str] = Field(sa_column=Column("supportedPrincipleId", String, nullable=True), default=None)
+    subsuming_principle_id: Optional[str] = Field(sa_column=Column("subsumingPrincipleId", String, nullable=True), default=None)
+    pending_subsumption_principle_id: Optional[str] = Field(sa_column=Column("pendingSubsumptionPrincipleId", String, nullable=True), default=None)
 # ── Round 19 prompt 07: cluster index for contradiction-test scheduling ────
 
 
@@ -1066,33 +1056,30 @@ class StoredSynthesizerTask(SQLModel, table=True):
     trip.
     """
 
-    __tablename__ = "synthesizer_task"
+    __tablename__ = "SynthesizerTask"
+
     __table_args__ = (
-        Index(
-            "synthesizer_task_status_enqueued_idx",
+        Index("SynthesizerTask_status_enqueued_idx",
             "status",
-            "enqueued_at",
+            "enqueuedAt",
         ),
-        Index(
-            "synthesizer_task_org_status_idx",
-            "organization_id",
+        Index("SynthesizerTask_org_status_idx",
+            "organizationId",
             "status",
         ),
     )
-    id: str = Field(primary_key=True)
-    organization_id: str = Field(index=True)
-    trigger: str = Field(default="OPERATOR", index=True)
-    status: str = Field(default="PENDING", index=True)
-    enqueued_at: datetime = Field(default_factory=_utcnow)
-    started_at: Optional[datetime] = Field(default=None)
-    finished_at: Optional[datetime] = Field(default=None)
-    invocation_id: Optional[str] = Field(default=None, index=True)
-    current_event_id: Optional[str] = Field(default=None, index=True)
-    memo_id: Optional[str] = Field(default=None)
-    outcome: Optional[str] = Field(default=None)
-    payload_json: str = Field(default="{}")
-
-
+    id: str = Field(sa_column=Column("id", String, nullable=False, primary_key=True))
+    organization_id: str = Field(sa_column=Column("organizationId", String, nullable=False, index=True))
+    trigger: str = Field(sa_column=Column("trigger", String, nullable=False, index=True), default="OPERATOR")
+    status: str = Field(sa_column=Column("status", String, nullable=False, index=True), default="PENDING")
+    enqueued_at: datetime = Field(sa_column=Column("enqueuedAt", DateTime, nullable=False), default_factory=_utcnow)
+    started_at: Optional[datetime] = Field(sa_column=Column("startedAt", DateTime, nullable=True), default=None)
+    finished_at: Optional[datetime] = Field(sa_column=Column("finishedAt", DateTime, nullable=True), default=None)
+    invocation_id: Optional[str] = Field(sa_column=Column("invocationId", String, nullable=True, index=True), default=None)
+    current_event_id: Optional[str] = Field(sa_column=Column("currentEventId", String, nullable=True, index=True), default=None)
+    memo_id: Optional[str] = Field(sa_column=Column("memoId", String, nullable=True), default=None)
+    outcome: Optional[str] = Field(sa_column=Column("outcome", String, nullable=True), default=None)
+    payload_json: str = Field(sa_column=Column("payloadJson", String, nullable=False), default="{}")
 class StoredSynthesizerMemo(SQLModel, table=True):
     """Persisted synthesizer memo — the audit-shaped conclusion.
 
@@ -1102,22 +1089,20 @@ class StoredSynthesizerMemo(SQLModel, table=True):
     be rewritten when prompt 11 lands.
     """
 
-    __tablename__ = "synthesizer_memo"
+    __tablename__ = "SynthesizerMemo"
+
     __table_args__ = (
-        Index(
-            "synthesizer_memo_org_created_idx",
-            "organization_id",
-            "created_at",
+        Index("SynthesizerMemo_org_created_idx",
+            "organizationId",
+            "createdAt",
         ),
     )
-    id: str = Field(primary_key=True)
-    organization_id: str = Field(index=True)
-    created_at: datetime = Field(default_factory=_utcnow)
-    synthesizer_version: str = Field(default="synthesizer/v1", index=True)
-    question: str = Field(default="")
-    payload_json: str = Field(default="{}")
-
-
+    id: str = Field(sa_column=Column("id", String, nullable=False, primary_key=True))
+    organization_id: str = Field(sa_column=Column("organizationId", String, nullable=False, index=True))
+    created_at: datetime = Field(sa_column=Column("createdAt", DateTime, nullable=False), default_factory=_utcnow)
+    synthesizer_version: str = Field(sa_column=Column("synthesizerVersion", String, nullable=False, index=True), default="synthesizer/v1")
+    question: str = Field(sa_column=Column("question", String, nullable=False), default="")
+    payload_json: str = Field(sa_column=Column("payloadJson", String, nullable=False), default="{}")
 class StoredInvestmentMemo(SQLModel, table=True):
     """Persisted investment memo (Round 19 prompt 11).
 
@@ -1128,43 +1113,39 @@ class StoredInvestmentMemo(SQLModel, table=True):
     paths under ``docs/memos/<yyyy>/<mm>/``.
     """
 
-    __tablename__ = "investment_memo"
+    __tablename__ = "InvestmentMemo"
+
     __table_args__ = (
-        Index(
-            "investment_memo_org_status_idx",
-            "organization_id",
+        Index("InvestmentMemo_org_status_idx",
+            "organizationId",
             "status",
         ),
-        Index(
-            "investment_memo_org_created_idx",
-            "organization_id",
-            "created_at",
+        Index("InvestmentMemo_org_created_idx",
+            "organizationId",
+            "createdAt",
         ),
-        Index(
-            "investment_memo_slug_idx",
+        Index("InvestmentMemo_slug_idx",
             "slug",
         ),
     )
-    id: str = Field(primary_key=True)
-    organization_id: str = Field(index=True)
-    synthesizer_result_id: Optional[str] = Field(default=None, index=True)
-    title: str = Field(default="")
-    slug: str = Field(default="", index=True)
-    status: str = Field(default="DRAFT", index=True)
-    addressee: str = Field(default="")
-    question_type: str = Field(default="EXPLANATORY")
-    md_path: Optional[str] = Field(default=None)
-    pdf_path: Optional[str] = Field(default=None)
-    created_at: datetime = Field(default_factory=_utcnow)
-    updated_at: datetime = Field(default_factory=_utcnow)
-    sent_at: Optional[datetime] = Field(default=None)
-    acknowledged_at: Optional[datetime] = Field(default=None)
-    published_at: Optional[datetime] = Field(default=None)
-    archived_at: Optional[datetime] = Field(default=None)
-    synthesizer_version: str = Field(default="synthesizer/v1")
-    payload_json: str = Field(default="{}")
-
-
+    id: str = Field(sa_column=Column("id", String, nullable=False, primary_key=True))
+    organization_id: str = Field(sa_column=Column("organizationId", String, nullable=False, index=True))
+    synthesizer_result_id: Optional[str] = Field(sa_column=Column("synthesizerResultId", String, nullable=True, index=True), default=None)
+    title: str = Field(sa_column=Column("title", String, nullable=False), default="")
+    slug: str = Field(sa_column=Column("slug", String, nullable=False, index=True), default="")
+    status: str = Field(sa_column=Column("status", String, nullable=False, index=True), default="DRAFT")
+    addressee: str = Field(sa_column=Column("addressee", String, nullable=False), default="")
+    question_type: str = Field(sa_column=Column("questionType", String, nullable=False), default="EXPLANATORY")
+    md_path: Optional[str] = Field(sa_column=Column("mdPath", String, nullable=True), default=None)
+    pdf_path: Optional[str] = Field(sa_column=Column("pdfPath", String, nullable=True), default=None)
+    created_at: datetime = Field(sa_column=Column("createdAt", DateTime, nullable=False), default_factory=_utcnow)
+    updated_at: datetime = Field(sa_column=Column("updatedAt", DateTime, nullable=False), default_factory=_utcnow)
+    sent_at: Optional[datetime] = Field(sa_column=Column("sentAt", DateTime, nullable=True), default=None)
+    acknowledged_at: Optional[datetime] = Field(sa_column=Column("acknowledgedAt", DateTime, nullable=True), default=None)
+    published_at: Optional[datetime] = Field(sa_column=Column("publishedAt", DateTime, nullable=True), default=None)
+    archived_at: Optional[datetime] = Field(sa_column=Column("archivedAt", DateTime, nullable=True), default=None)
+    synthesizer_version: str = Field(sa_column=Column("synthesizerVersion", String, nullable=False), default="synthesizer/v1")
+    payload_json: str = Field(sa_column=Column("payloadJson", String, nullable=False), default="{}")
 class StoredPortfolioAgent(SQLModel, table=True):
     """Persisted :class:`noosphere.models.PortfolioAgent` row (prompt 12).
 
@@ -1174,25 +1155,23 @@ class StoredPortfolioAgent(SQLModel, table=True):
     router consults at dispatch time.
     """
 
-    __tablename__ = "portfolio_agent"
+    __tablename__ = "PortfolioAgent"
+
     __table_args__ = (
-        Index(
-            "portfolio_agent_org_status_idx",
-            "organization_id",
+        Index("PortfolioAgent_org_status_idx",
+            "organizationId",
             "status",
         ),
     )
-    id: str = Field(primary_key=True)
-    organization_id: str = Field(index=True)
-    name: str = Field(default="")
-    kind: str = Field(default="HUMAN", index=True)
-    status: str = Field(default="ACTIVE", index=True)
-    default_bet_ceiling_usd: float = Field(default=50.0)
-    created_at: datetime = Field(default_factory=_utcnow)
-    updated_at: datetime = Field(default_factory=_utcnow)
-    payload_json: str = Field(default="{}")
-
-
+    id: str = Field(sa_column=Column("id", String, nullable=False, primary_key=True))
+    organization_id: str = Field(sa_column=Column("organizationId", String, nullable=False, index=True))
+    name: str = Field(sa_column=Column("name", String, nullable=False), default="")
+    kind: str = Field(sa_column=Column("kind", String, nullable=False, index=True), default="HUMAN")
+    status: str = Field(sa_column=Column("status", String, nullable=False, index=True), default="ACTIVE")
+    default_bet_ceiling_usd: float = Field(sa_column=Column("defaultBetCeilingUsd", Float, nullable=False), default=50.0)
+    created_at: datetime = Field(sa_column=Column("createdAt", DateTime, nullable=False), default_factory=_utcnow)
+    updated_at: datetime = Field(sa_column=Column("updatedAt", DateTime, nullable=False), default_factory=_utcnow)
+    payload_json: str = Field(sa_column=Column("payloadJson", String, nullable=False), default="{}")
 class StoredMemoDispatch(SQLModel, table=True):
     """Persisted :class:`noosphere.models.MemoDispatch` row (prompt 12).
 
@@ -1203,39 +1182,35 @@ class StoredMemoDispatch(SQLModel, table=True):
     timestamp passes).
     """
 
-    __tablename__ = "memo_dispatch"
+    __tablename__ = "MemoDispatch"
+
     __table_args__ = (
-        Index(
-            "memo_dispatch_agent_outcome_idx",
-            "agent_id",
-            "outcome_action",
+        Index("MemoDispatch_agent_outcome_idx",
+            "agentId",
+            "outcomeAction",
         ),
-        Index(
-            "memo_dispatch_org_dispatched_idx",
-            "organization_id",
-            "dispatched_at",
+        Index("MemoDispatch_org_dispatched_idx",
+            "organizationId",
+            "dispatchedAt",
         ),
-        Index(
-            "memo_dispatch_memo_idx",
-            "memo_id",
+        Index("MemoDispatch_memo_idx",
+            "memoId",
         ),
     )
-    id: str = Field(primary_key=True)
-    organization_id: str = Field(index=True)
-    memo_id: str = Field(index=True)
-    agent_id: str = Field(index=True)
-    dispatched_at: datetime = Field(default_factory=_utcnow)
-    outcome_action: str = Field(default="PENDING", index=True)
-    bet_link: Optional[str] = Field(default=None)
-    bet_link_kind: Optional[str] = Field(default=None)
-    acknowledged_by: str = Field(default="")
-    acknowledged_at: Optional[datetime] = Field(default=None)
-    rationale: str = Field(default="")
-    deferred_until: Optional[datetime] = Field(default=None)
-    failure_reason: str = Field(default="")
-    payload_json: str = Field(default="{}")
-
-
+    id: str = Field(sa_column=Column("id", String, nullable=False, primary_key=True))
+    organization_id: str = Field(sa_column=Column("organizationId", String, nullable=False, index=True))
+    memo_id: str = Field(sa_column=Column("memoId", String, nullable=False, index=True))
+    agent_id: str = Field(sa_column=Column("agentId", String, nullable=False, index=True))
+    dispatched_at: datetime = Field(sa_column=Column("dispatchedAt", DateTime, nullable=False), default_factory=_utcnow)
+    outcome_action: str = Field(sa_column=Column("outcomeAction", String, nullable=False, index=True), default="PENDING")
+    bet_link: Optional[str] = Field(sa_column=Column("betLink", String, nullable=True), default=None)
+    bet_link_kind: Optional[str] = Field(sa_column=Column("betLinkKind", String, nullable=True), default=None)
+    acknowledged_by: str = Field(sa_column=Column("acknowledgedBy", String, nullable=False), default="")
+    acknowledged_at: Optional[datetime] = Field(sa_column=Column("acknowledgedAt", DateTime, nullable=True), default=None)
+    rationale: str = Field(sa_column=Column("rationale", String, nullable=False), default="")
+    deferred_until: Optional[datetime] = Field(sa_column=Column("deferredUntil", DateTime, nullable=True), default=None)
+    failure_reason: str = Field(sa_column=Column("failureReason", String, nullable=False), default="")
+    payload_json: str = Field(sa_column=Column("payloadJson", String, nullable=False), default="{}")
 class StoredGraphSnapshot(SQLModel, table=True):
     """Append-only snapshot of a knowledge-graph build (prompt 13).
 
@@ -1246,25 +1221,23 @@ class StoredGraphSnapshot(SQLModel, table=True):
     operator can audit how the graph evolved over time.
     """
 
-    __tablename__ = "graph_snapshot"
+    __tablename__ = "GraphSnapshot"
+
     __table_args__ = (
-        Index(
-            "graph_snapshot_org_snapat_idx",
-            "organization_id",
-            "snapshot_at",
+        Index("GraphSnapshot_org_snapat_idx",
+            "organizationId",
+            "snapshotAt",
         ),
     )
-    id: str = Field(primary_key=True)
-    organization_id: str = Field(index=True)
-    snapshot_at: datetime = Field(default_factory=_utcnow, index=True)
-    version: str = Field(default="kg/v1")
-    nodes_json: str = Field(default="[]")
-    edges_json: str = Field(default="[]")
-    node_count: int = Field(default=0)
-    edge_count: int = Field(default=0)
-    notes: str = Field(default="")
-
-
+    id: str = Field(sa_column=Column("id", String, nullable=False, primary_key=True))
+    organization_id: str = Field(sa_column=Column("organizationId", String, nullable=False, index=True))
+    snapshot_at: datetime = Field(sa_column=Column("snapshotAt", DateTime, nullable=False, index=True), default_factory=_utcnow)
+    version: str = Field(sa_column=Column("version", String, nullable=False), default="kg/v1")
+    nodes_json: str = Field(sa_column=Column("nodesJson", String, nullable=False), default="[]")
+    edges_json: str = Field(sa_column=Column("edgesJson", String, nullable=False), default="[]")
+    node_count: int = Field(sa_column=Column("nodeCount", Integer, nullable=False), default=0)
+    edge_count: int = Field(sa_column=Column("edgeCount", Integer, nullable=False), default=0)
+    notes: str = Field(sa_column=Column("notes", String, nullable=False), default="")
 class StoredGraphEdgeReasoning(SQLModel, table=True):
     """Cached agent reasoning over a graph edge (prompt 13).
 
@@ -1273,110 +1246,102 @@ class StoredGraphEdgeReasoning(SQLModel, table=True):
     so the panel can look up a hit in O(1).
     """
 
-    __tablename__ = "graph_edge_reasoning"
+    __tablename__ = "GraphEdgeReasoning"
+
     __table_args__ = (
-        Index(
-            "graph_edge_reasoning_triple_idx",
-            "organization_id",
+        Index("GraphEdgeReasoning_triple_idx",
+            "organizationId",
             "src",
             "dst",
             "kind",
         ),
     )
-    id: str = Field(primary_key=True)
-    organization_id: str = Field(index=True)
-    src: str = Field(index=True)
-    dst: str = Field(index=True)
-    kind: str = Field(index=True)
-    payload_json: str = Field(default="{}")
-    generated_at: datetime = Field(default_factory=_utcnow)
-
-
+    id: str = Field(sa_column=Column("id", String, nullable=False, primary_key=True))
+    organization_id: str = Field(sa_column=Column("organizationId", String, nullable=False, index=True))
+    src: str = Field(sa_column=Column("src", String, nullable=False, index=True))
+    dst: str = Field(sa_column=Column("dst", String, nullable=False, index=True))
+    kind: str = Field(sa_column=Column("kind", String, nullable=False, index=True))
+    payload_json: str = Field(sa_column=Column("payloadJson", String, nullable=False), default="{}")
+    generated_at: datetime = Field(sa_column=Column("generatedAt", DateTime, nullable=False), default_factory=_utcnow)
 # ── Round 19 prompt 14: Dialectic live recording ────────────────────────────
 
 
 class StoredDialecticSession(SQLModel, table=True):
     """A recorded conversation (podcast / meeting). See models.DialecticSession."""
 
-    __tablename__ = "dialectic_session"
+    __tablename__ = "DialecticSession"
+
     __table_args__ = (
-        Index("dialectic_session_org_status_idx", "organization_id", "status"),
-        Index("dialectic_session_started_idx", "started_at"),
+        Index("DialecticSession_org_status_idx", "organizationId", "status"),
+        Index("DialecticSession_started_idx", "startedAt"),
     )
-    id: str = Field(primary_key=True)
-    organization_id: str = Field(index=True)
-    title: str = Field(default="")
-    started_at: datetime = Field(default_factory=_utcnow)
-    ended_at: Optional[datetime] = Field(default=None)
-    participants_json: str = Field(default="[]")
-    audio_path: str = Field(default="")
-    transcript_path: str = Field(default="")
-    status: str = Field(default="RECORDING")
-    visibility: str = Field(default="PRIVATE")
-    live_contradictions_detected: int = Field(default=0)
-    principles_extracted: int = Field(default=0)
-    summary_memo_id: Optional[str] = Field(default=None)
-    created_at: datetime = Field(default_factory=_utcnow)
-    updated_at: datetime = Field(default_factory=_utcnow)
-
-
+    id: str = Field(sa_column=Column("id", String, nullable=False, primary_key=True))
+    organization_id: str = Field(sa_column=Column("organizationId", String, nullable=False, index=True))
+    title: str = Field(sa_column=Column("title", String, nullable=False), default="")
+    started_at: datetime = Field(sa_column=Column("startedAt", DateTime, nullable=False), default_factory=_utcnow)
+    ended_at: Optional[datetime] = Field(sa_column=Column("endedAt", DateTime, nullable=True), default=None)
+    participants_json: str = Field(sa_column=Column("participantsJson", String, nullable=False), default="[]")
+    audio_path: str = Field(sa_column=Column("audioPath", String, nullable=False), default="")
+    transcript_path: str = Field(sa_column=Column("transcriptPath", String, nullable=False), default="")
+    status: str = Field(sa_column=Column("status", String, nullable=False), default="RECORDING")
+    visibility: str = Field(sa_column=Column("visibility", String, nullable=False), default="PRIVATE")
+    live_contradictions_detected: int = Field(sa_column=Column("liveContradictionsDetected", Integer, nullable=False), default=0)
+    principles_extracted: int = Field(sa_column=Column("principlesExtracted", Integer, nullable=False), default=0)
+    summary_memo_id: Optional[str] = Field(sa_column=Column("summaryMemoId", String, nullable=True), default=None)
+    created_at: datetime = Field(sa_column=Column("createdAt", DateTime, nullable=False), default_factory=_utcnow)
+    updated_at: datetime = Field(sa_column=Column("updatedAt", DateTime, nullable=False), default_factory=_utcnow)
 class StoredDialecticUtterance(SQLModel, table=True):
     """One transcribed speaker-turn. See models.DialecticUtterance."""
 
-    __tablename__ = "dialectic_utterance"
+    __tablename__ = "DialecticUtterance"
+
     __table_args__ = (
-        Index(
-            "dialectic_utterance_session_start_idx",
-            "session_id",
-            "start_time",
+        Index("DialecticUtterance_session_start_idx",
+            "sessionId",
+            "startTime",
         ),
-        Index("dialectic_utterance_speaker_idx", "speaker_id"),
+        Index("DialecticUtterance_speaker_idx", "speakerId"),
     )
-    id: str = Field(primary_key=True)
-    session_id: str = Field(index=True)
-    speaker_id: str = Field(index=True)
-    start_time: float = Field(default=0.0)
-    end_time: float = Field(default=0.0)
-    text: str = Field(default="")
-    extracted_claim_ids_json: str = Field(default="[]")
-    derived_principle_ids_json: str = Field(default="[]")
-    live_contradiction_flags_json: str = Field(default="[]")
-    created_at: datetime = Field(default_factory=_utcnow)
-
-
+    id: str = Field(sa_column=Column("id", String, nullable=False, primary_key=True))
+    session_id: str = Field(sa_column=Column("sessionId", String, nullable=False, index=True))
+    speaker_id: str = Field(sa_column=Column("speakerId", String, nullable=False, index=True))
+    start_time: float = Field(sa_column=Column("startTime", Float, nullable=False), default=0.0)
+    end_time: float = Field(sa_column=Column("endTime", Float, nullable=False), default=0.0)
+    text: str = Field(sa_column=Column("text", String, nullable=False), default="")
+    extracted_claim_ids_json: str = Field(sa_column=Column("extractedClaimIdsJson", String, nullable=False), default="[]")
+    derived_principle_ids_json: str = Field(sa_column=Column("derivedPrincipleIdsJson", String, nullable=False), default="[]")
+    live_contradiction_flags_json: str = Field(sa_column=Column("liveContradictionFlagsJson", String, nullable=False), default="[]")
+    created_at: datetime = Field(sa_column=Column("createdAt", DateTime, nullable=False), default_factory=_utcnow)
 class StoredDialecticContradictionFlag(SQLModel, table=True):
     """Contradiction event fired during live recording.
 
     See models.DialecticContradictionFlag.
     """
 
-    __tablename__ = "dialectic_contradiction_flag"
+    __tablename__ = "DialecticContradictionFlag"
+
     __table_args__ = (
-        Index(
-            "dialectic_contradiction_flag_utterance_idx",
-            "utterance_id",
+        Index("DialecticContradictionFlag_utterance_idx",
+            "utteranceId",
         ),
-        Index(
-            "dialectic_contradiction_flag_kind_idx",
-            "flag_kind",
+        Index("DialecticContradictionFlag_kind_idx",
+            "flagKind",
         ),
     )
-    id: str = Field(primary_key=True)
-    utterance_id: str = Field(index=True)
-    flag_kind: str = Field(default="INTRA_SESSION")
-    prior_utterance_id: Optional[str] = Field(default=None)
-    prior_principle_id: Optional[str] = Field(default=None)
-    prior_speaker_id: Optional[str] = Field(default=None)
-    contradiction_score: float = Field(default=0.0)
-    axis: Optional[str] = Field(default=None)
-    human_explanation: Optional[str] = Field(default=None)
-    detection_method: str = Field(default="")
-    acknowledged_at: Optional[datetime] = Field(default=None)
-    acknowledged_by: Optional[str] = Field(default=None)
-    acknowledgment_note: Optional[str] = Field(default=None)
-    detected_at: datetime = Field(default_factory=_utcnow)
-
-
+    id: str = Field(sa_column=Column("id", String, nullable=False, primary_key=True))
+    utterance_id: str = Field(sa_column=Column("utteranceId", String, nullable=False, index=True))
+    flag_kind: str = Field(sa_column=Column("flagKind", String, nullable=False), default="INTRA_SESSION")
+    prior_utterance_id: Optional[str] = Field(sa_column=Column("priorUtteranceId", String, nullable=True), default=None)
+    prior_principle_id: Optional[str] = Field(sa_column=Column("priorPrincipleId", String, nullable=True), default=None)
+    prior_speaker_id: Optional[str] = Field(sa_column=Column("priorSpeakerId", String, nullable=True), default=None)
+    contradiction_score: float = Field(sa_column=Column("contradictionScore", Float, nullable=False), default=0.0)
+    axis: Optional[str] = Field(sa_column=Column("axis", String, nullable=True), default=None)
+    human_explanation: Optional[str] = Field(sa_column=Column("humanExplanation", String, nullable=True), default=None)
+    detection_method: str = Field(sa_column=Column("detectionMethod", String, nullable=False), default="")
+    acknowledged_at: Optional[datetime] = Field(sa_column=Column("acknowledgedAt", DateTime, nullable=True), default=None)
+    acknowledged_by: Optional[str] = Field(sa_column=Column("acknowledgedBy", String, nullable=True), default=None)
+    acknowledgment_note: Optional[str] = Field(sa_column=Column("acknowledgmentNote", String, nullable=True), default=None)
+    detected_at: datetime = Field(sa_column=Column("detectedAt", DateTime, nullable=False), default_factory=_utcnow)
 # ── Round 19 prompt 15: Polymorphic bet abstraction ─────────────────────────
 
 

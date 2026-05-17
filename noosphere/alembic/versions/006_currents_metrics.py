@@ -57,6 +57,10 @@ def _ensure_pg_enum_value(enum_name: str, value: str) -> None:
 
 
 def upgrade() -> None:
+    # Shared-table mirror: CurrentEvent + OpinionCitation are Prisma-owned
+    # on Postgres. This alembic mirror covers SQLite-based noosphere tests.
+    if op.get_bind().dialect.name == "postgresql":
+        return
     _ensure_pg_enum_value("AbstentionReason", "ABSTAIN_OFF_DOMAIN")
     if _table_exists("CurrentEvent") and not _column_exists("CurrentEvent", "metrics"):
         op.add_column(
@@ -79,6 +83,8 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
+    if op.get_bind().dialect.name == "postgresql":
+        return
     if _column_exists("OpinionCitation", "justificationMetadata"):
         op.drop_column("OpinionCitation", "justificationMetadata")
     if _column_exists("CurrentEvent", "metrics"):

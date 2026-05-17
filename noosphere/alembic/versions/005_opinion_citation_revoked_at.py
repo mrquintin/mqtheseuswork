@@ -28,6 +28,11 @@ def _column_exists(table: str, column: str) -> bool:
 
 
 def upgrade() -> None:
+    # Shared-table mirror: OpinionCitation is Prisma-owned on Postgres.
+    # The Codex's parallel migration adds `revokedAt` there; this alembic
+    # mirror exists so SQLite-based noosphere tests can do the same.
+    if op.get_bind().dialect.name == "postgresql":
+        return
     if _table_exists("OpinionCitation") and not _column_exists("OpinionCitation", "revokedAt"):
         op.add_column(
             "OpinionCitation",
@@ -36,5 +41,7 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
+    if op.get_bind().dialect.name == "postgresql":
+        return
     if _column_exists("OpinionCitation", "revokedAt"):
         op.drop_column("OpinionCitation", "revokedAt")

@@ -42,6 +42,15 @@ def _table_exists(name: str) -> bool:
 
 
 def upgrade() -> None:
+    # Phase-2 consolidation: the noosphere ORM was rewritten to write
+    # to Prisma's PascalCase LogicalAlgorithm / AlgorithmInvocation /
+    # AlgorithmInputObservation tables instead of these snake_case
+    # mirrors. On Postgres we skip the entire upgrade — Prisma owns
+    # the schema. The migration body is preserved for SQLite-based
+    # noosphere unit tests where the snake_case tables are still the
+    # test-fixture schema.
+    if op.get_bind().dialect.name == "postgresql":
+        return
     if not _table_exists("logical_algorithm"):
         op.create_table(
             "logical_algorithm",
@@ -181,6 +190,8 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
+    if op.get_bind().dialect.name == "postgresql":
+        return
     for table in (
         "algorithm_input_observation",
         "algorithm_invocation",

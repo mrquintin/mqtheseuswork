@@ -148,21 +148,113 @@ if [ "$RESTART" = "1" ]; then
 fi
 
 if [ "$HEALTH_CHECK" = "1" ]; then
+  # The thing we ACTUALLY want to confirm after a rotation: did the new
+  # DB password reach the local + public services AND get accepted by
+  # Postgres? Anything else the /readyz endpoint reports (forecasts
+  # status file freshness, scheduler heartbeat, etc.) is orthogonal —
+  # those subsystems can be degraded for reasons that have nothing to
+  # do with credential rotation, and waiting on them turned this step
+  # into a recurring 2-minute time sink whenever they happened to be
+  # broken (the historical case: forecasts_status.json missing).
+  #
+  # The /readyz endpoint reports each subsystem separately. A 503 with
+  # `"db":true` in the JSON body means: service is up, credentials work,
+  # other concerns. That's exactly the success criterion this rotation
+  # cares about, so we treat it as "credentials accepted" and exit.
+  #
+  # We only retry to give launchd time to bring the service back up
+  # after `launchctl kickstart` (usually ~3-5 seconds). After that any
+  # 5xx is a stable signal — no point waiting longer.
   echo "Checking local/public Currents readiness..."
-  for attempt in 1 2 3 4 5 6 7 8 9 10 11 12; do
-    local_status="$(curl -sS -o /tmp/theseus-currents-local.json -w '%{http_code}' --max-time 8 http://127.0.0.1:8088/readyz || echo 000)"
-    public_status="$(curl -sS -o /tmp/theseus-currents-public.json -w '%{http_code}' --max-time 12 https://theseus-currents.thenashlabhivemind.com/readyz || echo 000)"
-    echo "  attempt ${attempt}: local=${local_status} public=${public_status}"
-    if [ "$local_status" = "200" ] && [ "$public_status" = "200" ]; then
-      echo "Currents runtime is ready."
-      exit 0
+  echo "  (fast-exits on first response with db:true; max ~30s total)"
+
+  credentials_accepted_in() {
+    local file="$1" status="$2"
+    # 200: fully healthy. 503 with db:true: credentials work, other
+    # subsystems may be degraded but those aren't ours to gate on.
+    if [ "$status" = "200" ]; then return 0; fi
+    if [ "$status" = "503" ] && grep -q '"db":true' "$file" 2>/dev/null; then
+      return 0
     fi
-    sleep 10
+    return 1
+  }
+
+  describe_degraded() {
+    # Pull the structured failure code out of the readyz JSON so the
+    # operator can tell at a glance what the lingering issue is (the
+    # response shape is {"detail":{"forecasts":{"code":"…"}}} when
+    # forecasts is the blocker). Falls back gracefully if Python or jq
+    # aren't available.
+    local file="$1"
+    python3 -c "
+import json,sys
+try:
+    d = json.load(open(sys.argv[1])).get('detail', {})
+except Exception:
+    sys.exit(0)
+parts = []
+for subsystem in ('forecasts',):
+    sub = d.get(subsystem)
+    if isinstance(sub, dict) and sub.get('ok') is False:
+        code = sub.get('code', 'unknown')
+        parts.append(f'{subsystem}: {code}')
+print('; '.join(parts) if parts else '')
+" "$file" 2>/dev/null
+  }
+
+  local_ok=0
+  public_ok=0
+  local_status="000"
+  public_status="000"
+  for attempt in 1 2 3 4 5 6; do
+    local_status="$(curl -sS -o /tmp/theseus-currents-local.json -w '%{http_code}' --max-time 5 http://127.0.0.1:8088/readyz 2>/dev/null || echo 000)"
+    public_status="$(curl -sS -o /tmp/theseus-currents-public.json -w '%{http_code}' --max-time 8 https://theseus-currents.thenashlabhivemind.com/readyz 2>/dev/null || echo 000)"
+
+    if [ "$local_ok" = 0 ] && credentials_accepted_in /tmp/theseus-currents-local.json "$local_status"; then
+      local_ok=1
+      degraded="$(describe_degraded /tmp/theseus-currents-local.json)"
+      if [ -n "$degraded" ]; then
+        echo "  local:  credentials accepted (${local_status}; degraded subsystems: ${degraded})"
+      else
+        echo "  local:  ready (${local_status})"
+      fi
+    fi
+    if [ "$public_ok" = 0 ] && credentials_accepted_in /tmp/theseus-currents-public.json "$public_status"; then
+      public_ok=1
+      degraded="$(describe_degraded /tmp/theseus-currents-public.json)"
+      if [ -n "$degraded" ]; then
+        echo "  public: credentials accepted (${public_status}; degraded subsystems: ${degraded})"
+      else
+        echo "  public: ready (${public_status})"
+      fi
+    fi
+
+    if [ "$local_ok" = 1 ] && [ "$public_ok" = 1 ]; then
+      break
+    fi
+    [ "$attempt" -lt 6 ] && sleep 4
   done
-  echo "WARNING: readiness did not return 200 yet. Supabase may still be cooling down from ECIRCUITBREAKER."
-  echo "Local response:"
-  sed -E 's#postgresql://[^[:space:]"]+#postgresql://<redacted>#g' /tmp/theseus-currents-local.json 2>/dev/null || true
+
+  if [ "$local_ok" = 1 ] && [ "$public_ok" = 1 ]; then
+    echo "Currents runtime accepted the new credentials."
+    exit 0
+  fi
+
+  # If we got here, at least one endpoint did NOT return db:true in 30s.
+  # That's a real signal — either the service didn't restart cleanly or
+  # the new password genuinely failed against Postgres. Print the final
+  # statuses + bodies so the operator can triage instead of a 12-line
+  # noise loop.
   echo ""
-  echo "Public response:"
-  sed -E 's#postgresql://[^[:space:]"]+#postgresql://<redacted>#g' /tmp/theseus-currents-public.json 2>/dev/null || true
+  echo "WARNING: credential acceptance not confirmed for one or both endpoints."
+  if [ "$local_ok" = 0 ]; then
+    echo "  local final status: $local_status — body (redacted):"
+    sed -E 's#postgresql://[^[:space:]"]+#postgresql://<redacted>#g' /tmp/theseus-currents-local.json 2>/dev/null | head -c 600
+    echo ""
+  fi
+  if [ "$public_ok" = 0 ]; then
+    echo "  public final status: $public_status — body (redacted):"
+    sed -E 's#postgresql://[^[:space:]"]+#postgresql://<redacted>#g' /tmp/theseus-currents-public.json 2>/dev/null | head -c 600
+    echo ""
+  fi
 fi

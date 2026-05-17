@@ -49,6 +49,14 @@ def _index_exists(table: str, index_name: str) -> bool:
 
 
 def upgrade() -> None:
+    # Shared-table mirror: bet_spec and bet_resolution are Prisma-owned
+    # on Postgres. Skip on Postgres so naming-convention drift (the
+    # snake_case-vs-camelCase mismatch that bit us earlier) cannot recur.
+    # The column-aware guards farther down in this file are belt-and-
+    # suspenders for SQLite environments that may have been partially
+    # populated by an interrupted run.
+    if op.get_bind().dialect.name == "postgresql":
+        return
     if not _table_exists("bet_spec"):
         op.create_table(
             "bet_spec",
@@ -169,6 +177,8 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
+    if op.get_bind().dialect.name == "postgresql":
+        return
     for table in ("EquityPosition", "ForecastBet"):
         idx_name = f"{table}_betSpecId_idx"
         if _index_exists(table, idx_name):

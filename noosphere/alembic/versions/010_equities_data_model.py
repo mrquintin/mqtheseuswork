@@ -558,6 +558,11 @@ def _create_check_constraints() -> None:
 
 
 def upgrade() -> None:
+    # Shared-table mirror: the Equity* tables are Prisma-owned on
+    # Postgres. This alembic migration is for SQLite tests only — see
+    # docs/architecture or the Phase-1 audit if you need context.
+    if op.get_bind().dialect.name == "postgresql":
+        return
     _create_pg_enum("EquityAssetClass", EQUITY_ASSET_CLASS)
     _create_pg_enum("EquityPriceSource", EQUITY_PRICE_SOURCE)
     _create_pg_enum("EquitySignalDirection", EQUITY_SIGNAL_DIRECTION)
@@ -572,6 +577,8 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
+    if op.get_bind().dialect.name == "postgresql":
+        return
     for table in _TABLES:
         if _table_exists(table):
             op.drop_table(table)

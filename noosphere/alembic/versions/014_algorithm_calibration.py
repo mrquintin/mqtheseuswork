@@ -52,6 +52,12 @@ def _column_exists(table: str, column: str) -> bool:
 
 
 def upgrade() -> None:
+    # Phase-2 consolidation: the noosphere ORM now writes to the
+    # corresponding Prisma-owned PascalCase tables instead of the
+    # snake_case mirrors this migration creates. Skipped on Postgres;
+    # preserved for SQLite-based noosphere unit tests.
+    if op.get_bind().dialect.name == "postgresql":
+        return
     # 1. weighting_multiplier on logical_algorithm.
     if _table_exists("logical_algorithm") and not _column_exists(
         "logical_algorithm", "weighting_multiplier"
@@ -215,6 +221,8 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
+    if op.get_bind().dialect.name == "postgresql":
+        return
     if _table_exists("algorithm_triage_recommendation"):
         op.drop_table("algorithm_triage_recommendation")
     if _table_exists("algorithm_calibration_snapshot"):

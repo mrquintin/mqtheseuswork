@@ -45,6 +45,12 @@ def _index_exists(table: str, index_name: str) -> bool:
 
 
 def upgrade() -> None:
+    # Phase-2 consolidation: the noosphere ORM now writes to the
+    # corresponding Prisma-owned PascalCase tables instead of the
+    # snake_case mirrors this migration creates. Skipped on Postgres;
+    # preserved for SQLite-based noosphere unit tests.
+    if op.get_bind().dialect.name == "postgresql":
+        return
     if not _table_exists("investment_memo"):
         op.create_table(
             "investment_memo",
@@ -122,6 +128,8 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
+    if op.get_bind().dialect.name == "postgresql":
+        return
     for index_name in (
         "investment_memo_org_status_idx",
         "investment_memo_org_created_idx",
