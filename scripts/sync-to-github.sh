@@ -38,6 +38,111 @@ banner_partial()  { print_banner "$C_YELLOW" "⚠ SYNC PARTIAL"   "$@"; }
 banner_skipped()  { print_banner "$C_YELLOW" "○ SYNC SKIPPED"   "$@"; }
 banner_failed()   { print_banner "$C_RED"    "✗ SYNC FAILED"    "$@"; }
 
+# ──────────────────────────────────────────────────────────────────────────────
+# Workflow audit — waits for every CI workflow run triggered by the pushed
+# commit (headSha == $pushed_sha) to reach a terminal state, then tallies and
+# prints failures. Idempotent and read-only — never mutates GitHub state.
+#
+# Why this exists: Rolling Release is only ONE of many workflows the firm
+# runs on every push (Integrity, Type Contracts, smoke, Accessibility,
+# Dead-code survey, Round-3 invariants, …). Watching only Rolling Release
+# meant the sync banner could print "✓ SYNC COMPLETE" while five other
+# workflows were silently failing. The historical fallout was hours of
+# operator time spent re-discovering those failures one-at-a-time over
+# subsequent days. This audit closes that gap.
+#
+# Sets the following globals so the banner block downstream can branch on
+# them without re-running gh:
+#   WORKFLOW_AUDIT_STATUS    success | failed | inflight | unchecked
+#   WORKFLOW_AUDIT_TOTAL     number of runs observed
+#   WORKFLOW_AUDIT_SUCCESS   success + skipped + neutral
+#   WORKFLOW_AUDIT_FAILURE   failure + timed_out + cancelled + startup_failure
+#   WORKFLOW_AUDIT_INFLIGHT  runs still in_progress / queued after max wait
+#
+# Env knobs:
+#   SYNC_SKIP_WORKFLOW_AUDIT=1               opt out entirely
+#   SYNC_WORKFLOW_AUDIT_MAX_WAIT_SECONDS=N   default 1800 (30 min) — covers
+#                                            the longest known job (Round-3
+#                                            invariants, ~16 min) with
+#                                            generous headroom.
+#   SYNC_WORKFLOW_AUDIT_POLL_SECONDS=N       default 20 — how often to poll.
+# ──────────────────────────────────────────────────────────────────────────────
+WORKFLOW_AUDIT_STATUS="unchecked"
+WORKFLOW_AUDIT_TOTAL=0
+WORKFLOW_AUDIT_SUCCESS=0
+WORKFLOW_AUDIT_FAILURE=0
+WORKFLOW_AUDIT_INFLIGHT=0
+
+audit_all_workflows() {
+  local sha="$1"
+  local max_wait_seconds="${SYNC_WORKFLOW_AUDIT_MAX_WAIT_SECONDS:-1800}"
+  local poll_interval="${SYNC_WORKFLOW_AUDIT_POLL_SECONDS:-20}"
+  local started elapsed pending_count
+  started=$(date +%s)
+
+  if [ -z "$sha" ]; then
+    WORKFLOW_AUDIT_STATUS="unchecked"
+    return 0
+  fi
+
+  echo ""
+  echo "=== Auditing every CI workflow run for commit ${sha:0:7} ==="
+  echo "    (waiting up to ${max_wait_seconds}s for in-progress runs)"
+
+  while true; do
+    # `gh run list --commit <full-sha>` filters runs by headSha. status is
+    # one of: completed | queued | in_progress | waiting | requested |
+    # pending. Anything other than "completed" still needs more time.
+    pending_count="$(gh run list --commit "$sha" --limit 60 \
+      --json status \
+      --jq '[.[] | select(.status != "completed")] | length' 2>/dev/null || echo 0)"
+
+    [ -z "$pending_count" ] && pending_count=0
+    if [ "$pending_count" -eq 0 ]; then
+      break
+    fi
+
+    elapsed=$(($(date +%s) - started))
+    if [ "$elapsed" -ge "$max_wait_seconds" ]; then
+      echo "    audit timed out after ${max_wait_seconds}s with $pending_count run(s) still in flight"
+      break
+    fi
+    echo "    $pending_count workflow run(s) still in progress (elapsed ${elapsed}s)"
+    sleep "$poll_interval"
+  done
+
+  WORKFLOW_AUDIT_TOTAL="$(gh run list --commit "$sha" --limit 60 \
+    --json databaseId --jq 'length' 2>/dev/null || echo 0)"
+  WORKFLOW_AUDIT_SUCCESS="$(gh run list --commit "$sha" --limit 60 \
+    --json conclusion \
+    --jq '[.[] | select(.conclusion == "success" or .conclusion == "skipped" or .conclusion == "neutral")] | length' 2>/dev/null || echo 0)"
+  WORKFLOW_AUDIT_FAILURE="$(gh run list --commit "$sha" --limit 60 \
+    --json conclusion \
+    --jq '[.[] | select(.conclusion == "failure" or .conclusion == "timed_out" or .conclusion == "cancelled" or .conclusion == "startup_failure" or .conclusion == "action_required")] | length' 2>/dev/null || echo 0)"
+  [ -z "$WORKFLOW_AUDIT_TOTAL" ]   && WORKFLOW_AUDIT_TOTAL=0
+  [ -z "$WORKFLOW_AUDIT_SUCCESS" ] && WORKFLOW_AUDIT_SUCCESS=0
+  [ -z "$WORKFLOW_AUDIT_FAILURE" ] && WORKFLOW_AUDIT_FAILURE=0
+  WORKFLOW_AUDIT_INFLIGHT=$((WORKFLOW_AUDIT_TOTAL - WORKFLOW_AUDIT_SUCCESS - WORKFLOW_AUDIT_FAILURE))
+  [ "$WORKFLOW_AUDIT_INFLIGHT" -lt 0 ] && WORKFLOW_AUDIT_INFLIGHT=0
+
+  if [ "$WORKFLOW_AUDIT_FAILURE" -gt 0 ]; then
+    echo ""
+    echo "${C_RED}    ${WORKFLOW_AUDIT_FAILURE} workflow run(s) FAILED on this commit:${C_RESET}"
+    gh run list --commit "$sha" --limit 60 \
+      --json conclusion,workflowName,url \
+      --jq '.[] | select(.conclusion == "failure" or .conclusion == "timed_out" or .conclusion == "cancelled" or .conclusion == "startup_failure") | "      - " + .workflowName + " (" + .conclusion + ")\n        " + .url' \
+      2>/dev/null || true
+    WORKFLOW_AUDIT_STATUS="failed"
+  elif [ "$WORKFLOW_AUDIT_INFLIGHT" -gt 0 ]; then
+    WORKFLOW_AUDIT_STATUS="inflight"
+  else
+    WORKFLOW_AUDIT_STATUS="success"
+  fi
+
+  echo ""
+  echo "    Workflows: ${WORKFLOW_AUDIT_SUCCESS} passed · ${WORKFLOW_AUDIT_FAILURE} failed · ${WORKFLOW_AUDIT_INFLIGHT} still in flight (of ${WORKFLOW_AUDIT_TOTAL})"
+}
+
 SECRET_TMP_FILES=()
 cleanup_secret_tmp_files() {
   local f
@@ -846,29 +951,44 @@ echo "Repo: https://github.com/mrquintin/mqtheseuswork"
 # the installer rebuild).
 # ──────────────────────────────────────────────────────────────────────────────
 if [ "${SYNC_SKIP_WATCH:-0}" = "1" ]; then
-  banner_success \
+  # SYNC_SKIP_WATCH=1 skips both the Rolling Release watch AND the all-
+  # workflow audit. The banner explicitly degrades to "PARTIAL" rather
+  # than "COMPLETE" because we cannot truthfully claim CI is healthy
+  # without observing it. Operators who just want to push and walk away
+  # should be using the "submit and check tomorrow" workflow, not
+  # SYNC_SKIP_WATCH masquerading as success.
+  banner_partial \
     "Pushed to origin/$branch." \
     "$DB_ROTATION_LINE" \
-    "CI watch skipped (SYNC_SKIP_WATCH=1)." \
-    "Build status: https://github.com/mrquintin/mqtheseuswork/actions/workflows/rolling-release.yml"
+    "CI watch skipped (SYNC_SKIP_WATCH=1) — CI health not verified." \
+    "Build status: https://github.com/mrquintin/mqtheseuswork/actions"
+  cleanup_secret_tmp_files
+  trap - EXIT
   exit 0
 fi
 
 if ! command -v gh >/dev/null 2>&1; then
-  banner_success \
+  # Same reasoning as SYNC_SKIP_WATCH: if we cannot see CI, we cannot
+  # report it. PARTIAL is the honest classification.
+  banner_partial \
     "Pushed to origin/$branch." \
     "$DB_ROTATION_LINE" \
-    "gh CLI not installed — can't watch installer build." \
-    "Track progress: https://github.com/mrquintin/mqtheseuswork/actions/workflows/rolling-release.yml"
+    "gh CLI not installed — CI health unverified." \
+    "Install gh and re-run for accurate CI reporting." \
+    "Track progress: https://github.com/mrquintin/mqtheseuswork/actions"
+  cleanup_secret_tmp_files
+  trap - EXIT
   exit 0
 fi
 
 if ! gh auth status >/dev/null 2>&1; then
-  banner_success \
+  banner_partial \
     "Pushed to origin/$branch." \
     "$DB_ROTATION_LINE" \
-    "gh CLI not authenticated (run 'gh auth login') — can't watch build." \
-    "Track progress: https://github.com/mrquintin/mqtheseuswork/actions/workflows/rolling-release.yml"
+    "gh CLI not authenticated (run 'gh auth login') — CI health unverified." \
+    "Track progress: https://github.com/mrquintin/mqtheseuswork/actions"
+  cleanup_secret_tmp_files
+  trap - EXIT
   exit 0
 fi
 
@@ -1016,11 +1136,30 @@ if command -v gh >/dev/null 2>&1 && [ -n "${pushed_sha:-}" ]; then
 fi
 
 # ──────────────────────────────────────────────────────────────────────────────
-# Final completion banner. Color and wording reflect what actually succeeded:
-#   - All installers present   → green SYNC COMPLETE
-#   - Some installers missing  → yellow SYNC PARTIAL
-#   - Zero installers present  → red SYNC FAILED (code pushed, builds broken)
-# README link verification adds an extra line so stale URLs are caught early.
+# All-workflow audit. Rolling Release was already watched above, but every
+# OTHER workflow that fires on this push (Integrity, Type Contracts, smoke,
+# Accessibility, Dead-code survey, Round-3 invariants, …) ran in parallel
+# and would otherwise complete invisibly. The audit is what makes the
+# banner an honest report of CI health rather than a single-workflow
+# proxy that the operator has to manually cross-check afterwards.
+# ──────────────────────────────────────────────────────────────────────────────
+if [ "${SYNC_SKIP_WORKFLOW_AUDIT:-0}" = "1" ]; then
+  echo ""
+  echo "${C_YELLOW}note: workflow audit skipped (SYNC_SKIP_WORKFLOW_AUDIT=1).${C_RESET}"
+  echo "${C_YELLOW}      Banner will not reflect other CI workflows' status.${C_RESET}"
+  WORKFLOW_AUDIT_STATUS="unchecked"
+else
+  audit_all_workflows "${pushed_sha:-}"
+fi
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Final completion banner. Color and wording reflect what actually succeeded
+# across every observable surface:
+#   - All installers present, Codex 200, Vercel success, every workflow green
+#     → green SYNC COMPLETE
+#   - Any workflow failed, OR Vercel/Codex broken, OR installers missing
+#     → yellow SYNC PARTIAL
+#   - Zero installers AND no other signal of life → red SYNC FAILED
 # ──────────────────────────────────────────────────────────────────────────────
 summary_line="Installers: ${ok_count}/${total_expected} OK"
 [ "$missing_count" -gt 0 ] && summary_line="${summary_line} · ${missing_count} missing"
@@ -1029,25 +1168,52 @@ push_line="Pushed commit ${pushed_sha:0:7} to origin/$branch"
 codex_line="Codex URL: $codex_status"
 vercel_line="Vercel deploy: $vercel_deploy_status"
 
+# Build the Workflows line. Phrasing makes the failure count the loudest
+# part of the string so it cannot be missed in a glance at the banner.
+case "$WORKFLOW_AUDIT_STATUS" in
+  success)
+    workflow_line="Workflows: ${WORKFLOW_AUDIT_SUCCESS}/${WORKFLOW_AUDIT_TOTAL} green"
+    ;;
+  failed)
+    workflow_line="Workflows: ${WORKFLOW_AUDIT_FAILURE} FAILED of ${WORKFLOW_AUDIT_TOTAL} (see list above for URLs)"
+    ;;
+  inflight)
+    workflow_line="Workflows: ${WORKFLOW_AUDIT_SUCCESS}/${WORKFLOW_AUDIT_TOTAL} green, ${WORKFLOW_AUDIT_INFLIGHT} still in flight (audit timed out)"
+    ;;
+  unchecked|*)
+    workflow_line="Workflows: not audited"
+    ;;
+esac
+
 codex_broken=0
 case "$codex_status" in BROKEN*) codex_broken=1 ;; esac
 
 vercel_broken=0
 case "$vercel_deploy_status" in FAILED*) vercel_broken=1 ;; esac
 
-if [ "$ok_count" -eq "$total_expected" ] && [ "$codex_broken" = 0 ] && [ "$vercel_broken" = 0 ]; then
-  banner_success "$push_line" "$DB_ROTATION_LINE" "$summary_line" "$release_line" "$codex_line" "$vercel_line"
+workflows_broken=0
+[ "$WORKFLOW_AUDIT_STATUS" = "failed" ] && workflows_broken=1
+
+if [ "$ok_count" -eq "$total_expected" ] \
+   && [ "$codex_broken" = 0 ] \
+   && [ "$vercel_broken" = 0 ] \
+   && [ "$workflows_broken" = 0 ] \
+   && [ "$WORKFLOW_AUDIT_STATUS" = "success" ]; then
+  banner_success "$push_line" "$DB_ROTATION_LINE" "$summary_line" "$release_line" "$codex_line" "$vercel_line" "$workflow_line"
 elif [ "$ok_count" -eq 0 ]; then
-  banner_failed  "$push_line" "$DB_ROTATION_LINE" "$summary_line" "$release_line" "$codex_line" "$vercel_line" \
+  banner_failed  "$push_line" "$DB_ROTATION_LINE" "$summary_line" "$release_line" "$codex_line" "$vercel_line" "$workflow_line" \
     "All installers are missing — check the CI logs."
+elif [ "$workflows_broken" = 1 ] && [ "$vercel_broken" = 0 ] && [ "$codex_broken" = 0 ]; then
+  banner_partial "$push_line" "$DB_ROTATION_LINE" "$summary_line" "$release_line" "$codex_line" "$vercel_line" "$workflow_line" \
+    "${WORKFLOW_AUDIT_FAILURE} CI workflow(s) failed even though Vercel and Rolling Release are green. Click the URLs printed above the banner to triage."
 elif [ "$vercel_broken" = 1 ]; then
-  banner_partial "$push_line" "$DB_ROTATION_LINE" "$summary_line" "$release_line" "$codex_line" "$vercel_line" \
+  banner_partial "$push_line" "$DB_ROTATION_LINE" "$summary_line" "$release_line" "$codex_line" "$vercel_line" "$workflow_line" \
     "Vercel couldn't build this commit. The live site is STALE — still showing the previous successful deploy. Check the Vercel dashboard and fix the build error."
 elif [ "$codex_broken" = 1 ]; then
-  banner_partial "$push_line" "$DB_ROTATION_LINE" "$summary_line" "$release_line" "$codex_line" "$vercel_line" \
+  banner_partial "$push_line" "$DB_ROTATION_LINE" "$summary_line" "$release_line" "$codex_line" "$vercel_line" "$workflow_line" \
     "README's Codex URL didn't return 200. Verify in Vercel dashboard and update README.md if needed."
 else
-  banner_partial "$push_line" "$DB_ROTATION_LINE" "$summary_line" "$release_line" "$codex_line" "$vercel_line"
+  banner_partial "$push_line" "$DB_ROTATION_LINE" "$summary_line" "$release_line" "$codex_line" "$vercel_line" "$workflow_line"
 fi
 
 # Success path — override the default-failure EXIT trap so it doesn't fire.
