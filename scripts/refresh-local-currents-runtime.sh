@@ -223,9 +223,19 @@ print('; '.join(parts) if parts else '')
   circuit_breaker_seen=0
   local_status="000"
   public_status="000"
+  local_responded=0
+  public_responded=0
   for attempt in 1 2 3 4 5 6; do
     local_status="$(curl -sS -o /tmp/theseus-currents-local.json -w '%{http_code}' --max-time 5 http://127.0.0.1:8088/readyz 2>/dev/null || echo 000)"
     public_status="$(curl -sS -o /tmp/theseus-currents-public.json -w '%{http_code}' --max-time 8 https://theseus-currents.thenashlabhivemind.com/readyz 2>/dev/null || echo 000)"
+    # Track whether each endpoint ever produced a real HTTP response
+    # (anything other than 000 = connection refused / DNS / timeout).
+    # Used below to distinguish "API is up but unhappy" from "API is
+    # not listening at all". A 502 from the public Cloudflare tunnel
+    # also counts as not-responding from the API's perspective —
+    # the tunnel itself responded but the origin behind it didn't.
+    [ "$local_status" != "000" ] && local_responded=1
+    [ "$public_status" != "000" ] && [ "$public_status" != "502" ] && public_responded=1
 
     # If either response body explicitly reports Supabase circuit-breaker,
     # the API genuinely cannot reach Postgres right now. Stop polling —
@@ -282,21 +292,58 @@ print('; '.join(parts) if parts else '')
     exit 0
   fi
 
-  # If we got here, at least one endpoint did NOT return db:true in 30s.
-  # That's a real signal — either the service didn't restart cleanly or
-  # the new password genuinely failed against Postgres. Print the final
-  # statuses + bodies so the operator can triage instead of a 12-line
-  # noise loop.
+  if [ "$local_responded" = 0 ] && [ "$public_responded" = 0 ]; then
+    # Neither endpoint produced a real HTTP response in 30 seconds.
+    # That usually means the local API service hasn't come back up
+    # since the last restart — most often because Supabase's pgbouncer
+    # is in ECIRCUITBREAKER cool-down from THIS rotation's auth burst,
+    # or a previous one that hasn't cleared yet. The API will recover
+    # on its own via launchd KeepAlive once the cool-down ends.
+    #
+    # Soft-exit (0) rather than failing the sync: the rotation we
+    # came from already updated GitHub, Vercel, local dotenvs, and
+    # Supabase itself. Failing here would only block git push and
+    # leave the operator with rotated credentials but unpushed code.
+    echo ""
+    echo "NOTE: neither local (127.0.0.1:8088) nor public Currents endpoint"
+    echo "      produced a real HTTP response in 30s. The launchd services"
+    echo "      are likely still in Supabase ECIRCUITBREAKER cool-down."
+    echo "      Recover: wait 5-15 min for the breaker to clear, then"
+    echo "        launchctl kickstart gui/\$(id -u)/com.theseus.currents-api"
+    echo "        launchctl kickstart gui/\$(id -u)/com.theseus.currents-scheduler"
+    echo "      No action needed for the rotation itself — it succeeded."
+    exit 0
+  fi
+
+  # If we got here, at least one endpoint did NOT return db:true in 30s
+  # AND we have at least one HTTP-level response to inspect. Print the
+  # final statuses + bodies (or "(empty)" when the body file is missing)
+  # so the operator can triage instead of a 12-line noise loop.
   echo ""
   echo "WARNING: credential acceptance not confirmed for one or both endpoints."
+
+  # Helper: redact-and-print a response body, guarding against missing
+  # or empty files. Avoids the set -e + pipefail trap where sed on a
+  # non-existent file fails the pipeline and kills the script.
+  print_redacted_body() {
+    local file="$1"
+    if [ ! -s "$file" ]; then
+      echo "    (empty — no response body captured)"
+      return 0
+    fi
+    {
+      sed -E 's#postgresql://[^[:space:]"]+#postgresql://<redacted>#g' "$file" 2>/dev/null \
+        | head -c 600
+      echo
+    } || true
+  }
+
   if [ "$local_ok" = 0 ]; then
     echo "  local final status: $local_status — body (redacted):"
-    sed -E 's#postgresql://[^[:space:]"]+#postgresql://<redacted>#g' /tmp/theseus-currents-local.json 2>/dev/null | head -c 600
-    echo ""
+    print_redacted_body /tmp/theseus-currents-local.json
   fi
   if [ "$public_ok" = 0 ]; then
     echo "  public final status: $public_status — body (redacted):"
-    sed -E 's#postgresql://[^[:space:]"]+#postgresql://<redacted>#g' /tmp/theseus-currents-public.json 2>/dev/null | head -c 600
-    echo ""
+    print_redacted_body /tmp/theseus-currents-public.json
   fi
 fi
