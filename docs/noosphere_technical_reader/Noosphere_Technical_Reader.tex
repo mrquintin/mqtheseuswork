@@ -16,7 +16,7 @@
 \setlist[itemize]{leftmargin=1.3em,itemsep=0.18em,topsep=0.25em}
 \setlist[enumerate]{leftmargin=1.5em,itemsep=0.18em,topsep=0.25em}
 \newtcolorbox{readerbox}[1]{colback=gray!4,colframe=gray!45!black,title=#1,arc=1.5mm,boxrule=0.4pt,left=1.2mm,right=1.2mm,top=1mm,bottom=1mm}
-\newcommand{\code}[1]{\texttt{#1}}
+\newcommand{\code}[1]{\texttt{\detokenize{#1}}}
 \newcommand{\sourcehref}[2]{\href{#1}{#2}}
 \title{\textbf{Noosphere Technical Reader}\\\large LLMs, Embedding Geometry, NLP Extraction, Knowledge Graphs, and Coherence-Based Intellectual Capital Modeling}
 \author{Prepared for Michael Quintin / Theseus}
@@ -566,6 +566,573 @@ vetoes used to turn metrics into decisions.
 tional dimensions.
 \end{description}
 
+
+
+\section{Deep Dive I: Transformer Mechanics}
+
+\subsection{Tokenization Is Already a Modeling Choice}
+
+Before a transformer sees text, the text is broken into tokens. A token may be a
+whole word, a word piece, punctuation, or a byte-level fragment. This matters
+because the model does not reason over words as humans encounter them on the
+page. It reasons over token ids that index rows in an embedding table. A rare
+technical word may split into several fragments; a common phrase may receive a
+more stable representation because the model has seen its pieces together many
+times.
+
+For Noosphere, tokenization matters in three places. First, extraction prompts
+with unusual jargon can produce brittle outputs if the model has only a weak
+representation of the terms. Second, evidence pointers can drift when the model
+summarizes a span whose token boundaries do not match human sentence
+boundaries. Third, very short claims can be embedding-poor: their vectors may be
+dominated by broad topical features rather than precise logical content.
+
+\subsection{Embeddings and Positional Information}
+
+The initial representation of a token is a vector. A transformer also needs some
+way to represent order. The original transformer used sinusoidal positional
+encoding; later models use learned or rotary variants. The common point is that
+the model must distinguish "A caused B" from "B caused A." Noosphere's claim
+extraction depends heavily on that distinction, especially when it tries to
+extract causal chains, support relations, or contradiction relations.
+
+\subsection{Self-Attention in One Equation}
+
+For a matrix of token representations $X$, attention constructs:
+\[
+Q = XW_Q,\qquad K = XW_K,\qquad V = XW_V.
+\]
+The attention weights are:
+\[
+\mathrm{softmax}\left(\frac{QK^\top}{\sqrt{d_k}}\right),
+\]
+and the output is those weights multiplied by $V$. In plain terms: each token
+forms a query, each token exposes a key, and the dot products decide how much
+information to read from each value vector.
+
+This is why attention is not just lookup. It is content-dependent routing. In a
+claim like "The policy reduced inflation, but only because demand collapsed,"
+later tokens can route attention back to "but only because" and change the
+interpretation of the apparent causal claim. A bag-of-words model would struggle
+with this; a transformer has a mechanism that can represent it.
+
+\subsection{Multi-Head Attention}
+
+One attention head can learn one routing pattern. Multi-head attention lets
+different heads learn different relations at the same layer: syntax, entity
+tracking, negation, quotation, induction, formatting, or task-specific prompt
+structure. Interpretability work is interested in heads because some heads
+appear to implement recognizable algorithms, while others remain diffuse.
+
+Noosphere should care about this because the same prompt can elicit different
+behaviors depending on which internal circuits are activated. A prompt that
+asks for "claims" might trigger summarization habits unless the schema and
+examples strongly distinguish claims from premises, questions, quotations, and
+objections.
+
+\subsection{Training Objective vs. User Intent}
+
+The base training objective is next-token prediction. That objective does not
+directly say "extract only author-endorsed claims" or "do not invent an edge in
+the graph." The model learns a broad conditional distribution over text. The
+instruction-tuned interface then adds a behavioral layer that makes the model
+follow user requests. RLHF and constitutional methods add yet more pressure
+toward helpfulness, safety, and stylistic compliance.
+
+That stack creates a useful but dangerous instrument. It can parse, explain, and
+generalize. It can also over-help by filling gaps. In Noosphere, over-help is
+not benign: an invented relation can become a graph edge, and a graph edge can
+become evidence in a decision trace.
+
+\subsection{Inference-Time Behavior}
+
+At inference time, the model samples or selects the next token repeatedly. Even
+with temperature near zero, deterministic behavior is not the same as
+truth-preserving behavior. The model may be deterministic about a wrong
+extraction if the prompt under-specifies the schema. That is why Noosphere's
+best design pattern is not "ask the model and trust it"; it is "ask the model
+inside a typed contract, validate the result, record the version, and test the
+failure mode."
+
+\section{Deep Dive II: Embedding Geometry Mechanics}
+
+\subsection{Distributional Semantics}
+
+The oldest lesson in modern embeddings is distributional: words or spans that
+occur in similar contexts tend to acquire similar representations. Count-based
+methods made this explicit with co-occurrence matrices. Neural methods learn
+the representation through prediction. The result is not a dictionary
+definition. It is a compressed statistical position inside a learned space.
+
+This is why embeddings are powerful for retrieval. If two claims use different
+surface words but occupy similar contexts, embeddings can bring them close. It
+is also why embeddings are risky for logic. Logical negation can preserve most
+context while reversing truth conditions.
+
+\subsection{SVD, Factorization, and Latent Axes}
+
+Singular value decomposition gives a clean mathematical model for why latent
+semantic axes can emerge. A large co-occurrence matrix can be approximated by
+lower-rank factors. Those factors are not guaranteed to align with human words,
+but they often capture stable dimensions of variation. Word2vec and GloVe are
+not just engineering tricks; they sit in the same conceptual family of finding
+compressed latent structure in distributional data.
+
+Noosphere's geometric methods should be read in that tradition. They assume
+that abstract distinctions are not purely symbolic; they leave statistical
+structure in a representational space.
+
+\subsection{The Difference Between Similarity and Relation}
+
+Similarity asks whether two vectors are near each other. Relation asks whether a
+transformation from one vector to the other has meaning. In knowledge graph
+embedding, TransE models a relation as something like:
+\[
+h + r \approx t.
+\]
+In contradiction geometry, the interesting object is often not $a$ or $b$
+alone, but a transformed difference such as $b' - a$. In representation
+engineering, the interesting object may be a direction that shifts model
+behavior when added to or subtracted from an activation.
+
+This distinction is the bridge between embeddings as retrieval tools and
+embeddings as reasoning substrates. Noosphere is trying to stand on the second
+side of that bridge, where transformations and directions matter.
+
+\subsection{High-Dimensional Geometry Has Traps}
+
+High-dimensional spaces behave differently from the two- or three-dimensional
+spaces used in visual intuition. Distances concentrate. Random vectors can be
+nearly orthogonal. Sparse coordinates can dominate norms. A direction that is
+meaningful in one model layer may be meaningless in another model or even in a
+different normalization regime.
+
+This is why any geometric claim needs:
+
+\begin{itemize}
+\item a fixed embedding model,
+\item a fixed text span policy,
+\item a fixed normalization policy,
+\item a fixed metric,
+\item a calibration set,
+\item a benchmark with negative and positive controls, and
+\item cross-model replication before generalization.
+\end{itemize}
+
+\subsection{Hoyer Sparsity}
+
+Hoyer sparsity compares the $L_1$ and $L_2$ norms of a vector. Intuitively, a
+vector is sparse when a few coordinates carry most of its mass. In Noosphere's
+contradiction geometry, a sparse difference vector is treated as evidence that
+two claims differ along concentrated dimensions rather than diffusely across
+topic.
+
+The hypothesis is reasonable enough to test, but it is not self-validating. A
+sparse difference can arise from artifacts: short text, tokenization, embedding
+model quirks, domain-specific vocabulary, or a threshold calibrated on the wrong
+distribution.
+
+\subsection{Householder Reflection}
+
+A Householder reflection maps a vector across a hyperplane. Given a unit vector
+$d$, the reflection of $b$ is:
+\[
+b' = b - 2(b \cdot d)d.
+\]
+In the local contradiction engine, $d$ is an estimated contradiction direction.
+The reflected vector $b'$ is then compared with $a$ through Hoyer sparsity. The
+conceptual bet is that contradiction has a direction-like structure, and that
+reflecting across it exposes a sharper difference signal.
+
+The local Householder ablation is the right kind of methodological pressure:
+keep the step only if it survives powered comparisons. The existing ablation did
+not have label-level power under the frozen threshold, so its honest conclusion
+is neither victory nor refutation.
+
+\section{Deep Dive III: Truth, Linear Representations, and Steering}
+
+\subsection{Linear Representation Hypothesis}
+
+The Linear Representation Hypothesis says, roughly, that high-level concepts
+can often be represented as linear directions in a model's representation
+space. This does not mean every concept has one universal axis. It means that,
+under some conditions, a linear probe or direction can recover a concept well
+enough to be scientifically and operationally meaningful.
+
+For Noosphere, this is the external literature closest to the Quintin
+Hypothesis. If truth, falsehood, contradiction, uncertainty, or coherence can be
+directional, then a geometry-aware intellectual model is plausible. If those
+properties are distributed, nonlinear, layer-specific, or heavily entangled,
+then a naive direction detector will fail.
+
+\subsection{Truth Directions}
+
+The Geometry of Truth paper and related work ask whether factual truth has a
+linear structure in LLM activation space. Contrast-consistent search asks
+whether a direction can be found from logical constraints without labels.
+Inference-Time Intervention asks whether modifying truth-related directions can
+change model answers.
+
+The key distinction is between \textbf{detecting} a signal and \textbf{earning}
+a truth claim. A direction correlated with truth on a dataset may fail under
+distribution shift, adversarial examples, ambiguous statements, normative
+claims, or claims requiring unavailable world knowledge. Noosphere's claims are
+often philosophical, strategic, or methodological, not only factual quiz items.
+
+\subsection{Representation Engineering}
+
+Representation engineering generalizes the workflow:
+
+\begin{enumerate}
+\item Define a contrast or behavior.
+\item Collect examples or use unsupervised constraints.
+\item Find a direction or subspace.
+\item Test whether the direction predicts held-out cases.
+\item Intervene and see whether behavior changes as predicted.
+\item Audit side effects.
+\end{enumerate}
+
+Noosphere can borrow this discipline. A "coherence direction" should not be
+declared because it sounds plausible. It should be operationalized, tested
+against counterexamples, calibrated, ablated, and versioned.
+
+\subsection{Superposition as a Warning}
+
+Superposition says a model can pack more features into a representation than it
+has clean dimensions for. A single neuron or direction can be polysemantic. That
+means a direction that looks like "truth" may also encode topic, genre,
+certainty, sentiment, or dataset artifacts. Sparse autoencoders attempt to
+recover more interpretable features, but they introduce their own training and
+interpretation assumptions.
+
+For Noosphere, superposition is the strongest warning against over-literal
+geometry. If features are entangled, the system needs humility: multiple
+signals, human review, model-version tracking, and refusal to treat one scalar
+as metaphysical truth.
+
+\section{Deep Dive IV: Extraction Engineering}
+
+\subsection{The Extraction Contract}
+
+A good extractor is not a summarizer. It is a contract-bound transformation
+from text to structured propositions. The contract should define:
+
+\begin{itemize}
+\item the allowed claim types,
+\item the unit of extraction,
+\item speaker attribution,
+\item endorsement versus mention,
+\item hedges and uncertainty,
+\item evidence pointers,
+\item source span preservation,
+\item refusal conditions, and
+\item schema validation rules.
+\end{itemize}
+
+The local \code{ClaimExtractor} does several of these correctly. It demands
+JSON, names claim types, carries confidence hedges, and tries to distinguish
+author assertions from external claims. The principle extractor adds decision
+rule shape, domain of applicability, quantifiable proxies, and decision
+examples.
+
+\subsection{Chunking and Span Selection}
+
+Chunking determines what context the model sees. Too-small chunks lose the
+premise that makes a claim intelligible. Too-large chunks invite summarization
+and conflation. A rigorous chunking policy should preserve:
+
+\begin{itemize}
+\item sentence boundaries where possible,
+\item paragraph-level context,
+\item source ids and offsets,
+\item speaker turns,
+\item quoted versus authorial text, and
+\item enough surrounding text for evidence pointers to be audited.
+\end{itemize}
+
+For a conversation analyzer such as Dialectic, this becomes harder because the
+source stream is temporal, noisy, and speaker-attributed. Live claims may be
+repaired or qualified later in the conversation.
+
+\subsection{Coreference and Entity Hygiene}
+
+Knowledge graphs degrade quickly when entity resolution is poor. If "OpenAI,"
+"the company," "they," and "the lab" become separate nodes when they refer to
+the same entity, the graph fragments. If two similarly named entities are
+merged incorrectly, the graph fabricates support or contradiction.
+
+Coreference resolution and entity linking therefore belong in the intellectual
+capital stack, not in a low-level NLP appendix. They determine whether
+principles and claims attach to the right objects.
+
+\subsection{Relation Extraction}
+
+A graph edge is stronger than a sentence-level label. Extracting a
+\code{supports} edge says not merely that two claims are similar, but that one
+is evidence or reason for another. Extracting a \code{contradicts} edge says
+that the claims cannot jointly hold under the intended interpretation. These
+edges should be harder to create than tags.
+
+The best pattern is a staged extractor:
+
+\begin{enumerate}
+\item extract candidate claims,
+\item preserve source spans,
+\item classify candidate relations,
+\item ask for evidence snippets,
+\item validate that evidence snippets occur in the source,
+\item run independent checks such as NLI or argumentation,
+\item mark low confidence rather than forcing a definitive edge.
+\end{enumerate}
+
+\subsection{Prompting and RAG}
+
+Prompting surveys matter because many practical extraction prompts are crude
+versions of known strategies: decomposition, self-consistency, tool use,
+scratchpad reasoning, and retrieval grounding. RAG matters because an LLM's
+answer should be conditioned on the corpus slice, not on latent parametric
+memory, when the system is claiming to reason from the firm's intellectual
+capital.
+
+The trace should therefore distinguish:
+
+\begin{itemize}
+\item what came from the retrieved corpus,
+\item what came from the model's general knowledge,
+\item what was inferred from graph structure,
+\item what was computed from embeddings, and
+\item what was generated as narrative explanation.
+\end{itemize}
+
+\section{Deep Dive V: Graphs, Ontologies, and Cascade Reasoning}
+
+\subsection{Property Graph vs. Formal Ontology}
+
+A property graph stores nodes, edges, and attributes. A formal ontology adds
+typed classes, constraints, subsumption, and satisfiability. Noosphere today is
+closer to a property graph with methodological discipline than to a full
+description-logic ontology. That is appropriate for speed, but the distinction
+should stay explicit.
+
+When Noosphere says a principle "instantiates" another, or a claim "depends on"
+another, those words should have operational meaning. Otherwise the graph
+becomes decorated prose.
+
+\subsection{Edge Semantics}
+
+Important edge types mean different things:
+
+\begin{description}
+\item[Supports.] One node raises confidence in another.
+\item[Refutes or contradicts.] One node lowers confidence or creates
+incompatibility.
+\item[Depends on.] The target requires the source as a premise or component.
+\item[Refines.] The source makes the target more precise.
+\item[Specializes or generalizes.] The edge moves between abstraction levels.
+\item[Extracted from.] The edge records provenance from artifact to proposition.
+\end{description}
+
+These distinctions matter because revision should propagate differently across
+them. A retracted support weakens a claim. A retracted dependency may undermine
+it. A retracted example may only narrow scope.
+
+\subsection{Cycle Handling}
+
+Real belief graphs can contain cycles. A theory can support a method that
+supports a result that strengthens the theory. Cycles are not automatically
+bad, but some computations require acyclic structure. The local Bayesian
+skeleton handles this by projecting truth-valued nodes and deterministically
+dropping edges that would close cycles, while reporting which edges were
+dropped.
+
+That is the right design instinct: do not pretend cycles do not exist, and do
+not let hidden cycle-breaking silently shape posterior probabilities.
+
+\subsection{Knowledge Graph Embeddings}
+
+KG embeddings translate graph structure into vector geometry. They can support
+link prediction, entity alignment, and reasoning over incomplete graphs. But
+they optimize graph reconstruction tasks, not necessarily truth or
+philosophical validity.
+
+Noosphere can use KG embeddings as one signal among several. It should not let
+link-prediction confidence become intellectual confidence without calibration.
+
+\section{Deep Dive VI: Coherence, Probability, and Critique}
+
+\subsection{Coherence as Constraint Satisfaction}
+
+Thagard's computational coherentism models coherence as satisfying positive
+and negative constraints across a network. This maps naturally to Noosphere:
+support edges are positive constraints, contradiction or refutation edges are
+negative constraints, and a coherent interpretation is one that satisfies as
+many important constraints as possible.
+
+The appeal is obvious. It turns philosophical coherence into an optimization
+problem. The danger is equally obvious. Optimization requires weights, and
+weights smuggle in assumptions. If the graph underweights a devastating
+objection or overweights a favorite principle, the resulting "coherence" is
+only as honest as the weight assignment.
+
+\subsection{Coherence Is Not Probability}
+
+Bovens and Hartmann's warning is central: more coherence does not, in general,
+mean higher probability of truth. A tightly mutually supporting set of false
+beliefs can be coherent. A messy set of true reports from noisy sources can be
+less coherent. Coherence can support justification, but only under conditions
+that connect the belief system to reliable sources and evidence.
+
+Theseus already gestures toward this by separating source credibility, cascade
+edges, Bayesian derived views, and calibration. The system should keep those
+separations sharp. A coherence score should answer "how well does this fit the
+corpus and constraints?" A probability should answer "given this model and this
+evidence, how likely is the proposition?" A decision trace should answer "given
+our rules and costs, what should we do?"
+
+\subsection{Paraconsistency and Non-Explosion}
+
+A practical knowledge graph cannot reject every contradiction instantly.
+Conflicts may be unresolved, source-dependent, time-dependent, or domain-
+specific. Paraconsistent logic provides one family of tools for preserving
+reasoning in the presence of contradictions without allowing arbitrary
+conclusions.
+
+The engineering equivalent is to keep contradictions local. A contradiction
+edge should trigger review, lower confidence, veto decisions, or split contexts.
+It should not corrupt the whole graph.
+
+\subsection{Belief Revision}
+
+AGM-style belief revision asks how a rational belief set should change when new
+information arrives. Noosphere's version is operational: a source retracts, a
+forecast resolves, a method fails, or an external critique lands. The system
+must update confidence, propagate effects, and preserve an audit trail.
+
+The revision problem is not merely mathematical. It is institutional. A firm
+that cannot lower confidence in its favorite principles after contrary evidence
+does not have an intellectual capital model. It has a memory palace.
+
+\section{Deep Dive VII: Verification and Method Discipline}
+
+\subsection{What Must Be Versioned}
+
+For Noosphere outputs to be scientifically interpretable, the following must be
+versioned or recorded:
+
+\begin{itemize}
+\item source document hash,
+\item chunking policy,
+\item extraction prompt and schema,
+\item LLM provider and model version,
+\item embedding model and dimensionality,
+\item normalization and distance metric,
+\item graph edge schema,
+\item coherence method versions,
+\item calibration bundle,
+\item benchmark dataset hash,
+\item rule graph version, and
+\item generated explanation prompt.
+\end{itemize}
+
+Without these, a future result cannot be reproduced or compared. With them,
+failure can be localized.
+
+\subsection{What Counts as Evidence for the Quintin Hypothesis}
+
+Weak evidence:
+
+\begin{itemize}
+\item a few compelling anecdotes,
+\item high cosine similarity examples,
+\item model-written explanations that sound plausible,
+\item one benchmark with no ablation,
+\item a scalar score without calibration.
+\end{itemize}
+
+Stronger evidence:
+
+\begin{itemize}
+\item frozen datasets with held-out splits,
+\item negative controls and random baselines,
+\item cosine-only and NLI-only baselines,
+\item cross-domain and cross-model replication,
+\item threshold calibration by embedder,
+\item powered ablations of Householder and direction-learning steps,
+\item confidence intervals, not only point estimates,
+\item failure mode catalogs tied to examples.
+\end{itemize}
+
+The local benchmark documents are valuable because they use the stronger style
+even when the result is uncomfortable.
+
+\subsection{Decision-Trace Verification}
+
+Before trusting an investable output, verify:
+
+\begin{enumerate}
+\item the market or decision input was parsed correctly;
+\item the retrieved corpus slice is visible and source-bound;
+\item active principles are quoted or summarized faithfully;
+\item every metric has a method name and version;
+\item every low-confidence flag is surfaced;
+\item vetoes are evaluated before stake sizing;
+\item the rule graph is stored as data;
+\item the narrative summary is generated from trace fields;
+\item any live action has operator authorization;
+\item resolved outcomes flow back into calibration.
+\end{enumerate}
+
+\section{Exercises for Rebuilding Understanding}
+
+\subsection{Exercise 1: Re-derive Attention}
+
+Take a five-word sentence. Assign each token a toy vector of three numbers.
+Choose tiny query, key, and value matrices. Compute attention scores, apply a
+softmax, and produce one updated token vector. The numbers will be artificial,
+but the exercise forces you to understand attention as routing rather than
+magic.
+
+\subsection{Exercise 2: Show the Cosine Paradox}
+
+Write two pairs of sentences:
+
+\begin{itemize}
+\item same topic, opposite truth condition;
+\item different topic, same sentiment or form.
+\end{itemize}
+
+Embed them with the same model. Compare cosine similarity and then inspect the
+difference vector. The goal is not to prove Noosphere's method. The goal is to
+feel why similarity and contradiction are different questions.
+
+\subsection{Exercise 3: Build a Tiny Cascade}
+
+Create five claims:
+
+\begin{itemize}
+\item one central conclusion,
+\item two supporting claims,
+\item one objection,
+\item one qualification.
+\end{itemize}
+
+Draw the graph. Then retract one support and ask how confidence should change.
+If your answer is not edge-type-dependent, your graph semantics are too weak.
+
+\subsection{Exercise 4: Coherence vs. Truth}
+
+Construct two belief sets. Make one highly coherent but false, and one messy
+but mostly true. This exercise is the antidote to equating coherence with truth.
+Then ask what extra evidence would let coherence become a useful proxy for
+justification.
+
+\subsection{Exercise 5: Write a Decision Trace}
+
+Take a simple prediction-market question. Define the event, corpus slice, active
+principles, three metrics, two vetoes, and a final decision. Then write the
+prose summary only after the trace is complete. This mirrors the discipline
+Theseus needs if intellectual capital is to become accountable action.
+
 \section{Source Inventory}
 
 The following table records what was cached and how each source was used.
@@ -581,7 +1148,7 @@ Domain & Source & Status & Reader use \\
 Domain & Source & Status & Reader use \\
 \midrule
 \endhead
-LLM foundations & 3Blue1Brown Neural Networks series & failed & Conceptual visual foundation for networks, gradients, attention, and transformers. \\
+LLM foundations & 3Blue1Brown Neural Networks series & cached-html & Conceptual visual foundation for networks, gradients, attention, and transformers. \\
 LLM foundations & Jay Alammar, The Illustrated Transformer & cached-html & First-pass architecture map: embeddings, attention, encoder/decoder blocks. \\
 LLM foundations & Stephen Wolfram, What Is ChatGPT Doing? & cached-html & Nontechnical explanation of next-token prediction, embeddings, and generated structure. \\
 LLM foundations & Andrej Karpathy, Let's build GPT & metadata-only & Implementation-oriented mental model for attention, blocks, loss, and training. \\
@@ -597,7 +1164,7 @@ Interpretability & Elhage et al., Toy Models of Superposition & cached-html & Wh
 Interpretability & Templeton et al., Scaling Monosemanticity & cached-html & Sparse autoencoders and interpretable features in a production-scale model. \\
 Interpretability & Olah et al., Distill Circuits thread & cached-html & Methodological ancestor of circuit-level interpretability. \\
 Interpretability & Belinkov and Glass, Analysis Methods in Neural Language Processing & cached-pdf; 27 pp & Taxonomy of probing and behavioral analysis methods. \\
-Embedding geometry & 3Blue1Brown Essence of Linear Algebra & failed & Geometric intuition for vectors, bases, eigenvectors, and transformations. \\
+Embedding geometry & 3Blue1Brown Essence of Linear Algebra & cached-html & Geometric intuition for vectors, bases, eigenvectors, and transformations. \\
 Embedding geometry & MIT OCW 18.06 Linear Algebra & cached-html & Formal linear algebra backbone for embeddings and transformations. \\
 Embedding geometry & Jay Alammar, The Illustrated Word2vec & cached-html & Visual bridge from words to distributed vectors. \\
 Embedding geometry & Mikolov et al., Efficient Estimation of Word Representations & cached-pdf; 12 pp & Historical source for learned word embeddings as semantic objects. \\
@@ -636,7 +1203,7 @@ Logic and coherence & SEP, Logic of Belief Revision & cached-html & Formal belie
 Knowledge graphs & Nickel et al., Relational Machine Learning for Knowledge Graphs & cached-pdf; 23 pp & Relational learning, latent-feature models, and graph-feature models. \\
 Representation geometry & Lin et al., TruthfulQA & cached-pdf; 39 pp & Truthfulness benchmark for models that mimic human falsehoods. \\
 Representation geometry & Li et al., Inference-Time Intervention & cached-pdf; 80 pp & Intervening on attention-head directions correlated with truthfulness. \\
-Logic and coherence & Thagard, Coherence as Constraint Satisfaction & failed & Computational coherentism as network constraint satisfaction; page cached, full text not public here. \\
+Logic and coherence & Thagard, Coherence as Constraint Satisfaction & cached-pdf; 24 pp & Computational coherentism as network constraint satisfaction; author-hosted PDF cached. \\
 Interpretability & Olsson et al., In-context Learning and Induction Heads & cached-html & Circuit-level explanation of a concrete in-context learning behavior. \\
 Math primers & Blitzstein and Hwang, Introduction to Probability / Stat 110 & cached-html & Probability prerequisite for calibration, Bayesian updates, and uncertainty. \\
 Math primers & MIT OCW 18.02 Multivariable Calculus & cached-html & Calculus prerequisite for gradients and optimization. \\

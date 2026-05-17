@@ -3,13 +3,13 @@
     {
       "domain": "LLM foundations",
       "title": "3Blue1Brown Neural Networks series",
-      "url": "https://www.3blue1brown.com/topics/neural-networks",
+      "url": "https://www.3blue1brown.com/lessons/gpt",
       "kind": "html",
       "use": "Conceptual visual foundation for networks, gradients, attention, and transformers.",
-      "status": "failed",
-      "cache_path": "",
+      "status": "cached-html",
+      "cache_path": "source_cache/text/llm_foundations__3blue1brown_neural_networks_series.txt",
       "pdf_pages": "",
-      "error": "404 Client Error: Not Found for url: https://www.3blue1brown.com/topics/neural-networks"
+      "error": ""
     },
     {
       "domain": "LLM foundations",
@@ -179,13 +179,13 @@
     {
       "domain": "Embedding geometry",
       "title": "3Blue1Brown Essence of Linear Algebra",
-      "url": "https://www.3blue1brown.com/topics/linear-algebra",
+      "url": "https://www.3blue1brown.com/lessons/eola-preview",
       "kind": "html",
       "use": "Geometric intuition for vectors, bases, eigenvectors, and transformations.",
-      "status": "failed",
-      "cache_path": "",
+      "status": "cached-html",
+      "cache_path": "source_cache/text/embedding_geometry__3blue1brown_essence_of_linear_algebra.txt",
       "pdf_pages": "",
-      "error": "404 Client Error: Not Found for url: https://www.3blue1brown.com/topics/linear-algebra"
+      "error": ""
     },
     {
       "domain": "Embedding geometry",
@@ -609,12 +609,12 @@
       "domain": "Logic and coherence",
       "title": "Thagard, Coherence as Constraint Satisfaction",
       "url": "https://onlinelibrary.wiley.com/doi/10.1207/s15516709cog2201_1",
-      "kind": "html",
-      "use": "Computational coherentism as network constraint satisfaction; page cached, full text not public here.",
-      "status": "failed",
-      "cache_path": "",
-      "pdf_pages": "",
-      "error": "403 Client Error: Forbidden for url: https://onlinelibrary.wiley.com/doi/10.1207/s15516709cog2201_1"
+      "kind": "web_book",
+      "use": "Computational coherentism as network constraint satisfaction; author-hosted PDF cached.",
+      "status": "cached-pdf",
+      "cache_path": "source_cache/pdf/logic_and_coherence__thagard_coherence_as_constraint_satisfaction.pdf",
+      "pdf_pages": 24,
+      "error": ""
     },
     {
       "domain": "Interpretability",
