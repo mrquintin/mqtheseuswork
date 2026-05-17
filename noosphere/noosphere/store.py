@@ -915,20 +915,27 @@ class StoredContradictionDispute(SQLModel, table=True):
     this module; the count threshold lives in the operator UI).
     """
 
-    __tablename__ = "ContradictionDispute"
-
+    # NOTE: this is NOT a Phase-2 consolidation candidate even though
+    # Prisma also has a ContradictionDispute model. Prisma's version
+    # disputes a Prisma-side `Contradiction` row (init-migration
+    # heuristic); noosphere's version disputes a noosphere-side
+    # `contradiction_result` row (Round-19 canonical engine). Different
+    # parent tables, different FK column names, different semantics.
+    # Keeping this one as an alembic-owned snake_case table.
+    __tablename__ = "contradiction_dispute"
     __table_args__ = (
-        Index("ContradictionDispute_method_at_idx",
-            "detectionMethod",
-            "createdAt",
+        Index(
+            "contradiction_dispute_method_at_idx",
+            "detection_method",
+            "created_at",
         ),
     )
-    id: str = Field(sa_column=Column("id", String, nullable=False, primary_key=True))
-    contradiction_result_id: str = Field(sa_column=Column("contradictionResultId", String, nullable=False, index=True))
-    detection_method: str = Field(sa_column=Column("detectionMethod", String, nullable=False, index=True), default="")
-    disputed_by: str = Field(sa_column=Column("disputedBy", String, nullable=False), default="")
-    reason: str = Field(sa_column=Column("reason", String, nullable=False), default="")
-    created_at: datetime = Field(sa_column=Column("createdAt", DateTime, nullable=False), default_factory=_utcnow)
+    id: str = Field(primary_key=True)
+    contradiction_result_id: str = Field(index=True)
+    detection_method: str = Field(default="", index=True)
+    disputed_by: str = Field(default="")
+    reason: str = Field(default="")
+    created_at: datetime = Field(default_factory=_utcnow)
 class StoredContradictionLifecycle(SQLModel, table=True):
     """Lifecycle of one contradiction (Round 19 prompt 19).
 

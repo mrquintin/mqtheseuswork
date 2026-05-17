@@ -74,7 +74,14 @@ SHARED_TABLES: frozenset[str] = frozenset(
         "LogicalAlgorithm", "AlgorithmInvocation",
         "AlgorithmInputObservation", "AlgorithmCalibrationSnapshot",
         "AlgorithmTriageRecommendation",
-        "ContradictionDispute", "ContradictionLifecycle",
+        # Note: ContradictionDispute is NOT here. Prisma's
+        # ContradictionDispute (init-migration) and noosphere's
+        # `contradiction_dispute` (alembic 015) target different parent
+        # tables (Prisma.Contradiction vs noosphere.contradiction_result)
+        # with different FK column names. They look like a parallel
+        # pair but are semantically separate; the noosphere ORM stays
+        # on its snake_case alembic-owned table.
+        "ContradictionLifecycle",
         "SynthesizerTask", "SynthesizerMemo",
         "InvestmentMemo", "PortfolioAgent", "MemoDispatch",
         "GraphSnapshot", "GraphEdgeReasoning",
@@ -84,10 +91,12 @@ SHARED_TABLES: frozenset[str] = frozenset(
         # alembic migrations historically used. They are now retired,
         # but listing them here ensures any future ALTER/CREATE that
         # references them by snake_case name is flagged.
+        # `contradiction_dispute` is intentionally NOT in this set —
+        # see the matching comment on ContradictionDispute above.
         "logical_algorithm", "algorithm_invocation",
         "algorithm_input_observation", "algorithm_calibration_snapshot",
         "algorithm_triage_recommendation",
-        "contradiction_dispute", "contradiction_lifecycle",
+        "contradiction_lifecycle",
         "synthesizer_task", "synthesizer_memo",
         "investment_memo", "portfolio_agent", "memo_dispatch",
         "graph_snapshot", "graph_edge_reasoning",
@@ -167,8 +176,10 @@ def test_shared_tables_set_is_non_empty() -> None:
     assert len(SHARED_TABLES) >= 50, (
         f"SHARED_TABLES has only {len(SHARED_TABLES)} entries — likely "
         f"a regression. After Phase-2 consolidation the set covers 24 "
-        f"original hard-overlap tables plus 17 PascalCase Prisma-owned "
-        f"tables plus their 17 retired snake_case names = 58 entries. "
+        f"original hard-overlap tables plus 16 PascalCase Prisma-owned "
+        f"tables (the 17th, ContradictionDispute, was reverted on "
+        f"semantic-difference grounds — see comment in SHARED_TABLES) "
+        f"plus their 16 retired snake_case names = 56 entries. "
         f"A single removal is usually a bug unless paired with a Prisma "
         f"schema change in the same commit."
     )

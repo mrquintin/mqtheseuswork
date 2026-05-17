@@ -45,12 +45,15 @@ def _table_exists(name: str) -> bool:
 
 
 def upgrade() -> None:
-    # Phase-2 consolidation: the noosphere ORM now writes to the
-    # corresponding Prisma-owned PascalCase tables instead of the
-    # snake_case mirrors this migration creates. Skipped on Postgres;
-    # preserved for SQLite-based noosphere unit tests.
-    if op.get_bind().dialect.name == "postgresql":
-        return
+    # NOTE: this migration was briefly marked as a Phase-2 mirror, but
+    # it creates two genuinely-alembic-owned tables:
+    #   - contradiction_result: noosphere-only, no Prisma counterpart
+    #   - contradiction_dispute: Prisma also has ContradictionDispute,
+    #     but theirs disputes a different parent table (init-migration
+    #     Contradiction vs noosphere contradiction_result) with a
+    #     different FK column. They look parallel but are NOT a
+    #     consolidation candidate. Keep this migration unguarded so
+    #     contradiction_dispute is created on Postgres normally.
     if not _table_exists("contradiction_result"):
         op.create_table(
             "contradiction_result",
@@ -185,8 +188,6 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    if op.get_bind().dialect.name == "postgresql":
-        return
     if _table_exists("contradiction_dispute"):
         op.drop_table("contradiction_dispute")
     if _table_exists("contradiction_result"):

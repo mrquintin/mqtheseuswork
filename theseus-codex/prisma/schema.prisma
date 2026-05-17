@@ -3900,6 +3900,14 @@ model LogicalAlgorithm {
   /// Authoritative round-trip of the noosphere Pydantic payload.
   payloadJson String @default("{}") @db.Text
 
+  /// Provenance inherited from this algorithm's source principles.
+  /// Mirrors prompt-09 (`provenance_kind` migration) which already added
+  /// this column to `Upload`. The noosphere ORM writes this on every
+  /// LogicalAlgorithm row; without it the Phase-2 consolidation would
+  /// fail with a missing-column error the first time the synthesizer or
+  /// the algorithm-runtime persists a row.
+  provenance ProvenanceKind @default(PROPRIETARY)
+
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
   lastInvokedAt DateTime?
@@ -3912,6 +3920,7 @@ model LogicalAlgorithm {
   @@unique([organizationId, name])
   @@index([organizationId])
   @@index([organizationId, status])
+  @@index([organizationId, provenance])
 }
 
 /// One row per algorithm firing. Persisted at the moment the trigger
