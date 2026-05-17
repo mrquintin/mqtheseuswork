@@ -30,10 +30,18 @@ from typing import Any
 
 ROOT = Path(__file__).resolve().parent.parent.parent
 
-# (entry_module, label) — invoked as `python -m <entry_module> --help`.
-ENTRYPOINTS: tuple[tuple[str, str], ...] = (
-    ("noosphere", "noosphere"),
-    ("dialectic", "dialectic"),
+# (entry_module, label, has_subcommands) — invoked as
+# `python -m <entry_module> --help`.
+#
+# `has_subcommands` selects which sanity check to apply to the --help
+# output: Typer/Click-style multi-command apps must advertise at least
+# one subcommand (catches a registration that silently stopped firing),
+# whereas single-purpose CLIs only need to return a non-empty usage
+# string (`dialectic` is one — it's a GUI launcher with flags but no
+# subcommand tree).
+ENTRYPOINTS: tuple[tuple[str, str, bool], ...] = (
+    ("noosphere", "noosphere", True),
+    ("dialectic", "dialectic", False),
 )
 
 
@@ -74,7 +82,7 @@ def _run(cmd: list[str], timeout: float = 15.0) -> tuple[int, str, str]:
     return proc.returncode, proc.stdout, proc.stderr
 
 
-def _check_root_help(module: str) -> dict[str, Any]:
+def _check_root_help(module: str, has_subcommands: bool = True) -> dict[str, Any]:
     try:
         rc, out, err = _run([sys.executable, "-m", module, "--help"])
     except subprocess.TimeoutExpired as exc:
@@ -89,15 +97,29 @@ def _check_root_help(module: str) -> dict[str, Any]:
             "ok": False,
             "detail": f"exit {rc}; stderr: {err[:600]}",
         }
-    # A Typer app that lost its registration prints only "Usage:" with
-    # no commands listed. Catch that.
-    has_commands = "Commands" in out or "Commands:" in out or "command" in out.lower()
-    if not has_commands:
-        return {
-            "name": f"{module} --help",
-            "ok": False,
-            "detail": "help text does not advertise any subcommand",
-        }
+    if has_subcommands:
+        # A Typer/Click app that lost its registration prints only "Usage:"
+        # with no commands listed. Catch that.
+        has_commands = (
+            "Commands" in out or "Commands:" in out or "command" in out.lower()
+        )
+        if not has_commands:
+            return {
+                "name": f"{module} --help",
+                "ok": False,
+                "detail": "help text does not advertise any subcommand",
+            }
+    else:
+        # Single-command CLI (e.g., dialectic is an argparse-based GUI
+        # launcher). Just require non-empty usage output — proves the
+        # module loaded and argparse executed. If imports broke we'd
+        # have rc != 0 above; we'd never get here.
+        if "usage:" not in out.lower() and "usage" not in out.lower():
+            return {
+                "name": f"{module} --help",
+                "ok": False,
+                "detail": "help text missing 'usage:' line",
+            }
     return {"name": f"{module} --help", "ok": True, "detail": "ok"}
 
 
@@ -122,8 +144,8 @@ def _check_sub_help(module: str, sub: str) -> dict[str, Any]:
 def run(output_dir: Path) -> dict[str, Any]:
     started = time.monotonic()
     checks: list[dict[str, Any]] = []
-    for module, _label in ENTRYPOINTS:
-        checks.append(_check_root_help(module))
+    for module, _label, has_subcommands in ENTRYPOINTS:
+        checks.append(_check_root_help(module, has_subcommands=has_subcommands))
     # Noosphere has many subcommands — probe each.
     noosphere_typer = ROOT / "noosphere" / "noosphere" / "typer_cli.py"
     subs = discover_typer_subcommands(noosphere_typer)
