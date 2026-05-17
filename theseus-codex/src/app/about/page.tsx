@@ -171,6 +171,11 @@ function WhatSection() {
       <pre
         aria-label="Theseus pipeline diagram"
         className="mono"
+        // tabIndex=0 satisfies axe-core's `scrollable-region-focusable`
+        // rule on mobile, where the diagram's `overflowX: auto` makes
+        // the <pre> a scrollable region. Without it, keyboard users
+        // cannot scroll the ASCII art horizontally.
+        tabIndex={0}
         style={{
           background: "rgba(232, 225, 211, 0.035)",
           border: "1px solid rgba(232, 225, 211, 0.14)",

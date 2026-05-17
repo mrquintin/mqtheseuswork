@@ -98,12 +98,22 @@ def upgrade() -> None:
             sa.Column("outcome_note", sa.Text(), nullable=True),
             sa.Column("payload_json", sa.Text(), nullable=False, server_default="{}"),
         )
+    # Index creation is gated on the columns existing AS-NAMED. Production
+    # has the Prisma-owned `bet_spec` (camelCase columns: organizationId,
+    # horizonAt, createdByMemoId), so the snake_case columns these indexes
+    # target won't exist there and alembic must skip rather than fail.
+    # Local dev / SQLite environments that ran alembic first do have the
+    # snake_case columns, and the indexes will be created normally there.
     for idx_name, cols in (
         ("bet_spec_org_kind_status_idx", ["organization_id", "kind", "status"]),
         ("bet_spec_horizon_idx", ["horizon_at"]),
         ("bet_spec_memo_idx", ["created_by_memo_id"]),
     ):
-        if _table_exists("bet_spec") and not _index_exists("bet_spec", idx_name):
+        if (
+            _table_exists("bet_spec")
+            and not _index_exists("bet_spec", idx_name)
+            and all(_column_exists("bet_spec", c) for c in cols)
+        ):
             op.create_index(idx_name, "bet_spec", cols)
 
     if not _table_exists("bet_resolution"):
@@ -136,12 +146,16 @@ def upgrade() -> None:
             sa.Column("audience_response", sa.Text(), nullable=True),
             sa.Column("payload_json", sa.Text(), nullable=False, server_default="{}"),
         )
+    # Same column-aware guard as above — the Prisma-owned bet_resolution
+    # has camelCase columns (betSpecId, resolvedAt) instead of snake_case.
     for idx_name, cols in (
         ("bet_resolution_spec_idx", ["bet_spec_id"]),
         ("bet_resolution_resolved_idx", ["resolved_at"]),
     ):
-        if _table_exists("bet_resolution") and not _index_exists(
-            "bet_resolution", idx_name
+        if (
+            _table_exists("bet_resolution")
+            and not _index_exists("bet_resolution", idx_name)
+            and all(_column_exists("bet_resolution", c) for c in cols)
         ):
             op.create_index(idx_name, "bet_resolution", cols)
 

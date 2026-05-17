@@ -4,9 +4,6 @@ import argparse
 import multiprocessing
 import sys
 
-from .config import DialecticConfig
-from .dashboard import run_dashboard
-
 
 def main() -> None:
     p = argparse.ArgumentParser(description="Dialectic live dashboard")
@@ -28,6 +25,16 @@ def main() -> None:
         help="Use the original multi-panel dashboard (no qasync graph).",
     )
     args = p.parse_args()
+
+    # Lazy-import the dashboard module here (rather than at the top of
+    # the file) so `python -m dialectic --help` works in environments
+    # that don't have PyQt6 installed — the smoke harness's CI runner
+    # is one such environment. The dashboard module pulls PyQt6 at
+    # module load; deferring the import lets argparse produce help
+    # output without needing the GUI stack.
+    from .config import DialecticConfig
+    from .dashboard import run_dashboard
+
     run_dashboard(
         DialecticConfig(),
         legacy=args.legacy,

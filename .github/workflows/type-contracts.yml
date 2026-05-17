@@ -99,9 +99,15 @@ jobs:
     uses: ./.github/workflows/_setup_python.yml
     with:
       python-version: '3.11'
+      # `generate_api_types.py` imports current_events_api.main which
+      # transitively pulls noosphere (numpy, sqlmodel, fastapi, …). Use
+      # the full noosphere requirements file so the import chain
+      # resolves; extra-packages then pins the two versions the
+      # generator cares about.
+      requirements-path: 'noosphere/requirements.txt'
       pip-extras: 'dev'
       extra-packages: 'pydantic==2.* fastapi==0.115.*'
-      timeout-minutes: 10
+      timeout-minutes: 15
       script: |
         # cwd: repo root.
         # Re-run the generator and refuse on drift.
