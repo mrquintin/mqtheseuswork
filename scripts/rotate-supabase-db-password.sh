@@ -599,10 +599,22 @@ verify_database() {
   if [ -z "$url" ]; then
     url="${DATABASE_URL_NEW%%\?*}"
   fi
+  # Supabase's pgbouncer trips ECIRCUITBREAKER when a few bad-password
+  # attempts happen in a window — exactly the pattern that emerges as
+  # launchd services are restarting through a rotation. We wait an
+  # initial cooling-off period, then poll psql with exponential-style
+  # waits, treating the circuit breaker as a transient condition that
+  # always clears within a few minutes.
   note "Waiting before psql verification to avoid Supabase auth-rate-limit false negatives..."
-  sleep 20
+  sleep 30
   local attempt out err
-  for attempt in 1 2 3 4 5 6; do
+  # -E switches to ERE so the `|` alternation works without backslash
+  # escapes. The previous BRE form (`'ECIRCUITBREAKER\\|too many ...'`)
+  # was double-escaped and matched literal `\|` rather than the OR.
+  # That meant ECIRCUITBREAKER was never recognized as transient and
+  # the script bailed immediately on the first auth-rate-limit response.
+  local circuit_breaker_pat='ECIRCUITBREAKER|too many authentication failures'
+  for attempt in 1 2 3 4 5 6 7 8; do
     out="$(mktemp /tmp/theseus-psql-out.XXXXXX)"
     err="$(mktemp /tmp/theseus-psql-err.XXXXXX)"
     TMP_FILES+=("$out" "$err")
@@ -610,15 +622,21 @@ verify_database() {
       printf 'psql verification succeeded as user %s\n' "$(cat "$out")"
       return 0
     fi
-    if grep -qi 'ECIRCUITBREAKER\\|too many authentication failures' "$err"; then
-      printf 'psql attempt %s hit Supabase auth circuit breaker; waiting...\n' "$attempt"
-      sleep 30
+    if grep -qiE "$circuit_breaker_pat" "$err"; then
+      # Backoff: 20s, 30s, 45s, 60s, 90s, 120s, 150s. Total worst case
+      # ~9 minutes — well within typical Supabase cool-down windows.
+      local backoffs=(20 30 45 60 90 120 150 150)
+      local wait_s="${backoffs[$((attempt - 1))]:-150}"
+      printf 'psql attempt %s hit Supabase auth circuit breaker; backing off %ss before retry %s of 8...\n' \
+        "$attempt" "$wait_s" "$((attempt + 1))"
+      sleep "$wait_s"
       continue
     fi
+    # Any other psql error is a real failure — surface it and exit.
     sed -E 's#postgresql://[^[:space:]]+#postgresql://<redacted>#g; s#[A-Za-z0-9_=-]{40,}#<redacted>#g' "$err" >&2
     fail "psql verification failed"
   done
-  fail "psql verification could not complete before Supabase circuit breaker cleared"
+  fail "psql verification could not complete after 8 attempts (~9 min). Supabase circuit breaker may still be active. Check the Supabase project dashboard for auth rate-limit history, wait 10+ minutes, then re-run."
 }
 
 if [ "$DO_SUPABASE" -eq 1 ]; then

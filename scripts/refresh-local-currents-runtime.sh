@@ -179,6 +179,17 @@ if [ "$HEALTH_CHECK" = "1" ]; then
     return 1
   }
 
+  is_circuit_breaker_response() {
+    # Supabase's pgbouncer ECIRCUITBREAKER blocks all connections —
+    # including ours — for a few minutes after a burst of auth retries.
+    # During that window the API can't open a DB connection and the
+    # health check cannot meaningfully succeed. Detecting this lets the
+    # script log honestly instead of timing out with a misleading
+    # "credentials not confirmed" warning.
+    local file="$1"
+    grep -qi 'ECIRCUITBREAKER\|too many authentication failures' "$file" 2>/dev/null
+  }
+
   describe_degraded() {
     # Pull the structured failure code out of the readyz JSON so the
     # operator can tell at a glance what the lingering issue is (the
@@ -202,13 +213,28 @@ print('; '.join(parts) if parts else '')
 " "$file" 2>/dev/null
   }
 
+  # Clear any stale response body from a previous run so we don't
+  # accidentally read it back as "this attempt's body". Curl skips
+  # writing when the connection fails; without this we'd misreport.
+  rm -f /tmp/theseus-currents-local.json /tmp/theseus-currents-public.json
+
   local_ok=0
   public_ok=0
+  circuit_breaker_seen=0
   local_status="000"
   public_status="000"
   for attempt in 1 2 3 4 5 6; do
     local_status="$(curl -sS -o /tmp/theseus-currents-local.json -w '%{http_code}' --max-time 5 http://127.0.0.1:8088/readyz 2>/dev/null || echo 000)"
     public_status="$(curl -sS -o /tmp/theseus-currents-public.json -w '%{http_code}' --max-time 8 https://theseus-currents.thenashlabhivemind.com/readyz 2>/dev/null || echo 000)"
+
+    # If either response body explicitly reports Supabase circuit-breaker,
+    # the API genuinely cannot reach Postgres right now. Stop polling —
+    # waiting won't help on this side; only the next rotation cycle can.
+    if is_circuit_breaker_response /tmp/theseus-currents-local.json \
+       || is_circuit_breaker_response /tmp/theseus-currents-public.json; then
+      circuit_breaker_seen=1
+      break
+    fi
 
     if [ "$local_ok" = 0 ] && credentials_accepted_in /tmp/theseus-currents-local.json "$local_status"; then
       local_ok=1
@@ -237,6 +263,22 @@ print('; '.join(parts) if parts else '')
 
   if [ "$local_ok" = 1 ] && [ "$public_ok" = 1 ]; then
     echo "Currents runtime accepted the new credentials."
+    exit 0
+  fi
+
+  if [ "$circuit_breaker_seen" = 1 ]; then
+    # This is the post-rotation-flurry condition we explicitly know how
+    # to recognize. Exit 0 — the rotation succeeded, the API just can't
+    # prove it from this side until the breaker clears (usually 5-15
+    # min, handled by launchd KeepAlive). The downstream psql verifier
+    # has its own retry-with-backoff for the same condition.
+    echo ""
+    echo "NOTE: Supabase ECIRCUITBREAKER detected in readyz response."
+    echo "      The local API cannot open a DB connection during the"
+    echo "      pgbouncer auth-rate-limit cool-down. The new credentials"
+    echo "      ARE in place (just rotated); launchd will reconnect each"
+    echo "      service automatically when the breaker clears."
+    echo "      No action needed beyond waiting."
     exit 0
   fi
 
