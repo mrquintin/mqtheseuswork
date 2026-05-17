@@ -120,6 +120,14 @@ jobs:
           DIR: ${{ steps.artifacts.outputs.dir }}
 
       - name: Post PR comment
+        # Dependabot PRs run with a read-only GITHUB_TOKEN by default, so
+        # writing a comment 403s ("Resource not accessible by integration").
+        # That doesn't reflect a real smoke failure — it's just a token
+        # permission mismatch — so let it fail without failing the workflow.
+        # Non-Dependabot PRs still need this to be a hard gate (we want to
+        # know when the comment-publishing surface is broken), so we limit
+        # continue-on-error to dependabot[bot] specifically.
+        continue-on-error: ${{ github.actor == 'dependabot[bot]' }}
         if: always() && github.event_name == 'pull_request' && steps.comment.outputs.body != ''
         uses: peter-evans/create-or-update-comment@v4
         with:

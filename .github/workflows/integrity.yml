@@ -141,6 +141,11 @@ jobs:
           PY
 
       - name: Post PR comment
+        # Same mitigation as smoke.yml: Dependabot's read-only token
+        # rejects the comment write with 403, but that doesn't mean
+        # the integrity gate failed. Don't fail the whole workflow
+        # on the comment step for dependabot PRs.
+        continue-on-error: ${{ github.actor == 'dependabot[bot]' }}
         if: always() && github.event_name == 'pull_request' && steps.comment.outputs.body != ''
         uses: peter-evans/create-or-update-comment@v4
         with:
