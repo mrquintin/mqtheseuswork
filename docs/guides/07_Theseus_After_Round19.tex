@@ -1,0 +1,322 @@
+% A short, plain-language explainer of the changes recently made to
+% Theseus. Compiled via:
+%   pdflatex docs/guides/07_Theseus_After_Round19.tex
+% (run twice for cross-references).
+
+\documentclass[11pt]{article}
+\input{_preamble.tex}
+
+\title{\sffamily\textbf{What Changed in Theseus} \\[0.4em]
+       \large\sffamily A Plain-Language Explainer}
+\author{}
+\date{2026-05-16}
+
+\begin{document}
+\maketitle
+\thispagestyle{empty}
+
+\begin{tldr}
+Theseus was rebuilt around a new idea: that what the system stores
+should be \emph{principles} (generalizable truth claims) rather than
+\emph{summaries} (what the author of a document seems to think). On
+top of that change, a few related pieces were added — a way to
+turn principles into structured reasoning, a cleaner contradiction
+engine, a way to mark each source by where it came from, an
+output format for the firm's takes, and a few read views. This
+explainer says what each change is and why it was made — nothing
+about the underlying infrastructure. The final section explains
+how to re-process the existing corpus, which is the one thing
+that requires your action.
+\end{tldr}
+
+\tableofcontents
+\newpage
+
+% ---------------------------------------------------------------------------
+\section{The core problem we fixed}
+% ---------------------------------------------------------------------------
+
+The old system read a document and stored what it thought the
+author was saying \emph{about themselves} — sentences like ``I
+have since become a fan of Peter Thiel's idea.'' That kind of
+conclusion is autobiographical. The firm can't act on it. We can
+only act on what an idea \emph{is} and \emph{when it applies}.
+
+So the entire pipeline was reshaped around principles: third-person,
+generalizable claims about how the world works. ``Definite optimism
+outperforms indefinite optimism over a $\geq 10$-year horizon,
+conditional on a coherent vision'' is a principle. The firm
+\emph{can} act on that — it can identify situations that match the
+condition and form positions about what's likely to follow.
+
+Everything else in this guide either follows from that change or
+cleans up something that was getting in the way of it.
+
+% ---------------------------------------------------------------------------
+\section{What changed}
+% ---------------------------------------------------------------------------
+
+\subsection{Conclusions are now principles}
+
+The extractor no longer emits first-person summaries. If a source
+span is purely autobiographical and no underlying principle can be
+extracted from it, the extractor logs that fact and emits nothing.
+If a principle is present, it's stored with a few extra pieces of
+structure: what \emph{kind} of principle it is (rule, criterion,
+mechanism, heuristic, definition, formula, algorithm), what domain
+it applies to, what measurable quantities could test it, and a few
+concrete decisions it would inform.
+
+This is the load-bearing change. The existing corpus needs to be
+re-processed through the new extractor — see
+Section~\ref{sec:reprocessing} below.
+
+\subsection{A new layer on top of principles: algorithms}
+
+A principle says \emph{what is true}. An algorithm says \emph{when,
+given what we can observe, the principle predicts something
+specific}. So an algorithm is the bridge between abstract principle
+and concrete prediction.
+
+Each algorithm names the observable things it watches, a condition
+that has to be true for it to fire, the principles it's reasoning
+from, and the structured output it produces. The reasoning chain
+inside an algorithm cites the principles it depends on, so you can
+always trace a prediction back to its sources.
+
+A canonical example: an ``arms-race escalation'' algorithm watches
+bilateral military-spending changes, rhetoric levels, and whether
+a third-party mediator is present. When the conditions match, it
+applies two principles about security dilemmas and emits a
+predicted spending increase with confidence bands.
+
+Algorithms are drafted from clusters of related principles. You
+review each draft, accept/edit/reject it, and from then on the
+algorithm runs whenever its conditions are met.
+
+\subsection{One contradiction engine, not six}
+
+The old system had six different ways of detecting that two
+claims contradict each other — different heuristics that
+disagreed with each other and were hard to calibrate. That was
+replaced with a single detector that returns a calibrated score,
+a confidence band, and a human-readable explanation of where the
+disagreement lies.
+
+A second piece of this change: contradictions no longer have a
+``resolve'' button. Operator clicks were treated as authoritative,
+which was wrong — the database should reflect what the sources
+jointly imply, not which side an operator preferred on a given
+afternoon. Contradictions now resolve when new source material
+weights one side decisively over the other.
+
+\subsection{Provenance is set at upload time}
+
+Every piece of source material now carries one of four labels,
+chosen when it's uploaded:
+
+\begin{itemize}[leftmargin=*]
+  \item \textbf{Proprietary} — the firm wrote it.
+  \item \textbf{Endorsed external} — someone else wrote it, but we
+        explicitly endorse it as representative of our thinking.
+  \item \textbf{Studied external} — reference material; we read it
+        but don't endorse it.
+  \item \textbf{Opposing external} — material we explicitly
+        disagree with, kept for the value of testing our positions
+        against it.
+\end{itemize}
+
+Why this matters: the system used to flag contradictions between
+the firm's principles and opposing material it was reading — which
+is noise, because we \emph{expect} to disagree with that material.
+Provenance demarcation lets the contradiction engine skip those
+cross-provenance pairs and surface only the contradictions that
+are actually news.
+
+\subsection{Memos as the canonical output}
+
+When the system answers a question — whether it's ``what's our
+take on X?'' or ``should we bet on Y?'' — the answer now takes a
+fixed memo shape: a TL;DR, the question, the governing principles,
+the observed inputs, the reasoning chain, the implied position,
+what would change our mind, and any caveats or abstentions. The
+memo is the firm's canonical output.
+
+The system explicitly prefers to \emph{abstain} over making a
+chain of reasoning it can't ground. If there are no governing
+principles, or the principles directly contradict each other, or
+the confidence band is too wide, or the question itself is
+unformed — the memo says so, by name.
+
+\subsection{``Bet'' was generalized}
+
+A bet used to mean a financial position on a prediction market or
+an equity. ``Bet'' now means any falsifiable commitment of firm
+resources: a financial position on a market, a public statement of
+position with no money behind it, an internal allocation of
+operator time or hiring direction, or a scientific prediction that
+resolves against external data. All four are tracked in one place.
+
+The reason: the firm's edge is the principle layer, not any
+specific way of expressing a view. Restricting bets to financial
+markets undersold what the system could do.
+
+\subsection{A knowledge graph view}
+
+The corpus is no longer a flat list of claims. There's now a
+cross-source graph view where principles, sources, algorithms,
+memos, and concepts are nodes, and the relationships between them
+are edges (``derived from'', ``contradicts'', ``supports'',
+``applies to'', ``cites''). Click any edge and a reasoner produces
+a grounded explanation of why that edge exists. The reasoner
+refuses to fabricate connections the data doesn't support.
+
+This is the reading view for ``what does the corpus jointly imply
+about X?'' — a question that wasn't directly answerable before,
+because the underlying structure didn't exist.
+
+\subsection{Live conversation recording}
+
+The meeting-recording surface (``Dialectic'') now fires real-time
+contradiction flags as a participant says something that
+contradicts (a) something they or another participant said earlier
+in the same conversation, or (b) a principle the firm has already
+committed to. Provisional principles can be extracted live and
+triaged after the session ends.
+
+The motivation: the most valuable corpus material is often the
+live conversation, but it was historically lost or transcribed
+only as an afterthought. Real-time flags turn the conversation
+itself into a feedback loop with the firm's existing commitments.
+
+\subsection{Surface cleanup}
+
+A few smaller changes worth knowing about: the homepage and
+about page now lead with the ``Philosopher in a Box'' positioning
+— Theseus is the firm's machine, not a product for sale. The old
+``Attention'' panel on the dashboard is gone (redundant once the
+Currents feed and algorithm-invocation feeds matured). The legacy
+contradiction heuristics are marked deprecated and no longer write
+new rows.
+
+% ---------------------------------------------------------------------------
+\section{Re-processing the existing corpus}
+\label{sec:reprocessing}
+% ---------------------------------------------------------------------------
+
+\begin{tldr}
+This is the one thing that requires your action. Existing
+conclusions are NOT auto-replaced — the new extractor's output
+goes to a triage queue at \route{/(authed)/extractor/re-extract}
+where you accept, edit, or reject each replacement. Do a small
+sample first to confirm the new extractor behaves as you want.
+\end{tldr}
+
+\subsection{Step 1: sanity-check the new extractor}
+
+Before queueing the whole corpus, run the new extractor against
+one or two artifacts whose existing conclusions had the
+first-person symptom (e.g., the one that produced ``I have since
+become a fan of Peter Thiel's idea''). The single-artifact dry-run
+prints the proposed principles without persisting anything:
+
+\begin{verbatim}
+cd ~/Desktop/Theseus
+source .venv-currents/bin/activate
+python noosphere/scripts/reextract_corpus.py \
+       --artifact <artifact_id> --dry-run
+\end{verbatim}
+
+Confirm the output: each proposed principle should be third-person
+and generalizable, the principle-kind should match your reading,
+the source citation should be intact, and refusals should fire on
+spans that are purely autobiographical.
+
+\subsection{Step 2: dry-run a small sample}
+
+Once one or two artifacts look right, sample five at random to
+confirm the extractor is consistent:
+
+\begin{verbatim}
+python noosphere/scripts/reextract_corpus.py --sample 5 --dry-run
+\end{verbatim}
+
+If any of the five looks wrong, stop and adjust the principle
+extractor's system prompt before going further.
+
+\subsection{Step 3: queue the whole corpus}
+
+When the sample looks right, queue every artifact for re-extraction.
+You can do this all at once, or restrict by date or by provenance:
+
+\begin{verbatim}
+# Everything:
+python noosphere/scripts/reextract_corpus.py --all
+
+# Only your own writing first (highest signal, lowest noise):
+python noosphere/scripts/reextract_corpus.py --all \
+       --provenance PROPRIETARY
+
+# Only material added since 2026-03-01:
+python noosphere/scripts/reextract_corpus.py --all \
+       --since 2026-03-01
+\end{verbatim}
+
+The job is asynchronous and respects the system's hourly budget,
+so a large corpus may take several cycles to drain.
+
+\subsection{Step 4: triage the queue}
+
+Each proposed replacement lands at
+\route{/(authed)/extractor/re-extract}, NOT as an automatic
+overwrite. You review each row, which shows:
+
+\begin{itemize}[leftmargin=*]
+  \item The original source span.
+  \item The existing first-person conclusion (from the old extractor).
+  \item The new principle-shaped proposal.
+  \item Three buttons: \textbf{Accept}, \textbf{Edit \& Accept}, or
+        \textbf{Reject}.
+\end{itemize}
+
+The system never replaces anything on its own — every row needs
+your confirmation. Once you accept a row, the new principle gets
+embedded, joins a cluster, gets tested for contradictions against
+its siblings, and becomes searchable on the principles page.
+Algorithms may be drafted from new clusters automatically.
+
+\subsection{What it'll cost, roughly}
+
+For a corpus of $\sim$500 artifacts:
+
+\begin{itemize}[leftmargin=*]
+  \item \textbf{Tokens.} Roughly 1.5--2M total tokens.
+  \item \textbf{Wall clock.} At the default hourly budget, expect
+        6--24 hours for the queue to drain (smaller corpora
+        proportional).
+  \item \textbf{Your triage time.} Each row takes 30--60 seconds
+        if the proposed principle is reasonable. For 500 artifacts,
+        budget 4--8 hours of triage, spread across whichever days
+        work. There's no rush.
+\end{itemize}
+
+% ---------------------------------------------------------------------------
+\section{Where to read next, if you want depth}
+% ---------------------------------------------------------------------------
+
+The earlier guides in this series go deeper on individual surfaces:
+
+\begin{itemize}[leftmargin=*]
+  \item \file{docs/guides/01_Theseus_Quick_Start.pdf} — the minimal
+        intro for a new reader.
+  \item \file{docs/guides/02_Knowledge_and_Principles.pdf} — how
+        ingestion-to-principles works.
+  \item \file{docs/guides/03_The_Oracle.pdf} — using the Oracle.
+  \item \file{docs/guides/04_Currents.pdf} — the live opinion feed.
+  \item \file{docs/guides/05_Forecasts_and_Portfolio.pdf} —
+        prediction markets and equities.
+  \item \file{docs/guides/06_Operator_Console.pdf} — the operator
+        surface and the safety architecture in detail.
+\end{itemize}
+
+\end{document}

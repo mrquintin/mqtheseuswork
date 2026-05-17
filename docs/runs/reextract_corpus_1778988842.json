@@ -1,0 +1,55 @@
+[
+  {
+    "conclusion_id": "c_1f714ddcb36e493db32a9b83",
+    "status": "NO_PRINCIPLE_EXTRACTABLE",
+    "old_text": "We live in a world that is incredibly gamified.",
+    "proposed_text": "",
+    "source_span": "We live in a world that is incredibly gamified.",
+    "refusals": [
+      "Descriptive observation about the state of the world with no decision rule, criterion, or actionable implication."
+    ],
+    "reason": "extractor produced no principle-shaped rewrite for this span"
+  },
+  {
+    "conclusion_id": "c_403b8e1522b74d599e339672",
+    "status": "NO_PRINCIPLE_EXTRACTABLE",
+    "old_text": "I don't want either my own knowledge or my lack of credentials to get in the way of that.",
+    "proposed_text": "",
+    "source_span": "I don't want either my own knowledge or my lack of credentials to get in the way of that.",
+    "refusals": [
+      "Personal intention statement with no decision rule, criterion, or testable claim that could be generalized to third parties."
+    ],
+    "reason": "extractor produced no principle-shaped rewrite for this span"
+  },
+  {
+    "conclusion_id": "c_de2d6e313faf456889c16c8f",
+    "status": "PROPOSED",
+    "old_text": "We will all be far better off, in a freer and more tolerant world, if we allow institutions to discriminate, lose, and prove to the world the selfish benefit of open-mindedness.",
+    "proposed_text": "Institutions that discriminate will lose competitive advantage to those that remain open-minded, creating market pressure toward tolerance without requiring regulatory intervention.",
+    "source_span": "We will all be far better off, in a freer and more tolerant world, if we allow institutions to discriminate, lose, and prove to the world the selfish benefit of open-mindedness.",
+    "refusals": [],
+    "reason": "dry-run; 1 proposal(s) extracted; not persisted"
+  },
+  {
+    "conclusion_id": "c_fedc039357ba44d4bfe71305",
+    "status": "NO_PRINCIPLE_EXTRACTABLE",
+    "old_text": "I always wondered if there was some secret underlying principle or rhythm to these kinds of things.",
+    "proposed_text": "",
+    "source_span": "I always wondered if there was some secret underlying principle or rhythm to these kinds of things.",
+    "refusals": [
+      "Autobiographical wondering with no propositional content; expresses curiosity about principles but does not state any rule or criterion."
+    ],
+    "reason": "extractor produced no principle-shaped rewrite for this span"
+  },
+  {
+    "conclusion_id": "c_693545f7f05d4feaa204b64b",
+    "status": "NO_PRINCIPLE_EXTRACTABLE",
+    "old_text": "Our freedom to define who we are is 'condemning,' this strong sense of existence is the only way that we should and can live our lives.",
+    "proposed_text": "",
+    "source_span": "Our freedom to define who we are is 'condemning,' this strong sense of existence is the only way that we should and can live our lives.",
+    "refusals": [
+      "Philosophical assertion about human existence with no decision rule, quantifiable trigger, or operational criterion that could guide specific choices."
+    ],
+    "reason": "extractor produced no principle-shaped rewrite for this span"
+  }
+]

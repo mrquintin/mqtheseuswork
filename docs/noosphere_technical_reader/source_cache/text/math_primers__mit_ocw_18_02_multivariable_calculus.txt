@@ -1,0 +1,104 @@
+Multivariable Calculus | Mathematics | MIT OpenCourseWare
+Browse Course Material
+Syllabus
+Calendar
+Readings
+Lecture Notes
+Assignments
+Exams
+Video Lectures
+Course Info
+Instructor
+Prof. Denis Auroux
+Departments
+Mathematics
+As Taught In
+Fall
+2007
+Level
+Undergraduate
+Topics
+Mathematics
+Calculus
+Differential Equations
+Linear Algebra
+Learning Resource Types
+grading
+Exam Solutions
+grading
+Exams
+notes
+Lecture Notes
+theaters
+Lecture Videos
+assignment
+Problem Sets
+Download Course
+menu
+search
+Give Now
+About OCW
+Help & Faqs
+Contact Us
+search
+GIVE NOW
+about ocw
+help & faqs
+contact us
+18.02 | Fall 2007 | Undergraduate
+Multivariable Calculus
+Menu
+Syllabus
+Calendar
+Readings
+Lecture Notes
+Assignments
+Exams
+Video Lectures
+Course Description
+This course covers vector and multi-variable calculus. It is the second semester in the freshman calculus sequence. Topics include vectors and matrices, partial derivatives, double and triple integrals, and vector calculus in 2 and 3-space.
+MIT OpenCourseWare offers another version of 18.02, from the Spring 2006 term. â¦
+Show more
+This course covers vector and multi-variable calculus. It is the second semester in the freshman calculus sequence. Topics include vectors and matrices, partial derivatives, double and triple integrals, and vector calculus in 2 and 3-space.
+MIT OpenCourseWare offers another version of 18.02, from the Spring 2006 term. Both versions cover the same material, although they are taught by different faculty and rely on different textbooks. Multivariable Calculus (18.02) is taught during the Fall and Spring terms at MIT, and is a required subject for all MIT undergraduates.
+Show less
+Course Info
+Instructor
+Prof. Denis Auroux
+Departments
+Mathematics
+Topics
+Mathematics
+Calculus
+Differential Equations
+Linear Algebra
+Learning Resource Types
+grading
+Exam Solutions
+grading
+Exams
+notes
+Lecture Notes
+theaters
+Lecture Videos
+assignment
+Problem Sets
+Lagrange multipliers with two variables Mathlet from the d’Arbeloff Interactive Math Project. (Image courtesy of Jean-Michel Claus.)
+Download Course
+Over 2,500 courses & materials
+Freely sharing knowledge with learners and educators around the world.
+Learn more
+Â© 2001â2026 Massachusetts Institute of Technology
+Accessibility
+Creative Commons License
+Terms and Conditions
+Proud member of:
+Â© 2001â2026 Massachusetts Institute of Technology
+You are leaving MIT OpenCourseWare
+close
+Please be advised that external sites may have terms and conditions,
+including license rights, that differ from ours. MIT OCW is not responsible
+for any content on third party sites, nor does a link suggest an endorsement
+of those sites and/or their content.
+Stay Here
+Continue

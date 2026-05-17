@@ -1,0 +1,18 @@
+\contentsline {section}{\numberline {1}The core problem we fixed}{2}{section.1}%
+\contentsline {section}{\numberline {2}What changed}{2}{section.2}%
+\contentsline {subsection}{\numberline {2.1}Conclusions are now principles}{2}{subsection.2.1}%
+\contentsline {subsection}{\numberline {2.2}A new layer on top of principles: algorithms}{2}{subsection.2.2}%
+\contentsline {subsection}{\numberline {2.3}One contradiction engine, not six}{2}{subsection.2.3}%
+\contentsline {subsection}{\numberline {2.4}Provenance is set at upload time}{3}{subsection.2.4}%
+\contentsline {subsection}{\numberline {2.5}Memos as the canonical output}{3}{subsection.2.5}%
+\contentsline {subsection}{\numberline {2.6}``Bet'' was generalized}{3}{subsection.2.6}%
+\contentsline {subsection}{\numberline {2.7}A knowledge graph view}{3}{subsection.2.7}%
+\contentsline {subsection}{\numberline {2.8}Live conversation recording}{3}{subsection.2.8}%
+\contentsline {subsection}{\numberline {2.9}Surface cleanup}{4}{subsection.2.9}%
+\contentsline {section}{\numberline {3}Re-processing the existing corpus}{4}{section.3}%
+\contentsline {subsection}{\numberline {3.1}Step 1: sanity-check the new extractor}{4}{subsection.3.1}%
+\contentsline {subsection}{\numberline {3.2}Step 2: dry-run a small sample}{4}{subsection.3.2}%
+\contentsline {subsection}{\numberline {3.3}Step 3: queue the whole corpus}{4}{subsection.3.3}%
+\contentsline {subsection}{\numberline {3.4}Step 4: triage the queue}{5}{subsection.3.4}%
+\contentsline {subsection}{\numberline {3.5}What it'll cost, roughly}{5}{subsection.3.5}%
+\contentsline {section}{\numberline {4}Where to read next, if you want depth}{5}{section.4}%

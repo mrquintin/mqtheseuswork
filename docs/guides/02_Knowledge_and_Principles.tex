@@ -10,182 +10,406 @@
 \thispagestyle{empty}
 
 \begin{tldr}
-Theseus turns uploaded material into firm principles through a four-stage
-pipeline: ingest, claim extraction, clustering, and principle
-distillation. The first two stages run automatically; the last two
-involve a triage queue you sit in front of when you want to keep the
-firm's working memory clean. This guide walks the pipeline end to end,
-shows where each artifact lives, and explains the founder's role in
-triage.
+Everything the firm reads, hears, or records eventually becomes a
+\emph{claim} (one sentence, one speaker), gets grouped with similar
+claims into a \emph{principle} (a durable belief), and earns a
+\emph{conclusion} (a vetted, principle-shaped position) when the
+workshop is willing to commit. This guide walks the full corpus side
+of the Codex: the surfaces (\page{Library}, \page{Upload},
+\page{Transcripts}, \page{Knowledge}, \page{Conclusions},
+\page{Contradictions}, \page{Open Questions}, \page{Explorer},
+\page{Knowledge graph}, \page{Principles}, \page{Methods}), what each
+is for, and the small set of routine actions you take to keep the
+firm's working memory clean. Approval, deletion, and retraction of
+public material is operator-only and is covered in Guide 6.
 \end{tldr}
 
 \begin{youwillneed}
 \begin{itemize}[leftmargin=*,itemsep=0.2em,topsep=0.2em]
   \item A signed-in Codex session.
-  \item At least one upload in the corpus --- if you do not have one,
+  \item At least one ingested upload --- if you do not have one,
         complete Guide 1 first.
-  \item Optional: a couple of related documents already uploaded, so
-        that clustering has something to merge across.
+  \item Twenty to thirty minutes the first time through; about ten
+        minutes a week for routine triage afterwards.
 \end{itemize}
 \end{youwillneed}
 
 \begin{notcovered}
 \begin{itemize}[leftmargin=*,itemsep=0.2em,topsep=0.2em]
-  \item Question-answering with the Oracle --- Guide 3.
-  \item Currents opinions that cite principles --- Guide 4.
-  \item Forecasts that may use principle-backed conclusions as a
-        reasoning step --- Guide 5.
-  \item Operator-only deletion / retraction of principles --- Guide 6.
+  \item Question-answering and the Research Advisor --- Guide 3.
+  \item Currents opinions that cite conclusions --- Guide 4.
+  \item Forecasts that use conclusions as a reasoning step ---
+        Guide 5.
+  \item The publication-review checklist, source-standing changes
+        review, deletion vs.\ retraction, and the methodology review
+        week (all operator-only) --- Guide 6.
 \end{itemize}
 \end{notcovered}
 
-\section{The pipeline in one diagram}
+\section{One picture of the corpus side}
 
 \begin{center}
 \begin{tabular}{l@{\;\(\to\)\;}l@{\;\(\to\)\;}l@{\;\(\to\)\;}l}
 \sffamily Upload & \sffamily Claims & \sffamily Clusters & \sffamily Principles \\
-ingest layer & claim extractor & clustering pass & distillation
+\sffamily extract & \sffamily embed & \sffamily distill & \sffamily triage \\
+\end{tabular}
+
+\medskip
+
+\begin{tabular}{l@{\;\(\to\)\;}l@{\;\(\to\)\;}l}
+\sffamily Claims & \sffamily Conclusions & \sffamily Publication \\
+\sffamily methodology profile & \sffamily adversarial cycle & \sffamily public surface \\
 \end{tabular}
 \end{center}
 
-Each arrow above corresponds to a worker stage. Stages 1 and 2 run on
-upload. Stages 3 and 4 run on a schedule and are also triggerable from
-the founder triage queue.
+Two passes happen on every ingested upload. The top row distills
+durable \emph{principles} from clustered claims. The bottom row builds
+\emph{conclusions} --- principle-shaped, source-grounded positions
+that the firm is willing to commit to, accompanied by a methodology
+profile (how this source reasoned) and adversarial objections (what
+the strongest case against this conclusion looks like).
 
-\section{Stage 1 --- ingest}
+\section{The Library --- everything the firm has uploaded}
 
-Uploads enter through \page{Upload} on the Codex
-(\route{/(authed)/upload}). The ingest worker normalizes the file
-(MIME detection, encoding repair, page extraction for PDFs), persists
-it to storage, and writes an \texttt{Upload} row with
-\texttt{publishedAt=NULL}, \texttt{visibility='private'}, and a
-processing badge that the UI watches.
+\page{Library} (\route{/library}) is the org-wide inventory of every
+upload. Rows include written documents, podcast transcripts, Dialectic
+session files, annotation bundles, and external material. Each row
+shows the title, the source type, the founder who uploaded it, the
+visibility (\texttt{org}, \texttt{semi-private}, or \texttt{private}),
+and the processing state.
 
-What you see in the Codex: the new row appears in
-\page{Upload} list, then in \page{Knowledge} once at least one claim
-has been extracted from it. Provenance is captured at ingest:
-file hash, source URL (if any), uploader identity, and timestamps.
+You can delete your own uploads from this page; the file goes through
+a short ``please confirm'' step and is then soft-deleted. If you need
+something somebody else uploaded removed, the library lets you open a
+\page{Deletion request} that the owner accepts or declines. (Outright
+hard deletion of material the firm has already cited publicly is
+operator-only and goes through a different surface --- see Guide 6.)
 
-\section{Stage 2 --- claim extraction}
+\section{Upload --- raw material in}
 
-The claim extractor reads the normalized upload and emits short,
-declarative, falsifiable statements. Each claim carries:
+\page{Upload} (\route{/upload}) is the form. Drop a file in, pick a
+source type, pick a visibility, optionally check ``publish as a blog
+post.''
+
+The form accepts text-like files (\texttt{.md}, \texttt{.txt},
+\texttt{.vtt}, \texttt{.jsonl}, \texttt{.json}), PDFs, \texttt{.docx},
+and audio (\texttt{.mp3}, \texttt{.m4a}, \texttt{.wav}, \texttt{.webm},
+\texttt{.ogg}). For very large files, the Codex automatically uses a
+direct-to-storage upload flow behind the scenes.
+
+After submit, the workshop runs in the background. The detail page for
+your upload streams the workshop's progress live --- you can refresh
+and see fresh lines. When the workshop finishes, the badge clears, the
+upload's status becomes \texttt{ingested}, and counts appear next to
+the row: how many claims were extracted, how many clusters were
+produced, how many methodology profiles were written.
+
+\screenshot{02_upload_processlog.png}{An upload's detail page during processing, with the workshop's progress streamed live.}{up-log}
+
+\section{Transcripts --- reading the source}
+
+For uploads with a transcript shape (podcasts, Dialectic sessions, VTT
+files), \page{Transcripts} (\route{/transcripts/<uploadId>}) presents
+the text in chunks, with speaker labels and millisecond timestamps
+where those are available. This is the source-of-truth view: every
+claim elsewhere in the system carries a pointer that lands here, on
+the exact span it came from.
+
+\section{The atomic claim}
+
+A claim is one sentence, one speaker, one assertion, plus a fingerprint
+of its meaning. The workshop refuses to roll claims into paragraphs ---
+the whole point is to be able to reason about them individually.
+
+What a claim carries:
 
 \begin{itemize}[leftmargin=*,itemsep=0.2em]
-  \item the upload it came from (provenance);
-  \item a topic label and an embedding vector for clustering;
-  \item the verbatim span it summarizes (so the Oracle can cite it);
-  \item an extractor-confidence score.
+  \item The text.
+  \item Who said it (speaker label, founder identity if known).
+  \item Where it came from (upload, source span start and end).
+  \item Its disciplines (one or more, from a fixed vocabulary).
+  \item Its fingerprint (an embedding vector).
+  \item A type --- \texttt{factual}, \texttt{methodological},
+        \texttt{normative}, \texttt{predictive}, \texttt{definitional},
+        or \texttt{interpretive}.
+  \item Its origin --- \texttt{founder} (the speaker's own assertion)
+        or \texttt{external} (a quoted external position; the workshop
+        strips these out of inference).
+  \item Hedges and evidence pointers.
 \end{itemize}
 
-Look at any claim in \page{Knowledge} and you can click straight back
-to the source line. This is the contract that makes everything
-downstream auditable: no claim is allowed to exist without a pointer
-to the text that produced it.
+The workshop runs a guard on input that strips out interview prompts
+and quoted external positions \emph{before} segmentation, so ``what do
+you think of X?'' (the host asking) doesn't end up as the founder
+asserting X.
 
-\screenshot{02_knowledge_claim_view.png}{The claim view in \page{Knowledge}, with a single claim expanded to show its source span.}{kn-claim}
+\section{Knowledge --- claims, browsable}
 
-\section{Stage 3 --- clustering}
+\page{Knowledge} (\route{/knowledge}) is the claim browser. Filter by
+upload, by speaker, by discipline, by claim type. Click any claim to
+see its source span, its embedding neighbors, and the conclusions that
+cite it.
 
-The clustering pass groups claims by topic and semantic similarity.
-The output is a candidate cluster: a small set of claims that look
-like they are talking about the same thing.
+\section{Conclusions --- the firm's vetted positions}
 
-Clusters are not yet principles. They are an intermediate object: an
-invitation to consider whether the firm wants to lift the underlying
-material into a reusable principle.
+\page{Conclusions} (\route{/conclusions}) is the most important
+surface on the corpus side. A conclusion is a principle-shaped,
+source-grounded statement of something the firm is willing to commit
+to.
 
-\section{Stage 4 --- principle distillation}
-
-For each candidate cluster the distillation worker produces a draft
-\page{Principle}: a single, sharp statement that the underlying claims
-support, plus an explicit list of the supporting claims and an
-explicit list of the strongest objections found in the corpus.
-
-A principle has three states that matter:
+Every conclusion carries:
 
 \begin{itemize}[leftmargin=*,itemsep=0.2em]
-  \item \texttt{draft} --- not visible publicly. Visible in the triage
-        queue.
-  \item \texttt{accepted} --- vetted. May or may not be public.
-  \item \texttt{rejected} / \texttt{merged} / \texttt{needs\_rereview}
-        --- terminal or paused states.
+  \item Its text and rationale.
+  \item A \textbf{confidence tier} on a ladder: \texttt{firm} (most
+        confident), \texttt{founder} (a founder vouches), \texttt{open}
+        (under review), or one of the demoted tiers
+        (\texttt{moderate}, \texttt{low}, \texttt{speculative}) that
+        the adversarial cycle can drop a conclusion into.
+  \item Its supporting principles, its evidence chain (the underlying
+        claims), and any dissenting claims.
+  \item Its source uploads.
+  \item Its \textbf{methodology profile} --- a separate record of
+        \emph{how} the source reasoned (see below).
+  \item Its \textbf{quality score} (MQS) on the five working criteria
+        (progressivity, severity, aim-method fit, compressibility,
+        domain sensitivity).
+  \item Its \textbf{principle shape} contract (next section).
 \end{itemize}
 
-A principle becomes publicly visible only when
-\texttt{status = 'accepted'} \textbf{and} \texttt{publicVisible = true}.
-Both are required. See \file{docs/operator/public\_surfacing.md} for
-the authoritative predicate table.
+\section{The principle-shape contract}
 
-\section{The founder's role --- the triage queue}
-
-The principles surface in the Codex
-(\route{/(authed)/principles}) is the triage queue. Open it and you
-will see candidate principles in three columns:
+The firm requires every principle-grade conclusion to declare what
+kind of thing it is and where it applies. The contract has five
+mandatory fields:
 
 \begin{itemize}[leftmargin=*,itemsep=0.2em]
-  \item \textbf{New drafts.} Just produced by distillation. Read the
-        principle, scan supporting claims, scan objections. Decide:
-        \texttt{accept}, \texttt{merge into existing}, or
-        \texttt{reject with reason}.
+  \item \texttt{principleKind} --- one of seven shapes: \texttt{RULE}
+        (a normative ``do X''), \texttt{CRITERION} (``X is the test
+        for Y''), \texttt{MECHANISM} (``X causes Y by Z''),
+        \texttt{HEURISTIC} (``X usually works in case Y''),
+        \texttt{DEFINITION}, \texttt{FORMULA}, or \texttt{ALGORITHM}.
+  \item \texttt{domainOfApplicability} --- a 300-character description
+        of \emph{where this is meant to hold and where it stops
+        working}. Required. ``Always'' is not acceptable.
+  \item \texttt{quantifiableProxies} --- up to five measurable proxies
+        that would let an outside reviewer falsify the principle.
+  \item \texttt{decisionExamples} --- up to three concrete decisions
+        the principle would direct.
+  \item \texttt{sourceSpan} --- a verbatim substring of a source chunk
+        that the principle is anchored to. If the quoted span doesn't
+        literally appear in the source, the workshop refuses to write
+        the row.
+\end{itemize}
+
+This is the firm's standing answer to ``where would this stop being
+true?'' A conclusion without a domain of applicability cannot
+graduate to \texttt{firm} tier.
+
+\screenshot{02_conclusion_detail.png}{A conclusion's detail page: text on the left; principle-shape contract, sources, MQS pill, and adversarial status on the right.}{cn-detail}
+
+\section{Quantitative Formalisation --- the falsifiability layer}
+
+For any conclusion that is being prepared for publication, the
+quantitative formalisation page (\route{/principles/<id>/quantitative})
+shows whether a falsifiability layer has been attached: a null
+hypothesis, one or more metrics, one or more statistical tests, and
+one or more data sources. The workshop refuses to mark a quantitative
+formalisation \texttt{APPROVED} without all four.
+
+This is the operational form of the working criterion ``the test
+should be severe enough that the claim would have failed if it were
+wrong.'' If you cannot state what would falsify the principle, the
+principle does not get to be public.
+
+\section{Contradictions and Open Questions}
+
+\page{Contradictions} (\route{/contradictions}) lists active
+claim-vs-claim disagreements the workshop has flagged. Each row
+carries: claim A, claim B, the severity score, a six-layer breakdown
+of how the coherence engine voted, a short narrative, and a status
+(\texttt{active}, \texttt{resolved}, or \texttt{dismissed}).
+
+\page{Open Questions} (\route{/open-questions}) is the unresolved bin:
+pairs the six layers couldn't reach a majority on. These are good
+candidates for the next conversation to revisit.
+
+Resolve or dismiss either kind from its detail page, attaching a brief
+note. The note is part of the audit trail.
+
+\section{Explorer --- the embedding map}
+
+\page{Explorer} (\route{/explorer}) is a 3D map of the firm's
+conclusions in embedding space. Each conclusion is a point; similar
+conclusions cluster together. The view supports:
+
+\begin{itemize}[leftmargin=*,itemsep=0.2em]
+  \item Saved camera positions encoded in the URL, so you can share a
+        view by copy-pasting the link.
+  \item Hotkeys for toggling labels, axes, and confidence tiers.
+  \item Empty-state diagnostics --- if the embedding index isn't built
+        for some conclusions, the panel tells you which ones.
+\end{itemize}
+
+\screenshot{02_explorer.png}{The Explorer view, with conclusions as points and confidence tiers color-coded.}{ex-3d}
+
+A second, graph-shaped view lives at \page{Knowledge graph}
+(\route{/knowledge}, the graph tab) and shows principles as nodes with
+typed edges (\textsc{supports}, \textsc{contradicts}, \textsc{refines},
+\textsc{instantiates}, and others).
+
+\section{The principle triage queue}
+
+\page{Principles} (\route{/principles/queue}) is the queue of
+candidate principles the workshop has distilled but not yet committed
+to. Three columns:
+
+\begin{itemize}[leftmargin=*,itemsep=0.2em]
+  \item \textbf{New drafts.} Just produced. Read the principle text,
+        scan supporting claims, scan objections. Decide: \texttt{accept},
+        \texttt{merge into existing}, or \texttt{reject with reason}.
   \item \textbf{Needs re-review.} Either contradicted by a newer
         cluster or flagged by the adversarial pass. The previous
         decision should be re-justified or rolled back.
   \item \textbf{Accepted.} The firm's working memory. Editable in
-        place; toggling \texttt{publicVisible} sends a principle to
-        (or removes it from) the public methodology page.
+        place. Whether an accepted principle is also \emph{publicly
+        visible} is a separate operator-only step.
 \end{itemize}
 
-\screenshot{02_principles_triage.png}{The triage queue, with the three columns described above.}{pr-triage}
+\page{Principles} $\to$ \page{Triage}
+(\route{/principles/<id>/triage}) is where you commit a decision. The
+reason you give for a rejection is read by the next distillation pass,
+which uses it to avoid re-proposing the same cluster.
 
-The triage queue is the only stage in this pipeline that requires
-human judgment. If you ignore it for a week, drafts accumulate; the
-firm's automatic answers keep working off the last batch of accepted
-principles. Nothing collapses, but the firm's public surface stops
-evolving.
+\section{Methodology profiles --- how a source reasons}
 
-\section{Where principles live afterwards}
+\page{Methods} (\route{/methods}) is the firm's registry of reasoning
+patterns: \texttt{first\_principles\_decomposition},
+\texttt{adversarial\_revision}, \texttt{analogical\_transfer},
+\texttt{dialogic\_unfolding}, and others. Each method has a one-
+sentence rule, a transfer condition (when to use it), an assumption
+it presumes, and a known failure mode.
+
+For every upload, the workshop writes a \emph{methodology profile}: a
+short record of \emph{how} this piece of material reasoned, with four
+verbatim anchor quotes pinned to sentence indices in the source. The
+profile carries a confidence score, the inferred transfer targets, and
+a dedupe key so re-running over the same material updates rather than
+duplicates.
+
+\page{Methods} $\to$ \texttt{[name]/[version]} surfaces a per-method
+detail page that includes:
 
 \begin{itemize}[leftmargin=*,itemsep=0.2em]
-  \item \textbf{Codex (private).} \route{/(authed)/principles}. The
-        full draft + accepted + rejected set, with editing controls.
-  \item \textbf{Public methodology page.} \route{/methodology/principles}
-        on the public site. The accepted-and-public subset.
-  \item \textbf{Currents opinions.} An opinion may cite principles
-        when it leans on a firm position rather than a one-off claim.
-  \item \textbf{Oracle answers.} The Oracle may cite principles for
-        the same reason.
+  \item A track record: per-domain Brier score, calibration slope with
+        bootstrap CI, and the severity-pass rate.
+  \item A failures table.
+  \item A domain bound (the centroids that define the method's domain
+        of applicability in embedding space).
+  \item A changelog (every version of the method source).
 \end{itemize}
+
+A method can be \texttt{active}, \texttt{under\_review},
+\texttt{deprecated}, or \texttt{retired}. \page{Methods} $\to$
+\page{Candidates} (\route{/methods/candidates}) is the inbox of
+proposed new methods; the \page{Methods graph}
+(\route{/methods/graph}) shows their dependency structure.
+
+\section{Source standing --- when a citation's status changes}
+
+The firm's published material cites outside sources. Those sources can
+change status over time --- a paper gets retracted, a study is
+corrected, an article is disputed, an article expires behind a
+paywall. The workshop tracks these as \emph{source-standing} events.
+When a standing flips, every conclusion that cited the affected source
+is flagged for review.
+
+You will see the resulting attention items on your dashboard. The
+review action itself --- confirming, overriding, or dismissing the
+flag --- is operator-only and is covered in Guide 6. For most
+founders, the impact of source-standing changes shows up as
+conclusions that quietly get an updated status banner.
+
+\section{Cascade --- what would change if I revised this?}
+
+\page{Cascade} (\route{/cascade/<conclusionId>}) is the impact-analysis
+view. Pick a conclusion; the page shows every downstream artifact
+whose production graph touches it: which methods produced what, which
+methodology profiles depend on it, which Currents opinions and
+Forecasts cite it. This is what makes the firm's ``reanalyze without
+wiping'' rule operational: when a method version bumps, the cascade is
+the precise set of things to revisit.
+
+\section{Decay --- staleness}
+
+\page{Decay} (\route{/decay}) lists the firm's knowledge that is aging
+or stale. A conclusion ages by a fixed schedule or by trigger:
+
+\begin{itemize}[leftmargin=*,itemsep=0.2em]
+  \item \textbf{Fixed interval} --- e.g., revisit annually.
+  \item \textbf{Evidence changed} --- a source the conclusion depends
+        on was retracted or its standing changed.
+  \item \textbf{Method version bump} --- the method that produced the
+        conclusion has a new version.
+  \item \textbf{Embedding drift} --- the conclusion's meaning has
+        shifted beyond a threshold relative to its origin snapshot.
+  \item \textbf{Outcome observed} --- a forecast or prediction the
+        conclusion implied has resolved.
+  \item \textbf{Calibration regression} --- the method's per-domain
+        track record has worsened beyond a threshold.
+\end{itemize}
+
+Each row offers a revalidate, retire, or update action. Revalidating
+re-runs the relevant workshop passes; retiring marks the conclusion
+\texttt{retired} but keeps the row for audit; updating creates a new
+version.
+
+\section{The founder's weekly rhythm on the corpus side}
+
+\begin{itemize}[leftmargin=*,itemsep=0.3em]
+  \item \textbf{Daily glance.} \page{Dashboard}. See active principles,
+        recent conclusions, drift events, operations health.
+  \item \textbf{15 minutes weekly.} \page{Principles} triage queue.
+        Accept, merge, or reject the drafts that have accumulated.
+  \item \textbf{10 minutes weekly.} \page{Contradictions} and
+        \page{Open Questions}. Resolve or dismiss with a note.
+  \item \textbf{As needed.} \page{Decay} when something aged; the
+        attention items on the dashboard when they appear.
+\end{itemize}
+
+If you ignore triage for a week, drafts accumulate but nothing
+collapses --- the firm's automatic answers just keep working off the
+last batch of accepted principles. The corpus stops evolving, not the
+system.
 
 \section{Common failure modes}
 
 \begin{itemize}[leftmargin=*,itemsep=0.3em]
-  \item \textbf{Drafts pile up.} The clustering pass keeps proposing
-        principles; nobody reviews them. Reserve a recurring slot
-        weekly for triage. Five to ten minutes per draft is realistic.
-  \item \textbf{A principle on the public site contradicts a private
-        accepted one.} Flip \texttt{publicVisible=false} on the public
-        one and re-triage. Both stay in the corpus; only their public
-        surfacing changes.
+  \item \textbf{Drafts pile up.} Reserve a recurring slot for triage.
+        Five to ten minutes per draft is realistic.
   \item \textbf{The cluster is junk.} Reject the draft with a reason.
-        The reason is read by the next distillation pass, which uses
-        it to avoid re-proposing the same cluster.
+        The reason feeds back into the next distillation pass.
+  \item \textbf{A conclusion was demoted by the adversarial cycle.}
+        Read the objection. Decide whether the firm has a counter
+        you'd like to surface, or whether the demotion is just.
+  \item \textbf{A source you depended on got retracted.} The system
+        already filed an attention item; founder-alpha will work
+        through it on the operator side.
 \end{itemize}
 
 \section{Where the docs are}
 
 \begin{itemize}[leftmargin=*,itemsep=0.2em]
-  \item \file{docs/methods/MQS\_Specification.md} --- the formal claim
-        / conclusion / principle specification.
-  \item \file{docs/operator/public\_surfacing.md} --- which fields gate
-        each public surface, including principles.
-  \item \file{noosphere/noosphere/distillation/} --- the worker code,
-        for the curious.
+  \item \file{docs/methods/MQS\_Specification.md} --- the formal
+        claim / conclusion / principle specification, including the
+        principle-shape contract.
+  \item The other five guides in this series.
 \end{itemize}
 
 \begin{nextup}
 Continue with \href{03_The_Oracle.pdf}{Guide 3 --- The Oracle} for how
-question-answering uses the corpus you have just helped curate.
+question-answering uses the corpus you have just helped curate,
+including the Research Advisor and the Reading Queue.
 \end{nextup}
 
 \end{document}

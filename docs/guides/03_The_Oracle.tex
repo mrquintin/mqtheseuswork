@@ -1,7 +1,7 @@
 \documentclass[11pt]{article}
 \input{_preamble}
 
-\title{\sffamily\bfseries The Oracle\\[2pt]\large Guide 3 of 6}
+\title{\sffamily\bfseries The Oracle, Research Advisor, and Reading Queue\\[2pt]\large Guide 3 of 6}
 \date{}
 \author{}
 
@@ -10,44 +10,48 @@
 \thispagestyle{empty}
 
 \begin{tldr}
-The Oracle is Theseus' question-answering surface. It does not run a
-free chat against a foundation model; it answers from the firm corpus
-and refuses --- or warns --- when the corpus is too thin. This guide
-explains what counts as a citation, what the hallucination warning
-actually means, and what to do with a low-confidence answer.
+The Oracle is the firm's question-answering surface. It does not run a
+free chat against a foundation model; it answers \emph{from} the corpus
+the workshop has built and refuses --- or warns --- when the corpus is
+too thin. This guide explains the citation contract (every quoted span
+must literally appear in the source), the confidence bands, the
+hallucination warning, and what to do with a low-confidence answer. It
+also covers two adjacent surfaces: the \page{Research Advisor} (what
+to read next, and why) and the \page{Reading Queue} (your personal
+stack).
 \end{tldr}
 
 \begin{youwillneed}
 \begin{itemize}[leftmargin=*,itemsep=0.2em,topsep=0.2em]
   \item A signed-in Codex session.
-  \item A working corpus --- at minimum a handful of uploads and a
-        few accepted principles, otherwise the Oracle will mostly
-        abstain.
+  \item A working corpus --- at minimum a handful of uploads and a few
+        accepted principles, otherwise the Oracle will mostly abstain.
 \end{itemize}
 \end{youwillneed}
 
 \begin{notcovered}
 \begin{itemize}[leftmargin=*,itemsep=0.2em,topsep=0.2em]
-  \item How claims get into the corpus --- Guide 2.
+  \item How claims, principles, and conclusions get into the corpus
+        --- Guide 2.
   \item Currents opinions, which use a different (event-grounded)
         prompt path --- Guide 4.
-  \item Operator overrides of the Oracle's safety rails --- Guide 6.
 \end{itemize}
 \end{notcovered}
 
 \section{What the Oracle is}
 
-The Oracle lives at \route{/(authed)/ask}. It accepts a question in
-natural language and returns:
+The Oracle lives at \route{/ask} (public, the firm's open Q\&A) and at
+\route{/codex-ask} (founder-facing, with access to private material).
+Both accept a question in natural language and return:
 
 \begin{itemize}[leftmargin=*,itemsep=0.2em]
   \item an answer, written in the firm's voice;
-  \item a list of inline citations to claims, conclusions, principles,
-        or uploads;
-  \item a confidence band: \texttt{high}, \texttt{medium}, \texttt{low},
-        or \texttt{abstain};
-  \item a hallucination-risk badge when the answer contains material
-        the citation chain does not unambiguously support.
+  \item inline citations to claims, conclusions, principles, or
+        uploads;
+  \item a confidence band: \texttt{high}, \texttt{medium},
+        \texttt{low}, or \texttt{abstain};
+  \item a hallucination-risk badge when the answer text contains a
+        span the citation chain does not unambiguously support.
 \end{itemize}
 
 It does not return: free-form essays not grounded in the corpus,
@@ -56,33 +60,74 @@ projections (that is the forecasts portfolio's job).
 
 \screenshot{03_oracle_answer.png}{An Oracle answer with inline citations, confidence band, and hallucination badge.}{or-answer}
 
+\section{How the Oracle composes an answer}
+
+The path under the hood is short and conservative. The Oracle:
+
+\begin{enumerate}[leftmargin=*,itemsep=0.2em]
+  \item Encodes your question into a fingerprint.
+  \item Retrieves the top-ranked principles and conclusions whose
+        fingerprints are nearest to the question's, filtered by a
+        minimum conviction threshold.
+  \item Pulls the supporting claims for each retrieved principle.
+  \item Hands the principles (as axioms) and claims (as evidence) to
+        a language model with a strict contract: produce an answer,
+        cite which principle grounds each part, note caveats.
+  \item Validates that the answer doesn't contradict the retrieved
+        principles by running a quick coherence check.
+  \item Generates an adversarial counter-position to the leaned-on
+        principles --- the strongest case against them --- and
+        includes its strongest objection as a caveat.
+  \item Runs a final consistency check before returning the answer.
+\end{enumerate}
+
+The result is not a one-shot LLM completion; it is an answer that has
+been compared to the firm's existing positions and challenged by its
+own machinery before you see it.
+
 \section{What counts as a citation}
 
 A citation is a structured reference back to one of:
 
 \begin{itemize}[leftmargin=*,itemsep=0.2em]
   \item \textbf{Claim} --- an extracted statement from an upload. The
-        most granular citation. Click-through lands on the source span.
+        most granular citation. Click-through lands on the source
+        span.
   \item \textbf{Conclusion} --- a synthesized firm position, possibly
-        published as an article (\texttt{kind='ARTICLE'}) or as a
-        reviewed conclusion (\texttt{kind='CONCLUSION'}). Citing one
-        means the Oracle is leaning on a vetted firm output, not a raw
-        extracted claim.
+        published as an article or as a reviewed conclusion. Citing
+        one means the Oracle is leaning on a vetted firm output, not
+        a raw extracted claim.
   \item \textbf{Principle} --- a distilled, reusable position. The
         Oracle treats principles as soft constraints, not hard rules.
   \item \textbf{Upload} --- a direct quote or paraphrase from an
         uploaded document, attached with offset and page number.
 \end{itemize}
 
-Every citation is clickable. If a citation does not click through, the
-Oracle has produced a broken reference --- treat it as a hallucination
-warning even if no explicit badge is shown, and report it through
-\page{Critiques}.
+Every citation is clickable. If a citation does not click through,
+the Oracle has produced a broken reference --- treat it as a
+hallucination warning even if no explicit badge is shown, and report
+it through \page{Critiques}.
+
+\section{The verbatim-citation rule}
+
+The single load-bearing rule of the Oracle (and of every other
+public-facing surface the workshop produces) is the \emph{verbatim
+citation contract}: any quoted span the answer leans on must appear
+\emph{word-for-word} in the cited source. The workshop's validator
+checks this on every answer. When a quoted span doesn't match, the
+answer is not retried with a fix-it prompt --- it is rejected, and
+the Oracle abstains.
+
+This is the firm's standing answer to fabrication. You will see it
+echoed throughout the stack: Currents abstains rather than write an
+opinion whose quote doesn't appear in any source; Forecasts abstains
+rather than publish a prediction whose reasoning cites a span that
+isn't there.
 
 \section{Confidence bands}
 
-The Oracle assigns each answer a band based on the strength and breadth
-of the citation chain:
+The Oracle assigns each answer a band based on the strength and
+breadth of the citation chain:
 
 \begin{itemize}[leftmargin=*,itemsep=0.2em]
   \item \texttt{high} --- the answer is supported by multiple
@@ -91,27 +136,28 @@ of the citation chain:
   \item \texttt{medium} --- the answer is supported by at least one
         citation that directly addresses the question.
   \item \texttt{low} --- citations exist but only weakly support the
-        answer. Treat as a starting point, not as a finished position.
+        answer. Treat as a starting point, not as a finished
+        position.
   \item \texttt{abstain} --- the corpus is too thin or off-topic to
         answer. The Oracle returns no answer text and explains which
         material it would have needed.
 \end{itemize}
 
 Abstention is the correct outcome for a sparse corpus. It is not a
-failure. The Oracle was deliberately designed to refuse where it would
-otherwise fabricate.
+failure. The Oracle was deliberately designed to refuse where it
+would otherwise fabricate.
 
 \section{The hallucination warning}
 
 A hallucination badge appears when post-hoc verification finds the
-answer text contains a span that the cited sources do not unambiguously
-support. The badge does not necessarily mean the answer is wrong; it
-means the support is weaker than the prose makes it sound. Standard
-response:
+answer text contains a span that the cited sources do not
+unambiguously support. The badge does not necessarily mean the answer
+is wrong; it means the support is weaker than the prose makes it
+sound. Standard response:
 
 \begin{enumerate}[leftmargin=*,itemsep=0.2em]
-  \item Read the cited sources. Decide whether the unsupported span is
-        a paraphrase that survives or an actual overreach.
+  \item Read the cited sources. Decide whether the unsupported span
+        is a paraphrase that survives or an actual overreach.
   \item If it is an overreach, rephrase the question to be narrower
         and re-ask. The Oracle's narrower answer is usually correct.
   \item If you find the Oracle consistently overreaching on a topic,
@@ -139,6 +185,69 @@ will not let me commit to a sharper answer.'' Useful responses:
         position on this'' --- the Oracle will say so.
 \end{itemize}
 
+\section{The Research Advisor}
+
+\page{Research} (\route{/research}) is the other side of the Oracle:
+instead of answering a question, it tells you what the firm should be
+reading next.
+
+It's driven by a small set of inputs:
+
+\begin{itemize}[leftmargin=*,itemsep=0.2em]
+  \item The firm's recent abstentions. If the Oracle keeps refusing
+        on a topic, that topic is a candidate for a reading
+        recommendation.
+  \item The firm's open contradictions. Two claims pulling against
+        each other often have a resolving source somewhere.
+  \item Drift events --- principles whose meaning has been shifting.
+  \item The recent forecasts that have resolved against the firm
+        (Brier score worse than baseline). A bad forecast often
+        signals a methodology gap.
+\end{itemize}
+
+Each recommendation is a small block: a suggested title, a one-
+paragraph summary of why the firm should read it, a list of reading
+URIs (papers, articles, podcasts), and which upload or which open
+question prompted the suggestion.
+
+\section{The Reading Queue}
+
+\page{Reading queue} (\route{/reading-queue}) is your personal stack
+of suggestions. You can:
+
+\begin{itemize}[leftmargin=*,itemsep=0.2em]
+  \item Promote a research suggestion onto your queue.
+  \item Mark items \texttt{reading}, \texttt{read}, or
+        \texttt{deferred}.
+  \item Attach quick notes that the workshop reads if you later upload
+        the item.
+\end{itemize}
+
+The Reading Queue is intentionally low-ceremony. It's a list of things
+to read with light state, not a project tracker.
+
+\section{Inverse inference --- ``what does this event mean for our corpus?''}
+
+A specialty mode of the Oracle, available from the question form,
+answers the inverse question: given that some event happened, what
+does it \emph{imply} about (or refute in) the firm's existing
+positions? It returns:
+
+\begin{itemize}[leftmargin=*,itemsep=0.2em]
+  \item A list of \textbf{supporting implications} --- existing
+        principles or conclusions that this event strengthens.
+  \item A list of \textbf{refuted implications} --- principles or
+        conclusions this event undermines, with severity (mild,
+        moderate, or severe).
+  \item A list of \textbf{irrelevant} principles, for transparency.
+  \item A \textbf{blindspot report} --- entities, mechanisms, or
+        adjacent topics the firm's corpus is missing in light of the
+        event.
+\end{itemize}
+
+Severe refutations show up on the unified attention queue (Guide 6).
+Blindspots show up on \page{Research} as new reading suggestions.
+
 \section{What the Oracle will not do}
 
 \begin{itemize}[leftmargin=*,itemsep=0.2em]
@@ -151,17 +260,17 @@ will not let me commit to a sharper answer.'' Useful responses:
         accepted principle without an explicit flag in the answer
         signalling the conflict.
   \item It will not surface private uploads in answers visible to
-        readers outside the firm.
+        readers outside the firm. The public Oracle at \route{/ask}
+        is gated to the public corpus; \route{/codex-ask} (signed in)
+        sees the full corpus available to you.
 \end{itemize}
 
 \section{Where the docs are}
 
 \begin{itemize}[leftmargin=*,itemsep=0.2em]
-  \item \file{docs/methods/MQS\_Specification.md} --- citation contract.
-  \item \file{docs/security/Threat\_Model.md} --- what the Oracle is
-        and is not allowed to reveal.
-  \item \file{docs/operator/public\_surfacing.md} --- which corpus
-        rows are eligible to back a publicly visible answer.
+  \item \file{docs/methods/MQS\_Specification.md} --- citation
+        contract.
+  \item The other five guides in this series.
 \end{itemize}
 
 \begin{nextup}

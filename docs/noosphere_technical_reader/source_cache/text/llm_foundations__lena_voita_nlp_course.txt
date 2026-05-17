@@ -1,0 +1,233 @@
+NLP Course | For You
+Lena Voita
+Blog
+Publications
+Talks & Service
+NLP Course | For You
+⇤
+NLP Course
+| For You
+What's inside
+Course
+•
+Word Embeddings
+•
+Text Classification
+•
+Language Modeling
+•
+Seq2seq and Attention
+•
+Transfer Learning
+•
+...to be continued
+Supplementary
+•
+Convolutional Networks
+☰
+NLP Course
+| For You
+This is an extension to the (ML for)
+Natural Language Processing course
+I teach at the
+Yandex School of Data Analysis (YSDA)
+since fall 2018 (from 2022, in Israel branch). For now, only part of the topics is likely to be covered here.
+This new format of the course is designed for:
+convenience
+Easy to find, learn or recap  material (both standard and more advanced), and to
+try in practice.
+clarity
+Each part, from front to back, is a result of my care
+not only about what to say, but also
+how to say and, especially, how to show something.
+you
+I wanted to make these materials so that you (yes, you!)
+could study on your own, what you like, and at your pace.
+My main purpose is to help you enter your own very personal adventure.
+For you.
+Lectures-blogs
+with
+Interactive parts & Exercises
+Analysis and Interpretability
+Seminars & Homeworks
+notebooks in our 8.8k-☆ course repo
+Research Thinking
+learn to ask right questions
+Related Papers
+with summaries and explanations
+Have Fun!
+just fun
+If you want to use the materials (e.g., figures) in your paper/report/whatnot and
+to cite this course, you can do this using the following BibTex:
+@misc{voita2020nlpCourse,
+title={ {NLP} {C}ourse {F}or {Y}ou},
+url={https://lena-voita.github.io/nlp_course.html},
+author={Elena Voita},
+year={2020},
+month={Sep}
+}
+What's inside: A Guide to Your Adventure
+Lectures-blogs
+which I tried to make:
+intuitive, clear and engaging;
+complete: full lecture and more,
+up-to-date with the field.
+Bonus:
+Research Thinking
+,
+Related Papers
+,
+Have Fun!
+Seminars & Homeworks
+For each topic, you can take notebooks from
+our 8.8k-☆ course repo
+.
+From 2020, both PyTorch and Tensorflow!
+Interactive parts & Exercises
+Often I ask you to go over "slides" visualizing some process,
+play with something or just think.
+Analysis and Interpretability
+Since 2020, top NLP conferences (ACL, EMNLP) have the
+"Analysis and Interpretability" area: one more confirmation that
+analysis is an integral part of NLP.
+Each lecture has a section with relevant results on internal workings of models and methods.
+Research Thinking
+Learn to think as a research scientist:
+find flaws in an approach,
+think why/when something can help,
+come up with ways to improve,
+learn about previous attempts.
+It's well-known that you will learn something easier
+if you are not just given the answer right away, but if you think about it first. Even
+if you don't want to be a researcher, this is still a good way to learn things!
+Demo: Research Card
+Here I define the starting point:
+something you already know.
+Here I ask you questions. Think (for a minute, a day, a week, ...) and then
+look at possible answers.
+?
+Why this or that can be useful?
+Possible answers
+Here you will see some possible answers. This part is a motivation
+to try a new approach: usually, this is what a research project starts with.
+?
+How can we use this to improve that model?
+Existing solutions
+Here I will summarize some previous attempts. You are not supposed to come up with
+something exactly like here - remember, each paper usually takes the authors several
+months of work. It's a habit of thinking about these things that counts: you have
+several ideas, you try; if they don't work, you think again. Eventually, something
+will work - and this is what papers tell you about.
+Related Papers
+Explore related work:
+high-level
+: look at key results in short summaries and
+get an idea of what's going on in the field;
+a bit deeper
+: for topics which interest you more,
+read longer summaries with illustrations and explanations;
+in depth
+: read the papers you liked.
+Demo: Paper Card
+Good Author and Cool Author
+Here I give you a couple of sentences explaining the high-level idea of the paper
+and/or its main results.
+EMNLP 2019
+More detals: click (yes, right here, right now!)
+Here I give you a longer summary, with illustrations and explanations.
+I try to walk you through the authors' reasoning steps and key observations,
+and I try to make it as easy for you as possible.
+After you get the main idea, it'll be easier to read an original research paper.
+Have Fun!
+Just fun.
+Here you'll see some NLP games related to a lecture topic.
+Week 1:
+Semantic Space Surfer
+Course
+Word Embeddings
+Distributional semantics
+Count-based (pre-neural) methods
+Word2Vec:
+learn
+vectors
+GloVe: count, then learn
+Evaluation: intrinsic vs extrinsic
+Analysis and Interpretability
+Bonus:
+Seminar & Homework
+Week 1
+in
+the course repo
+.
+read more ⇨
+Text Classification
+Intro and Datasets
+General Framework
+Classical Approaches: Naive Bayes, MaxEnt (Logistic Regression), SVM
+Neural Networks: RNNs and CNNs
+Analysis and Interpretability
+Bonus:
+Seminar & Homework
+Week 2
+in
+the course repo
+.
+read more ⇨
+Language Modeling
+General Framework
+N-Gram LMs
+Neural LMs
+Generation Strategies
+Evaluating LMs
+Practical Tips
+Analysis and Interpretability
+Bonus:
+Seminar & Homework
+Week 3
+in
+the course repo
+.
+Generate a Text with Ngram LMs
+Neural Language Models
+read more ⇨
+Seq2seq and Attention
+Seq2seq Basics (Encoder-Decoder, Training, Simple Models)
+Attention
+Transformer
+Subword Segmentation (e.g., BPE)
+Inference (e.g., beam search)
+Analysis and Interpretability
+Bonus:
+Seminar & Homework
+Week 4
+in
+the course repo
+.
+read more ⇨
+Transfer Learning
+What is Transfer Learning?
+From Words to Words-in-Context (CoVe, ELMo)
+From Replacing Embeddings to Replacing Models (GPT, BERT)
+(A Bit of) Adaptors
+Analysis and Interpretability
+Seminar & Homework
+Weeks
+5
+and
+6
+in
+the course repo
+.
+read more ⇨
+To be continued...
+Supplementary
+Convolutional Networks
+Intuition
+Building Blocks: Convolution (and parameters: kernel, stride, padding, bias)
+Building Blocks: Pooling (max/mean, k-max, global)
+CNNs Models: Text Classification
+CNNs Models: Language Modeling
+Analysis and Interpretability
+read more ⇨
+To be continued...
+Last updated June 12, 2025.

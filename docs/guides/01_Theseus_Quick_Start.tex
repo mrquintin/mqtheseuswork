@@ -10,167 +10,350 @@
 \thispagestyle{empty}
 
 \begin{tldr}
-Theseus is a small group of web surfaces that together turn the
-documents and conversations you upload into a coherent, citation-grounded
-view of what your firm believes. This guide is a thirty-minute first
-session: you will sign in, upload one document, watch claims extract,
-ask the Oracle a question, and observe a Currents opinion form. By the
-end you will know which screen does which thing, and which of the five
-other guides to read next.
+Theseus is three programs that work together. \page{Dialectic} listens to
+your conversations on the desktop and writes a structured transcript.
+\page{Noosphere} is the workshop --- a background engine --- that turns
+recorded material into a navigable library of claims, principles, and
+conclusions. \page{Theseus Codex} is the website where you sign in,
+upload material, review what the workshop has produced, and explore the
+firm's working memory. By the end of this guide (about forty minutes)
+you will have signed in, taken a short walk through the dashboard,
+recorded a five-minute Dialectic session, watched the analysis land in
+the Codex, uploaded one document, browsed the resulting claims and
+conclusions, asked the Oracle a question, and seen how a Currents
+opinion is formed.
 \end{tldr}
 
 \begin{youwillneed}
 \begin{itemize}[leftmargin=*,itemsep=0.2em,topsep=0.2em]
-  \item A signed-in browser session on the Codex
-        (\route{theseus-codex} deployment).
-  \item One document you are willing to upload as a starter corpus
-        item --- a memo, transcript, essay, or PDF. Public material is
-        easiest for a first walkthrough.
-  \item Roughly thirty uninterrupted minutes.
+  \item Your firm credentials. Your account was seeded for you; there is
+        no public signup. If you do not have a working sign-in yet,
+        contact whoever onboarded you.
+  \item A browser pointed at the Codex (\route{www.theseuscodex.com} or
+        your firm's deployment URL).
+  \item The Dialectic desktop app installed (\route{Dialectic.dmg} for
+        macOS or \route{Dialectic-Setup.exe} for Windows; both are on
+        the firm's GitHub releases page).
+  \item A working microphone.
+  \item One short document you are willing to upload as the first
+        corpus item --- a memo, transcript, essay, or PDF. Public
+        material is easiest for a first walkthrough.
+  \item Roughly forty uninterrupted minutes.
 \end{itemize}
 \end{youwillneed}
 
 \begin{notcovered}
 \begin{itemize}[leftmargin=*,itemsep=0.2em,topsep=0.2em]
-  \item How extraction and clustering work internally --- see Guide 2.
-  \item Citation quality and hallucination warnings in depth --- Guide 3.
-  \item How Currents opinions are generated and the eight invariants
-        that govern them --- Guide 4.
-  \item Prediction markets and equities, paper vs.\ live, the eight
-        safety gates --- Guide 5.
-  \item Founder-only operator controls (kill switch, deletion, live
+  \item How extraction, clustering, principles, and conclusions work
+        inside the workshop --- see Guide 2.
+  \item The Oracle's citation contract, abstention, and hallucination
+        warning in depth --- Guide 3.
+  \item How Currents pulls in events, gates them, and generates
+        opinions --- Guide 4.
+  \item Prediction markets, the Market Decision Trace, paper vs.\ live,
+        and the eight-gate safety architecture --- Guide 5.
+  \item Operator-only surfaces (publication approval, methodology
+        review week, kill switches, deletion vs.\ retraction, live-bet
         authorization) --- Guide 6.
 \end{itemize}
 \end{notcovered}
 
 \section{What Theseus is}
 
-Theseus is not one product; it is a small constellation of related
-surfaces that share a database. Three of them matter for the first
-session:
+Theseus is a small research and investment firm whose product is its
+\emph{recorded reasoning}, not just its opinions. The three programs
+that make that possible are:
 
-\begin{itemize}[leftmargin=*,itemsep=0.3em]
-  \item \page{Codex} (authed, founder-facing). The control plane. You
-        upload documents, inspect extracted claims, ask the Oracle,
-        and manage published material here.
-  \item \page{Public site} (reader-facing). What outside readers see:
-        articles, conclusions, principles, Currents opinions, the
-        forecasts grid.
-  \item \page{Currents} (public, separate origin). Live commentary on
-        outside events the firm's corpus has something to say about.
+\begin{itemize}[leftmargin=*,itemsep=0.4em]
+  \item \page{Dialectic} (desktop app). Runs on your laptop during a
+        meeting or recording. It listens through the microphone,
+        transcribes what people say in near real time, breaks the
+        running transcript into \emph{claims} (one-sentence
+        assertions), and quietly flags when two claims pull against
+        each other. When you stop, it ships an analyzed file straight
+        up to the Codex on your behalf.
+  \item \page{Noosphere} (the workshop). Takes any recorded material
+        --- a Dialectic session, an essay, a PDF, an audio file --- and
+        produces an organized view of it: atomic claims, distilled
+        principles, a knowledge graph, six-layer coherence checks,
+        adversarial objections, methodology profiles, time-tracked
+        snapshots. It also runs the live pipelines for Currents and
+        Forecasts. You never interact with it directly; it runs against
+        material uploaded to the Codex.
+  \item \page{Theseus Codex} (website + desktop wrapper). Two faces of
+        one site. The \emph{public face} is what readers see at
+        \route{theseuscodex.com}. The \emph{founder control plane}
+        (signed in) is roughly seventy pages: upload, library,
+        knowledge, conclusions, contradictions, explorer, founder
+        Currents, founder Forecasts, account, and more.
 \end{itemize}
 
-The Codex is what you spend most of your time in. The public site is
-what your work eventually surfaces on. Currents is a constant
-background process you read like a feed.
+The three pieces share one database, so anything the workshop writes
+appears on the Codex immediately, and anything Dialectic uploads gets
+handed straight to the workshop.
 
-\section{The first thirty minutes}
+\section{Two kinds of founder, one shared platform}
 
-\subsection{Step 1 --- sign in and orient}
+It helps to know up front that the platform has \emph{two access
+levels}, and most founders will only ever use the first one:
 
-Open the Codex deployment. You land on the dashboard. The left rail
-shows the top-level surfaces; for now you only need four:
-\page{Upload}, \page{Knowledge}, \page{Ask}, \page{Currents}.
+\begin{itemize}[leftmargin=*,itemsep=0.2em]
+  \item \textbf{Founder.} Can sign in, upload material, browse and
+        review everything the workshop produces, ask the Oracle, watch
+        Currents and Forecasts, submit principles for triage, and
+        respond to reader engagement. This is what this guide and
+        Guides 2--5 cover.
+  \item \textbf{Founder-alpha} (operator). All of the above plus the
+        operator surfaces: approving conclusions for publication,
+        signing the quarterly methodology review week, flipping kill
+        switches, authorizing live forecasts, performing deletions or
+        retractions, managing roles and credentials. This is Guide
+        6's territory. You can read Guide 6 to \emph{understand} what
+        founder-alpha does, but the UI for those surfaces will not be
+        clickable for you.
+\end{itemize}
 
-\screenshot{01_quick_start_dashboard.png}{The authenticated dashboard, with the four surfaces this guide uses highlighted.}{qs-dashboard}
+If you ever land on a page that requires operator privileges, the
+Codex shows a clear ``operator only'' notice and links you back to
+\page{Dashboard}.
 
-\subsection{Step 2 --- upload one document}
+\section{Your forty-minute first session}
 
-Click \page{Upload}. Drag a file in. PDFs, markdown, text files, and
-transcripts are all accepted. After the upload completes the file
-appears in the upload list with a small \texttt{processing} badge.
-This badge clears once extraction finishes, which usually takes a
-few seconds for short text and a minute or two for a long PDF.
+\subsection{Step 1 --- sign in to the Codex (3 min)}
 
-You do not need to do anything else here. The pipeline takes the file
-from this point. See Guide 2 for what it does to the file along the
-way.
+Open the Codex URL in your browser. Enter your email and password.
+On success you land on \page{Dashboard}. The Codex is two surfaces in
+one app: when signed out, visitors see the firm's public face
+(reviewed conclusions, articles, Currents, forecasts); once signed in
+you see the founder control plane.
 
-\subsection{Step 3 --- watch claims extract}
+The left rail of the founder control plane has many sections. For now
+you only need eight, in this order: \page{Dashboard}, \page{Upload},
+\page{Library}, \page{Knowledge}, \page{Conclusions}, \page{Ask},
+\page{Currents}, \page{Account}.
 
-Open \page{Knowledge}. You will see the upload you just made, with a
-small \texttt{claims} count growing as extraction runs. Click into
-your upload to see the extracted claims --- short, declarative
-statements with provenance back to the source text.
+\screenshot{01_quick_start_dashboard.png}{The authenticated dashboard. The active-principles rail is at the top; recent conclusions and uploads are below; an operations health card sits on the right.}{qs-dashboard}
 
-If your upload is the first piece of content in the corpus, this list
-is also the first row of your firm's working memory.
+\subsection{Step 2 --- take a five-minute tour of the dashboard (5 min)}
 
-\subsection{Step 4 --- ask the Oracle}
+Read each card on the dashboard without clicking anything yet:
 
-Open \page{Ask}. Type a question that the document you just uploaded
-would plausibly inform. The Oracle answers with inline citations back
-to claims and uploaded content. Click any citation to jump to the
-source.
+\begin{itemize}[leftmargin=*,itemsep=0.2em]
+  \item \textbf{Active principles.} The firm's currently accepted
+        principles, conviction-ranked. This is the spine of the firm's
+        working memory --- everything the platform does eventually
+        cites these.
+  \item \textbf{Recent conclusions.} Conclusions the workshop has
+        written or updated lately, each with its confidence tier.
+  \item \textbf{Recent uploads.} What the firm has been reading.
+  \item \textbf{Drift / attention.} Things the system thinks you
+        should look at --- a principle whose meaning has been shifting,
+        an unresolved contradiction, a source whose standing changed.
+  \item \textbf{Operations health.} A quiet indicator that the
+        Currents pipeline, embedding index, and forecasts portfolio
+        are running. If anything is red, founder-alpha will know
+        before you do.
+\end{itemize}
 
-For first-session expectations: do not expect the Oracle to be all-
-knowing. It only knows what is in the corpus. With one document
-uploaded, its answers will be narrow. That is correct behavior.
+\subsection{Step 3 --- install and sign in to Dialectic (5 min)}
 
-\screenshot{01_quick_start_ask.png}{An Oracle answer, with inline citations linking back to the uploaded source.}{qs-ask}
+Download Dialectic from the firm's releases page and install it.
+Launch it. On first run it asks for the Codex URL and your firm
+credentials --- the same email and password you used to sign in to the
+website. Dialectic does the rest behind the scenes; you do not handle
+any API key or token yourself.
 
-If the Oracle returns a hallucination warning or a low-confidence
-banner, do not be alarmed. Read Guide 3 for what those mean and what
-to do.
+Once you've signed in, the credentials are stored locally on your
+machine with restrictive file permissions. You only sign in once per
+machine.
 
-\subsection{Step 5 --- observe a Currents opinion}
+\subsection{Step 4 --- record a short Dialectic session (10 min)}
 
-Open \page{Currents}. If the Currents pipeline has been live for any
-period, you will see public opinions written by Theseus on outside
-events. Each opinion has a small audit trail of citations back to firm
-material. If the corpus is too sparse to support commentary on a
-particular event, you will see an explicit abstention rather than
-fabricated commentary.
+Click \page{Begin session}. Talk for five to ten minutes about anything
+you have opinions on --- a decision the firm is considering, a thesis
+you want to develop, a recent piece of writing. While you talk, the
+window shows:
 
-Currents is the place to develop a feel for the firm's voice in the
-wild. Guide 4 explains where opinions come from, what controls them,
-and how to read their audit trails.
+\begin{itemize}[leftmargin=*,itemsep=0.2em]
+  \item A running transcript on the left.
+  \item A small graph of claims as labeled dots. Each meaningful
+        sentence becomes a dot.
+  \item A \page{TENSIONS} panel that lights up if two of those claims
+        look like they conflict.
+  \item A \page{PROMPTS} panel where the optional interlocutor (off
+        by default) can suggest a follow-up.
+\end{itemize}
 
-\section{What you just saw}
+When you're done, click \page{Stop session}. Dialectic saves the
+analyzed file locally and, because you're signed in, ships it up to
+the Codex automatically. The original audio stays on your laptop ---
+it is never auto-uploaded.
 
-Five surfaces, one pipeline. Documents enter through \page{Upload},
-get broken into claims that live in \page{Knowledge}, get clustered
-into principles that surface on the public site, get cited by the
-\page{Oracle} when you ask questions, and get cited by Currents when
-the firm has something to say about outside news. Everything else in
-the Codex is a refinement of one of these five surfaces.
+\screenshot{01_quick_start_dialectic.png}{Dialectic's three-pane window: transcript on the left, claim graph in the middle, tensions and prompts on the right.}{qs-dial}
+
+\subsection{Step 5 --- watch the session land on the Codex (3 min)}
+
+Switch to the Codex. Open \page{Library} (the org-wide upload
+inventory) or \page{Upload}. Your new session is there, with a small
+\texttt{processing} badge. Click into it. The detail page shows a
+live, streaming view of the workshop's progress as it runs: extracting
+claims, embedding them, distilling principles, checking coherence,
+generating adversarial objections.
+
+When the workshop finishes, the badge clears, the upload's status
+becomes \texttt{ingested}, and counts appear next to the row: how many
+claims were extracted, how many were grouped into principle
+candidates, how many methodology profiles were produced.
+
+\subsection{Step 6 --- upload one document for breadth (3 min)}
+
+Open \page{Upload}. Drag in one written document --- PDF, markdown,
+plain text, or a \texttt{.docx}. Hit submit. The file goes through the
+same pipeline: extraction, chunking, embedding, claim extraction, etc.
+Watch the progress until the row is \texttt{ingested}.
+
+Now you have two sources in the corpus: your spoken session and one
+written piece. That's the minimum for everything below to feel real.
+
+\subsection{Step 7 --- explore Knowledge and Conclusions (5 min)}
+
+Open \page{Knowledge}. You will see your uploads listed with their
+claim counts. Click into one and browse the extracted claims ---
+short, declarative statements, each carrying a pointer back to the
+exact span in the source it came from. Click any claim to jump to
+that source span.
+
+Open \page{Conclusions}. These are the firm's vetted positions,
+including ones the workshop has just drafted from your two uploads.
+Each conclusion has a confidence tier (\texttt{firm / founder /
+open}), its supporting claims, its source uploads, any contradictions
+raised against it, and a \emph{principle shape}: what kind of
+principle it is (rule, criterion, mechanism, heuristic, definition,
+formula, algorithm), its domain of applicability, and any
+quantifiable proxies. Guide 2 takes this surface apart in detail.
+
+\screenshot{01_quick_start_knowledge.png}{The Knowledge surface, showing extracted claims with provenance back to their source spans.}{qs-knw}
+
+\subsection{Step 8 --- ask the Oracle (5 min)}
+
+Open \page{Ask}. Type a question that the material you just uploaded
+would plausibly bear on. The Oracle answers in the firm's voice, with
+inline citations to the specific claims, conclusions, or principles
+it leaned on. Click any citation to jump to the source.
+
+Two things to expect on a first session:
+
+\begin{itemize}[leftmargin=*,itemsep=0.2em]
+  \item The Oracle will sometimes \textbf{abstain} (``the corpus does
+        not contain enough relevant material to answer this''). That
+        is deliberate. The Oracle is built to refuse rather than
+        fabricate.
+  \item It may show a \textbf{hallucination badge} if its prose
+        paraphrases beyond what the citations strictly support. Read
+        the cited spans, decide whether the paraphrase is honest,
+        narrow your question if needed.
+\end{itemize}
+
+Guide 3 explains the full citation contract, the confidence bands,
+and how to read these warnings.
+
+\subsection{Step 9 --- glance at Currents (3 min)}
+
+Open \page{Currents}. This is the firm's live commentary surface: if
+the Currents pipeline has been running and the corpus has anything
+substantive to say about recent X posts, you'll see opinions here,
+each grounded in specific firm conclusions. Each opinion's audit trail
+shows the source post, which conclusions supported it, the relevance
+scores, and the generator metadata. If the corpus is too thin on a
+topic, you will see explicit abstentions rather than thin prose.
+
+Currents is also the place to develop a feel for the firm's voice in
+the wild. Guide 4 walks the pipeline end to end.
+
+\subsection{Step 10 --- glance at Forecasts (1 min)}
+
+Open \page{Forecasts}. You'll see prediction-market opportunities
+(cards) from Polymarket and Kalshi that the firm has scored. Each card
+carries a firm probability prediction, a citation chain, a
+deterministic decision trace, and a paper or live status. \emph{Live
+trading is operator-only}: as a founder you can see what the firm has
+forecast and how those forecasts have resolved, but the actual
+authorization to place real-money bets goes through founder-alpha.
+Guide 5 explains the architecture so you understand what's behind
+each card.
+
+\subsection{Step 11 --- where to go next}
+
+You have now touched every primary surface. The pattern to
+internalize:
+
+\begin{itemize}[leftmargin=*,itemsep=0.2em]
+  \item Material enters through \page{Upload} (manually) or through
+        Dialectic's auto-sync (during a conversation).
+  \item The workshop processes it, writing \page{Knowledge},
+        \page{Conclusions}, methodology profiles, contradictions, and
+        principle drafts back into the Codex.
+  \item You browse, triage, and respond on the founder control plane.
+  \item You ask questions through \page{Ask}, watch \page{Currents}
+        for live commentary, and \page{Forecasts} for prediction-market
+        action.
+  \item Founder-alpha approves what's ready for the world. Once
+        approved, the public site picks it up.
+\end{itemize}
+
+\section{What you just saw, in one picture}
+
+\begin{center}
+\begin{tabular}{l@{\;\(\to\)\;}l@{\;\(\to\)\;}l@{\;\(\to\)\;}l}
+\sffamily microphone & \sffamily Dialectic & \sffamily Codex upload row & \sffamily workshop \\
+\sffamily upload form & \sffamily Codex upload row & \sffamily workshop & \sffamily knowledge graph \\
+\sffamily X / RSS & \sffamily Currents scheduler & \sffamily EventOpinion & \sffamily public feed \\
+\sffamily Polymarket & \sffamily Forecasts scheduler & \sffamily Prediction & \sffamily paper or live bet \\
+\end{tabular}
+\end{center}
+
+Everything that follows in the other five guides refines one of these
+four rows.
 
 \section{Common first-session frictions}
 
 \begin{itemize}[leftmargin=*,itemsep=0.3em]
-  \item \textbf{The Oracle returned ``I don't have enough sources.''}
-        That is the correct response when the corpus is sparse. Upload
-        more material in the same topic area, or rephrase the question
-        to something your single uploaded document actually addresses.
-  \item \textbf{No Currents opinions are appearing.} Currents requires
-        an X ingestion token and at least three relevant Conclusions
-        in the corpus. See \file{docs/operator/CURRENTS.md} for the
-        operator-side health check, and Guide 4 for the pipeline.
+  \item \textbf{Dialectic can't sign in.} Check that the Codex URL is
+        the one your firm uses. If your password isn't working, your
+        account may need a reset --- ask founder-alpha.
+  \item \textbf{Dialectic finishes but the upload doesn't appear in
+        the Codex.} Network errors are logged but never block the UI;
+        the analyzed file is still on disk. Wait a minute and refresh
+        \page{Library}; if nothing shows up, mention it on the firm's
+        internal channel.
   \item \textbf{Upload sits in \texttt{processing} for a long time.}
-        Large PDFs take time. If processing exceeds five minutes for
-        a single document, check the founder dashboard's
-        \page{OperatorPulse} card --- it shows which scheduler loops
-        are live.
+        Long PDFs and audio files take longer. If processing exceeds
+        a few minutes, check the dashboard's operations card to see
+        whether the workshop is healthy.
+  \item \textbf{The Oracle says ``I don't have enough sources.''}
+        Correct behavior with a thin corpus. Upload more on the topic,
+        or narrow the question. Guide 3 explains what to do with the
+        response.
+  \item \textbf{No Currents opinions are appearing.} Either the
+        ingestion path is paused or the corpus doesn't have enough
+        relevant material yet. Either way, founder-alpha will know
+        before you do.
 \end{itemize}
 
 \section{Where the docs are}
 
 \begin{itemize}[leftmargin=*,itemsep=0.2em]
-  \item \file{docs/operator/CURRENTS.md} --- operator notes for the
-        Currents pipeline.
-  \item \file{docs/operator/public\_surfacing.md} --- the authoritative
-        table of which public surfaces are backed by which database
-        rows.
-  \item \file{docs/operations/Forecasts\_Founder\_Alpha\_Runbook.md} ---
-        the single page a founder needs when moving the forecasts
-        portfolio from read-only to live.
+  \item \file{docs/Theseus\_Codex\_User\_Guide.pdf} --- the older
+        single-document Codex walkthrough, still useful as a backup.
+  \item \file{dialectic/README.md} --- the Dialectic install notes.
+  \item The other five guides in this series.
 \end{itemize}
 
 \begin{nextup}
 Continue with \href{02_Knowledge_and_Principles.pdf}{Guide 2 ---
-Knowledge and Principles} for how the firm turns uploaded material
-into reusable principles. That guide picks up the moment your upload
-finishes processing.
+Knowledge and Principles} for how the firm turns the material you
+just uploaded into reusable principles and vetted conclusions. That
+guide picks up the moment your upload's badge clears.
 \end{nextup}
 
 \end{document}

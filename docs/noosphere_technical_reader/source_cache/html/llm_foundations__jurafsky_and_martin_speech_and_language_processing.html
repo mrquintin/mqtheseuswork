@@ -1,0 +1,232 @@
+<!doctype html public "-//w3c//dtd html 4.0 transitional//en">
+<html>
+<head>
+   <meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+<META name="description" content="Speech and Language Processing">
+   <title>Speech and Language Processing</title>
+</head>
+<style type="text/css">
+<!--
+
+body 
+{
+    min-width:550px;
+    text-rendering: optimizeLegibility;
+  font-size: 14pt;
+  font-family:"Avenir Next", Avenir, "Helvetica Neue", "Gill Sans", "Gill Sans MT", Helvetica, sans-serif;
+
+
+}
+
+h1 {
+       font-size: 40px;
+          line-height: 44px;
+             margin-bottom: 22px;
+         }
+         p {
+                font-size: 13px;
+                   line-height: 16px;
+                  }
+
+.header {
+font-size: 140%;
+xfont-family:  Frutiger Neue W02 Bd, "Myriad Web", "Myriad Roman", "Gill Sans", "Gill Sans MT", Arial, Helvetica, sans-serif;
+  font-family:"Avenir Next", Avenir, "Helvetica Neue", "Gill Sans", "Gill Sans MT", Helvetica, sans-serif;
+}
+
+.column_title{
+margin-bottom: 10px;
+}
+
+.secondaryLead {
+font-size: xx-small;
+}
+.smaller {font-size: 90%}
+.smaller-bold {font-size: 90%; font-weight: bold; }
+
+.header_text{
+font-size: 90%;
+}
+.smallheader_text{
+font-size: 13px;
+line-height: 16px;
+}
+.courses{
+font-size: 13px;
+line-height: 16px;
+}
+-->
+</style></head>
+<!--body leftmargin=24 topmargin=0 text="#000000" bgcolor="#FFFFFF" link="#0000ED" vlink="#551A8A" alink="#FE0000" BACKGROUND="backstripe.gif"-->
+
+<body bgcolor="#ffffff">
+
+<table CELLSPACING=10 CELLPADDING=10 WIDTH=1400>
+<tr>
+<td>
+<td>
+<h1>Speech and Language Processing
+<font size=+2>(3rd ed. draft)</font><br>
+<font size=+2>
+<a href="http://web.stanford.edu/people/jurafsky/">Dan Jurafsky</a> and <a href="http://www.cs.colorado.edu/~martin/">James H. Martin</a>
+</font>
+</h1>
+
+<h3>
+Here's our Jan 6, 2026 release!  
+</h3>
+<font size=-1>
+
+<p>
+This release has is mainly a cleanup and bug-fixing release, with some updated figures for the transformer in various chapters.
+The August release made larger changes, including DPO in chapter 9, new ASR and TTS chapters, a restructured LLM chapter, and
+unicode in Chapter 2.
+</ul>
+Individual chapters and updated slides are below.
+<p>
+<a href="ed3book_jan26.pdf">Here is a single pdf of Jan 6, 2026 book!</a> <br>
+<p>
+<ol>
+<li>
+<b>Feel free to use the draft chapters and slides in your classes</b>, print it out, whatever, the resulting feedback we get from you makes the book better!
+<li>
+<b>Typos and comments</b> are very welcome (just email <a href="mailto:slp3edbugs@gmail.com">slp3edbugs@gmail.com</a>
+and let us know the date on the draft)!
+(Don't bother reporting missing refs due to cross-chapter cross-reference problems  in the indvidual chapter pdfs, those are fixed in the full book draft)<br>
+<li>
+<b>Gratitude!</b> We've put up a <a href="thanks.html">list here</a> of the amazing people who have sent so many fantastic suggestions and bug-fixes for improving the book.
+We are really grateful to all of you for your help, the book would not be possible without you!  
+<li>
+<b>How to cite the book</b>:
+<p>
+Daniel Jurafsky and James H. Martin. 2026.  Speech and Language Processing: An Introduction to Natural Language Processing, Computational Linguistics, and Speech Recognition with Language Models, 3rd edition. Online manuscript released January 6, 2026. https://web.stanford.edu/~jurafsky/slp3.
+<p>
+<li>
+A  <b>bib entry</b> for the book is <a href="jm3.bib"><b>here</b></a>.
+<pre>
+@Book{jm3,
+  author =       "Daniel Jurafsky and James H. Martin",
+  title =        "Speech and Language Processing: An Introduction to Natural Language Processing, 
+  		  Computational Linguistics, and Speech Recognition,
+		   with Language Models",
+  year =         "2026",
+  url = {https://web.stanford.edu/~jurafsky/slp3/},
+  note = "Online manuscript released January 6, 2026",
+  edition =         "3rd",
+  }
+</pre>
+<li>
+<b>When</b> will the book be finished?  Don't ask.  
+<li>
+If you need the previous Aug  2025 draft chapters, 
+they are <a href="https://web.stanford.edu/~jurafsky/slp3/old_aug25/">here</a>;
+if you need the previous Jan 2025 draft chapters, 
+they are <a href="https://web.stanford.edu/~jurafsky/slp3/old_jan25/">here</a>;
+</ol>
+
+<table>
+	<!--<tr><td><tr><td><td><b>Volume I: Large Language Models</b></tr>-->
+<tr><th align=left colspan=3><b>Volume I: Large Language Models</b></tr>
+		<tr> &nbsp;</tr>
+		<tr> &nbsp;</tr>
+		<tr> &nbsp;</tr>
+<tr>
+<td></td>
+<td><b>Chapter</b></td>
+<td><b>Slides </b></td>
+
+<!--<tr><td>&nbsp;</td></tr>-->
+
+<tr><td>1:</td><td>Introduction</td>
+<tr><td>2:</td><td>
+        <a href="2.pdf">Words and Tokens</a></td>
+<td>
+2: Words and Tokens
+[<a href="slides/tokens_jan26.pptx">pptx</a>] 
+[<a href="slides/tokens_jan26.pdf">pdf</a>]
+2: Edit Distance
+[<a href="slides/med24.pptx">pptx</a>] 
+[<a href="slides/med24.pdf">pdf</a>]<br>
+</td>
+<tr><td>3:</td><td> 
+        <a href="3.pdf">N-gram Language Models</a></td>
+<td>
+3: [<a href="slides/lm_jan25.pptx">pptx</a>] 
+[<a href="slides/lm_jan25.pdf ">pdf</a>]<br>
+</td>
+<tr><td>4:</td><td> 
+        <a href="4.pdf"> Logistic Regression and Text Classification</a></td>
+<td>
+4: [<a href="slides/logreg25aug.pptx">pptx</a>] 
+[<a href="slides/logreg25aug.pdf">pdf</a>]<br>
+</td>
+<tr><td>5:</td><td> 
+        <a href="5.pdf"> Embeddings</a></td>
+<td>
+    5: [<a href="slides/vector25aug.pptx">pptx</a>] 
+[<a href="slides/vector25aug.pdf">pdf</a>]
+</td>
+<tr><td>6:</td><td> 
+        <a href="6.pdf">Neural Networks </a>
+        <td>
+    6: [<a href="slides/nn25aug.pptx">pptx</a>] [<a href="slides/nn25aug.pdf">pdf</a>]
+<tr><td>7:</td><td> <a href="7.pdf">Large Language Models</a> </td> <td>7: [<a href="slides/llm25aug.pptx">pptx</a>] [<a href="slides/llm25aug.pdf">pdf</a>]
+</td>
+<tr><td>8:</td><td> 
+        <a href="8.pdf">Transformers </a> 
+<td>
+8: [<a href="slides/transformer_jan26.pptx">pptx</a>] 
+[<a href="slides/transformer_jan26.pdf">pdf</a>]<br>
+</td>
+<tr><td>9:</td><td> <a href="9.pdf">Post-training: Instruction Tuning, Alignment, and Test-Time Compute</a></td>
+<tr><td>10:</td><td> <a href="10.pdf">Masked Language Models</a> </a></td>
+	<td>10: [<a href="slides/mlmjan25.pptx">pptx</a>] [<a href="slides/mlmjan25.pdf">pdf</a>]
+		<tr><td>11:</td><td> <a href="11.pdf">Information Retrieval and Retrieval-Augmented Generation</a> </td> <td>11: [<a href="slides/ir_nov25.pptx">pptx</a>] [<a href="slides/ir_nov25.pdf">pdf</a>]
+<tr><td>12:</td><td> <a href="12.pdf">Machine Translation</a> </a></td>
+<tr><td>13:</td><td> <a href="13.pdf">RNNs and LSTMs</a> </a></td> <td>13: [<a href="slides/rnnjan25.pptx">pptx</a>] [<a href="slides/rnnjan25.pdf">pdf</a>]
+</tr>
+<tr><td>14:</td><td> <a href="14.pdf">Phonetics and Speech Feature Extraction</a></td>
+<tr><td>15:</td><td> <a href="15.pdf">Automatic Speech Recognition</a></td>
+<tr><td>16:</td><td> <a href="16.pdf">Text-to-Speech</a></td>
+</tr>
+
+<tr><td>&nbsp;</td></tr>
+<tr><th align=left colspan=3><b>Volume II: Annotating Linguistic Structure</b></tr>
+		<tr>
+			<td></td>
+<td><b>Chapter</b></td>
+<td><b>Slides </b></td>
+<tr><td>17:</td><td> 
+        <a href="17.pdf">Sequence Labeling for Parts of Speech and Named Entities</a></td>
+<td>
+    17: (Intro only) [<a href="slides/8_POSNER_intro_May_6_2021.pptx">pptx</a>] [<a href="slides/8_POSNER_intro_May_6_2021.pdf">pdf</a>]
+</td>
+
+<tr><td>18:</td><td> <a href="18.pdf">Context-Free Grammars and Constituency Parsing</a></td>
+<tr><td>19:</td><td> <a href="19.pdf">Dependency Parsing </a></td>
+<tr><td>20:</td><td> <a href="20.pdf">Information Extraction: Relations, Events, and Time</a></td>
+<tr><td>21:</td><td> <a href="21.pdf">Semantic Role Labeling and Argument Structure</a></td>
+<tr><td>22:</td><td> <a href="22.pdf">Lexicons for Sentiment, Affect, and Connotation </a></td>
+<tr><td>23:</td><td> <a href="23.pdf">Coreference Resolution and Entity Linking</a></td>
+<tr><td>24:</td><td> <a href="24.pdf">Discourse Coherence</a></td>
+<tr><td>25:</td><td> <a href="25.pdf">Conversation and its Structure</a></td>
+<tr><td>&nbsp;</td></tr>
+<tr><th align=left colspan=3><b>Appendix (will be just on the web)</b></tr>
+<tr><td>A:</td><td> <a href="A.pdf">Hidden Markov Models</a> </td></tr>
+<tr><td>B:</td><td> <a href="B.pdf">Naive Bayes Classification</a> </td>
+<td>
+B: [<a href="slides/nb24aug.pptx">pptx</a>] 
+[<a href="slides/nb24aug.pdf">pdf</a>]<br>
+<tr><td>C:</td><td> <a href="C.pdf">Kneser-Ney Smoothing</a> </td></tr>
+<tr><td>D:</td><td> <a href="D.pdf">Spelling Correction and the Noisy Channel</a> </td></tr>
+<tr><td>E:</td><td> <a href="E.pdf">Statistical Constituency Parsing</a> </td>
+<tr><td>F:</td><td> <a href="F.pdf">Context-Free Grammars</a> </td>
+<tr><td>G:</td><td> <a href="G.pdf">Combinatory Categorial Grammar</a> </td>
+<tr><td>H:</td><td> <a href="H.pdf">Logical Representations of Sentence Meaning</a> </td>
+<tr><td>I:</td><td> <a href="I.pdf">Word Senses and WordNet</a> </td>
+<tr><td>J:</td><td> <a href="J.pdf">PPMI</a> </td>
+<tr><td>K:</td><td> <a href="K.pdf">Frame-based Dialogue Systems</a> </td>
+</td>
+<td>
+</table>
+</table>

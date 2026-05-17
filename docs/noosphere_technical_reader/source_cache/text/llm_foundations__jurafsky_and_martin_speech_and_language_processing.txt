@@ -1,0 +1,205 @@
+Speech and Language Processing
+Speech and Language Processing
+(3rd ed. draft)
+Dan Jurafsky
+and
+James H. Martin
+Here's our Jan 6, 2026 release!
+This release has is mainly a cleanup and bug-fixing release, with some updated figures for the transformer in various chapters.
+The August release made larger changes, including DPO in chapter 9, new ASR and TTS chapters, a restructured LLM chapter, and
+unicode in Chapter 2.
+Individual chapters and updated slides are below.
+Here is a single pdf of Jan 6, 2026 book!
+Feel free to use the draft chapters and slides in your classes
+, print it out, whatever, the resulting feedback we get from you makes the book better!
+Typos and comments
+are very welcome (just email
+slp3edbugs@gmail.com
+and let us know the date on the draft)!
+(Don't bother reporting missing refs due to cross-chapter cross-reference problems  in the indvidual chapter pdfs, those are fixed in the full book draft)
+Gratitude!
+We've put up a
+list here
+of the amazing people who have sent so many fantastic suggestions and bug-fixes for improving the book.
+We are really grateful to all of you for your help, the book would not be possible without you!
+How to cite the book
+:
+Daniel Jurafsky and James H. Martin. 2026.  Speech and Language Processing: An Introduction to Natural Language Processing, Computational Linguistics, and Speech Recognition with Language Models, 3rd edition. Online manuscript released January 6, 2026. https://web.stanford.edu/~jurafsky/slp3.
+A
+bib entry
+for the book is
+here
+.
+@Book{jm3,
+author =       "Daniel Jurafsky and James H. Martin",
+title =        "Speech and Language Processing: An Introduction to Natural Language Processing,
+Computational Linguistics, and Speech Recognition,
+with Language Models",
+year =         "2026",
+url = {https://web.stanford.edu/~jurafsky/slp3/},
+note = "Online manuscript released January 6, 2026",
+edition =         "3rd",
+}
+When
+will the book be finished?  Don't ask.
+If you need the previous Aug  2025 draft chapters,
+they are
+here
+;
+if you need the previous Jan 2025 draft chapters,
+they are
+here
+;
+Volume I: Large Language Models
+Chapter
+Slides
+1:
+Introduction
+2:
+Words and Tokens
+2: Words and Tokens
+[
+pptx
+]
+[
+pdf
+]
+2: Edit Distance
+[
+pptx
+]
+[
+pdf
+]
+3:
+N-gram Language Models
+3: [
+pptx
+]
+[
+pdf
+]
+4:
+Logistic Regression and Text Classification
+4: [
+pptx
+]
+[
+pdf
+]
+5:
+Embeddings
+5: [
+pptx
+]
+[
+pdf
+]
+6:
+Neural Networks
+6: [
+pptx
+] [
+pdf
+]
+7:
+Large Language Models
+7: [
+pptx
+] [
+pdf
+]
+8:
+Transformers
+8: [
+pptx
+]
+[
+pdf
+]
+9:
+Post-training: Instruction Tuning, Alignment, and Test-Time Compute
+10:
+Masked Language Models
+10: [
+pptx
+] [
+pdf
+]
+11:
+Information Retrieval and Retrieval-Augmented Generation
+11: [
+pptx
+] [
+pdf
+]
+12:
+Machine Translation
+13:
+RNNs and LSTMs
+13: [
+pptx
+] [
+pdf
+]
+14:
+Phonetics and Speech Feature Extraction
+15:
+Automatic Speech Recognition
+16:
+Text-to-Speech
+Volume II: Annotating Linguistic Structure
+Chapter
+Slides
+17:
+Sequence Labeling for Parts of Speech and Named Entities
+17: (Intro only) [
+pptx
+] [
+pdf
+]
+18:
+Context-Free Grammars and Constituency Parsing
+19:
+Dependency Parsing
+20:
+Information Extraction: Relations, Events, and Time
+21:
+Semantic Role Labeling and Argument Structure
+22:
+Lexicons for Sentiment, Affect, and Connotation
+23:
+Coreference Resolution and Entity Linking
+24:
+Discourse Coherence
+25:
+Conversation and its Structure
+Appendix (will be just on the web)
+A:
+Hidden Markov Models
+B:
+Naive Bayes Classification
+B: [
+pptx
+]
+[
+pdf
+]
+C:
+Kneser-Ney Smoothing
+D:
+Spelling Correction and the Noisy Channel
+E:
+Statistical Constituency Parsing
+F:
+Context-Free Grammars
+G:
+Combinatory Categorial Grammar
+H:
+Logical Representations of Sentence Meaning
+I:
+Word Senses and WordNet
+J:
+PPMI
+K:
+Frame-based Dialogue Systems

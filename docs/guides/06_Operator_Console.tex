@@ -1,7 +1,7 @@
 \documentclass[11pt]{article}
 \input{_preamble}
 
-\title{\sffamily\bfseries Operator Console\\[2pt]\large Guide 6 of 6}
+\title{\sffamily\bfseries What Founder-Alpha Does --- The Operator Console\\[2pt]\large Guide 6 of 6}
 \date{}
 \author{}
 
@@ -10,196 +10,430 @@
 \thispagestyle{empty}
 
 \begin{tldr}
-The Operator Console is the founder-only surface of last resort: the
-kill switches, the live-authorization toggles, deletion requests,
-replication outreach drafts, and the diagnostic loops. None of it is
-needed in a normal day. All of it should be reachable in under thirty
-seconds when something is wrong. This guide is the map.
+This guide is the explainer for every other founder of \emph{what
+founder-alpha (the operator role) does behind the scenes}. Most of
+this is not a UI you can click on as a general founder, but
+understanding it is essential to using the rest of the platform with
+confidence. Topics: the publication review queue, the quarterly
+methodology review week, source-standing review, the unified attention
+queue, deletion vs.\ retraction, roles and credentials, kill switches,
+live authorization, outreach drafts, the firm's self-evaluation
+surfaces (scoreboard, eval, post-mortem). Reading this guide will not
+give you access to these surfaces; it will give you a clear picture of
+the safety architecture every other guide refers back to.
 \end{tldr}
 
 \begin{youwillneed}
 \begin{itemize}[leftmargin=*,itemsep=0.2em,topsep=0.2em]
-  \item A signed-in Codex session with operator privileges.
-  \item Shell access to the host that runs the launchd
-        \code{currents-api} and \code{currents-scheduler} services
-        (for the env-var kill switches).
-  \item The runbooks under \file{docs/operations/} open in a separate
-        tab.
+  \item A signed-in Codex session. (You won't click much; you'll
+        recognize the names.)
+  \item Guides 1--5 read first, since this guide refers to surfaces
+        introduced there.
 \end{itemize}
 \end{youwillneed}
 
 \begin{notcovered}
 \begin{itemize}[leftmargin=*,itemsep=0.2em,topsep=0.2em]
+  \item Routine triage of principles --- Guide 2.
   \item How Currents, the Oracle, and Forecasts produce their normal
         output --- Guides 3--5.
-  \item Routine triage of principles --- Guide 2.
-  \item Security architecture in the abstract; see
-        \file{docs/security/Threat\_Model.md}.
 \end{itemize}
 \end{notcovered}
 
-\section{Map of the console}
+\section{Why a separate operator role?}
 
-The console is not one page. It is a small set of operator-only
-routes inside the Codex plus a small set of environment variables on
-the host. The routes:
+The firm runs on \emph{separation of duties}. Any founder can upload
+material, browse the corpus, review conclusions, ask the Oracle, and
+read everything the firm publishes. A small number of actions ---
+publishing to the public site, signing the quarterly methodology
+review, flipping kill switches, authorizing real-money trades,
+removing material the firm has cited publicly, managing roles and
+credentials --- are concentrated in the operator role
+(``founder-alpha'').
+
+This is a deliberate constraint, for three reasons.
 
 \begin{itemize}[leftmargin=*,itemsep=0.2em]
-  \item \route{/(authed)/ops} --- top-level operator surface.
-        Scheduler health, ingestion toggles, recent error counts.
-  \item \route{/(authed)/admin} --- administrative actions: user /
-        org management, deletion requests, retraction workflow.
-  \item \route{/(authed)/founder-currents} --- per-opinion controls
-        for Currents (revoke, hold, edit event metadata).
-  \item \route{/(authed)/forecasts} (with operator role) --- per-row
-        \texttt{liveAuthorizedAt} toggles and per-bet confirmation
-        modals.
-  \item \route{/(authed)/publication} --- the publication review
-        queue; \texttt{PublicationReview} actions including unpublish.
-  \item \route{/(authed)/social} --- replication outreach drafts and
-        manual external posting controls.
+  \item \textbf{Real-world consequences.} Publishing and trading touch
+        the world outside the firm. Each of those gates wants a single
+        accountable actor.
+  \item \textbf{Cryptographic signing.} The firm signs its public
+        publications and its quarterly review with private keys. Those
+        keys live with the operator role, not in the web app, so
+        signing is an explicit human action.
+  \item \textbf{Concentration of risk.} Kill switches and live-bet
+        authorization can lose money. They live on the surface that
+        gets reviewed most carefully.
 \end{itemize}
 
-\screenshot{06_operator_dashboard.png}{The \route{/ops} dashboard, showing scheduler health and the kill-switch state for each ingestion path.}{op-dashboard}
+Throughout the rest of this guide, ``founder-alpha'' is the operator
+role. If you are a general founder, treat this guide as a map of what
+happens to your work after you hand it off.
+
+\section{Map of the operator surfaces}
+
+The operator surfaces are scattered across the Codex. The main ones:
+
+\begin{itemize}[leftmargin=*,itemsep=0.2em]
+  \item \page{Ops} --- operations dashboards (scheduler health,
+        ingestion toggles, error counts, retention).
+  \item \page{Publication} --- the publication review queue with the
+        six-criteria checklist.
+  \item \page{Methodology review week} --- the quarterly five-day
+        methodology review, with cryptographically signed daily
+        summaries.
+  \item \page{Source triage} --- citation-chain triage when a source's
+        standing changes.
+  \item \page{Attention} --- the unified attention queue.
+  \item \page{Founder Currents}, \page{Forecasts operator} --- per-
+        opinion and per-prediction operator controls.
+  \item \page{Admin}, \page{Founders}, \page{Account/API keys} ---
+        roles, credentials, deletion workflows.
+  \item \page{Scoreboard}, \page{Eval}, \page{Post-mortem} --- the
+        firm's self-evaluation surfaces.
+  \item \page{Social} --- outreach drafts; the firm never auto-posts.
+  \item \page{Rigor gate}, \page{Adversarial}, \page{Peer review} ---
+        the publishing-readiness gates.
+  \item \page{Provenance}, \page{Cascade} --- the audit and impact-
+        analysis views.
+\end{itemize}
+
+\screenshot{06_operator_dashboard.png}{The operations dashboard, showing scheduler health and the state of each ingestion path.}{op-dashboard}
+
+\section{The operations dashboards}
+
+The operations card on the dashboard is the operator's first stop when
+something seems off. It shows:
+
+\begin{itemize}[leftmargin=*,itemsep=0.2em]
+  \item Each scheduler loop and its last successful cycle time.
+  \item Recent error counts per loop.
+  \item The state of each ingestion path (Currents X ingestion, the
+        articles dispatcher, the forecasts pipeline).
+  \item Auto-processing health (whether uploads sitting in
+        \texttt{queued\_offline} are being picked up).
+  \item Embedding-backfill state.
+\end{itemize}
+
+The operator drills in through dedicated sub-pages for CI status,
+load metrics (request volume, latency percentiles, error rate per
+method), and retention policies in effect.
+
+\section{The publication review queue}
+
+\page{Publication} is the gate before any conclusion or article goes
+public. The queue advances through five states: \texttt{queued $\to$
+in\_review $\to$ needs\_revision $\to$ declined $\to$ published}.
+
+Each queue item presents a \textbf{checklist} founder-alpha works
+through before approving. The checklist captures:
+
+\begin{itemize}[leftmargin=*,itemsep=0.2em]
+  \item \textbf{Meta-analysis OK} --- the conclusion's methodology
+        profile has been read and is acceptable.
+  \item \textbf{Adversarial engaged OK} --- the adversarial cycle has
+        run and the strongest objection has been reviewed (not just
+        produced).
+  \item \textbf{Clarity OK} --- the conclusion is readable to a smart
+        outsider.
+  \item \textbf{No leakage OK} --- the conclusion does not expose
+        private uploads or quoted material from sources that aren't
+        public.
+\end{itemize}
+
+Approving the item mints a permanent public version (with a slug and
+a version number --- republishing bumps the version) and the
+workshop's ledger writes a cryptographic signature attached to the
+canonical hash of the payload. The Codex stores the signature; the
+signing keys never live inside the website.
+
+\screenshot{06_publication_queue.png}{The publication review queue. Each row shows the conclusion summary, its source uploads, its adversarial status, the checklist state, and the approve / send-back / decline controls.}{op-pub}
+
+This is the only path to the public site for a conclusion. If you, as
+a general founder, want your work to be considered for publication,
+you do it by pushing the conclusion forward in \page{Conclusions}; the
+operator then picks it up from the queue.
+
+\section{The methodology review week}
+
+Once a quarter, the firm runs a five-day exercise where founder-alpha
+walks the firm's recent work and writes a structured account of what
+the firm learned. Each day of the week:
+
+\begin{itemize}[leftmargin=*,itemsep=0.2em]
+  \item The workshop produces a draft body that summarizes the day's
+        focus (e.g., ``Monday: principles accepted this quarter and
+        their domains of applicability'').
+  \item Founder-alpha edits the body and writes the final account.
+  \item When founder-alpha signs the day cryptographically, the row
+        becomes immutable. To revise after signing, founder-alpha
+        must clear the signature first --- which is itself an audited
+        event.
+\end{itemize}
+
+The history page shows every prior week's signed daily summaries.
+This is the firm's durable record of methodological self-assessment.
+As a general founder, you can read it; you cannot author it.
+
+\section{Source standing and source triage}
+
+When an outside source the firm has cited changes its public status
+(retraction, correction, dispute, expiration), the workshop fires a
+source-standing event. The standing change cascades into one triage
+row per affected conclusion, which lands on \page{Source triage}.
+
+For each row founder-alpha:
+
+\begin{itemize}[leftmargin=*,itemsep=0.2em]
+  \item \texttt{confirm} --- the source change applies; the cited
+        conclusion needs revision.
+  \item \texttt{override} --- the operator believes the source change
+        does not affect the conclusion. The override is logged.
+  \item \texttt{dismiss} --- the row is closed without action.
+\end{itemize}
+
+A separate trigger for the same surface is a citation-verdict --- an
+NLI judge has decided that the way the firm cited a source
+(\textsc{supports}, \textsc{contradicts}, \textsc{qualifies},
+\textsc{mentions}) does not match what the source actually says.
+Mismatches block publication of new conclusions that depend on the
+affected citation.
+
+\section{The unified attention queue}
+
+\page{Attention} is one page that pulls together everything the
+system thinks an operator should look at: principles awaiting triage,
+drift events, contradictions, source-triage rows, decay items,
+publication-review needs-revision rows, methodology-review-week days,
+and unanswered critiques.
+
+Each row supports \texttt{snooze}, \texttt{dismiss}, and
+\texttt{unsnooze}. The actions are append-only so the queue's history
+is itself auditable.
+
+As a general founder you will see attention items on your dashboard
+when they affect material you produced; the unified operator queue
+is operator-only.
+
+\section{Deletion vs retraction}
+
+Two adjacent flows; understand the difference because both can affect
+material you've worked on.
+
+\begin{itemize}[leftmargin=*,itemsep=0.3em]
+  \item \textbf{Deletion} --- removal of source material. Soft-deletes
+        the upload; all derived bridge rows are hard-deleted, and any
+        conclusion left with zero sources is then hard-deleted too.
+        The public surface stops resolving the affected rows. Used
+        for: user / subject deletion requests; legal or compliance
+        reasons. Performed by founder-alpha on the admin surface.
+  \item \textbf{Retraction} --- removal of a \emph{published} output.
+        The retraction is itself a published artifact: it creates a
+        new public version that retracts the previous one, leaving an
+        audit trail. Used for: an article or conclusion the firm no
+        longer endorses. Performed by founder-alpha on the
+        publication surface.
+\end{itemize}
+
+A retraction is a stance. A deletion is a removal of evidence. The
+firm makes the distinction visible because deleting evidence quietly
+is the easiest way for an audit trail to become useless.
+
+\section{Roles and the founders roster}
+
+The firm has three roles: \texttt{admin} (the founder-alpha
+operators), \texttt{founder} (general founders --- everyone reading
+this), and \texttt{viewer} (read-only).
+
+\textbf{Founders are never hard-deleted.} If a founder leaves the
+firm, their row stays, with all relations preserved, so that revision
+events, attributed conclusions, and public-reply consent records
+remain intact for audit.
+
+Signup is intentionally not exposed. New founders are seeded by
+administrators. There is no ``sign up'' button anywhere on the public
+site.
+
+\section{Credentials and machine-to-machine keys}
+
+Machine-to-machine credentials --- the kind the desktop apps use to
+talk to the Codex on behalf of a founder --- are managed centrally.
+When you install Dialectic and sign in with your firm email and
+password, Dialectic gets a credential back from the Codex through a
+dedicated app-login endpoint. You never see or paste a key.
+
+API keys for third-party integrations (CLIs, internal scripts, etc.)
+are minted by founder-alpha on the operator surface, with each key
+shown once in plaintext at mint time and the rest of the time stored
+only as a bcrypt hash. Revoking a key is also an operator action.
+
+This is why the platform doesn't have a ``mint your own API key''
+flow for general founders: the firm wants a single accountable place
+where machine credentials are issued and revoked.
 
 \section{Kill switches}
 
 There is no global kill switch. There are several precise ones, and
-that is deliberate. Each disables one specific risky surface.
+that is deliberate. Each disables one specific risky surface:
 
 \begin{itemize}[leftmargin=*,itemsep=0.3em]
-  \item \env{CURRENTS\_X\_INGESTION\_DISABLED=true} --- Currents X
-        ingestion. Causes the next scheduler cycle to log
-        \code{currents.x\_ingestion.disabled reason=manual\_kill\_switch}
-        and write no new events. Clearing \env{X\_BEARER\_TOKEN} has
-        the same effect.
-  \item \env{ARTICLES\_ENABLED=false} --- the long-form article
-        dispatcher. Existing articles stay up; no new ones are
-        clustered or written.
-  \item \env{FORECASTS\_LIVE\_TRADING\_ENABLED=false} --- the master
-        live-trading flag from Guide 5. Setting this to false
-        disables gate 5 of the eight-gate contract and refuses every
-        downstream submit.
-  \item \env{FORECASTS\_KILL\_SWITCH=true} --- the per-submit kill
-        switch (gate 8). Re-checked immediately before each order
-        placement; trips even bets that already passed operator
-        confirmation.
+  \item \textbf{Currents ingestion off.} The next scheduler cycle
+        writes no new events. Existing opinions stay up.
+  \item \textbf{Articles dispatcher off.} Existing articles stay up;
+        no new ones are clustered or written.
+  \item \textbf{Master live-trading off.} The platform-wide live-bet
+        flag. This is gate 5 of the eight-gate contract (Guide 5).
+        Setting it off refuses every downstream submit.
+  \item \textbf{Per-submit kill switch.} Gate 8. Re-checked
+        immediately before each order placement; trips even bets that
+        already passed operator confirmation.
 \end{itemize}
 
-After flipping any of these, restart the affected service. For the
-local launchd Currents runtime, the procedure is documented in
-\file{docs/operator/CURRENTS.md} \S``Bringing Currents to life'' and
-the helper script
-\code{./scripts/refresh-local-currents-runtime.sh --restart --health-check}.
+A general founder may notice the consequences of any of these (no
+new Currents opinions; no new bets) on the dashboard. The toggles
+themselves are operator-only.
 
 \section{Live authorization, revoked}
 
-The inverse of gates 6--7 in Guide 5. Operator routes:
+The inverse of gates 6--7 in Guide 5. Founder-alpha can:
 
 \begin{itemize}[leftmargin=*,itemsep=0.2em]
-  \item \textbf{Revoke per-prediction authorization.} On the
-        forecast card, click \page{Revoke live authorization}.
-        \texttt{liveAuthorizedAt} is cleared. The row drops out of
-        the public grid (the row is publicly visible iff
-        \texttt{liveAuthorizedAt IS NOT NULL}).
+  \item \textbf{Revoke per-prediction authorization.} The row drops
+        out of the public grid.
   \item \textbf{Cancel an open order before fill.} For exchanges that
         permit cancel, the operator UI exposes a cancel button on
-        the position row. The submitter logs the cancel; the position
-        rolls back.
-  \item \textbf{Close an existing position.} The portfolio view has
-        a manual close action. This is a real-funds action; it is
-        gated behind the same confirmation modal as opening a bet.
+        the position row.
+  \item \textbf{Close an existing position.} The portfolio view has a
+        manual close action. This is a real-funds action; it is gated
+        behind the same confirmation modal as opening a bet.
 \end{itemize}
 
-\section{Deletion requests and retractions}
+\section{Rigor gate, peer review, adversarial}
 
-Two adjacent flows; understand the difference before using them.
+These are the publishing-readiness gates that sit just before the
+publication review queue:
 
-\begin{itemize}[leftmargin=*,itemsep=0.3em]
-  \item \textbf{Deletion} (\route{/admin}) --- removal of source
-        material. Soft-deletes the upload (\texttt{deletedAt} set);
-        all derived claims, conclusions, and citations are
-        cascade-marked. The public surface stops resolving the
-        affected rows. Use for: user / subject deletion requests;
-        legal or compliance reasons.
-  \item \textbf{Retraction} (\route{/publication}) --- removal of a
-        published output. The retraction is itself a published
-        artifact: it creates a new
-        \texttt{PublishedConclusion} row that retracts the previous
-        version, leaving an audit trail. Use for: an article or
-        conclusion the firm no longer endorses.
+\begin{itemize}[leftmargin=*,itemsep=0.2em]
+  \item \page{Rigor gate} --- the per-publication audit that enforces
+        the firm's quantitative-formalisation contract: every approved
+        principle-shaped conclusion must declare a null hypothesis,
+        at least one metric, and at least one test. The gate refuses
+        publication if any of these is missing.
+  \item \page{Peer review} --- the queue where founders cross-review
+        each other's conclusions before they enter the publication
+        queue. Peer review is the only operator-adjacent surface
+        general founders contribute to directly: if founder-alpha
+        asks you to peer-review a colleague's conclusion, this is
+        where you do it.
+  \item \page{Adversarial} --- the founder-side view of the
+        adversarial cycle's output. An operator can apply a human
+        override when the system's verdict needs correction.
 \end{itemize}
 
-A retraction is a stance. A deletion is a removal of evidence. Do not
-confuse them.
+\section{Outreach drafts}
 
-\section{Replication outreach drafts}
-
-\route{/(authed)/social} contains the operator-drafted outreach
-threads that go out to external replicators, journalists, and
-collaborators. The page generates a draft from the firm's recent
-public material; the operator edits and either posts manually or
-exports for sending through a separate channel.
+\page{Social} contains the operator-drafted outreach threads that go
+out to external replicators, journalists, and collaborators. The page
+generates a draft from the firm's recent public material; the
+operator edits and either posts manually or exports for sending
+through a separate channel.
 
 \begin{preview}
 Automated sending is not enabled. Today, the outreach surface is a
-draft generator plus a send-when-I-say-so review queue. Operator
-authorization for automated outreach posting is intentionally not
-shipped; see the social outbound roadmap.
+draft generator plus a send-when-I-say-so review queue. The Codex
+never directly posts.
 \end{preview}
 
-\section{Diagnostic loops}
+\section{Scoreboard, eval, post-mortem}
 
-The fastest way to localize a problem before flipping a switch:
+Three closely related surfaces that record how the firm grades itself:
 
 \begin{itemize}[leftmargin=*,itemsep=0.2em]
-  \item \code{python noosphere/scripts/diagnose\_currents\_pipeline.py}
-        --- the Currents non-writing diagnostic. Booleans and counts
-        only; never prints secrets.
-  \item \page{OperatorPulse} card on the founder dashboard ---
-        Currents ingestion health, color-coded.
-  \item \route{/ops} --- recent error counts per scheduler loop.
-  \item \file{docs/operator/SCHEDULER\_OPS.md} --- the scheduler
-        operator reference.
-  \item \file{docs/security/Threat\_Model.md} --- the explicit list
-        of which surfaces are allowed to do what.
+  \item \page{Scoreboard} --- the firm's calibration performance, the
+        same numbers that drive the public calibration manifest, but
+        broken down by method, by domain, and by reviewer.
+  \item \page{Eval} and per-run pages --- the firm's evaluation runs
+        against external batteries (e.g., forecasting tournaments,
+        replication-public sets). Each run carries its corpus bundle,
+        the predictions produced, the resolutions observed, Brier
+        and log-loss, expected calibration error, and coverage.
+  \item \page{Post-Mortem} --- the post-mortem ledger: when the firm
+        made a mistake, what the mistake was, what the cause was, and
+        what was changed.
 \end{itemize}
+
+These are operator surfaces only in the sense that founder-alpha
+authors entries on them. As a general founder, you can read them, and
+in some cases your work will be cited as part of the audit.
+
+\section{Provenance and cascade}
+
+\page{Provenance} is the global view of the firm's audit graph: which
+method invocation produced which artifact, which artifact depends on
+which other artifact, which external sources fed the chain.
+
+\page{Cascade} (\route{/cascade/<conclusionId>}) is the per-conclusion
+impact-analysis view (covered in Guide 2 from the founder side).
+
+\section{The reason for all this ceremony}
+
+It is fair to ask why the firm builds in so many gates, queues, and
+signatures when most days nothing goes wrong. The answer is the same
+answer that animates the whole platform: \emph{Theseus's product is
+its recorded reasoning, not its opinions}.
+
+That product is only worth anything if a later reviewer can inspect
+the record and trust what they see. Publication review, methodology
+signing, source-standing triage, deletion-vs-retraction, kill
+switches, live-bet gates --- all of it exists so the record is
+trustworthy when it matters most. The work of founder-alpha is
+mostly invisible; what's left behind is what makes the firm credible
+when something does go wrong.
 
 \section{The one-page checklist when something is wrong}
 
+(For founder-alpha's reference, in the unlucky event you need to do
+this yourself.)
+
 \begin{enumerate}[leftmargin=*,itemsep=0.2em]
-  \item Look at the dashboard. Is \page{OperatorPulse} red? What does
+  \item Look at the dashboard. Is the operations card red? What does
         the red text say?
-  \item Run the relevant non-writing diagnostic
-        (\code{diagnose\_currents\_pipeline.py} for Currents; the
-        equivalent forecasts diagnostic for the trading surface).
+  \item Run the relevant non-writing diagnostic before flipping any
+        switch.
   \item If a kill switch is the right answer, flip the most specific
         one. Do not disable broader surfaces than you need to.
   \item Restart the affected service with the documented helper
         script; do not stop the entire stack.
-  \item Once stable, file a critique through \route{/critiques} so
-        the failure has a written record.
+  \item Once stable, file a critique so the failure has a written
+        record. The post-mortem ledger picks it up.
 \end{enumerate}
 
 \section{Where the docs are}
 
 \begin{itemize}[leftmargin=*,itemsep=0.2em]
-  \item \file{docs/operator/CURRENTS.md} --- Currents operator notes.
-  \item \file{docs/operator/SCHEDULER\_OPS.md} --- scheduler ops.
-  \item \file{docs/operator/public\_surfacing.md} --- public-surface
-        predicates.
-  \item \file{docs/operations/Forecasts\_Founder\_Alpha\_Runbook.md}
-        --- the live-trading runbook.
-  \item \file{docs/security/Threat\_Model.md} --- threat model.
+  \item The other five guides in this series.
+  \item Operator-only runbooks: the scheduler operations reference, the
+        Currents operator notes, the forecasts founder-alpha runbook,
+        and the threat model. These live in the firm's internal docs
+        and are not bundled with this user-guide series.
 \end{itemize}
 
 \begin{nextup}
-This is the last of the six guides. After this, the right reading is
-the runbooks under \file{docs/operations/}: the scheduler, the
-forecasts portfolio setup, and the founder-alpha runbook. The next
-scheduled task you should set up is a weekly fifteen-minute slot for
-principle triage (Guide 2) and a daily one-minute glance at
-\page{OperatorPulse}.
+This is the last of the six guides. The next reading depends on
+which role you're in.
+
+For a general founder: re-read Guide 1 and 2; install Dialectic;
+upload a few of your favorite essays; let the system work; come back
+to your dashboard in a week.
+
+For founder-alpha: the operator runbooks live in the firm's internal
+docs (under \file{docs/operations/} and \file{docs/operator/} in the
+monorepo).
+
+For everyone: the next scheduled task you should set up is a weekly
+fifteen-minute slot for principle triage (Guide 2) and a daily
+one-minute glance at the dashboard. That's the routine that keeps
+the firm's working memory fresh.
 \end{nextup}
 
 \end{document}

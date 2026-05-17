@@ -1,0 +1,105 @@
+Linear Algebra | Mathematics | MIT OpenCourseWare
+Browse Course Material
+Syllabus
+Calendar
+Instructor Insights
+Video Lectures
+Final 18.06 Lecture 2023
+Readings
+Assignments
+Exams
+Study Materials
+Related Resources
+Course Info
+Instructor
+Prof. Gilbert Strang
+Departments
+Mathematics
+As Taught In
+Spring
+2010
+Level
+Undergraduate
+Topics
+Mathematics
+Linear Algebra
+Learning Resource Types
+grading
+Exam Solutions
+grading
+Exams
+co_present
+Instructor Insights
+theaters
+Lecture Videos
+assignment_turned_in
+Problem Set Solutions
+assignment
+Problem Sets
+Download Course
+menu
+search
+Give Now
+About OCW
+Help & Faqs
+Contact Us
+search
+GIVE NOW
+about ocw
+help & faqs
+contact us
+18.06 | Spring 2010 | Undergraduate
+Linear Algebra
+Menu
+Syllabus
+Calendar
+Instructor Insights
+Video Lectures
+Final 18.06 Lecture 2023
+Readings
+Assignments
+Exams
+Study Materials
+Related Resources
+Course Description
+This is a basic subject on matrix theory and linear algebra. Emphasis is given to topics that will be useful in other disciplines, including systems of equations, vector spaces, determinants, eigenvalues, similarity, and positive definite matrices.
+Course Info
+Instructor
+Prof. Gilbert Strang
+Departments
+Mathematics
+Topics
+Mathematics
+Linear Algebra
+Learning Resource Types
+grading
+Exam Solutions
+grading
+Exams
+co_present
+Instructor Insights
+theaters
+Lecture Videos
+assignment_turned_in
+Problem Set Solutions
+assignment
+Problem Sets
+These windows in Philadelphia represent a beautiful block matrix. (Courtesy Gail Corbett. Used with permission.)
+Download Course
+Over 2,500 courses & materials
+Freely sharing knowledge with learners and educators around the world.
+Learn more
+Â© 2001â2026 Massachusetts Institute of Technology
+Accessibility
+Creative Commons License
+Terms and Conditions
+Proud member of:
+Â© 2001â2026 Massachusetts Institute of Technology
+You are leaving MIT OpenCourseWare
+close
+Please be advised that external sites may have terms and conditions,
+including license rights, that differ from ours. MIT OCW is not responsible
+for any content on third party sites, nor does a link suggest an endorsement
+of those sites and/or their content.
+Stay Here
+Continue

@@ -1,0 +1,688 @@
+
+\documentclass[11pt]{article}
+\usepackage[T1]{fontenc}
+\usepackage[utf8]{inputenc}
+\usepackage[margin=0.82in]{geometry}
+\usepackage{microtype}
+\usepackage{booktabs}
+\usepackage{longtable}
+\usepackage{array}
+\usepackage{enumitem}
+\usepackage{xcolor}
+\usepackage[most]{tcolorbox}
+\usepackage{hyperref}
+\usepackage{amsmath}
+\hypersetup{colorlinks=true,linkcolor=blue!45!black,urlcolor=blue!45!black,citecolor=blue!45!black}
+\setlist[itemize]{leftmargin=1.3em,itemsep=0.18em,topsep=0.25em}
+\setlist[enumerate]{leftmargin=1.5em,itemsep=0.18em,topsep=0.25em}
+\newtcolorbox{readerbox}[1]{colback=gray!4,colframe=gray!45!black,title=#1,arc=1.5mm,boxrule=0.4pt,left=1.2mm,right=1.2mm,top=1mm,bottom=1mm}
+\newcommand{\code}[1]{\texttt{#1}}
+\newcommand{\sourcehref}[2]{\href{#1}{#2}}
+\title{\textbf{Noosphere Technical Reader}\\\large LLMs, Embedding Geometry, NLP Extraction, Knowledge Graphs, and Coherence-Based Intellectual Capital Modeling}
+\author{Prepared for Michael Quintin / Theseus}
+\date{May 17, 2026}
+\begin{document}
+\maketitle
+\tableofcontents
+\newpage
+
+\section{What This Packet Is}
+
+This reader turns the linked technical reading list into a single continuous
+study document. It is not a pasted anthology. Most of the source material is
+copyrighted even when it is publicly readable, so the main body is a synthesized
+walk-through: it teaches the ideas, cites the source trail, and tells you where
+the official PDF or page was cached when available. The source cache and the
+manifest live beside this PDF.
+
+\begin{readerbox}{Core claim}
+Noosphere is easiest to understand as a pipeline that turns text into typed
+propositions, embeds those propositions into vector space, places them in a
+graph of support and conflict, and then asks whether the resulting structure is
+coherent enough to support a conclusion or decision.
+\end{readerbox}
+
+\subsection{The Four Substrates}
+
+The source guide divides the background into four domains, and that division is
+correct:
+
+\begin{enumerate}
+\item \textbf{The LLM substrate.} Claude or another model extracts claims,
+distills principles, judges coherence layers, and writes explanations. The model
+is not a neutral parser. Its transformer architecture, alignment training, and
+prompt interface shape the outputs.
+\item \textbf{The embedding substrate.} Claims and principles become high
+dimensional vectors. Noosphere's geometric hypothesis is that relations such as
+similarity, contradiction, truth, and coherence leave measurable structure in
+those vectors or in differences between them.
+\item \textbf{The NLP extraction substrate.} Raw text must be segmented,
+attributed, disambiguated, and transformed into atomic truth-apt claims before a
+graph can be trusted.
+\item \textbf{The graph and logic substrate.} The knowledge store is not only a
+bag of embeddings. It is a graph of claims, conclusions, supports, refutations,
+dependencies, revisions, and derived probabilistic views.
+\end{enumerate}
+
+\section{Noosphere as a System}
+
+The local Theseus repository defines the project as a machine for extracting
+principles from a curated corpus, running algorithms over those principles, and
+making conclusions or bets accountable to downstream evidence. In repository
+terms, \code{theseus-codex} is the workspace and public face, \code{noosphere}
+is the reasoning engine, and \code{dialectic} is the live conversation analyzer.
+
+\subsection{The Actual Data Shape}
+
+The fundamental unit in \code{noosphere/noosphere/models.py} is a \textbf{Claim}:
+an atomic proposition extracted from text, attributed to a speaker, and
+optionally positioned in embedding space. Relations between claims and
+principles include support, contradiction, refinement, instantiation, extension,
+analogy, presupposition, and qualification.
+
+\begin{readerbox}{Why this matters}
+If claim extraction is wrong, every downstream graph and coherence score is
+contaminated. If embeddings are stale, geometry-based scores drift. If graph
+edges are under-specified, the public explanation can look rigorous while the
+actual decision trace is underspecified. Noosphere's engineering problem is to
+make each of those failure modes visible.
+\end{readerbox}
+
+\subsection{Operational Pipeline}
+
+The software path can be read as:
+
+\begin{enumerate}
+\item \textbf{Source ingestion.} Text enters as chunks with metadata and
+provenance.
+\item \textbf{Claim extraction.} \code{ClaimExtractor} asks an LLM for JSON
+containing truth-apt claims, claim type, hedges, evidence pointers, and whether
+the author actually endorses the claim.
+\item \textbf{Principle extraction.} Later extraction turns source spans into
+principle-shaped decision rules with domains of applicability, proxies, and
+examples.
+\item \textbf{Embedding.} \code{embedding_pipeline.py} idempotently embeds source
+text, records the model name and text hash, writes vectors into the store, and
+updates locality indices for claims and conclusions.
+\item \textbf{Graph construction.} The cascade graph records nodes and edges
+such as supports, refutes, contradicts, depends on, specializes, generalizes,
+coheres with, predicts, and extracted from.
+\item \textbf{Coherence and contradiction.} Pairwise checks and contradiction
+engines score whether claims cohere, conflict, or remain unresolved.
+\item \textbf{Trace generation.} Algorithmized decisions must record named
+metrics, rule graph nodes, vetoes, and outputs. The prose explanation is
+secondary; the trace is the source of truth.
+\end{enumerate}
+
+\section{LLMs: From Next Tokens to Reasoning Instruments}
+
+\subsection{The Basic Transformer Picture}
+
+The transformer is a differentiable architecture for contextual sequence
+processing. Tokens enter as vectors. Each layer lets tokens read from other
+tokens through attention, then transforms the result through feed-forward
+networks. The original architecture is in
+\sourcehref{https://arxiv.org/abs/1706.03762}{Vaswani et al.}; Jay Alammar's
+\sourcehref{https://jalammar.github.io/illustrated-transformer/}{Illustrated
+Transformer} is still the best first visual pass; Karpathy's GPT walkthrough is
+the best bridge from diagram to executable code.
+
+The minimum mental model is:
+
+\begin{itemize}
+\item A token embedding is a learned vector representing a symbol in context.
+\item Self-attention computes weighted mixtures of other token representations.
+\item Query, key, and value projections are learned views of each token. Query
+and key determine which tokens attend to each other; value carries the content
+to mix.
+\item Layer normalization, residual connections, and feed-forward blocks make
+deep composition trainable.
+\item A language model is trained to predict the next token, but the internal
+representations needed to do this become useful general-purpose features.
+\end{itemize}
+
+\subsection{Why Scale Matters}
+
+Kaplan et al. made scaling laws a central part of LLM engineering: loss changes
+predictably with model size, dataset size, and compute. Hoffmann et al.'s
+Chinchilla work corrected the naive lesson by showing that more parameters are
+not enough; compute-optimal training requires enough data for the model size.
+For Noosphere, the point is not merely that larger models are better. It is that
+model behavior is partly a function of scaling regime, not only prompt wording.
+
+This matters for intellectual-capital modeling because a claim extractor using
+a frontier model and one using a small local model are not just two
+implementations of the same parser. They may differ in entity resolution,
+implicit premise recovery, sensitivity to hedges, and willingness to infer
+structure not explicitly stated.
+
+\subsection{Alignment Changes the Instrument}
+
+Instruction tuning and RLHF, as in the InstructGPT paper, alter the interface
+between raw next-token prediction and user-facing behavior. Constitutional AI
+adds another layer: model behavior is shaped by critique, revision, and
+principle-guided feedback. That is useful, but it means a model used inside
+Noosphere carries inherited priors about harmlessness, helpfulness, refusal,
+uncertainty, and argumentative framing.
+
+\begin{readerbox}{Practical implication}
+When Claude extracts a claim or judges a contradiction, it is not an inert
+semantic microscope. It is an aligned language model. Noosphere should therefore
+log prompts, model versions, schema versions, and failure modes so that later
+methodology review can distinguish source truth from model-induced structure.
+\end{readerbox}
+
+\section{Embeddings: Semantic Objects in Vector Space}
+
+\subsection{From Word2vec to Sentence Embeddings}
+
+Word2vec made the modern intuition vivid: learned vectors can encode semantic
+regularities. GloVe made the co-occurrence matrix factorization view explicit.
+Jurafsky and Martin's Chapter 6 is the clean textbook path through PPMI, SVD,
+word2vec, GloVe, and evaluation. Sentence-BERT then moves the operational unit
+from isolated words to whole sentences or short paragraphs, which is closer to
+Noosphere's claims and principles.
+
+The crucial shift is this: once propositions are vectors, reasoning systems can
+query neighborhoods, compare directions, estimate distances, and cluster
+meaning. But every one of those operations depends on the embedding model, the
+text span, the normalization, and the metric.
+
+\subsection{Cosine Is Useful but Not Enough}
+
+Cosine similarity measures angle, not logical relation. Two contradictory
+sentences can have high cosine similarity because they discuss the same topic
+with almost the same words. This is the ``cosine paradox'' behind Theseus's
+internal contradiction-geometry work. If contradiction is topic-local, then raw
+similarity can confuse opposition with agreement.
+
+Noosphere's geometry rationale therefore looks at \textbf{difference vectors}
+and \textbf{Hoyer sparsity}. If two claims differ along a small number of
+meaning-bearing dimensions, the difference vector may concentrate mass in those
+dimensions. Hoyer sparsity is a scalar in $[0,1]$ that is low for dense vectors
+and high for vectors whose mass is concentrated.
+
+\subsection{Manifolds, Symmetry, and Linear Directions}
+
+Bronstein et al.'s geometric deep learning monograph broadens the picture: deep
+learning architectures can be read as ways to exploit symmetries in the domain.
+Convolution exploits translation symmetry on grids. Graph neural networks
+exploit permutation structure on graphs. Transformers can be read in the same
+general family of symmetry-aware architectures.
+
+The manifold hypothesis, treated rigorously by Fefferman, Mitter, and
+Narayanan, supplies a related intuition: high-dimensional data often lies near a
+lower-dimensional structure. For Noosphere, the speculative version is that
+``meaning'' may occupy structured regions inside an embedding or activation
+space rather than filling the ambient dimension uniformly.
+
+The Linear Representation Hypothesis and work such as Geometry of Truth,
+Contrast-Consistent Search, Inference-Time Intervention, and Representation
+Engineering then ask whether concepts and truth-related properties can be
+represented as directions. If this is right, a coherence or contradiction
+detector can search for directions or subspaces. If it is wrong or only locally
+true, direction-based methods will overstate what the geometry can support.
+
+\section{The Noosphere Geometry Hypothesis}
+
+The local contradiction engine records the strongest version of the firm's
+geometric bet. It estimates a learned contradiction direction, reflects one
+embedding across a hyperplane using a Householder transform,
+\[
+  b' = b - 2(b \cdot \hat d)\hat d,
+\]
+then scores Hoyer sparsity of $b' - a$. The method version is recorded as
+\code{geometry/householder/v2}, with a reliability curve and confidence band.
+
+This is an ambitious hypothesis. It is not yet a proven theorem or a mature
+benchmark result.
+
+\subsection{What the Internal Evidence Actually Says}
+
+The local QH benchmark results are deliberately important because they prevent
+the reader from absorbing only the optimistic part of the source list. The first
+QH-v1 run reported that the firm contradiction-geometry probe lost on overall
+3-way accuracy to cosine and even to a random baseline, while still showing a
+better AUROC slice for contradicting versus coherent. The Householder ablation
+then found a zero-power label test under the frozen threshold: all variants
+predicted the same label, so the run could neither justify removing nor
+confirming the Householder step.
+
+\begin{readerbox}{Rigorous reading}
+The current evidence supports continued experimentation, not triumphal claims.
+The geometry may contain useful signal, but the production argument must pass
+through calibration, benchmark design, ablations with power, and cross-model
+replication before it can be treated as a reliable contradiction detector.
+\end{readerbox}
+
+\section{NLP Extraction: Turning Text into Claims}
+
+\subsection{Classical Pipeline}
+
+Noosphere needs more than embeddings. It must decide what the text says, who
+says it, whether the author endorses it, and how claims relate. Classical NLP
+still matters here:
+
+\begin{itemize}
+\item Tokenization and sentence segmentation decide the units of analysis.
+\item Part-of-speech and dependency parsing expose grammatical structure.
+\item Named-entity recognition finds people, organizations, concepts, and
+places.
+\item Coreference resolution decides when ``the founder,'' ``he,'' and a proper
+name refer to the same entity.
+\item Relation extraction converts text into typed edges.
+\end{itemize}
+
+spaCy and NLTK are included in the source guide because even an LLM-backed
+system benefits from knowing what older pipeline components do. Jurafsky and
+Martin's information-extraction chapter is the cleanest compact technical
+reference.
+
+\subsection{Modern Extraction}
+
+BERT shifted extraction by making pretrained contextual encoders standard.
+REBEL and neural relation extraction show how relation triples can be generated
+or classified from text. LLM-based extraction adds flexibility but also danger:
+the model can infer plausible structure that was not asserted, merge distinct
+claims, lose hedges, or fail to preserve speaker attribution.
+
+The local \code{ClaimExtractor} is designed around exactly that risk. Its prompt
+requires JSON, distinguishes author assertions from external or opposing claims,
+and attaches hedges and evidence pointers. It explicitly tries to avoid
+polluting founder beliefs with prompts, counterpositions, or rhetorical
+questions that the author is merely engaging.
+
+\subsection{Argument Mining}
+
+Argument mining is the closest established field to Noosphere's higher-level
+principle extraction. Stab and Gurevych's work on claims, premises, and support
+relations matters because Noosphere's graph needs typed argumentative edges, not
+just semantic similarity. A good extraction system must know the difference
+between:
+
+\begin{itemize}
+\item a claim,
+\item evidence for a claim,
+\item a premise in an argument,
+\item a qualification,
+\item an objection,
+\item an example, and
+\item a stronger principle abstracted from several claims.
+\end{itemize}
+
+\section{Knowledge Graphs and Cascade Structure}
+
+\subsection{Why a Graph Is Necessary}
+
+Embeddings give soft geometry. Graphs give inspectable structure. A knowledge
+graph can represent identity, provenance, support, contradiction, abstraction,
+and dependency. Hogan et al. provide the reference survey; NetworkX supplies the
+implementation vocabulary; Diestel supplies the formal graph-theory background.
+
+The local \code{CascadeGraph} is not a generic graph toy. It enforces conflict
+rules, prevents cycles for dependency edges, attaches method invocation
+provenance to edges, and supports deterministic projection into a Bayesian
+skeleton.
+
+\subsection{KG Embeddings}
+
+TransE begins with a simple geometric idea: a relation can act like a
+translation from head entity to tail entity. Later KG-embedding models complicate
+this with different spaces, scoring functions, rotations, complex embeddings,
+and auxiliary text. For Noosphere, the point is less that TransE should be
+copied and more that graph structure and vector structure can be coupled.
+
+This is the natural bridge between a symbolic graph of claims and an embedding
+space of meanings. It also introduces a warning: graph embeddings optimize for
+link prediction, not necessarily for philosophical coherence or truth.
+
+\section{Logic, Contradiction, and Belief Revision}
+
+\subsection{Classical Logic Is Not Enough}
+
+If a system stores live human beliefs, contradictions will appear. Classical
+logic contains the principle of explosion: from a contradiction, anything can
+follow. That is unacceptable for a practical knowledge system. Paraconsistent
+logic is therefore not an exotic side topic; it is one way to reason in a graph
+that can contain unresolved conflict without collapsing.
+
+Mereology matters because principles can be composed from parts and wholes.
+Belief revision matters because source retractions and new evidence should
+change stored belief in a controlled way. Description logic matters if the
+ontology becomes formal enough to use OWL-like classes, subsumption, and
+satisfiability.
+
+\subsection{Bayesian Derived Views}
+
+The local Bayesian Belief Layer makes the same distinction carefully: the
+cascade remains the primary representation, while the Bayesian network is a
+derived view rebuilt on demand. It turns an acyclic skeleton into binary
+truth-valued nodes with conditional probability tables, then supports marginal
+probabilities, evidence updates, and sensitivity analysis.
+
+That is exactly the right caution. A posterior probability is useful only when
+the model structure and CPTs are honest about what they assume. Noosphere's
+specification keeps the BN founder-side, reports exact versus approximate
+inference, and distinguishes seeded rows from data-fit rows.
+
+\section{Coherence: Philosophy and Computation}
+
+\subsection{Coherence as Justification vs Coherence as Truth}
+
+The Stanford Encyclopedia entries separate two claims that are easy to conflate.
+Coherentism about justification says a belief is justified by its role in a
+mutually supporting system. The coherence theory of truth says truth itself is a
+matter of coherence among beliefs. Noosphere should be extremely careful here.
+
+A coherence score may be evidence that a belief fits the firm's corpus. It is
+not automatically evidence that the belief is true. Bovens and Hartmann's work,
+Olsson's critique of coherentism, and Thagard's computational coherentism all
+push against naive equations of coherence with probability or truth.
+
+\subsection{Six-Layer Coherence}
+
+The local six-layer method combines:
+
+\begin{enumerate}
+\item NLI consistency,
+\item abstract argumentation,
+\item probabilistic coherence,
+\item embedding geometry,
+\item information-theoretic compression, and
+\item an LLM judge.
+\end{enumerate}
+
+The aggregator requires a 4-of-6 supermajority for a definitive cohere or
+contradict verdict. That design is sensible as a hedge against any single weak
+signal, but the local rationale correctly names the weakness: layers are not
+fully independent. NLI and geometry can share embedding failure modes; the
+probabilistic layer and LLM judge can share model-induced reasoning failure
+modes. Supermajority only helps when errors are not too correlated.
+
+\section{From Reasoning to Decisions}
+
+\subsection{Trace Before Prose}
+
+The Algorithmized Decision Making document states the right contract: prose is
+generated from the trace, not the other way around. The trace must contain named
+metrics, typed values, low-confidence flags, method versions, rule graph nodes,
+vetoes, and the final output.
+
+For intellectual-capital modeling, this is the difference between an essay that
+sounds rigorous and a decision that can be audited. A forecast or investment
+candidate should be reconstructible from:
+
+\begin{itemize}
+\item the market or question,
+\item the event representation,
+\item the corpus slice,
+\item the active principles,
+\item calibration state,
+\item liquidity/cost data where relevant,
+\item metric values,
+\item rule graph version, and
+\item vetoes considered.
+\end{itemize}
+
+\subsection{The Correct Liability Ladder}
+
+Theseus's architecture draws a useful ladder:
+
+\begin{center}
+\begin{tabular}{lll}
+\toprule
+Layer & Output & Primary judge \\
+\midrule
+Interpretive reasoning & Essay or conclusion & Reader review \\
+Decision trace & Data structure & Algorithmic audit \\
+Investable output & Action or abstention & Market outcome \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+Each step removes prose freedom and increases accountability. That is the
+engineering core of ``intellectual capital modeling'': principles are not just
+stored ideas; they become constrained inputs to traceable decisions.
+
+\section{Frontier Research Map}
+
+\subsection{Mechanistic Interpretability}
+
+Transformer circuits work asks what computation the model actually performs.
+Superposition says features may share neurons or directions, which makes clean
+linear interpretations dangerous. Sparse autoencoder work tries to recover more
+monosemantic features. Induction-head work is important because it is one of the
+few cases where a behavior has been tied to identifiable mechanism.
+
+For Noosphere, this literature supplies both hope and constraint. Hope: models
+do contain internal structure that can sometimes be decomposed. Constraint:
+surface embeddings and activation directions can be polysemantic, basis-
+dependent, layer-dependent, and prompt-sensitive.
+
+\subsection{Representation Engineering}
+
+Representation engineering treats activations as a control surface: identify
+directions, test whether they correspond to concepts, and intervene. This is
+adjacent to the Quintin Hypothesis because both ask whether abstract semantic
+properties have geometric structure. The difference is that representation
+engineering usually works inside model activations, while many Noosphere
+methods operate on external text embeddings or stored claim vectors.
+
+\subsection{KG and LLM Convergence}
+
+The 2023-2025 KG/LLM survey literature frames three broad patterns:
+
+\begin{itemize}
+\item KGs can enhance LLMs by supplying explicit facts, retrieval context, and
+interpretability handles.
+\item LLMs can augment KGs by extracting entities, relations, ontologies, and
+candidate edges.
+\item Hybrid systems can use LLMs and KGs in a loop, where explicit graph state
+and parametric model state correct each other.
+\end{itemize}
+
+Noosphere is squarely in the hybrid category. Its risk is also the hybrid
+category's risk: generated graph edges can look explicit while inheriting hidden
+LLM uncertainty, and LLM answers can look grounded while leaning on parametric
+knowledge not present in the graph.
+
+\section{A One-Go Reading Path}
+
+\subsection{Pass 1: Build the Skeleton}
+
+\begin{enumerate}
+\item 3Blue1Brown Essence of Linear Algebra.
+\item Alammar's Illustrated Transformer.
+\item Karpathy's GPT-from-scratch video.
+\item Jurafsky and Martin Chapter 6.
+\item Hogan et al. Knowledge Graphs, introductory sections.
+\end{enumerate}
+
+\subsection{Pass 2: Understand Noosphere's Moving Parts}
+
+\begin{enumerate}
+\item Read the local Theseus README.
+\item Read \code{claim_extractor.py} and the source manifest notes.
+\item Read \code{embedding_pipeline.py}.
+\item Read the six-layer coherence rationale.
+\item Read the contradiction-geometry rationale, then the QH benchmark and
+Householder ablation summaries.
+\item Read Algorithmized Decision Making, especially the trace/rule-graph
+contract.
+\end{enumerate}
+
+\subsection{Pass 3: Enter the Frontier}
+
+\begin{enumerate}
+\item Linear Representation Hypothesis.
+\item Geometry of Truth.
+\item Discovering Latent Knowledge without Supervision.
+\item Inference-Time Intervention.
+\item Representation Engineering.
+\item Toy Models of Superposition.
+\item Scaling Monosemanticity.
+\end{enumerate}
+
+\subsection{Pass 4: Build the Critique}
+
+\begin{enumerate}
+\item SEP on coherentist justification and coherence theory of truth.
+\item Paraconsistent logic.
+\item Belief revision.
+\item Thagard's coherence-as-constraint-satisfaction work.
+\item Bovens, Hartmann, Olsson, and BonJour if you have library access.
+\end{enumerate}
+
+\section{Concept Glossary}
+
+\begin{description}
+\item[Activation] A vector inside a neural network layer, often more directly
+analyzable than the final output.
+\item[Attention] A learned operation letting one token representation read
+from others.
+\item[Cascade graph] Theseus's primary support/refutation/dependency structure
+over claims, conclusions, principles, and artifacts.
+\item[Claim] An atomic truth-apt proposition extracted from text.
+\item[Coherence] Fit among claims in a system. It may justify a belief without
+proving it true.
+\item[Contradiction direction] A learned or fallback vector estimating where an
+embedding's negating counterpart should lie.
+\item[Embedding] A vector representation of text or another object.
+\item[Hoyer sparsity] A scalar measuring whether vector mass is concentrated in
+few coordinates.
+\item[Knowledge graph] A graph representation of entities, relations, context,
+identity, and provenance.
+\item[LLM alignment] Training and feedback processes that make a model follow
+instructions and norms rather than merely continue text.
+\item[Paraconsistent logic] A logic family that can tolerate contradictions
+without deriving everything.
+\item[Principle] A reusable decision rule or general claim distilled from
+source material.
+\item[Representation engineering] Identifying and intervening on model
+activation directions associated with concepts.
+\item[Rule graph] A versioned graph of thresholds, combiners, buckets, and
+vetoes used to turn metrics into decisions.
+\item[Superposition] The phenomenon where multiple features share representa-
+tional dimensions.
+\end{description}
+
+\section{Source Inventory}
+
+The following table records what was cached and how each source was used.
+Rows marked as HTML are saved as cleaned text in the cache; rows marked as PDF include page counts when PyMuPDF could read the file.
+
+\small
+\begin{longtable}{p{0.16\linewidth}p{0.25\linewidth}p{0.13\linewidth}p{0.32\linewidth}}
+\toprule
+Domain & Source & Status & Reader use \\
+\midrule
+\endfirsthead
+\toprule
+Domain & Source & Status & Reader use \\
+\midrule
+\endhead
+LLM foundations & 3Blue1Brown Neural Networks series & failed & Conceptual visual foundation for networks, gradients, attention, and transformers. \\
+LLM foundations & Jay Alammar, The Illustrated Transformer & cached-html & First-pass architecture map: embeddings, attention, encoder/decoder blocks. \\
+LLM foundations & Stephen Wolfram, What Is ChatGPT Doing? & cached-html & Nontechnical explanation of next-token prediction, embeddings, and generated structure. \\
+LLM foundations & Andrej Karpathy, Let's build GPT & metadata-only & Implementation-oriented mental model for attention, blocks, loss, and training. \\
+LLM foundations & Jurafsky and Martin, Speech and Language Processing & cached-html & Textbook spine for neural NLP, transformers, embeddings, extraction, and QA. \\
+LLM foundations & Vaswani et al., Attention Is All You Need & cached-pdf; 15 pp & Original transformer architecture; read for attention, positional encoding, and residual blocks. \\
+LLM foundations & Lena Voita, NLP Course & cached-html & Careful course notes for embeddings, attention, transfer learning, and analysis. \\
+Scaling and alignment & Kaplan et al., Scaling Laws for Neural Language Models & cached-pdf; 30 pp & Why model behavior changes predictably with compute, data, and parameter count. \\
+Scaling and alignment & Hoffmann et al., Training Compute-Optimal Large Language Models & cached-pdf; 36 pp & Chinchilla correction: data/parameter ratio matters, not just parameter count. \\
+Scaling and alignment & Ouyang et al., Training Language Models to Follow Instructions & cached-pdf; 68 pp & Instruction tuning and RLHF; explains why production LLMs are not raw predictors. \\
+Scaling and alignment & Bai et al., Constitutional AI & cached-pdf; 34 pp & AI-feedback alignment and model priors relevant to Claude-backed extraction. \\
+Interpretability & Elhage et al., A Mathematical Framework for Transformer Circuits & cached-html & Mechanistic decomposition of transformer computations into circuits. \\
+Interpretability & Elhage et al., Toy Models of Superposition & cached-html & Why features can be polysemantic and why a clean coherence direction may not exist. \\
+Interpretability & Templeton et al., Scaling Monosemanticity & cached-html & Sparse autoencoders and interpretable features in a production-scale model. \\
+Interpretability & Olah et al., Distill Circuits thread & cached-html & Methodological ancestor of circuit-level interpretability. \\
+Interpretability & Belinkov and Glass, Analysis Methods in Neural Language Processing & cached-pdf; 27 pp & Taxonomy of probing and behavioral analysis methods. \\
+Embedding geometry & 3Blue1Brown Essence of Linear Algebra & failed & Geometric intuition for vectors, bases, eigenvectors, and transformations. \\
+Embedding geometry & MIT OCW 18.06 Linear Algebra & cached-html & Formal linear algebra backbone for embeddings and transformations. \\
+Embedding geometry & Jay Alammar, The Illustrated Word2vec & cached-html & Visual bridge from words to distributed vectors. \\
+Embedding geometry & Mikolov et al., Efficient Estimation of Word Representations & cached-pdf; 12 pp & Historical source for learned word embeddings as semantic objects. \\
+Embedding geometry & Jurafsky and Martin, Chapter 6: Vector Semantics and Embeddings & cached-pdf; 27 pp & PPMI, SVD, word2vec, GloVe, and embedding evaluation. \\
+Embedding geometry & Pennington et al., GloVe & cached-pdf; 12 pp & Co-occurrence matrix factorization view of embeddings. \\
+Embedding geometry & Reimers and Gurevych, Sentence-BERT & cached-pdf; 11 pp & Sentence-level embeddings, directly relevant to claim and principle vectors. \\
+Embedding geometry & Cuturi and Peyre, Computational Optimal Transport & cached-pdf; 209 pp & Distribution-level geometry for comparing clouds of embeddings. \\
+Embedding geometry & Bronstein et al., Geometric Deep Learning & cached-pdf; 160 pp & Unifies learning under symmetry across grids, graphs, manifolds, and transformers. \\
+Embedding geometry & Fefferman et al., Testing the Manifold Hypothesis & cached-pdf; 48 pp & Mathematical version of the claim that high-dimensional data lies on low-dimensional structure. \\
+Representation geometry & Park, Choe, and Veitch, Linear Representation Hypothesis & cached-pdf; 24 pp & Formal backbone for treating concepts as linear directions in LLM representations. \\
+Representation geometry & Marks and Tegmark, Geometry of Truth & cached-pdf; 22 pp & Empirical truth directions in LLM activation space. \\
+Representation geometry & Burns et al., Discovering Latent Knowledge without Supervision & cached-pdf; 28 pp & Contrast-consistent search and logical consistency directions. \\
+Representation geometry & Zou et al., Representation Engineering & cached-pdf; 56 pp & Practical direction-finding and direction-steering toolkit. \\
+NLP extraction & Manning et al., Computational Linguistics and Deep Learning & cached-pdf; 14 pp & Deep learning transition in NLP. \\
+NLP extraction & Advanced NLP with spaCy & cached-html & Classical pipeline implementation: tokenization, NER, dependency parsing, matching. \\
+NLP extraction & Natural Language Processing with Python & cached-html & Friendly introduction to rule-based and statistical NLP pipelines. \\
+NLP extraction & Jurafsky and Martin, Chapter 18: Information Extraction & cached-pdf; 26 pp & NER, relation extraction, event extraction, temporal expressions. \\
+NLP extraction & Devlin et al., BERT & cached-pdf; 16 pp & Pretrained bidirectional encoder behind modern extraction systems. \\
+NLP extraction & Lee et al., End-to-end Neural Coreference Resolution & cached-pdf; 10 pp & Coreference as a prerequisite for clean graph nodes. \\
+NLP extraction & Cabot and Navigli, REBEL & cached-pdf; 12 pp & Relation extraction by sequence generation. \\
+NLP extraction & Wang et al., Neural Relation Extraction Survey & cached-pdf; 13 pp & Survey of relation extraction approaches before instruction-tuned LLMs. \\
+NLP extraction & Wadhwa et al., Information Extraction from LLMs & cached-pdf; 22 pp & Zero/few-shot LLM extraction behavior and failure modes. \\
+NLP extraction & Qiao et al., Reasoning with Language Model Prompting & cached-pdf; 24 pp & Prompting survey: decomposition, chain-of-thought, self-consistency, tools. \\
+NLP extraction & Lewis et al., Retrieval-Augmented Generation & cached-pdf; 19 pp & Retrieval-grounded generation and knowledge-intensive tasks. \\
+NLP extraction & Stab and Gurevych, Parsing Argumentation Structures & cached-pdf; 42 pp & Claims, premises, support relations, and argument mining. \\
+Knowledge graphs & Hogan et al., Knowledge Graphs & cached-pdf; 135 pp & Knowledge graph handbook: data models, identity, quality, refinement. \\
+Knowledge graphs & NetworkX tutorial & cached-html & Practical graph representation and traversal operations used in Noosphere. \\
+Knowledge graphs & Diestel, Graph Theory & cached-html & Formal graph-theory reference. Full downloadable PDF was not assumed from mirrors. \\
+Logic and coherence & SEP, Coherentist Theories of Epistemic Justification & cached-html & Philosophical target: coherence as justification, not automatically truth. \\
+Logic and coherence & SEP, Coherence Theory of Truth & cached-html & Distinguishes coherence-as-truth from coherence-as-justification. \\
+Knowledge graphs & Bordes et al., TransE & cached-pdf; 9 pp & Knowledge-graph embeddings as translation in vector space. \\
+Knowledge graphs & Wang et al., Knowledge Graph Embedding Survey & cached-html & KG embedding vocabulary and model taxonomy; page cached, full IEEE PDF not public here. \\
+Logic and coherence & SEP, Paraconsistent Logic & cached-html & Reasoning without explosion under contradiction. \\
+Logic and coherence & SEP, Mereology & cached-html & Part-whole relations for principle distillation and claim composition. \\
+Logic and coherence & SEP, Logic of Belief Revision & cached-html & Formal belief update and revision. \\
+Knowledge graphs & Nickel et al., Relational Machine Learning for Knowledge Graphs & cached-pdf; 23 pp & Relational learning, latent-feature models, and graph-feature models. \\
+Representation geometry & Lin et al., TruthfulQA & cached-pdf; 39 pp & Truthfulness benchmark for models that mimic human falsehoods. \\
+Representation geometry & Li et al., Inference-Time Intervention & cached-pdf; 80 pp & Intervening on attention-head directions correlated with truthfulness. \\
+Logic and coherence & Thagard, Coherence as Constraint Satisfaction & failed & Computational coherentism as network constraint satisfaction; page cached, full text not public here. \\
+Interpretability & Olsson et al., In-context Learning and Induction Heads & cached-html & Circuit-level explanation of a concrete in-context learning behavior. \\
+Math primers & Blitzstein and Hwang, Introduction to Probability / Stat 110 & cached-html & Probability prerequisite for calibration, Bayesian updates, and uncertainty. \\
+Math primers & MIT OCW 18.02 Multivariable Calculus & cached-html & Calculus prerequisite for gradients and optimization. \\
+Math primers & MacKay, Information Theory, Inference, and Learning Algorithms & cached-pdf; 640 pp & Information theory and probabilistic inference primer. \\
+Math primers & Boyd and Vandenberghe, Convex Optimization & cached-pdf; 714 pp & Optimization primer for training objectives and convex geometry. \\
+KG and LLM frontier & Pan et al., Unifying Large Language Models and Knowledge Graphs & cached-pdf; 28 pp & Current roadmap for KG-enhanced LLMs, LLM-augmented KGs, and synergized systems. \\
+KG and LLM frontier & Bian, LLM-empowered Knowledge Graph Construction & cached-pdf; 14 pp & Recent survey of LLM-based ontology engineering, extraction, and fusion. \\
+KG and LLM frontier & Pan et al., Large Language Models and Knowledge Graphs & cached-pdf; 30 pp & Position paper on explicit KGs and parametric knowledge in LLMs. \\
+Theseus local & Theseus README & local & Defines Theseus as principle extraction, algorithm execution, and accountable bets. \\
+Theseus local & Algorithmized Decision Making & local & Defines traces, rule graphs, investable outputs, and metric contracts. \\
+Theseus local & Claim extractor implementation & local & Shows the JSON claim/principle extraction contract and external-claim filtering. \\
+Theseus local & Embedding pipeline implementation & local & Shows how source text is embedded and written into the canonical store. \\
+Theseus local & Canonical contradiction engine & local & Householder reflection, Hoyer sparsity, reliability calibration, and limits. \\
+Theseus local & Bayesian Belief Layer & local & Derived Bayesian network over the cascade graph. \\
+Theseus local & QH Benchmark v1 Results & local & Empirical warning: firm contradiction geometry underperformed on accuracy in the first run. \\
+Theseus local & Householder Ablation & local & Empirical warning: the ablation was zero-power under the frozen threshold. \\
+\bottomrule
+\end{longtable}
+\normalsize
+
+
+\section{Closing Synthesis}
+
+The deepest question behind Noosphere is not whether LLMs can write plausible
+summaries. They can. The question is whether a system can turn interpreted text
+into a durable, auditable, and empirically disciplined model of intellectual
+capital.
+
+The strongest version of the architecture is a hybrid:
+
+\begin{itemize}
+\item LLMs do high-recall linguistic work, but schema validation and provenance
+discipline prevent them from silently authoring the knowledge base.
+\item Embeddings supply soft geometry, but benchmarked calibration prevents
+cosine or sparsity from being mistaken for logic.
+\item Graphs make support, contradiction, and dependency inspectable, but
+probabilistic and paraconsistent layers prevent the graph from pretending to be
+cleaner than it is.
+\item Decision traces turn principles into accountable computations, while
+market or forecast outcomes provide calibration pressure.
+\end{itemize}
+
+The source literature makes this project plausible. The local benchmark
+documents make it intellectually honest: the geometric hypothesis is promising,
+but not yet vindicated. The rigorous path forward is not to weaken the claim
+into a vague metaphor. It is to keep the claim sharp enough that benchmarks,
+ablations, source retractions, and failed forecasts can actually wound it.
+
+\end{document}

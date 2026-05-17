@@ -1,0 +1,918 @@
+[
+  {
+    "conclusion_id": "c_a8b2cde9bfee4ae296715d5d",
+    "status": "NO_PRINCIPLE_EXTRACTABLE",
+    "old_text": "My ability to diligence startups both network-wise, and very practically seeing if the solution is valuable, is phenomenally helpful.",
+    "proposed_text": "",
+    "source_span": "My ability to diligence startups both network-wise, and very practically seeing if the solution is valuable, is phenomenally helpful.",
+    "refusals": [
+      "First-person self-assessment of personal capabilities with no transferable rule, criterion, or decision framework."
+    ],
+    "reason": "extractor produced no principle-shaped rewrite for this span"
+  },
+  {
+    "conclusion_id": "c_977eace0c1024b1ea08fb592",
+    "status": "NO_PRINCIPLE_EXTRACTABLE",
+    "old_text": "I hope you\u2019re not wasting your time; this isn\u2019t going anywhere. I\u2019ve been trying to fight the battle internally.",
+    "proposed_text": "",
+    "source_span": "I hope you\u2019re not wasting your time; this isn\u2019t going anywhere. I\u2019ve been trying to fight the battle internally.",
+    "refusals": [
+      "Personal commentary about internal struggles with no decision rule, criterion, or transferable mechanism."
+    ],
+    "reason": "extractor produced no principle-shaped rewrite for this span"
+  },
+  {
+    "conclusion_id": "c_408e8855448a4e918d2cd562",
+    "status": "NO_PRINCIPLE_EXTRACTABLE",
+    "old_text": "I had a very close personal relationship with multiple members of the Karzai family.",
+    "proposed_text": "",
+    "source_span": "I had a very close personal relationship with multiple members of the Karzai family.",
+    "refusals": [
+      "Autobiographical statement about personal relationships with no decision rule, criterion, or transferable principle."
+    ],
+    "reason": "extractor produced no principle-shaped rewrite for this span"
+  },
+  {
+    "conclusion_id": "c_b90d7c9921f144daaedde63e",
+    "status": "NO_PRINCIPLE_EXTRACTABLE",
+    "old_text": "I have literally perfect standardized test scores, I\u2019ve never gotten a B in my entire life, I\u2019m valedictorian of my high school class and a three-sport varsity athlete.",
+    "proposed_text": "",
+    "source_span": "I have literally perfect standardized test scores, I\u2019ve never gotten a B in my entire life, I\u2019m valedictorian of my high school class and a three-sport varsity athlete.",
+    "refusals": [
+      "Autobiographical credential listing with no decision rule, criterion, or transferable principle."
+    ],
+    "reason": "extractor produced no principle-shaped rewrite for this span"
+  },
+  {
+    "conclusion_id": "c_ca9ae525f4e5482f8ce2b24f",
+    "status": "NO_PRINCIPLE_EXTRACTABLE",
+    "old_text": "I really want to go to school here.",
+    "proposed_text": "",
+    "source_span": "I really want to go to school here.",
+    "refusals": [
+      "Personal desire statement with no decision rule, criterion, or transferable principle."
+    ],
+    "reason": "extractor produced no principle-shaped rewrite for this span"
+  },
+  {
+    "conclusion_id": "c_b25b2fda33a84ad4bf148f43",
+    "status": "NO_PRINCIPLE_EXTRACTABLE",
+    "old_text": "I was looking at numbers 10 through 20, assuming that the top 10 were all really up.",
+    "proposed_text": "",
+    "source_span": "I was looking at numbers 10 through 20, assuming that the top 10 were all really up.",
+    "refusals": [
+      "Autobiographical description of a specific analytical action with no generalizable rule or decision criterion."
+    ],
+    "reason": "extractor produced no principle-shaped rewrite for this span"
+  },
+  {
+    "conclusion_id": "c_5cec2a45a9db496eac35dd25",
+    "status": "NO_PRINCIPLE_EXTRACTABLE",
+    "old_text": "I was googling 'top 20 endowments' because I\u2019d heard endowments invested in venture capital.",
+    "proposed_text": "",
+    "source_span": "I was googling 'top 20 endowments' because I\u2019d heard endowments invested in venture capital.",
+    "refusals": [
+      "Autobiographical account of a research action with no decision rule, criterion, or testable claim."
+    ],
+    "reason": "extractor produced no principle-shaped rewrite for this span"
+  },
+  {
+    "conclusion_id": "c_a3a875c0a4004b57b9abc091",
+    "status": "NO_PRINCIPLE_EXTRACTABLE",
+    "old_text": "I was literally doing things like asking our outside counsel, Cooley, 'Who actually invests in venture capital?'",
+    "proposed_text": "",
+    "source_span": "I was literally doing things like asking our outside counsel, Cooley, 'Who actually invests in venture capital?'",
+    "refusals": [
+      "Autobiographical anecdote describing a past action with no decision rule, criterion, or transferable principle."
+    ],
+    "reason": "extractor produced no principle-shaped rewrite for this span"
+  },
+  {
+    "conclusion_id": "c_c1a3470870dd42e4a66148b2",
+    "status": "NO_PRINCIPLE_EXTRACTABLE",
+    "old_text": "I had virtually no contacts in the venture world.",
+    "proposed_text": "",
+    "source_span": "I had virtually no contacts in the venture world.",
+    "refusals": [
+      "Autobiographical statement about past network state with no decision rule, criterion, or transferable insight."
+    ],
+    "reason": "extractor produced no principle-shaped rewrite for this span"
+  },
+  {
+    "conclusion_id": "c_a7fce4ba90904ccf87517e49",
+    "status": "NO_PRINCIPLE_EXTRACTABLE",
+    "old_text": "I had a spreadsheet of investors that had participated in Fund II and III, and I got some of those to re-up.",
+    "proposed_text": "",
+    "source_span": "I had a spreadsheet of investors that had participated in Fund II and III, and I got some of those to re-up.",
+    "refusals": [
+      "Autobiographical account of a specific fundraising action with no decision rule, criterion, or generalizable method described."
+    ],
+    "reason": "extractor produced no principle-shaped rewrite for this span"
+  },
+  {
+    "conclusion_id": "c_7ab2022e143e4307b3c8ef58",
+    "status": "NO_PRINCIPLE_EXTRACTABLE",
+    "old_text": "We were really starting from scratch building our investor outreach.",
+    "proposed_text": "",
+    "source_span": "We were really starting from scratch building our investor outreach.",
+    "refusals": [
+      "Autobiographical statement about past circumstances with no decision rule, criterion, or transferable guidance."
+    ],
+    "reason": "extractor produced no principle-shaped rewrite for this span"
+  },
+  {
+    "conclusion_id": "c_424fae06e4cc4e5496864f19",
+    "status": "NO_PRINCIPLE_EXTRACTABLE",
+    "old_text": "I got substantially better at that during the back half of 2008.",
+    "proposed_text": "",
+    "source_span": "I got substantially better at that during the back half of 2008.",
+    "refusals": [
+      "Autobiographical progress statement with no rule, criterion, or transferable decision logic."
+    ],
+    "reason": "extractor produced no principle-shaped rewrite for this span"
+  },
+  {
+    "conclusion_id": "c_a338a8c888d1405f8e0aeffb",
+    "status": "NO_PRINCIPLE_EXTRACTABLE",
+    "old_text": "I just felt closer to everybody that existed.",
+    "proposed_text": "",
+    "source_span": "I just felt closer to everybody that existed.",
+    "refusals": [
+      "Subjective emotional state description with no decision rule, criterion, or testable claim."
+    ],
+    "reason": "extractor produced no principle-shaped rewrite for this span"
+  },
+  {
+    "conclusion_id": "c_916761af8c574352a9824226",
+    "status": "NO_PRINCIPLE_EXTRACTABLE",
+    "old_text": "I was a hardcore libertarian, a level-nine all-the-way libertarian.",
+    "proposed_text": "",
+    "source_span": "I was a hardcore libertarian, a level-nine all-the-way libertarian.",
+    "refusals": [
+      "Autobiographical statement about past political identity with no decision rule, criterion, or testable claim."
+    ],
+    "reason": "extractor produced no principle-shaped rewrite for this span"
+  },
+  {
+    "conclusion_id": "c_2d39a9aa64df4a228e0a2c7c",
+    "status": "NO_PRINCIPLE_EXTRACTABLE",
+    "old_text": "I considered myself an anarcho-libertarian at the time.",
+    "proposed_text": "",
+    "source_span": "I considered myself an anarcho-libertarian at the time.",
+    "refusals": [
+      "Autobiographical statement about past political identity with no decision rule, criterion, or testable claim."
+    ],
+    "reason": "extractor produced no principle-shaped rewrite for this span"
+  },
+  {
+    "conclusion_id": "c_cceda8c4470b4a1a856c9f1f",
+    "status": "NO_PRINCIPLE_EXTRACTABLE",
+    "old_text": "I realized it was because I was writing shit I didn\u2019t like.",
+    "proposed_text": "",
+    "source_span": "I realized it was because I was writing shit I didn\u2019t like.",
+    "refusals": [
+      "Personal realization about past behavior with no generalizable rule, criterion, or decision framework."
+    ],
+    "reason": "extractor produced no principle-shaped rewrite for this span"
+  },
+  {
+    "conclusion_id": "c_f31f66ee144949ba874fca59",
+    "status": "NO_PRINCIPLE_EXTRACTABLE",
+    "old_text": "We are actively discouraged from pushing beyond these boundaries and into the realm of taboo and heresy.",
+    "proposed_text": "",
+    "source_span": "We are actively discouraged from pushing beyond these boundaries and into the realm of taboo and heresy.",
+    "refusals": [
+      "Descriptive statement about a social constraint with no decision rule, criterion, or actionable guidance provided."
+    ],
+    "reason": "extractor produced no principle-shaped rewrite for this span"
+  },
+  {
+    "conclusion_id": "c_d7a57b81678a4fdfa92abf4e",
+    "status": "NO_PRINCIPLE_EXTRACTABLE",
+    "old_text": "I defined the problem as needing to reduce terrorism while preserving civil liberties.",
+    "proposed_text": "",
+    "source_span": "I defined the problem as needing to reduce terrorism while preserving civil liberties.",
+    "refusals": [
+      "Autobiographical statement about how the speaker framed a problem, with no decision rule or criterion for how to achieve the balance described."
+    ],
+    "reason": "extractor produced no principle-shaped rewrite for this span"
+  },
+  {
+    "conclusion_id": "c_7ee9a781a0f749899d0382c5",
+    "status": "NO_PRINCIPLE_EXTRACTABLE",
+    "old_text": "We cannot know that we are free.",
+    "proposed_text": "",
+    "source_span": "We cannot know that we are free.",
+    "refusals": [
+      "Philosophical assertion about epistemic limits with no decision rule, criterion, or actionable guidance extractable."
+    ],
+    "reason": "extractor produced no principle-shaped rewrite for this span"
+  },
+  {
+    "conclusion_id": "c_999961858d9846bd9911b920",
+    "status": "NO_PRINCIPLE_EXTRACTABLE",
+    "old_text": "We have to will that we are free, which comes dangerously close to imagining that we are free.",
+    "proposed_text": "",
+    "source_span": "We have to will that we are free, which comes dangerously close to imagining that we are free.",
+    "refusals": [
+      "Philosophical observation about freedom and will with no decision rule, criterion, or testable claim that could guide third-party decisions."
+    ],
+    "reason": "extractor produced no principle-shaped rewrite for this span"
+  },
+  {
+    "conclusion_id": "c_057a9bb1537c475d963240c6",
+    "status": "NO_PRINCIPLE_EXTRACTABLE",
+    "old_text": "Our passion for knowledge has become too strong for us to want happiness without knowledge.",
+    "proposed_text": "",
+    "source_span": "Our passion for knowledge has become too strong for us to want happiness without knowledge.",
+    "refusals": [
+      "Philosophical reflection on personal/collective state with no decision rule, criterion, or actionable mechanism."
+    ],
+    "reason": "extractor produced no principle-shaped rewrite for this span"
+  },
+  {
+    "conclusion_id": "c_13babe1fb4034fad9aefdf57",
+    "status": "NO_PRINCIPLE_EXTRACTABLE",
+    "old_text": "We have allowed the poetical or intuitional and the mathematical or discursive to come apart and have forgotten how to understand philosophy in terms of such a balance.",
+    "proposed_text": "",
+    "source_span": "We have allowed the poetical or intuitional and the mathematical or discursive to come apart and have forgotten how to understand philosophy in terms of such a balance.",
+    "refusals": [
+      "Descriptive claim about a historical/cultural state without any decision rule, criterion, or actionable guidance for how to restore or maintain the balance."
+    ],
+    "reason": "extractor produced no principle-shaped rewrite for this span"
+  },
+  {
+    "conclusion_id": "c_289593cfb89549fca9549a61",
+    "status": "NO_PRINCIPLE_EXTRACTABLE",
+    "old_text": "We are trapped and blinded by a mode of thought that insists on grasping reality through imposed conceptual structures.",
+    "proposed_text": "",
+    "source_span": "We are trapped and blinded by a mode of thought that insists on grasping reality through imposed conceptual structures.",
+    "refusals": [
+      "Philosophical observation about human cognition with no decision rule, criterion, or actionable mechanism specified."
+    ],
+    "reason": "extractor produced no principle-shaped rewrite for this span"
+  },
+  {
+    "conclusion_id": "c_dad419669dd84867b8f8d32c",
+    "status": "NO_PRINCIPLE_EXTRACTABLE",
+    "old_text": "We modern men are far from that open clearing.",
+    "proposed_text": "",
+    "source_span": "We modern men are far from that open clearing.",
+    "refusals": [
+      "Metaphorical statement about modernity with no decision rule, criterion, or testable claim extractable."
+    ],
+    "reason": "extractor produced no principle-shaped rewrite for this span"
+  },
+  {
+    "conclusion_id": "c_55ffaf8c9f484e0bb485eb7e",
+    "status": "NO_PRINCIPLE_EXTRACTABLE",
+    "old_text": "I am greatly indebted to Professor J. Glenn Gray for initiating me into the demanding art of translating Heidegger and for our close association over the past two years.",
+    "proposed_text": "",
+    "source_span": "I am greatly indebted to Professor J. Glenn Gray for initiating me into the demanding art of translating Heidegger and for our close association over the past two years.",
+    "refusals": [
+      "Personal acknowledgment with no decision rule, criterion, or transferable principle about translation methodology or collaboration."
+    ],
+    "reason": "extractor produced no principle-shaped rewrite for this span"
+  },
+  {
+    "conclusion_id": "c_d6fe70a1bf1a4dbc8eeac620",
+    "status": "NO_PRINCIPLE_EXTRACTABLE",
+    "old_text": "I owe thanks for access to the unpublished transcripts of two seminars conducted by Heidegger in France.",
+    "proposed_text": "",
+    "source_span": "I owe thanks for access to the unpublished transcripts of two seminars conducted by Heidegger in France.",
+    "refusals": [
+      "Acknowledgment statement with no decision rule, criterion, or testable claim."
+    ],
+    "reason": "extractor produced no principle-shaped rewrite for this span"
+  },
+  {
+    "conclusion_id": "c_a2c5fc19d2504adba8666043",
+    "status": "NO_PRINCIPLE_EXTRACTABLE",
+    "old_text": "I am particularly grateful to my colleague in German, Professor Olaf K. Perfler, for hours of intense conversation in which many secrets of the German idiom were revealed to me.",
+    "proposed_text": "",
+    "source_span": "I am particularly grateful to my colleague in German, Professor Olaf K. Perfler, for hours of intense conversation in which many secrets of the German idiom were revealed to me.",
+    "refusals": [
+      "Personal acknowledgment with no decision rule, criterion, or transferable method - purely autobiographical gratitude statement."
+    ],
+    "reason": "extractor produced no principle-shaped rewrite for this span"
+  },
+  {
+    "conclusion_id": "c_c6dded7cf5eb4dc4bf5a5945",
+    "status": "PROPOSED",
+    "old_text": "We are now the first nation in the history of the world in which more than half of the employed population is not involved in the production of food, clothing, houses, automobiles, and other tangible ",
+    "proposed_text": "When more than half of a nation's employed population is not involved in producing tangible goods (food, clothing, houses, automobiles), that nation has crossed a historically unprecedented threshold in economic structure.",
+    "source_span": "We are now the first nation in the history of the world in which more than half of the employed population is not involved in the production of food, clothing, houses, automobiles, and other tangible ",
+    "refusals": [],
+    "reason": "1 proposal(s) extracted; first written to rationale"
+  },
+  {
+    "conclusion_id": "c_ffee243f7fb0467a960b27a5",
+    "status": "NO_PRINCIPLE_EXTRACTABLE",
+    "old_text": "We are now in the first stages of a post-industrial society.",
+    "proposed_text": "",
+    "source_span": "We are now in the first stages of a post-industrial society.",
+    "refusals": [
+      "Descriptive claim about current state with no decision rule, criterion, or actionable implication."
+    ],
+    "reason": "extractor produced no principle-shaped rewrite for this span"
+  },
+  {
+    "conclusion_id": "c_ac58b0f92733446196482704",
+    "status": "NO_PRINCIPLE_EXTRACTABLE",
+    "old_text": "We are at the beginning of something.",
+    "proposed_text": "",
+    "source_span": "We are at the beginning of something.",
+    "refusals": [
+      "Vague temporal/positional statement with no decision rule, criterion, or testable claim."
+    ],
+    "reason": "extractor produced no principle-shaped rewrite for this span"
+  },
+  {
+    "conclusion_id": "c_45698c14c4d3431c8ce9cfea",
+    "status": "NO_PRINCIPLE_EXTRACTABLE",
+    "old_text": "We have passed from one animal to the other, from the mole to the serpent, in the system under which we live, but also in our manner of living and in our relations with others.",
+    "proposed_text": "",
+    "source_span": "We have passed from one animal to the other, from the mole to the serpent, in the system under which we live, but also in our manner of living and in our relations with others.",
+    "refusals": [
+      "Metaphorical description of a transition without any decision rule, criterion, or actionable principle that could guide future decisions."
+    ],
+    "reason": "extractor produced no principle-shaped rewrite for this span"
+  },
+  {
+    "conclusion_id": "c_88442db036444d6c94a80429",
+    "status": "NO_PRINCIPLE_EXTRACTABLE",
+    "old_text": "We are in a generalized crisis in relation to all the environments of enclosure.",
+    "proposed_text": "",
+    "source_span": "We are in a generalized crisis in relation to all the environments of enclosure.",
+    "refusals": [
+      "Descriptive claim about current state with no decision rule, criterion, or actionable mechanism specified."
+    ],
+    "reason": "extractor produced no principle-shaped rewrite for this span"
+  },
+  {
+    "conclusion_id": "c_7b9d84e6412842f584d06e7d",
+    "status": "NO_PRINCIPLE_EXTRACTABLE",
+    "old_text": "I love reading. To me, books are the distillation of a lifetime\u2019s worth of wisdom.",
+    "proposed_text": "",
+    "source_span": "I love reading. To me, books are the distillation of a lifetime\u2019s worth of wisdom.",
+    "refusals": [
+      "Personal preference statement and subjective characterization of books with no decision rule, criterion, or testable claim."
+    ],
+    "reason": "extractor produced no principle-shaped rewrite for this span"
+  },
+  {
+    "conclusion_id": "c_6918ed12714543fe810715a5",
+    "status": "NO_PRINCIPLE_EXTRACTABLE",
+    "old_text": "My personal answer is that interiority and exteriority are complements.",
+    "proposed_text": "",
+    "source_span": "My personal answer is that interiority and exteriority are complements.",
+    "refusals": [
+      "First-person opinion statement without decision rule, criterion, or testable claim; 'complements' is too abstract to operationalize without additional context."
+    ],
+    "reason": "extractor produced no principle-shaped rewrite for this span"
+  },
+  {
+    "conclusion_id": "c_86950b743af34509ac945157",
+    "status": "NO_PRINCIPLE_EXTRACTABLE",
+    "old_text": "I have since become a fan of Peter Thiel\u2019s ideas on technology, business and investing.",
+    "proposed_text": "",
+    "source_span": "I have since become a fan of Peter Thiel\u2019s ideas on technology, business and investing.",
+    "refusals": [
+      "Stance update with no propositional content quoted; Thiel's actual ideas are not specified in the span, so no rule can be extracted without inventing one."
+    ],
+    "reason": "extractor produced no principle-shaped rewrite for this span"
+  },
+  {
+    "conclusion_id": "c_c66c94c453134d5298c4e99e",
+    "status": "NO_PRINCIPLE_EXTRACTABLE",
+    "old_text": "I love reading Quanta Magazine.",
+    "proposed_text": "",
+    "source_span": "I love reading Quanta Magazine.",
+    "refusals": [
+      "Personal preference statement with no decision rule, criterion, or transferable judgment principle."
+    ],
+    "reason": "extractor produced no principle-shaped rewrite for this span"
+  },
+  {
+    "conclusion_id": "c_ff9066fc95e24c579b3c04d3",
+    "status": "NO_PRINCIPLE_EXTRACTABLE",
+    "old_text": "I imagine I will read every book that Quanta Books produces.",
+    "proposed_text": "",
+    "source_span": "I imagine I will read every book that Quanta Books produces.",
+    "refusals": [
+      "Personal intention statement with no decision rule, criterion, or transferable principle for third parties."
+    ],
+    "reason": "extractor produced no principle-shaped rewrite for this span"
+  },
+  {
+    "conclusion_id": "c_42a50d9e88454450b995228b",
+    "status": "NO_PRINCIPLE_EXTRACTABLE",
+    "old_text": "We can break the shackles of the conventional publishing industry and create deeply meaningful, well-crafted books that are works of art.",
+    "proposed_text": "",
+    "source_span": "We can break the shackles of the conventional publishing industry and create deeply meaningful, well-crafted books that are works of art.",
+    "refusals": [
+      "Aspirational statement about what is possible, but contains no decision rule, criterion, or mechanism for how to achieve it or when to apply it."
+    ],
+    "reason": "extractor produced no principle-shaped rewrite for this span"
+  },
+  {
+    "conclusion_id": "c_f34bf90a705d4a71813711e0",
+    "status": "NO_PRINCIPLE_EXTRACTABLE",
+    "old_text": "I pre-ordered the coffee table book called Silicon as soon as I heard about it.",
+    "proposed_text": "",
+    "source_span": "I pre-ordered the coffee table book called Silicon as soon as I heard about it.",
+    "refusals": [
+      "Personal purchasing decision with no decision rule, criterion, or transferable principle."
+    ],
+    "reason": "extractor produced no principle-shaped rewrite for this span"
+  },
+  {
+    "conclusion_id": "c_1a4a37e8871046ada926dba9",
+    "status": "NO_PRINCIPLE_EXTRACTABLE",
+    "old_text": "We can create the next generation of GEBs, Power Brokers, and Poor Charlie\u2019s Almanacks that continue to inspire curious minds.",
+    "proposed_text": "",
+    "source_span": "We can create the next generation of GEBs, Power Brokers, and Poor Charlie\u2019s Almanacks that continue to inspire curious minds.",
+    "refusals": [
+      "Aspirational statement about creating inspirational content with no decision rule, criterion, or testable mechanism for how to achieve this outcome."
+    ],
+    "reason": "extractor produced no principle-shaped rewrite for this span"
+  },
+  {
+    "conclusion_id": "c_abd3cb13585e48c1b2754d88",
+    "status": "PROPOSED",
+    "old_text": "We need to remove ~10 Gt/yr of CO\u2082 by 2050.",
+    "proposed_text": "Carbon removal targets require approximately 10 gigatons per year of CO\u2082 extraction by 2050 to meet climate stabilization goals.",
+    "source_span": "We need to remove ~10 Gt/yr of CO\u2082 by 2050.",
+    "refusals": [],
+    "reason": "1 proposal(s) extracted; first written to rationale"
+  },
+  {
+    "conclusion_id": "c_97579c3b715d4f48be8a9cca",
+    "status": "NO_PRINCIPLE_EXTRACTABLE",
+    "old_text": "We are born to create.",
+    "proposed_text": "",
+    "source_span": "We are born to create.",
+    "refusals": [
+      "Philosophical assertion with no decision rule, criterion, or testable claim; generalizing would yield a tautology about human nature."
+    ],
+    "reason": "extractor produced no principle-shaped rewrite for this span"
+  },
+  {
+    "conclusion_id": "c_098886e1450f4f93b4a50a7e",
+    "status": "PROPOSED",
+    "old_text": "My case against UBI is that the highest form of work has always been more than survival.",
+    "proposed_text": "Universal Basic Income fails to address the highest forms of human work because those forms transcend mere survival needs \u2014 policy interventions targeting only subsistence miss the intrinsic motivation layer that drives meaningful contribution.",
+    "source_span": "My case against UBI is that the highest form of work has always been more than survival.",
+    "refusals": [],
+    "reason": "1 proposal(s) extracted; first written to rationale"
+  },
+  {
+    "conclusion_id": "c_b1ea5386f18d4e57a60ba1c8",
+    "status": "PROPOSED",
+    "old_text": "We are imitative beings, which complicates the concept of authenticity.",
+    "proposed_text": "Human imitative behavior creates a fundamental tension with authenticity claims \u2014 any expression of 'authentic self' must be evaluated against the possibility that it reflects learned patterns rather than intrinsic character.",
+    "source_span": "We are imitative beings, which complicates the concept of authenticity.",
+    "refusals": [],
+    "reason": "1 proposal(s) extracted; first written to rationale"
+  },
+  {
+    "conclusion_id": "c_fedc039357ba44d4bfe71305",
+    "status": "NO_PRINCIPLE_EXTRACTABLE",
+    "old_text": "I always wondered if there was some secret underlying principle or rhythm to these kinds of things.",
+    "proposed_text": "",
+    "source_span": "I always wondered if there was some secret underlying principle or rhythm to these kinds of things.",
+    "refusals": [
+      "Autobiographical wondering with no propositional content; expresses curiosity about principles but contains no extractable rule or criterion itself."
+    ],
+    "reason": "extractor produced no principle-shaped rewrite for this span"
+  },
+  {
+    "conclusion_id": "c_ff8f1945bbad4abd88b8b99d",
+    "status": "NO_PRINCIPLE_EXTRACTABLE",
+    "old_text": "I can't help but wonder if everything's so connected.",
+    "proposed_text": "",
+    "source_span": "I can't help but wonder if everything's so connected.",
+    "refusals": [
+      "Speculative musing with no decision rule, criterion, or testable claim \u2014 generalizing to 'everything is connected' would be a vague platitude."
+    ],
+    "reason": "extractor produced no principle-shaped rewrite for this span"
+  },
+  {
+    "conclusion_id": "c_b5dbaf6ee18a45e4a604eeb2",
+    "status": "NO_PRINCIPLE_EXTRACTABLE",
+    "old_text": "We are intrinsically narrative beings.",
+    "proposed_text": "",
+    "source_span": "We are intrinsically narrative beings.",
+    "refusals": [
+      "Anthropological assertion with no decision rule, criterion, or testable claim; generalizing further would yield a tautology."
+    ],
+    "reason": "extractor produced no principle-shaped rewrite for this span"
+  },
+  {
+    "conclusion_id": "c_894ae5aeff46479fbcbebc3a",
+    "status": "NO_PRINCIPLE_EXTRACTABLE",
+    "old_text": "We base our lives off of stories and off of narratives.",
+    "proposed_text": "",
+    "source_span": "We base our lives off of stories and off of narratives.",
+    "refusals": [
+      "General anthropological observation with no decision rule, criterion, or testable mechanism for application."
+    ],
+    "reason": "extractor produced no principle-shaped rewrite for this span"
+  },
+  {
+    "conclusion_id": "c_0316d54cd3b843b0876c4563",
+    "status": "NO_PRINCIPLE_EXTRACTABLE",
+    "old_text": "We think that our lives have meaning because our life has some sort of structure to them.",
+    "proposed_text": "",
+    "source_span": "We think that our lives have meaning because our life has some sort of structure to them.",
+    "refusals": [
+      "Philosophical claim about meaning and structure with no decision rule, criterion, or testable condition that could guide third-party judgment."
+    ],
+    "reason": "extractor produced no principle-shaped rewrite for this span"
+  },
+  {
+    "conclusion_id": "c_21bfc7ea42f64a54b236f7ce",
+    "status": "PROPOSED",
+    "old_text": "We live our lives thinking in a Chekhov's gun mentality, where everything has to have narrative significance.",
+    "proposed_text": "When evaluating life decisions or experiences, resist the Chekhov's gun fallacy that every element must carry narrative significance \u2014 this cognitive bias leads to over-interpretation of random events and forces artificial meaning onto natural variance.",
+    "source_span": "We live our lives thinking in a Chekhov's gun mentality, where everything has to have narrative significance.",
+    "refusals": [],
+    "reason": "1 proposal(s) extracted; first written to rationale"
+  },
+  {
+    "conclusion_id": "c_de2d6e313faf456889c16c8f",
+    "status": "PROPOSED",
+    "old_text": "We will all be far better off, in a freer and more tolerant world, if we allow institutions to discriminate, lose, and prove to the world the selfish benefit of open-mindedness.",
+    "proposed_text": "Institutions that discriminate will lose competitive advantage to those that remain open-minded, creating market pressure toward tolerance without requiring regulatory intervention.",
+    "source_span": "We will all be far better off, in a freer and more tolerant world, if we allow institutions to discriminate, lose, and prove to the world the selfish benefit of open-mindedness.",
+    "refusals": [],
+    "reason": "1 proposal(s) extracted; first written to rationale"
+  },
+  {
+    "conclusion_id": "c_f3f9cc0f877648d0b9cd7cc9",
+    "status": "NO_PRINCIPLE_EXTRACTABLE",
+    "old_text": "We can gain far more by growing freely together than by exploiting and extracting from each other.",
+    "proposed_text": "",
+    "source_span": "We can gain far more by growing freely together than by exploiting and extracting from each other.",
+    "refusals": [
+      "Abstract value statement without quantifiable triggers, decision criteria, or operational conditions that would make it actionable."
+    ],
+    "reason": "extractor produced no principle-shaped rewrite for this span"
+  },
+  {
+    "conclusion_id": "c_db49623dc4cb432596bfa7ac",
+    "status": "NO_PRINCIPLE_EXTRACTABLE",
+    "old_text": "We\u2019re predisposed to want to avoid making hard choices in life.",
+    "proposed_text": "",
+    "source_span": "We\u2019re predisposed to want to avoid making hard choices in life.",
+    "refusals": [
+      "General psychological observation without decision rule, criterion, or actionable mechanism; generalizing further would yield a tautology."
+    ],
+    "reason": "extractor produced no principle-shaped rewrite for this span"
+  },
+  {
+    "conclusion_id": "c_a9e14ccf5093453f92fdc2d6",
+    "status": "NO_PRINCIPLE_EXTRACTABLE",
+    "old_text": "Our every decision and thought is mediated through chatbots, not as our own that we encounter as significant in the world.",
+    "proposed_text": "",
+    "source_span": "Our every decision and thought is mediated through chatbots, not as our own that we encounter as significant in the world.",
+    "refusals": [
+      "Descriptive claim about a current state without any decision rule, criterion, or actionable guidance."
+    ],
+    "reason": "extractor produced no principle-shaped rewrite for this span"
+  },
+  {
+    "conclusion_id": "c_693545f7f05d4feaa204b64b",
+    "status": "NO_PRINCIPLE_EXTRACTABLE",
+    "old_text": "Our freedom to define who we are is 'condemning,' this strong sense of existence is the only way that we should and can live our lives.",
+    "proposed_text": "",
+    "source_span": "Our freedom to define who we are is 'condemning,' this strong sense of existence is the only way that we should and can live our lives.",
+    "refusals": [
+      "Philosophical assertion about human existence with no decision rule, quantifiable trigger, or operational criterion that could guide specific choices."
+    ],
+    "reason": "extractor produced no principle-shaped rewrite for this span"
+  },
+  {
+    "conclusion_id": "c_2477ee2dfb2b4fe6bc31a581",
+    "status": "NO_PRINCIPLE_EXTRACTABLE",
+    "old_text": "We have a choice right now to take charge of our own lives rather than let algorithms take them over.",
+    "proposed_text": "",
+    "source_span": "We have a choice right now to take charge of our own lives rather than let algorithms take them over.",
+    "refusals": [
+      "Motivational statement with no decision rule, criterion, or testable mechanism for how to 'take charge' or when algorithms constitute 'taking over'."
+    ],
+    "reason": "extractor produced no principle-shaped rewrite for this span"
+  },
+  {
+    "conclusion_id": "c_33c7e57febc74813ab701a8a",
+    "status": "PROPOSED",
+    "old_text": "We have access to reality through subjectless propositions, since propositions whose correspondence to the world is guaranteed by the mechanism itself.",
+    "proposed_text": "Propositions whose correspondence to reality is guaranteed by their generating mechanism provide more reliable access to truth than propositions requiring external validation or subjective interpretation.",
+    "source_span": "We have access to reality through subjectless propositions, since propositions whose correspondence to the world is guaranteed by the mechanism itself.",
+    "refusals": [],
+    "reason": "1 proposal(s) extracted; first written to rationale"
+  },
+  {
+    "conclusion_id": "c_72dc356c22e74f3e95b86636",
+    "status": "PROPOSED",
+    "old_text": "My conception of any states of affairs in logical space (i.e., pictures) is then a posteriori and needs to be checked against reality.",
+    "proposed_text": "Conceptions of states of affairs in logical space must be validated against empirical reality rather than accepted on a priori grounds \u2014 the logical possibility of a configuration does not establish its actual instantiation.",
+    "source_span": "My conception of any states of affairs in logical space (i.e., pictures) is then a posteriori and needs to be checked against reality.",
+    "refusals": [],
+    "reason": "1 proposal(s) extracted; first written to rationale"
+  },
+  {
+    "conclusion_id": "c_a41ad100103d48f7a84424e5",
+    "status": "NO_PRINCIPLE_EXTRACTABLE",
+    "old_text": "I\u2014as the metaphysical subject\u2014am not an object 'in' the world but the limit of it, and therefore limited to any first-hand access to it.",
+    "proposed_text": "",
+    "source_span": "I\u2014as the metaphysical subject\u2014am not an object 'in' the world but the limit of it, and therefore limited to any first-hand access to it.",
+    "refusals": [
+      "First-person metaphysical claim about the nature of subjectivity with no decision rule, criterion, or actionable content that could guide third-party judgment."
+    ],
+    "reason": "extractor produced no principle-shaped rewrite for this span"
+  },
+  {
+    "conclusion_id": "c_1f714ddcb36e493db32a9b83",
+    "status": "NO_PRINCIPLE_EXTRACTABLE",
+    "old_text": "We live in a world that is incredibly gamified.",
+    "proposed_text": "",
+    "source_span": "We live in a world that is incredibly gamified.",
+    "refusals": [
+      "Descriptive observation about the state of the world with no decision rule, criterion, or actionable implication."
+    ],
+    "reason": "extractor produced no principle-shaped rewrite for this span"
+  },
+  {
+    "conclusion_id": "c_403b8e1522b74d599e339672",
+    "status": "NO_PRINCIPLE_EXTRACTABLE",
+    "old_text": "I don't want either my own knowledge or my lack of credentials to get in the way of that.",
+    "proposed_text": "",
+    "source_span": "I don't want either my own knowledge or my lack of credentials to get in the way of that.",
+    "refusals": [
+      "Personal intention statement with no decision rule, criterion, or testable claim that could be generalized to third parties."
+    ],
+    "reason": "extractor produced no principle-shaped rewrite for this span"
+  },
+  {
+    "conclusion_id": "c_c1692626d1e74c1f8773fc04",
+    "status": "NO_PRINCIPLE_EXTRACTABLE",
+    "old_text": "I think there are socio-economic reasons to go to university.",
+    "proposed_text": "",
+    "source_span": "I think there are socio-economic reasons to go to university.",
+    "refusals": [
+      "First-person opinion statement with no specific rule, criterion, or decision framework provided; generalizing to 'university has socio-economic benefits' would be a vague platitude."
+    ],
+    "reason": "extractor produced no principle-shaped rewrite for this span"
+  },
+  {
+    "conclusion_id": "c_9f21d15027de4e0492ba1a89",
+    "status": "PROPOSED",
+    "old_text": "I think the risk is that if the credential or any evaluative metrics become the goal, it ceases to be a good metric.",
+    "proposed_text": "When a credential or evaluative metric becomes the explicit goal of optimization, it loses its validity as a measurement instrument \u2014 Goodhart's Law applies to any metric that transitions from measurement to target.",
+    "source_span": "I think the risk is that if the credential or any evaluative metrics become the goal, it ceases to be a good metric.",
+    "refusals": [],
+    "reason": "1 proposal(s) extracted; first written to rationale"
+  },
+  {
+    "conclusion_id": "c_48d0d0df45f24746af6da074",
+    "status": "NO_PRINCIPLE_EXTRACTABLE",
+    "old_text": "I find that in some of my classes, when I optimized for the grade, it affected my experience.",
+    "proposed_text": "",
+    "source_span": "I find that in some of my classes, when I optimized for the grade, it affected my experience.",
+    "refusals": [
+      "Autobiographical observation about personal experience with no extractable decision rule, criterion, or generalizable mechanism."
+    ],
+    "reason": "extractor produced no principle-shaped rewrite for this span"
+  },
+  {
+    "conclusion_id": "c_b274aaca79f045aa8eb1c43d",
+    "status": "NO_PRINCIPLE_EXTRACTABLE",
+    "old_text": "I need to do certain things to get the highest mark possible.",
+    "proposed_text": "",
+    "source_span": "I need to do certain things to get the highest mark possible.",
+    "refusals": [
+      "First-person statement of intent with no specified actions, criteria, or decision rules; 'certain things' is too vague to extract any transferable principle."
+    ],
+    "reason": "extractor produced no principle-shaped rewrite for this span"
+  },
+  {
+    "conclusion_id": "c_bf271a0e876c4059b47ce942",
+    "status": "NO_PRINCIPLE_EXTRACTABLE",
+    "old_text": "I optimize for that, and I get the A.",
+    "proposed_text": "",
+    "source_span": "I optimize for that, and I get the A.",
+    "refusals": [
+      "First-person statement with no specified optimization target or method; 'that' refers to context outside this chunk, making the span uninterpretable as a standalone rule."
+    ],
+    "reason": "extractor produced no principle-shaped rewrite for this span"
+  },
+  {
+    "conclusion_id": "c_e17c80839ccd4a279c5d7943",
+    "status": "NO_PRINCIPLE_EXTRACTABLE",
+    "old_text": "We still do this, right? Right. Especially in America compared to other countries.",
+    "proposed_text": "",
+    "source_span": "We still do this, right? Right. Especially in America compared to other countries.",
+    "refusals": [
+      "Conversational confirmation seeking with vague reference ('this') and no substantive rule or criterion content."
+    ],
+    "reason": "extractor produced no principle-shaped rewrite for this span"
+  },
+  {
+    "conclusion_id": "c_86ce78aa68744feabeddfee3",
+    "status": "PROPOSED",
+    "old_text": "We have to reward the ability to understand how to follow the rules, but also to reward the breaking of them.",
+    "proposed_text": "Effective systems must simultaneously reward rule-following competence and rule-breaking innovation \u2014 organizations that optimize for only one dimension will either stagnate through excessive compliance or collapse through uncontrolled deviation.",
+    "source_span": "We have to reward the ability to understand how to follow the rules, but also to reward the breaking of them.",
+    "refusals": [],
+    "reason": "1 proposal(s) extracted; first written to rationale"
+  },
+  {
+    "conclusion_id": "c_7cb27831787c4b7dbc7a0aaf",
+    "status": "NO_PRINCIPLE_EXTRACTABLE",
+    "old_text": "We need many people to break the structure.",
+    "proposed_text": "",
+    "source_span": "We need many people to break the structure.",
+    "refusals": [
+      "Abstract statement with no decision rule, quantifiable trigger, or domain specification; 'many people' and 'the structure' are undefined, making this unfalsifiable."
+    ],
+    "reason": "extractor produced no principle-shaped rewrite for this span"
+  },
+  {
+    "conclusion_id": "c_98dc333bb5b64e78a8f838ff",
+    "status": "PROPOSED",
+    "old_text": "We should reflect on the necessary uses of media and be natural skeptics to try to understand and uncover esoteric truths.",
+    "proposed_text": "Media consumption should be subjected to necessity filtering and skeptical analysis to uncover non-obvious truths that surface-level engagement would miss.",
+    "source_span": "We should reflect on the necessary uses of media and be natural skeptics to try to understand and uncover esoteric truths.",
+    "refusals": [],
+    "reason": "1 proposal(s) extracted; first written to rationale"
+  },
+  {
+    "conclusion_id": "c_b78d412fd7e542bfb16aea34",
+    "status": "NO_PRINCIPLE_EXTRACTABLE",
+    "old_text": "We are going to be talking about media theory, media dynamics.",
+    "proposed_text": "",
+    "source_span": "We are going to be talking about media theory, media dynamics.",
+    "refusals": [
+      "Agenda statement with no propositional content; announces topic but contains no rule, criterion, or decision framework."
+    ],
+    "reason": "extractor produced no principle-shaped rewrite for this span"
+  },
+  {
+    "conclusion_id": "c_5f4ad8c7c26d460ab403572f",
+    "status": "NO_PRINCIPLE_EXTRACTABLE",
+    "old_text": "I do think there is like a \u2013 there are definitely \u2013 there's a definite class of creatives and consumers.",
+    "proposed_text": "",
+    "source_span": "I do think there is like a \u2013 there are definitely \u2013 there's a definite class of creatives and consumers.",
+    "refusals": [
+      "Incomplete thought with no decision rule, criterion, or actionable claim - just an assertion about the existence of categories without any operational content."
+    ],
+    "reason": "extractor produced no principle-shaped rewrite for this span"
+  },
+  {
+    "conclusion_id": "c_5fce769b1ef843f48c722087",
+    "status": "PROPOSED",
+    "old_text": "I do think that you do see on the Internet two distinct \u2013 very distinct classes of people where you have people who produce this material and you have people who consume the material.",
+    "proposed_text": "Internet users bifurcate into two distinct classes: content producers and content consumers, with minimal overlap between the roles.",
+    "source_span": "I do think that you do see on the Internet two distinct \u2013 very distinct classes of people where you have people who produce this material and you have people who consume the material.",
+    "refusals": [],
+    "reason": "1 proposal(s) extracted; first written to rationale"
+  },
+  {
+    "conclusion_id": "c_62cd4e352f83426d9001eccd",
+    "status": "PROPOSED",
+    "old_text": "We have developed an immune response to overly positive narratives in media.",
+    "proposed_text": "When evaluating investment narratives, discount sources that exhibit consistently positive framing across multiple coverage instances, as sustained optimism in media coverage correlates with reduced analytical rigor and inflated market expectations.",
+    "source_span": "We have developed an immune response to overly positive narratives in media.",
+    "refusals": [],
+    "reason": "1 proposal(s) extracted; first written to rationale"
+  },
+  {
+    "conclusion_id": "c_8eefd62e2cae41eaa9530d23",
+    "status": "NO_PRINCIPLE_EXTRACTABLE",
+    "old_text": "I don't know that there is such a thing as universal utility.",
+    "proposed_text": "",
+    "source_span": "I don't know that there is such a thing as universal utility.",
+    "refusals": [
+      "Epistemic uncertainty statement about a philosophical concept with no decision rule, criterion, or testable claim."
+    ],
+    "reason": "extractor produced no principle-shaped rewrite for this span"
+  },
+  {
+    "conclusion_id": "c_1e2a3c43b9234ca2af0c7826",
+    "status": "PROPOSED",
+    "old_text": "I don't think there can be an external facing definition of irrationality in the sense of determining whether someone else is acting irrationally or not.",
+    "proposed_text": "Irrationality cannot be assessed from an external perspective \u2014 any definition that purports to judge whether another party is acting irrationally lacks the internal context necessary for valid evaluation.",
+    "source_span": "I don't think there can be an external facing definition of irrationality in the sense of determining whether someone else is acting irrationally or not.",
+    "refusals": [],
+    "reason": "1 proposal(s) extracted; first written to rationale"
+  },
+  {
+    "conclusion_id": "c_b2cf18cd66f64917b51c9b0e",
+    "status": "NO_PRINCIPLE_EXTRACTABLE",
+    "old_text": "I think the Ayn Rand perspective of, like, individualism, and the individual determines what they derive utility from.",
+    "proposed_text": "",
+    "source_span": "I think the Ayn Rand perspective of, like, individualism, and the individual determines what they derive utility from.",
+    "refusals": [
+      "Incomplete reference to a philosophical perspective without stating the actual principle or decision rule that would follow from it."
+    ],
+    "reason": "extractor produced no principle-shaped rewrite for this span"
+  },
+  {
+    "conclusion_id": "c_701e8f520d794b1b9828b3b1",
+    "status": "NO_PRINCIPLE_EXTRACTABLE",
+    "old_text": "I would call that irrational, but I would not go as far as to say they are acting internally irrational.",
+    "proposed_text": "",
+    "source_span": "I would call that irrational, but I would not go as far as to say they are acting internally irrational.",
+    "refusals": [
+      "Personal judgment statement without specifying the criteria for distinguishing 'irrational' from 'internally irrational' or the conditions under which this distinction applies."
+    ],
+    "reason": "extractor produced no principle-shaped rewrite for this span"
+  },
+  {
+    "conclusion_id": "c_40e3e774b316438087e1f323",
+    "status": "PROPOSED",
+    "old_text": "We can only know probabilistically which of the two slits the electron will pass through.",
+    "proposed_text": "When measuring quantum particles at decision points (like double-slit experiments), the outcome is fundamentally probabilistic rather than deterministic \u2014 no measurement can predict with certainty which path the particle will take, only the probability distribution of outcomes.",
+    "source_span": "We can only know probabilistically which of the two slits the electron will pass through.",
+    "refusals": [],
+    "reason": "1 proposal(s) extracted; first written to rationale"
+  },
+  {
+    "conclusion_id": "c_f1445ece4ea741f8b888f400",
+    "status": "NO_PRINCIPLE_EXTRACTABLE",
+    "old_text": "Our view of physics was that of determinism until quantum mechanics challenged this idea.",
+    "proposed_text": "",
+    "source_span": "Our view of physics was that of determinism until quantum mechanics challenged this idea.",
+    "refusals": [
+      "Historical observation about the evolution of physics paradigms with no decision rule, criterion, or actionable principle."
+    ],
+    "reason": "extractor produced no principle-shaped rewrite for this span"
+  },
+  {
+    "conclusion_id": "c_a764deadbef346dd8412440b",
+    "status": "NO_PRINCIPLE_EXTRACTABLE",
+    "old_text": "We should act as if we do have free will.",
+    "proposed_text": "",
+    "source_span": "We should act as if we do have free will.",
+    "refusals": [
+      "Normative statement too abstract to falsify; lacks quantifiable triggers, comparatives, or specific decision criteria that would make it actionable."
+    ],
+    "reason": "extractor produced no principle-shaped rewrite for this span"
+  },
+  {
+    "conclusion_id": "c_d1226a5d43b64e6ab14078fd",
+    "status": "NO_PRINCIPLE_EXTRACTABLE",
+    "old_text": "I think there is something a little more than that.",
+    "proposed_text": "",
+    "source_span": "I think there is something a little more than that.",
+    "refusals": [
+      "Vague assertion without any rule content, criterion, or testable claim \u2014 no decision-making guidance can be extracted."
+    ],
+    "reason": "extractor produced no principle-shaped rewrite for this span"
+  },
+  {
+    "conclusion_id": "c_6f378fc7ae504cb2ba5af252",
+    "status": "NO_PRINCIPLE_EXTRACTABLE",
+    "old_text": "I don't think you can claim that an objective rationalization or not.",
+    "proposed_text": "",
+    "source_span": "I don't think you can claim that an objective rationalization or not.",
+    "refusals": [
+      "Fragment of a larger argument with unclear referent ('that') and incomplete syntax; no extractable decision rule or criterion."
+    ],
+    "reason": "extractor produced no principle-shaped rewrite for this span"
+  },
+  {
+    "conclusion_id": "c_7aa2e277d3244f18966b2711",
+    "status": "NO_PRINCIPLE_EXTRACTABLE",
+    "old_text": "I have an absolute philosophy and an evaluation system for what actually is rational or not.",
+    "proposed_text": "",
+    "source_span": "I have an absolute philosophy and an evaluation system for what actually is rational or not.",
+    "refusals": [
+      "First-person claim about possessing a system without describing the system itself or any of its decision rules."
+    ],
+    "reason": "extractor produced no principle-shaped rewrite for this span"
+  },
+  {
+    "conclusion_id": "c_f701880d637547c3a5a2761e",
+    "status": "NO_PRINCIPLE_EXTRACTABLE",
+    "old_text": "I think irrationality is an external thing.",
+    "proposed_text": "",
+    "source_span": "I think irrationality is an external thing.",
+    "refusals": [
+      "First-person opinion statement without a decision rule, criterion, or testable claim about what constitutes 'external' or how to apply this distinction."
+    ],
+    "reason": "extractor produced no principle-shaped rewrite for this span"
+  },
+  {
+    "conclusion_id": "c_8f18b14a02c64941b7331acf",
+    "status": "NO_PRINCIPLE_EXTRACTABLE",
+    "old_text": "I think that the broader point is, like, what emerges from this dialectic is, like, it's very difficult to denote, like, aside from, you know, in a Kantian sense, like, a universal morality.",
+    "proposed_text": "",
+    "source_span": "I think that the broader point is, like, what emerges from this dialectic is, like, it's very difficult to denote, like, aside from, you know, in a Kantian sense, like, a universal morality.",
+    "refusals": [
+      "Abstract philosophical musing without any decision rule, criterion, or testable claim that could guide third-party judgment."
+    ],
+    "reason": "extractor produced no principle-shaped rewrite for this span"
+  }
+]

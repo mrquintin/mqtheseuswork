@@ -1,0 +1,47 @@
+[
+  {
+    "conclusion_id": "c_72dc356c22e74f3e95b86636",
+    "status": "ERROR",
+    "old_text": "My conception of any states of affairs in logical space (i.e., pictures) is then a posteriori and needs to be checked against reality.",
+    "proposed_text": "",
+    "source_span": "My conception of any states of affairs in logical space (i.e., pictures) is then a posteriori and needs to be checked against reality.",
+    "refusals": [],
+    "reason": "TypeError('\"Could not resolve authentication method. Expected one of api_key, auth_token, or credentials to be set. Or for one of the `X-Api-Key` or `Authorization` headers to be explicitly omitted\"')"
+  },
+  {
+    "conclusion_id": "c_7ee9a781a0f749899d0382c5",
+    "status": "ERROR",
+    "old_text": "We cannot know that we are free.",
+    "proposed_text": "",
+    "source_span": "We cannot know that we are free.",
+    "refusals": [],
+    "reason": "TypeError('\"Could not resolve authentication method. Expected one of api_key, auth_token, or credentials to be set. Or for one of the `X-Api-Key` or `Authorization` headers to be explicitly omitted\"')"
+  },
+  {
+    "conclusion_id": "c_b25b2fda33a84ad4bf148f43",
+    "status": "ERROR",
+    "old_text": "I was looking at numbers 10 through 20, assuming that the top 10 were all really up.",
+    "proposed_text": "",
+    "source_span": "I was looking at numbers 10 through 20, assuming that the top 10 were all really up.",
+    "refusals": [],
+    "reason": "TypeError('\"Could not resolve authentication method. Expected one of api_key, auth_token, or credentials to be set. Or for one of the `X-Api-Key` or `Authorization` headers to be explicitly omitted\"')"
+  },
+  {
+    "conclusion_id": "c_bf271a0e876c4059b47ce942",
+    "status": "ERROR",
+    "old_text": "I optimize for that, and I get the A.",
+    "proposed_text": "",
+    "source_span": "I optimize for that, and I get the A.",
+    "refusals": [],
+    "reason": "TypeError('\"Could not resolve authentication method. Expected one of api_key, auth_token, or credentials to be set. Or for one of the `X-Api-Key` or `Authorization` headers to be explicitly omitted\"')"
+  },
+  {
+    "conclusion_id": "c_5fce769b1ef843f48c722087",
+    "status": "ERROR",
+    "old_text": "I do think that you do see on the Internet two distinct \u2013 very distinct classes of people where you have people who produce this material and you have people who consume the material.",
+    "proposed_text": "",
+    "source_span": "I do think that you do see on the Internet two distinct \u2013 very distinct classes of people where you have people who produce this material and you have people who consume the material.",
+    "refusals": [],
+    "reason": "TypeError('\"Could not resolve authentication method. Expected one of api_key, auth_token, or credentials to be set. Or for one of the `X-Api-Key` or `Authorization` headers to be explicitly omitted\"')"
+  }
+]
