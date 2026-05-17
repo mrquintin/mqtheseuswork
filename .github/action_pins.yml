@@ -32,20 +32,34 @@ actions:
     repo: setup-python
     allowed_refs:
       - v5
-    last_reviewed_on: 2026-05-16
+      - v6
+    last_reviewed_on: 2026-05-17
     review_notes: |
-      v5 pinned across every Python job. Caches pip per
+      v5 pinned across most Python jobs. Caches pip per
       requirements.txt and noosphere/requirements.txt.
+      v6 added 2026-05-17: required to satisfy the deprecation
+      warning that actions/setup-python@v5 runs on Node.js 20, which
+      GitHub is removing from runners on Sept 16 2026. v6 runs on
+      Node.js 24 and is a drop-in (same inputs / outputs / cache
+      semantics per the v6.0.0 release notes). Dependabot PR #5.
 
   - name: actions/setup-node
     owner: actions
     repo: setup-node
     allowed_refs:
       - v4
-    last_reviewed_on: 2026-05-16
+      - v6
+    last_reviewed_on: 2026-05-17
     review_notes: |
-      v4 across every Node job. Node version pinned to 20 in the
+      v4 across most Node jobs. Node version pinned to 20 in the
       reusable workflow.
+      v6 added 2026-05-17: required to satisfy the Node.js 20
+      deprecation warning that GitHub posts on every v4 run. v6
+      jumps two majors (v5 was skipped by Dependabot) — release
+      notes confirm same inputs and that the only behavior change
+      is moving from Node 20 → Node 24 for the action's own
+      execution environment (NOT the resolved node version, which
+      is still controlled by `node-version`). Dependabot PR #4.
 
   - name: actions/cache
     owner: actions
@@ -98,9 +112,14 @@ actions:
     repo: build-push-action
     allowed_refs:
       - v6
-    last_reviewed_on: 2026-05-16
+      - v7
+    last_reviewed_on: 2026-05-17
     review_notes: |
-      Paired with setup-buildx-action v3.
+      Paired with setup-buildx-action v3 (compatible with both v6 and
+      v7 per docker/build-push-action's matrix).
+      v7 added 2026-05-17: same inputs, new attestation defaults
+      that the firm already disables, and runs on Node.js 24
+      (resolves the Node 20 deprecation warning). Dependabot PR #2.
 
   - name: peter-evans/create-or-update-comment
     owner: peter-evans
@@ -116,10 +135,15 @@ actions:
     repo: action-gh-release
     allowed_refs:
       - v2
-    last_reviewed_on: 2026-05-16
+      - v3
+    last_reviewed_on: 2026-05-17
     review_notes: |
       Used by rolling-release.yml / release.yml to publish desktop
       installers.
+      v3 added 2026-05-17: drops Node.js 20 (resolves the
+      deprecation warning) and tightens default GITHUB_TOKEN
+      permission checks. The firm's tokens already grant
+      `contents: write` for these workflows. Dependabot PR #1.
 
   - name: pnpm/action-setup
     owner: pnpm
