@@ -573,6 +573,91 @@ redeploy_vercel() {
   npx --yes vercel@latest redeploy "$url" --target production
 }
 
+# Tracks whether stop_local_launchd_services() actually booted services
+# out, so the matching start function only acts when it has work to do.
+LAUNCHD_SERVICES_STOPPED=0
+
+# The DB-touching local launchd services. Order matters only when we
+# bring them back up — restart `currents-api` first so the cloudflared
+# tunnel has a backend to forward to before scheduler/forecasts begin
+# their pool-fill traffic.
+LAUNCHD_DB_SERVICES=(
+  com.theseus.currents-api
+  com.theseus.currents-scheduler
+  com.theseus.currents-forecasts
+)
+
+stop_local_launchd_services() {
+  # The thing that historically broke this rotation: the local launchd
+  # services keep holding open Supabase pool connections under the OLD
+  # password during the rotation window. The moment any pool member
+  # needs to refresh (which can happen at any time during a rotation
+  # that takes 10-30s end-to-end) it tries to authenticate with the
+  # old password against a Postgres that has just had it changed. Each
+  # such retry counts as a failed-auth event toward pgbouncer's
+  # ECIRCUITBREAKER threshold. KeepAlive=true then auto-restarts the
+  # service on the next failure, opening fresh connections that ALSO
+  # fail (still on the old in-process env until refresh_currents_backend
+  # rewrites the runtime .env and kickstarts). Result: the breaker
+  # stays tripped through the entire rotation AND through the psql
+  # verification window, regardless of how patient our backoff is.
+  #
+  # The fix is structural: stop the services BEFORE touching Supabase,
+  # so there are zero failed-auth events from this host during the
+  # rotation. Restart them only after psql has verified that the new
+  # password works.
+  if ! command -v launchctl >/dev/null 2>&1; then
+    return 0
+  fi
+  local uid svc loaded any_loaded=0
+  uid="$(id -u)"
+  loaded="$(launchctl list 2>/dev/null || true)"
+  for svc in "${LAUNCHD_DB_SERVICES[@]}"; do
+    if printf '%s\n' "$loaded" | grep -qE "[[:space:]]${svc//./\\.}\$"; then
+      any_loaded=1
+      break
+    fi
+  done
+  if [ "$any_loaded" -eq 0 ]; then
+    return 0
+  fi
+  note "Stopping local launchd currents services to prevent ECIRCUITBREAKER during rotation..."
+  for svc in "${LAUNCHD_DB_SERVICES[@]}"; do
+    launchctl bootout "gui/${uid}/${svc}" >/dev/null 2>&1 || true
+  done
+  LAUNCHD_SERVICES_STOPPED=1
+  # Brief settle so any in-flight connection attempts the services
+  # already issued finish hitting the socket before we touch Supabase.
+  sleep 2
+}
+
+start_local_launchd_services() {
+  if [ "$LAUNCHD_SERVICES_STOPPED" != "1" ]; then
+    return 0
+  fi
+  if ! command -v launchctl >/dev/null 2>&1; then
+    return 0
+  fi
+  local uid svc plist launch_agents
+  uid="$(id -u)"
+  launch_agents="$HOME/Library/LaunchAgents"
+  note "Restarting local launchd currents services with new credentials..."
+  for svc in "${LAUNCHD_DB_SERVICES[@]}"; do
+    plist="${launch_agents}/${svc}.plist"
+    if [ ! -f "$plist" ]; then
+      printf '  %s: plist not found at %s — skipping\n' "$svc" "$plist"
+      continue
+    fi
+    launchctl bootstrap "gui/${uid}" "$plist" >/dev/null 2>&1 || true
+    # Stagger restarts so we don't open ~30 fresh connections in one
+    # burst (which can re-trip the breaker even with the correct
+    # password — Supabase's rate limit is volume-based, not just
+    # failure-based).
+    sleep 5
+    printf '  %s: bootstrapped\n' "$svc"
+  done
+}
+
 refresh_currents_backend() {
   if [ "$DO_CURRENTS_BACKEND_REFRESH" -eq 0 ]; then
     return 0
@@ -586,7 +671,16 @@ refresh_currents_backend() {
   export DIRECT_URL_NEW
   export SUPABASE_PROJECT_REF="$PROJECT_REF"
   export THESEUS_DB_PASSWORD_NEW="$NEW_PASSWORD"
+  # Signal the refresh script to skip its launchctl kickstart and
+  # /readyz health-check when we've taken ownership of the service
+  # lifecycle above. Without this it tries to kickstart services that
+  # we've intentionally booted out (no-op but noisy) and then
+  # health-checks an API that isn't listening yet (false alarm).
+  if [ "$LAUNCHD_SERVICES_STOPPED" = "1" ]; then
+    export THESEUS_ROTATE_OWNS_SERVICE_LIFECYCLE=1
+  fi
   bash -lc "$CURRENTS_BACKEND_REFRESH_CMD"
+  unset THESEUS_ROTATE_OWNS_SERVICE_LIFECYCLE
   note "Currents backend refresh command completed."
 }
 
@@ -627,10 +721,16 @@ verify_database() {
       # ~9 minutes — well within typical Supabase cool-down windows.
       local backoffs=(20 30 45 60 90 120 150 150)
       local wait_s="${backoffs[$((attempt - 1))]:-150}"
-      printf 'psql attempt %s hit Supabase auth circuit breaker; backing off %ss before retry %s of 8...\n' \
-        "$attempt" "$wait_s" "$((attempt + 1))"
-      sleep "$wait_s"
-      continue
+      if [ "$attempt" -lt 8 ]; then
+        printf 'psql attempt %s hit Supabase auth circuit breaker; backing off %ss before retry %s of 8...\n' \
+          "$attempt" "$wait_s" "$((attempt + 1))"
+        sleep "$wait_s"
+        continue
+      fi
+      # Last attempt failed and we'd otherwise log "retry 9 of 8".
+      printf 'psql attempt %s hit Supabase auth circuit breaker; giving up after 8 attempts.\n' \
+        "$attempt"
+      break
     fi
     # Any other psql error is a real failure — surface it and exit.
     sed -E 's#postgresql://[^[:space:]]+#postgresql://<redacted>#g; s#[A-Za-z0-9_=-]{40,}#<redacted>#g' "$err" >&2
@@ -638,6 +738,13 @@ verify_database() {
   done
   fail "psql verification could not complete after 8 attempts (~9 min). Supabase circuit breaker may still be active. Check the Supabase project dashboard for auth rate-limit history, wait 10+ minutes, then re-run."
 }
+
+# Quiet the local DB consumers BEFORE Supabase changes the password —
+# any open pool refresh during the rotation window will fail-auth
+# with the old password and feed the ECIRCUITBREAKER counter, which
+# then poisons the new-password verification step below. See the
+# comment block on stop_local_launchd_services() for the full story.
+stop_local_launchd_services
 
 if [ "$DO_SUPABASE" -eq 1 ]; then
   reset_supabase_password
@@ -658,5 +765,10 @@ refresh_currents_backend
 if [ "$DO_VERIFY" -eq 1 ]; then
   verify_database
 fi
+
+# Bring the local services back up AFTER psql has confirmed the new
+# password is being honored — at this point there's no credential
+# ambiguity left for a fresh pool to trip the breaker over.
+start_local_launchd_services
 
 note "Supabase DB password rotation complete."

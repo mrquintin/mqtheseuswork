@@ -57,6 +57,23 @@ while [ "$#" -gt 0 ]; do
   shift
 done
 
+# When invoked as part of rotate-supabase-db-password.sh's structured
+# rotation flow, the parent script handles the launchctl bootout +
+# bootstrap dance itself (see stop_local_launchd_services /
+# start_local_launchd_services). In that mode we MUST NOT kickstart
+# (the services are intentionally booted out — kickstart would either
+# fail or, worse, race the parent's bootstrap step) and we MUST NOT
+# health-check (the API isn't listening yet, so the readyz probe
+# would tail-spin for 30s logging "WARNING: credential acceptance not
+# confirmed" against a service that just hasn't been started).
+if [ "${THESEUS_ROTATE_OWNS_SERVICE_LIFECYCLE:-0}" = "1" ]; then
+  if [ "$RESTART" = "1" ] || [ "$HEALTH_CHECK" = "1" ]; then
+    echo "Rotation owns service lifecycle — skipping local restart + health-check."
+  fi
+  RESTART=0
+  HEALTH_CHECK=0
+fi
+
 if [ ! -f "$RUNTIME_ENV" ]; then
   echo "ERROR: runtime env file not found: $RUNTIME_ENV" >&2
   exit 1
