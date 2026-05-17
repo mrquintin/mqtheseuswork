@@ -62,12 +62,34 @@ jobs:
           cache: "npm"
           cache-dependency-path: theseus-codex/package-lock.json
 
+      # portfolio.test.tsx shells out to a Python helper that exercises
+      # noosphere.forecasts (for the calibration-bucket aggregation
+      # ground-truth). That helper transitively imports sqlmodel, so we
+      # need the noosphere requirements installed alongside the Node
+      # deps. Without this the test fails with `ModuleNotFoundError:
+      # No module named 'sqlmodel'` even though the rest of the test
+      # is pure JS/TS.
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+          cache-dependency-path: noosphere/requirements.txt
+
+      - name: Install Python deps for the noosphere subprocess helper
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r noosphere/requirements.txt
+
       - name: Install Codex dependencies
         working-directory: theseus-codex
         run: npm ci
 
       - name: Run Forecasts UI tests
         working-directory: theseus-codex
+        env:
+          # The subprocess helper imports noosphere via PYTHONPATH.
+          # Match the path used by python-forecasts-regression above.
+          PYTHONPATH: ${{ github.workspace }}/noosphere
         run: |
           npm run test -- \
             tests/api/forecasts.test.ts \
