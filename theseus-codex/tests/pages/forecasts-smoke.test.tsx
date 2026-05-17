@@ -9,6 +9,10 @@ import ForecastDetailPage from "@/app/forecasts/[id]/page";
 import ForecastsPage from "@/app/forecasts/page";
 import PublicBlogIndex from "@/app/page";
 import { middleware } from "@/middleware";
+import {
+  listInvocationsForAlgorithm,
+  listPublicAlgorithms,
+} from "@/lib/algorithmsPublicApi";
 import { getFounder } from "@/lib/auth";
 import { listCurrents } from "@/lib/currentsApi";
 import type { PublicOpinion } from "@/lib/currentsTypes";
@@ -46,6 +50,24 @@ vi.mock("@/lib/conclusionsRead", () => ({
   resolvePublicOrganizationId: vi.fn(),
 }));
 
+// `@/lib/publicSurface` runs Prisma queries for the homepage's
+// articles + conclusions rails. The homepage render path inside
+// the "renders the homepage signal links" test triggers them and
+// they explode with ECONNREFUSED against the placeholder DB. Mock
+// to deterministic empties so the page renders the "no public
+// publications yet" fallback cleanly. (Constants come from the
+// real module; redeclared here so the page's references resolve.)
+vi.mock("@/lib/publicSurface", () => ({
+  ARTICLES_EMPTY_COPY:
+    "Long-form articles will appear here once the firm publishes them.",
+  CONCLUSIONS_EMPTY_COPY:
+    "Reviewed conclusions will appear here once the firm publishes them.",
+  CURRENTS_EMPTY_COPY:
+    "Live opinions will appear here once events cross the firm's significance floor.",
+  listHomepageArticles: vi.fn().mockResolvedValue([]),
+  listHomepageConclusions: vi.fn().mockResolvedValue([]),
+}));
+
 vi.mock("@/lib/currentsApi", () => ({
   listCurrents: vi.fn(),
   getCurrentsHealth: vi.fn().mockResolvedValue({
@@ -68,7 +90,25 @@ vi.mock("@/lib/db", () => ({
     upload: {
       findMany: vi.fn(),
     },
+    // Added so the homepage render path's latestPublishedMemo() lookup
+    // (added after this test was last touched) resolves cleanly to
+    // null instead of hitting a real DB. Without this the test logs
+    // are polluted with PrismaClient ECONNREFUSED against the
+    // placeholder DATABASE_URL the workflow sets, and on slow CI the
+    // unmocked client even races the test runner timeout.
+    investmentMemo: {
+      findFirst: vi.fn(),
+    },
   },
+}));
+
+// Same rationale as the db mock above: the homepage's
+// LiveActivityRail calls into the public algorithms read layer.
+// Mock to empty arrays so the rail renders the "machine is quiet"
+// fallback without trying to query Prisma.
+vi.mock("@/lib/algorithmsPublicApi", () => ({
+  listPublicAlgorithms: vi.fn(),
+  listInvocationsForAlgorithm: vi.fn(),
 }));
 
 vi.mock("@/lib/forecastPortfolioData", () => ({
@@ -415,6 +455,9 @@ describe("forecasts smoke fallback", () => {
     vi.mocked(db.$queryRaw).mockResolvedValue([]);
     vi.mocked(db.forecastTrace.findMany).mockResolvedValue([]);
     vi.mocked(db.upload.findMany).mockResolvedValue([]);
+    vi.mocked(db.investmentMemo.findFirst).mockResolvedValue(null);
+    vi.mocked(listPublicAlgorithms).mockResolvedValue([]);
+    vi.mocked(listInvocationsForAlgorithm).mockResolvedValue([]);
     vi.mocked(listPublishedArticles).mockResolvedValue([]);
     vi.mocked(resolvePublicOrganizationId).mockResolvedValue("org-smoke");
     vi.mocked(listCurrents).mockResolvedValue({
@@ -523,7 +566,13 @@ describe("forecasts smoke fallback", () => {
   it("renders the homepage signal links without loading the Forecasts feed", async () => {
     const html = await htmlFor(await PublicBlogIndex());
 
-    expect(html).toContain("LIVE PUBLIC SURFACES");
+    // The original assertion checked for "LIVE PUBLIC SURFACES" — a
+    // heading that no longer exists on the page. Match the current
+    // surface instead: the live-activity rail testid and the
+    // "Forecasts" signal card body. The point of this test is that
+    // the homepage doesn't pull the Forecasts feed, not that the
+    // copy is byte-stable.
+    expect(html).toContain('data-testid="homepage-live-activity"');
     expect(html).toContain("Opinion smoke 1");
     expect(html).toContain("Prediction-market forecasts");
     expect(listForecasts).not.toHaveBeenCalled();
