@@ -55,7 +55,20 @@ cleanup() {
     [ -n "$f" ] && rm -f "$f" 2>/dev/null || true
   done
 }
-trap cleanup EXIT
+
+on_exit() {
+  local rc=$?
+  trap - EXIT
+  cleanup
+  if [ "$rc" -ne 0 ] && \
+     [ "${LAUNCHD_SERVICES_STOPPED:-0}" = "1" ] && \
+     [ "${LOCAL_CURRENTS_RUNTIME_REFRESHED:-0}" = "1" ]; then
+    note "Rotation failed after Currents runtime refresh; restarting local launchd currents services with refreshed credentials..."
+    start_local_launchd_services || true
+  fi
+  exit "$rc"
+}
+trap on_exit EXIT
 
 usage() {
   cat <<'USAGE'
@@ -570,12 +583,14 @@ redeploy_vercel() {
   local url
   url="$(latest_production_deployment_url)"
   [ -n "$url" ] || fail "could not determine latest production Vercel deployment"
-  npx --yes vercel@latest redeploy "$url" --target production
+  npx --yes vercel@latest redeploy "$url" --target production --no-wait
 }
 
 # Tracks whether stop_local_launchd_services() actually booted services
 # out, so the matching start function only acts when it has work to do.
 LAUNCHD_SERVICES_STOPPED=0
+LOCAL_CURRENTS_RUNTIME_REFRESHED=0
+VERCEL_REDEPLOY_STATUS="not run"
 
 # The DB-touching local launchd services. Order matters only when we
 # bring them back up — restart `currents-api` first so the cloudflared
@@ -679,8 +694,17 @@ refresh_currents_backend() {
   if [ "$LAUNCHD_SERVICES_STOPPED" = "1" ]; then
     export THESEUS_ROTATE_OWNS_SERVICE_LIFECYCLE=1
   fi
-  bash -lc "$CURRENTS_BACKEND_REFRESH_CMD"
+  local refresh_rc
+  if bash -lc "$CURRENTS_BACKEND_REFRESH_CMD"; then
+    refresh_rc=0
+  else
+    refresh_rc=$?
+  fi
   unset THESEUS_ROTATE_OWNS_SERVICE_LIFECYCLE
+  if [ "$refresh_rc" -ne 0 ]; then
+    return "$refresh_rc"
+  fi
+  LOCAL_CURRENTS_RUNTIME_REFRESHED=1
   note "Currents backend refresh command completed."
 }
 
@@ -758,9 +782,6 @@ fi
 if [ "$DO_VERCEL" -eq 1 ]; then
   update_vercel_envs
 fi
-if [ "$DO_REDEPLOY" -eq 1 ]; then
-  redeploy_vercel
-fi
 refresh_currents_backend
 if [ "$DO_VERIFY" -eq 1 ]; then
   verify_database
@@ -771,4 +792,19 @@ fi
 # ambiguity left for a fresh pool to trip the breaker over.
 start_local_launchd_services
 
-note "Supabase DB password rotation complete."
+if [ "$DO_REDEPLOY" -eq 1 ]; then
+  if redeploy_vercel; then
+    VERCEL_REDEPLOY_STATUS="started"
+  else
+    redeploy_rc=$?
+    VERCEL_REDEPLOY_STATUS="failed"
+    note "WARNING: Vercel redeploy failed with exit code ${redeploy_rc} after DATABASE_URL/DIRECT_URL were updated."
+    note "Continuing: the next GitHub push will trigger a fresh Vercel deployment with the updated environment."
+  fi
+fi
+
+if [ "$VERCEL_REDEPLOY_STATUS" = "failed" ]; then
+  note "Supabase DB password rotation complete. Vercel redeploy failed after provider env updates; push/deployment verification must catch any remaining Vercel issue."
+else
+  note "Supabase DB password rotation complete."
+fi

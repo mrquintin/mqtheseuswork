@@ -228,6 +228,36 @@ def test_b15_sync_push_requires_rotation_token() -> None:
 ROTATE_SCRIPT = REPO_ROOT / "scripts" / "rotate-supabase-db-password.sh"
 
 
+def test_b15_vercel_redeploy_is_post_recovery_best_effort() -> None:
+    """A Vercel redeploy failure must not strand the system mid-rotation.
+
+    Pre-fix shape: Supabase/local/GitHub/Vercel envs were updated, but a
+    failing redeploy of the previous production commit exited before Currents
+    refresh, psql verification, launchd restart, and the later Git push.
+    """
+    body = ROTATE_SCRIPT.read_text()
+    assert "--no-wait" in body, (
+        "Vercel redeploy should be asynchronous; waiting here can hold local "
+        "Currents services down for the whole remote build."
+    )
+    assert "Continuing: the next GitHub push" in body, (
+        "Vercel redeploy failure must be reported as a warning, not used to "
+        "abort before the push that will create a fresh deployment."
+    )
+
+    refresh_idx = body.rfind("refresh_currents_backend")
+    start_idx = body.rfind("start_local_launchd_services")
+    redeploy_idx = body.rfind("redeploy_vercel")
+    assert -1 not in (refresh_idx, start_idx, redeploy_idx), (
+        "Expected refresh, launchd restart, and redeploy calls in the rotation "
+        "script."
+    )
+    assert refresh_idx < start_idx < redeploy_idx, (
+        "Vercel redeploy must happen after Currents refresh and launchd "
+        "restart so a redeploy failure cannot strand local services stopped."
+    )
+
+
 def test_b07_rotation_supports_unattended_password_file() -> None:
     """The interactive ``enter password / verify`` prompt mismatched in the
     rotation flow once. Mitigation: ``--password-file`` accepts an
