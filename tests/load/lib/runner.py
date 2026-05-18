@@ -333,6 +333,52 @@ def _ramp_concurrency(profile: LoadProfile, elapsed: float) -> int:
     )
 
 
+def _warmup_paths(
+    base_url: str,
+    user_agent: str,
+    article_slug: str | None,
+    conclusion_id: str | None,
+    request_fn: Callable[..., RequestResult],
+) -> None:
+    """Hit each route once, sequentially, before the measured run.
+
+    The harness's recurring p95 flake on the GitHub `load_test_preview`
+    workflow has a consistent shape: p50 sits at 300-600ms (normal),
+    samples=0 errors, pool_exhaustion=0, but p95 spikes to ~10s. That
+    is the Vercel cold-start signature — the workflow fires on a
+    deployment_status event, so the preview's serverless functions
+    are necessarily cold when the test starts. With 50 concurrent
+    workers all racing against the same cold function instance, the
+    first request per path eats the cold-start budget and the worker
+    threads stack up behind it; with ~1300 samples a 10s cold start
+    on ONE worker can easily land in the top 5% of latencies.
+    We do not want to measure Vercel's cold-start latency in the
+    sustained-throughput test. Warm each path once first (single
+    request, no concurrency) so the cold start is paid before the
+    real measurements begin. Failures here are swallowed: warmup is
+    best-effort and the real run will surface any actual outage.
+    """
+    seen: set[tuple[str, str]] = set()
+    for method, path, body in session_paths(article_slug, conclusion_id):
+        key = (method, path)
+        if key in seen:
+            continue
+        seen.add(key)
+        try:
+            request_fn(
+                base_url,
+                path,
+                user_agent,
+                method=method,
+                body=body,
+            )
+        except Exception:
+            # Best-effort. A genuine outage will be picked up by the
+            # measured run, where it counts as an error toward the
+            # err_rate budget instead of silently inflating warmup.
+            pass
+
+
 def run_profile(
     base_url: str,
     profile: LoadProfile,
@@ -348,6 +394,15 @@ def run_profile(
     a token bucket gates.
     """
     user_agent = synthetic_user_agent(profile.name, run_id)
+    # Pre-warm the routes so Vercel cold-start latency doesn't
+    # contaminate the measured p95. See _warmup_paths docstring.
+    _warmup_paths(
+        base_url,
+        user_agent,
+        article_slug,
+        conclusion_id,
+        request_fn=request_fn,
+    )
     results: list[RequestResult] = []
     results_lock = threading.Lock()
     stop = threading.Event()
