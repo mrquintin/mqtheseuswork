@@ -903,7 +903,13 @@ else
   echo "No working-tree changes. Pushing $ahead_count existing commit(s) not in origin/main yet."
 fi
 
-rotate_db_password_for_sync
+if [ "$has_wt_changes" = 0 ] && [ "$ahead_count" = 0 ] && [ "$remote_exists" = 1 ] && \
+   [ "${SYNC_ROTATE_ON_EMPTY_PUSH:-0}" != "1" ]; then
+  DB_ROTATION_LINE="DB password rotation: skipped (already in sync; set SYNC_ROTATE_ON_EMPTY_PUSH=1 to rotate anyway)"
+  echo "$DB_ROTATION_LINE"
+else
+  rotate_db_password_for_sync
+fi
 
 # Merge $work_branch into `main` when needed, then push `main`.
 work_branch=$branch

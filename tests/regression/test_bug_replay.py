@@ -224,6 +224,26 @@ def test_b15_sync_push_requires_rotation_token() -> None:
     )
 
 
+def test_b15_already_synced_push_does_not_rotate_by_default() -> None:
+    """Answering yes to an already-synced no-op push must not rotate DB creds.
+
+    The rotation is useful before a real push because GitHub/Vercel need fresh
+    credentials before new code runs. With no local commit and no ahead commit,
+    rotating creates only churn: Supabase changes, provider envs change, Vercel
+    redeploys, and the public DB health check can briefly fail even though no
+    repository state changed.
+    """
+    body = SYNC_SCRIPT.read_text()
+    assert "SYNC_ROTATE_ON_EMPTY_PUSH" in body, (
+        "Already-synced push-anyway runs need an explicit override before "
+        "rotating credentials."
+    )
+    assert "DB password rotation: skipped (already in sync" in body, (
+        "sync-to-github.sh must skip DB rotation when there is no working-tree "
+        "change and no local commit ahead of origin/main."
+    )
+
+
 # ─── B07 ────────────────────────────────────────────────────────────────────
 ROTATE_SCRIPT = REPO_ROOT / "scripts" / "rotate-supabase-db-password.sh"
 
