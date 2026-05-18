@@ -185,7 +185,7 @@ trap 'rc=$?; cleanup_secret_tmp_files; if [ $rc -ne 0 ]; then banner_failed "Scr
 #                                        Cursor/VS Code tasks often cannot
 #                                        handle hidden prompt input reliably)
 #   SYNC_DB_PASSWORD_SECRET_DIR=...      default .theseus-secrets/db-password-rotations
-#   SYNC_DB_ROTATE_REDEPLOY=1            also redeploy current Vercel prod deployment
+#   SYNC_DB_ROTATE_REDEPLOY=0            skip Vercel redeploy after DB rotation
 #   CURRENTS_BACKEND_REFRESH_CMD=...     command that updates/restarts the
 #                                        external Currents API/scheduler host
 #   SYNC_CURRENTS_BACKEND_REFRESH_REQUIRED=1
@@ -488,7 +488,7 @@ rotate_db_password_for_sync() {
   echo "Encrypted DB password recovery archive: $archive"
 
   rotation_args=(--yes --password-file "$password_file")
-  if [ "${SYNC_DB_ROTATE_REDEPLOY:-0}" != "1" ]; then
+  if [ "${SYNC_DB_ROTATE_REDEPLOY:-1}" = "0" ]; then
     rotation_args+=(--no-vercel-redeploy)
   fi
   if [ "${SYNC_CURRENTS_BACKEND_REFRESH_REQUIRED:-1}" = "1" ]; then
@@ -1088,6 +1088,7 @@ echo "Release page: https://github.com/mrquintin/mqtheseuswork/releases/tag/late
 # ──────────────────────────────────────────────────────────────────────────────
 codex_url=""
 codex_status="unchecked"
+codex_db_status="unchecked"
 if [ -f README.md ] && command -v curl >/dev/null 2>&1; then
   # Extract the first public Codex origin from the README. Match only the
   # scheme + host so markdown syntax cannot get folded into the URL.
@@ -1098,6 +1099,14 @@ if [ -f README.md ] && command -v curl >/dev/null 2>&1; then
       codex_status="200 ($codex_url)"
     else
       codex_status="BROKEN ($http_status for $codex_url)"
+    fi
+
+    db_health_url="${codex_url%/}/api/health/db"
+    db_health_status=$(curl -sS -o /dev/null -w '%{http_code}' -L --max-time 15 "$db_health_url" 2>/dev/null || echo "000")
+    if [ "$db_health_status" = "200" ]; then
+      codex_db_status="DB 200 ($db_health_url)"
+    else
+      codex_db_status="DB BROKEN ($db_health_status for $db_health_url)"
     fi
   fi
 fi
@@ -1165,7 +1174,7 @@ summary_line="Installers: ${ok_count}/${total_expected} OK"
 [ "$missing_count" -gt 0 ] && summary_line="${summary_line} · ${missing_count} missing"
 release_line="Release: https://github.com/mrquintin/mqtheseuswork/releases/tag/latest-main"
 push_line="Pushed commit ${pushed_sha:0:7} to origin/$branch"
-codex_line="Codex URL: $codex_status"
+codex_line="Codex URL: $codex_status · $codex_db_status"
 vercel_line="Vercel deploy: $vercel_deploy_status"
 
 # Build the Workflows line. Phrasing makes the failure count the loudest
@@ -1187,6 +1196,7 @@ esac
 
 codex_broken=0
 case "$codex_status" in BROKEN*) codex_broken=1 ;; esac
+case "$codex_db_status" in "DB BROKEN"*) codex_broken=1 ;; esac
 
 vercel_broken=0
 case "$vercel_deploy_status" in FAILED*) vercel_broken=1 ;; esac
@@ -1211,7 +1221,7 @@ elif [ "$vercel_broken" = 1 ]; then
     "Vercel couldn't build this commit. The live site is STALE — still showing the previous successful deploy. Check the Vercel dashboard and fix the build error."
 elif [ "$codex_broken" = 1 ]; then
   banner_partial "$push_line" "$DB_ROTATION_LINE" "$summary_line" "$release_line" "$codex_line" "$vercel_line" "$workflow_line" \
-    "README's Codex URL didn't return 200. Verify in Vercel dashboard and update README.md if needed."
+    "The Codex public URL or database health check failed. Verify Vercel runtime logs and the production DATABASE_URL before calling the sync complete."
 else
   banner_partial "$push_line" "$DB_ROTATION_LINE" "$summary_line" "$release_line" "$codex_line" "$vercel_line" "$workflow_line"
 fi
