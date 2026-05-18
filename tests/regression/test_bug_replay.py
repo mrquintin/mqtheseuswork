@@ -257,6 +257,14 @@ def test_b15_vercel_redeploy_is_post_recovery_best_effort() -> None:
         "restart so a redeploy failure cannot strand local services stopped."
     )
 
+    for script in (SYNC_SCRIPT, ROTATE_SCRIPT):
+        offenders = re.findall(r"mktemp [^\n]*XXXXXX\.[A-Za-z0-9]+", script.read_text())
+        assert not offenders, (
+            f"{script.relative_to(REPO_ROOT)} uses mktemp templates with a "
+            "suffix after XXXXXX. macOS treats those as fixed filenames, so "
+            f"repeat runs can fail with File exists: {offenders}"
+        )
+
 
 def test_b07_rotation_supports_unattended_password_file() -> None:
     """The interactive ``enter password / verify`` prompt mismatched in the

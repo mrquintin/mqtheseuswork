@@ -305,7 +305,7 @@ write_db_password_recovery_archive() {
   fi
   chmod 700 ".theseus-secrets" "$secret_dir" 2>/dev/null || true
 
-  if ! plain="$(mktemp /tmp/theseus-db-password-report.XXXXXX.txt)"; then
+  if ! plain="$(mktemp /tmp/theseus-db-password-report.XXXXXX)"; then
     echo "ERROR: failed to create temporary DB password recovery report." >&2
     return 1
   fi

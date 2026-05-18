@@ -471,8 +471,8 @@ fi
 reset_supabase_password() {
   [ -n "${SUPABASE_ACCESS_TOKEN:-}" ] || fail "SUPABASE_ACCESS_TOKEN is required unless --skip-supabase-reset is used"
   local payload response code
-  payload="$(mktemp /tmp/theseus-supabase-password.XXXXXX.json)"
-  response="$(mktemp /tmp/theseus-supabase-response.XXXXXX.json)"
+  payload="$(mktemp /tmp/theseus-supabase-password.XXXXXX)"
+  response="$(mktemp /tmp/theseus-supabase-response.XXXXXX)"
   chmod 600 "$payload" "$response"
   TMP_FILES+=("$payload" "$response")
   PAYLOAD="$payload" NEW_PASSWORD="$NEW_PASSWORD" node <<'NODE'
@@ -542,7 +542,7 @@ vercel_env_add() {
   local target="$2"
   local value="$3"
   local out
-  out="$(mktemp "/tmp/theseus-vercel-${name}-${target}.XXXXXX.log")"
+  out="$(mktemp "/tmp/theseus-vercel-${name}-${target}.XXXXXX")"
   TMP_FILES+=("$out")
 
   npx --yes vercel@latest env rm "$name" "$target" --yes >"$out" 2>&1 || true
@@ -564,7 +564,7 @@ update_vercel_envs() {
 
 latest_production_deployment_url() {
   local listing
-  listing="$(mktemp /tmp/theseus-vercel-list.XXXXXX.json)"
+  listing="$(mktemp /tmp/theseus-vercel-list.XXXXXX)"
   TMP_FILES+=("$listing")
   npx --yes vercel@latest ls --status READY --format json >"$listing"
   node - "$listing" <<'NODE'
