@@ -3,7 +3,7 @@ import Link from "next/link";
 import { db } from "@/lib/db";
 import {
   listAcceptedPrinciples,
-  listQueuedPrinciples,
+  listRecentPrinciples,
   type PrincipleRow,
 } from "@/lib/principlesApi";
 import { requireTenantContext } from "@/lib/tenant";
@@ -11,21 +11,19 @@ import { requireTenantContext } from "@/lib/tenant";
 /**
  * Knowledge → Principles tab.
  *
- * Surfaces the firm's principle ledger as a first-class artifact: how
- * many accepted principles exist, how many are queued for triage, and a
- * shortlist of the most recently accepted ones. The detail/triage pages
- * remain at /principles/{id} and /principles/queue.
- *
- * The point of the tab is to make abstract principles visible alongside
- * empirical conclusions — so a reader can see that Theseus is not only
- * accumulating claims, it is also abstracting load-bearing rules.
+ * Surfaces the firm's principle ledger: how many accepted principles
+ * exist, how many landed recently, and a shortlist of the most recent
+ * additions. Distillation now auto-accepts (no triage gate), so the
+ * "Recent principles" link goes to a read-only audit log rather than a
+ * founder action surface. The canonical detail page remains at
+ * `/principles/[id]`.
  */
 export default async function KnowledgePrinciplesTab() {
   const tenant = await requireTenantContext();
   if (!tenant) return null;
 
-  const [queued, accepted, publicCount] = await Promise.all([
-    listQueuedPrinciples(tenant.organizationId),
+  const [recent, accepted, publicCount] = await Promise.all([
+    listRecentPrinciples(tenant.organizationId, 30),
     listAcceptedPrinciples(tenant.organizationId),
     db.principle.count({
       where: {
@@ -62,9 +60,10 @@ export default async function KnowledgePrinciplesTab() {
         >
           Abstract rules the firm keeps re-deriving across its conclusions. A
           principle survives when the same logic recurs across domains, not
-          when one strong example shows up. Triage and editing happen at the{" "}
+          when one strong example shows up. Browse the audit log of recent
+          additions at{" "}
           <Link href="/principles/queue" style={{ color: "var(--amber)" }}>
-            triage queue
+            recent principles
           </Link>
           .
         </p>
@@ -73,7 +72,7 @@ export default async function KnowledgePrinciplesTab() {
       <CountStrip
         items={[
           { label: "Accepted", value: accepted.length },
-          { label: "Awaiting triage", value: queued.length },
+          { label: "Recent additions", value: recent.length },
           { label: "Public-visible", value: publicCount },
         ]}
       />

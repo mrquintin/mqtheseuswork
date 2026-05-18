@@ -520,3 +520,261 @@ def test_b14_runner_supports_resume_from_n() -> None:
         "Runner did not echo the --from filter; resume path may be broken.\n"
         + proc.stdout
     )
+
+
+# ─── B16 ────────────────────────────────────────────────────────────────────
+# Slug: auto_accept_principles_2026_05_17.
+#
+# Symptom: a principle extracted from an artifact stayed invisible on
+# /principles because the triage gate required founder action;
+# `sync_drafts_to_codex` inserted as `status='draft'` and the public
+# read path filtered on `status='accepted' AND publicVisible=true`.
+# Fix: principles auto-accept on extraction, the read path collapses
+# to `publicVisible AND status != 'rejected'`, and a one-time
+# migration flips existing drafts to accepted.
+def test_b16_auto_accept_principles_no_triage_gate(tmp_path: Path) -> None:
+    """A draft principle synced via `sync_drafts_to_codex` must land as
+    `status='accepted'` + `publicVisible=true`, with no intervening
+    triage step. The public read filter must NOT require
+    `status='accepted'` (which would re-introduce the gate).
+    """
+    # Surface 1: the source-of-truth on the public read filter is the
+    # TS API in theseus-codex. If the filter ever flips back to gating
+    # on `status: "accepted"`, this regression bites again. We slice
+    # out the listPublicPrinciples function body so the assertion isn't
+    # confused by `acceptPrinciple` (which legitimately writes
+    # status='accepted' on a founder action elsewhere in the file).
+    principles_api = (
+        REPO_ROOT / "theseus-codex" / "src" / "lib" / "principlesApi.ts"
+    )
+    api_text = principles_api.read_text()
+    list_fn_match = re.search(
+        r"export async function listPublicPrinciples\b[\s\S]*?\n\}\n",
+        api_text,
+    )
+    assert list_fn_match, (
+        "listPublicPrinciples function not found in principlesApi.ts — "
+        "the public surface may have been renamed without updating B16."
+    )
+    list_fn_body = list_fn_match.group(0)
+    assert 'status: "accepted"' not in list_fn_body, (
+        "listPublicPrinciples must NOT gate on status='accepted' — that "
+        "is the triage gate B16 removed."
+    )
+    assert "publicVisible: true" in list_fn_body, (
+        "listPublicPrinciples lost its publicVisible filter — the "
+        "public surface is now wide open."
+    )
+    assert 'not: "rejected"' in list_fn_body, (
+        "listPublicPrinciples lost the rejected-row exclusion — a "
+        "founder-rejected principle would leak back onto /principles."
+    )
+
+    # Surface 2: the Python persistence path. Exercise the actual
+    # sync function end-to-end against a sqlite shim of the Principle
+    # table so we are testing the live behaviour, not a doc comment.
+    import sqlite3
+    import sys
+
+    sys.path.insert(0, str(REPO_ROOT / "noosphere"))
+    from noosphere.codex_bridge import _open_codex_connection
+    from noosphere.distillation import (
+        DraftPrinciple,
+        PrincipleStatus,
+        sync_drafts_to_codex,
+    )
+
+    schema = """
+    CREATE TABLE "Organization" (
+      id TEXT PRIMARY KEY,
+      slug TEXT,
+      name TEXT
+    );
+    CREATE TABLE "Principle" (
+      id TEXT PRIMARY KEY,
+      "organizationId" TEXT NOT NULL,
+      text TEXT NOT NULL,
+      "domainsJson" TEXT NOT NULL DEFAULT '[]',
+      "clusterConclusionIds" TEXT NOT NULL DEFAULT '[]',
+      "citedConclusionIds" TEXT NOT NULL DEFAULT '[]',
+      status TEXT NOT NULL DEFAULT 'draft',
+      "triageReason" TEXT NOT NULL DEFAULT '',
+      "mergedIntoId" TEXT,
+      "convictionScore" REAL NOT NULL DEFAULT 0.0,
+      "domainBreadth" INTEGER NOT NULL DEFAULT 0,
+      "clusterCentroidSimilarity" REAL NOT NULL DEFAULT 0.0,
+      "publicVisible" INTEGER NOT NULL DEFAULT 0,
+      "driftReason" TEXT,
+      "reviewedByFounderId" TEXT,
+      "createdAt" TEXT,
+      "updatedAt" TEXT,
+      "reviewedAt" TEXT,
+      "publishedAt" TEXT
+    );
+    """
+    path = tmp_path / "b16.db"
+    setup = sqlite3.connect(str(path))
+    setup.executescript(schema)
+    setup.execute(
+        'INSERT INTO "Organization" (id, slug, name) VALUES (?, ?, ?)',
+        ("org_b16", "b16", "B16"),
+    )
+    setup.commit()
+    setup.close()
+
+    draft = DraftPrinciple(
+        text="When runway dips under 12 months at sub-PMF, cut spend before raising.",
+        domains=["Venture"],
+        cited_conclusion_ids=["c1"],
+        cluster_conclusion_ids=["c1", "c2", "c3", "c4"],
+        conviction_score=0.7,
+        domain_breadth=1,
+        cluster_centroid_similarity=0.88,
+    )
+    conn = _open_codex_connection(f"sqlite://{path}")
+    sync_drafts_to_codex(conn, organization_id="org_b16", drafts=[draft])
+    conn.close()
+
+    conn = _open_codex_connection(f"sqlite://{path}")
+    cur = conn.cursor()
+    cur.execute(
+        'SELECT status, "publicVisible", "reviewedAt", "publishedAt" '
+        'FROM "Principle" WHERE "organizationId" = %s',
+        ("org_b16",),
+    )
+    rows = [dict(r) for r in cur.fetchall()]
+    conn.close()
+    assert len(rows) == 1
+    row = rows[0]
+    assert row["status"] == PrincipleStatus.ACCEPTED, (
+        f"sync_drafts_to_codex regressed: expected status='accepted', got "
+        f"{row['status']!r}. The triage gate B16 removed has come back."
+    )
+    assert row["publicVisible"], (
+        "auto-accepted principle landed without publicVisible=true; "
+        "/principles will not surface it."
+    )
+    assert row["reviewedAt"] is not None
+    assert row["publishedAt"] is not None
+
+
+# ─── B17 ────────────────────────────────────────────────────────────────────
+# Slug: decommissioned_triage_uis_2026_05_17.
+#
+# Symptom: after B16 auto-accept landed, the founder still saw
+# /(authed)/principles/queue and /(authed)/extractor/re-extract as
+# "triage" surfaces with Accept/Reject/Edit buttons over an empty
+# queue, mistaking the empty state for a broken extractor. Fix:
+# repurpose both pages as READ-ONLY audit logs ("Recent principles" /
+# "Extraction audit log"), drop the triage detail subroute, and remove
+# the accept/reject/merge helpers from principlesApi.ts. The schema
+# retains the gate columns; only the UI changed.
+def test_b17_decommissioned_triage_uis() -> None:
+    """The two decommissioned triage pages must:
+
+      - render with the new read-only titles ("Recent principles" /
+        "Extraction audit log"),
+      - declare no mutating server actions or `<form action=…>`,
+      - never re-import `acceptPrinciple` / `rejectPrinciple` /
+        `mergePrinciple` (those exports are gone),
+      - leave the `/principles/[id]/triage/` subroute deleted.
+    """
+    queue_page = (
+        REPO_ROOT
+        / "theseus-codex"
+        / "src"
+        / "app"
+        / "(authed)"
+        / "principles"
+        / "queue"
+        / "page.tsx"
+    )
+    re_extract_page = (
+        REPO_ROOT
+        / "theseus-codex"
+        / "src"
+        / "app"
+        / "(authed)"
+        / "extractor"
+        / "re-extract"
+        / "page.tsx"
+    )
+    api_file = (
+        REPO_ROOT / "theseus-codex" / "src" / "lib" / "principlesApi.ts"
+    )
+    triage_subroute = (
+        REPO_ROOT
+        / "theseus-codex"
+        / "src"
+        / "app"
+        / "(authed)"
+        / "principles"
+        / "[id]"
+        / "triage"
+    )
+
+    assert queue_page.exists(), (
+        "principles/queue/page.tsx is the surface this regression guards — "
+        "losing it would let the empty-queue confusion return silently."
+    )
+    queue_src = queue_page.read_text()
+    assert "Recent principles" in queue_src, (
+        "principles/queue/page.tsx lost its new title — the audit-log "
+        "repurpose may have been reverted."
+    )
+    assert "triage queue" not in queue_src.lower(), (
+        "principles/queue/page.tsx still calls itself a 'triage queue'; "
+        "the decommission copy regressed."
+    )
+    # No mutating affordances on the read-only surface.
+    assert "<form" not in queue_src.lower(), (
+        "principles/queue/page.tsx grew a <form> — the read-only "
+        "decommission allows none."
+    )
+    assert "<button" not in queue_src.lower(), (
+        "principles/queue/page.tsx grew a <button>; the read-only "
+        "decommission allows none."
+    )
+
+    assert re_extract_page.exists()
+    re_extract_src = re_extract_page.read_text()
+    assert "Extraction audit log" in re_extract_src, (
+        "extractor/re-extract/page.tsx lost its audit-log title."
+    )
+    assert "Principle extraction is automatic" in re_extract_src, (
+        "extractor/re-extract/page.tsx lost the 'automatic extraction' "
+        "banner — readers need to know the page is informational only."
+    )
+    assert "<form" not in re_extract_src.lower(), (
+        "extractor/re-extract/page.tsx grew a <form>; the read-only "
+        "decommission allows none."
+    )
+    assert "<button" not in re_extract_src.lower(), (
+        "extractor/re-extract/page.tsx grew a <button>; the read-only "
+        "decommission allows none."
+    )
+    assert "<textarea" not in re_extract_src.lower(), (
+        "extractor/re-extract/page.tsx grew a <textarea>; the audit log "
+        "is read-only and accepts no founder edits."
+    )
+
+    api_src = api_file.read_text()
+    for dead_export in (
+        "export async function acceptPrinciple",
+        "export async function rejectPrinciple",
+        "export async function mergePrinciple",
+        "export async function listQueuedPrinciples",
+    ):
+        assert dead_export not in api_src, (
+            f"principlesApi.ts still exports `{dead_export.split()[3]}`; "
+            "the decommission removed the triage write-side helpers."
+        )
+    assert "export async function listRecentPrinciples" in api_src, (
+        "principlesApi.ts lost listRecentPrinciples; the audit-log page "
+        "depends on it."
+    )
+
+    assert not triage_subroute.exists(), (
+        f"{triage_subroute} still exists — the founder triage detail page "
+        "should have been removed by the decommission."
+    )

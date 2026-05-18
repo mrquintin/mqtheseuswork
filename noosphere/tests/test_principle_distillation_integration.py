@@ -365,83 +365,162 @@ def _queue_drafts() -> list[DraftPrinciple]:
     return [draft, rereview, merged]
 
 
-def test_sync_writes_only_the_queue(codex_url: str) -> None:
+def test_sync_auto_accepts_plain_drafts(codex_url: str) -> None:
     conn = _open_codex_connection(codex_url)
     counts = sync_drafts_to_codex(
         conn, organization_id=ORG, drafts=_queue_drafts()
     )
     conn.close()
     assert counts["inserted"] == 3
-    assert counts["draft"] == 1
+    # Plain DraftPrinciples auto-accept on insert; needs_rereview and
+    # merged keep their own status (they carry founder-relevant signals).
+    assert counts["accepted"] == 1
     assert counts["needs_rereview"] == 1
     assert counts["merged"] == 1
 
     rows = _fetch_principles(codex_url)
     assert len(rows) == 3
-    # Nothing the sync writes is published — that is a founder action.
-    for row in rows:
-        assert row["status"] in (
-            PrincipleStatus.DRAFT,
-            PrincipleStatus.NEEDS_REREVIEW,
-            PrincipleStatus.MERGED,
-        )
-        assert not row["publicVisible"]
-        assert row["reviewedAt"] is None
-        assert row["reviewedByFounderId"] is None
-        assert row["publishedAt"] is None
 
-    by_status = {r["status"]: r for r in rows}
-    assert by_status[PrincipleStatus.MERGED]["mergedIntoId"] == "prn_accepted"
-    assert by_status[PrincipleStatus.NEEDS_REREVIEW]["driftReason"] == "cluster_grew"
-    assert "cluster_grew" in by_status[PrincipleStatus.NEEDS_REREVIEW]["triageReason"]
+    by_status: dict[str, dict[str, Any]] = {r["status"]: r for r in rows}
+    accepted_row = by_status[PrincipleStatus.ACCEPTED]
+    # The auto-accepted row is immediately publicVisible and stamped.
+    assert accepted_row["publicVisible"]
+    assert accepted_row["reviewedAt"] is not None
+    assert accepted_row["publishedAt"] is not None
+    # Founder-id is still null — auto-accept is not a founder action.
+    assert accepted_row["reviewedByFounderId"] is None
 
-    # The triage-queue read (draft + needs_rereview) sees two rows.
-    queued = [
-        r
-        for r in rows
-        if r["status"]
-        in (PrincipleStatus.DRAFT, PrincipleStatus.NEEDS_REREVIEW)
-    ]
-    assert len(queued) == 2
+    # needs_rereview and merged rows are NOT public-visible: the
+    # founder still has to act on them.
+    rereview_row = by_status[PrincipleStatus.NEEDS_REREVIEW]
+    merged_row = by_status[PrincipleStatus.MERGED]
+    assert not rereview_row["publicVisible"]
+    assert not merged_row["publicVisible"]
+    assert rereview_row["reviewedAt"] is None
+    assert merged_row["reviewedAt"] is None
+
+    assert merged_row["mergedIntoId"] == "prn_accepted"
+    assert rereview_row["driftReason"] == "cluster_grew"
+    assert "cluster_grew" in rereview_row["triageReason"]
 
 
-def test_sync_refreshes_unreviewed_drafts_but_keeps_founder_actions(
+def test_sync_refreshes_recently_accepted_but_keeps_historical(
     codex_url: str,
 ) -> None:
+    from datetime import datetime, timedelta, timezone
+
+    # First pass: insert with a fixed "now" so we control the publishedAt.
+    first_now = datetime(2026, 5, 17, 12, 0, 0, tzinfo=timezone.utc)
     conn = _open_codex_connection(codex_url)
-    sync_drafts_to_codex(conn, organization_id=ORG, drafts=_queue_drafts())
+    sync_drafts_to_codex(
+        conn,
+        organization_id=ORG,
+        drafts=_queue_drafts(),
+        now=first_now,
+    )
     conn.close()
 
-    # Founder accepts the plain draft (simulated): it must survive a re-sync.
+    # Founder rejects the auto-accepted row (simulated): it must
+    # survive a re-sync because the cleanup only deletes accepted rows.
     conn = _open_codex_connection(codex_url)
     cur = conn.cursor()
     cur.execute(
-        'UPDATE "Principle" SET status = %s, "reviewedAt" = %s '
+        'UPDATE "Principle" SET status = %s '
         'WHERE "organizationId" = %s AND status = %s',
         (
-            PrincipleStatus.ACCEPTED,
-            "2026-05-14T01:00:00+00:00",
+            PrincipleStatus.REJECTED,
             ORG,
-            PrincipleStatus.DRAFT,
+            PrincipleStatus.ACCEPTED,
         ),
     )
     conn.commit()
     conn.close()
 
-    # Re-run distillation → sync again.
+    # Re-run distillation 30 minutes later — still inside the 24h window
+    # for "recently accepted," but the founder's rejection survives.
+    second_now = first_now + timedelta(minutes=30)
     conn = _open_codex_connection(codex_url)
     counts = sync_drafts_to_codex(
-        conn, organization_id=ORG, drafts=_queue_drafts()
+        conn,
+        organization_id=ORG,
+        drafts=_queue_drafts(),
+        now=second_now,
     )
     conn.close()
-    # No stale unreviewed drafts existed (the only draft was accepted).
+    # No accepted rows in the window (the founder flipped the only one
+    # to rejected before this run), so deleted_stale stays 0.
     assert counts["deleted_stale"] == 0
 
     rows = _fetch_principles(codex_url)
     statuses = sorted(r["status"] for r in rows)
-    # accepted (kept) + needs_rereview x2 + merged x2 + draft x1
+    # rejected (kept) + needs_rereview x2 + merged x2 + accepted x1
+    assert statuses.count(PrincipleStatus.REJECTED) == 1
     assert statuses.count(PrincipleStatus.ACCEPTED) == 1
-    assert statuses.count(PrincipleStatus.DRAFT) == 1
+
+
+def test_sync_replaces_recently_accepted_rows(codex_url: str) -> None:
+    """Two back-to-back syncs inside the 24h window must not duplicate."""
+    from datetime import datetime, timedelta, timezone
+
+    first_now = datetime(2026, 5, 17, 12, 0, 0, tzinfo=timezone.utc)
+    conn = _open_codex_connection(codex_url)
+    sync_drafts_to_codex(
+        conn,
+        organization_id=ORG,
+        drafts=_queue_drafts(),
+        now=first_now,
+    )
+    conn.close()
+
+    second_now = first_now + timedelta(hours=1)
+    conn = _open_codex_connection(codex_url)
+    counts = sync_drafts_to_codex(
+        conn,
+        organization_id=ORG,
+        drafts=_queue_drafts(),
+        now=second_now,
+    )
+    conn.close()
+    # The first run's auto-accepted row was deleted before the second
+    # insert; only one accepted row survives.
+    assert counts["deleted_stale"] == 1
+
+    rows = _fetch_principles(codex_url)
+    statuses = sorted(r["status"] for r in rows)
+    assert statuses.count(PrincipleStatus.ACCEPTED) == 1
+
+
+def test_sync_does_not_replace_historical_accepted_rows(codex_url: str) -> None:
+    """Accepted rows older than 24h are never wiped, even on re-sync."""
+    from datetime import datetime, timedelta, timezone
+
+    first_now = datetime(2026, 5, 14, 12, 0, 0, tzinfo=timezone.utc)
+    conn = _open_codex_connection(codex_url)
+    sync_drafts_to_codex(
+        conn,
+        organization_id=ORG,
+        drafts=_queue_drafts(),
+        now=first_now,
+    )
+    conn.close()
+
+    # Three days later, re-run — the first pass's accepted row is now
+    # historical and must survive untouched.
+    second_now = first_now + timedelta(days=3)
+    conn = _open_codex_connection(codex_url)
+    counts = sync_drafts_to_codex(
+        conn,
+        organization_id=ORG,
+        drafts=_queue_drafts(),
+        now=second_now,
+    )
+    conn.close()
+    assert counts["deleted_stale"] == 0
+
+    rows = _fetch_principles(codex_url)
+    statuses = sorted(r["status"] for r in rows)
+    # Both accepted rows survive: the first (historical) and the new one.
+    assert statuses.count(PrincipleStatus.ACCEPTED) == 2
 
 
 # ── D. Triage memo ───────────────────────────────────────────────────────────
@@ -623,11 +702,15 @@ def test_distillation_run_to_queue_end_to_end(codex_url: str) -> None:
     conn.close()
     assert counts["inserted"] == 3
     assert counts["merged"] == 1
-    assert counts["draft"] == 2
+    # Plain drafts now auto-accept on sync; merged rows stay merged.
+    assert counts["accepted"] == 2
 
     rows = _fetch_principles(codex_url)
-    queued = [r for r in rows if r["status"] == PrincipleStatus.DRAFT]
-    assert len(queued) == 2
+    accepted_rows = [r for r in rows if r["status"] == PrincipleStatus.ACCEPTED]
+    assert len(accepted_rows) == 2
+    for r in accepted_rows:
+        assert r["publicVisible"]
+        assert r["publishedAt"] is not None
 
     # The triage memo the agent produces — advisory, complete, no writes.
     conclusions_by_id = {c.id: c for c in conclusions}
@@ -649,9 +732,15 @@ def test_distillation_run_to_queue_end_to_end(codex_url: str) -> None:
     assert "Principle distilled from cluster 1." in memo
     assert "Auto-merged candidates" in memo
 
-    # Conviction recompute is a no-op here (no accepted rows in the DB yet),
-    # but it must run cleanly against the freshly-synced queue.
+    # Conviction recompute must run cleanly against the freshly-synced
+    # queue. Now that plain drafts auto-accept, the synced rows are
+    # themselves the accepted corpus this step iterates over — the test
+    # fixture doesn't populate Conclusion rows for the cluster ids, so
+    # the recompute simply drives conviction to zero for those rows.
+    # The contract under test is "runs cleanly," not the numeric outcome.
     conn = _open_codex_connection(codex_url)
     changes = recompute_conviction_for_accepted(conn, organization_id=ORG)
     conn.close()
-    assert changes == []
+    # Every change record is well-formed (the recompute didn't raise).
+    for ch in changes:
+        assert {"id", "before", "after", "cluster_before", "cluster_after"} <= ch.keys()

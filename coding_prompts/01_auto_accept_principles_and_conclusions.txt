@@ -1,0 +1,227 @@
+TITLE
+=====
+Auto-accept principles and conclusions end-to-end.
+
+CONTEXT
+=======
+The current architecture conflates two distinct concepts that should be
+separate:
+
+  1. INTERNAL AVAILABILITY: a principle is part of the firm's noosphere
+     model and usable by downstream reasoning (algorithm runtime,
+     synthesizer, contradiction engine, knowledge graph).
+  2. EXTERNAL PUBLICATION: a principle appears on the public-facing
+     /principles page.
+
+By gating BOTH on the same `status='accepted'` + `publicVisible=true`
+flags, controlled by a founder-confirmation triage flow, the system
+forces every internal-corpus addition through a publication-review
+step. This was never the intended design — the firm wants new
+extracted knowledge to be immediately available for internal
+reasoning, with publication as an additive (not subtractive) concern.
+
+Per founder direction (2026-05-17): "I want principles and conclusions
+to be auto-accepted into noosphere — no user approval, because I never
+asked for that." This prompt implements that change.
+
+The triage UI surfaces are addressed by prompt 30. This prompt focuses
+exclusively on the noosphere-side data model, extraction paths, and
+the one-time migration of existing draft rows.
+
+SCOPE
+=====
+IN SCOPE
+  * Modify `PrincipleExtractor` (noosphere/claim_extractor.py) so that
+    the `Conclusion` objects it returns have `principle_kind` already
+    set when the extractor produced a principle-shaped output.
+  * Modify the conclusion persistence path (noosphere/store.py
+    `put_conclusion` and the Prisma ingest write at
+    current_events_api ingest endpoints) so that new conclusions land
+    in the Prisma `Conclusion` table with `principleKind` set on
+    insert when the extractor produced a principle. No intermediate
+    rationale-as-proposal state.
+  * Modify `sync_drafts_to_codex` in
+    noosphere/distillation/principle_distillation.py so that every
+    inserted Principle row gets:
+        status         = 'accepted'
+        publicVisible  = true
+        reviewedAt     = createdAt
+        publishedAt    = createdAt
+    Remove the `status='draft'` default code path. Principles still
+    get a status field, but the field defaults to 'accepted' and the
+    sync writes that value. The `replace_unreviewed_drafts` parameter
+    is renamed to `replace_recently_accepted` and only deletes rows
+    whose `publishedAt` is within the last 24 hours (so re-running
+    distillation refreshes recent additions instead of duplicating
+    them, but historical accepted rows stay untouched).
+  * Update the public-principles read path (theseus-codex
+    src/lib/principlesApi.ts `listPublicPrinciples`) so the filter
+    is just `publicVisible=true` (drop the `status='accepted'` clause,
+    since accepted is now the default and the distinction collapses).
+  * One-time migration: any existing row in the `Principle` table
+    with status='draft' gets flipped to status='accepted',
+    publicVisible=true, reviewedAt=now, publishedAt=now. Implemented
+    as a SQL migration in
+    `theseus-codex/prisma/migrations/<ts>_auto_accept_existing_drafts/`.
+  * Update every test that asserted the old triage gate. The
+    canonical change: tests that asserted a newly-extracted principle
+    landed with `principleKind IS NULL` (because the triage UI sets
+    it on Accept) should now assert `principleKind IS NOT NULL` on
+    extraction. Tests that asserted Principle drafts landed with
+    `status='draft'` should now assert `status='accepted'`. Search
+    `tests/` for references to `status='draft'` and `principleKind`
+    NULL in principle-extraction contexts and update them.
+  * Update the bug-replay regression catalog
+    (tests/regression_catalog.py or wherever Round 19b prompt 25
+    landed it) to:
+      - REMOVE the "triage-gate is intact" bug-replay (if it exists).
+      - ADD a new bug-replay: "new principle from extraction does NOT
+        require triage." Assert that after running
+        PrincipleExtractor.extract on a chunk, the returned Conclusion
+        has principle_kind set; after calling put_conclusion on a
+        Prisma-shaped persistence path, the row's principleKind is
+        not NULL.
+  * Update the smoke harness end-to-end test
+    (scripts/smoke/api_endpoints.py or equivalent) so that the
+    ingest-to-visibility path is exercised in a single pass without
+    requiring any manual triage step.
+
+OUT OF SCOPE
+  * Modifying or removing the two triage UI pages
+    (/(authed)/extractor/re-extract and /(authed)/principles/queue).
+    Prompt 30 handles that. After this prompt lands, those pages will
+    show empty queues, which is the correct intermediate state.
+  * Building any new "public-review" gate as a separate concept.
+    The firm can add such a gate later as an additive feature; right
+    now the founder-direction is "auto-accept, no review."
+  * Touching live trading. The principle layer is upstream of the
+    bet layer; nothing in this prompt affects bet placement.
+
+REQUIREMENTS
+============
+1. `PrincipleExtractor.extract(chunk, ...)` returns Conclusion objects
+   whose `principle_kind`, `domain_of_applicability`,
+   `quantifiable_proxies`, `decision_examples`, and `source_span`
+   fields are all populated when the extractor produced a principle
+   (i.e., when the result is NOT a refusal). On refusal, return as
+   before — empty list of Conclusions, populated list of refusals.
+
+2. The conclusion-write path:
+     - For new conclusions ingested from artifact processing: write to
+       the Prisma `Conclusion` table with `principleKind` set on
+       insert. `text` holds the principle-shaped text directly.
+       `rationale` is unused for principle proposals (legacy
+       upload-metadata may still go there if the ingest path was
+       writing such metadata; remove that if so).
+     - For the noosphere SQLModel `conclusion` shadow table:
+       `put_conclusion` (noosphere/store.py) now writes
+       `principle_kind` into the payload_json so the Prisma-shaped
+       mirror sees it consistently.
+
+3. `sync_drafts_to_codex` now writes accepted-by-default Principles.
+   The function signature stays the same modulo the rename:
+   `replace_unreviewed_drafts` → `replace_recently_accepted`. The
+   semantics shift from "wipe stale drafts" to "wipe recently-added
+   accepted rows for replacement," with a 24-hour cutoff. Inserts
+   set: status='accepted', publicVisible=true, reviewedAt=now,
+   publishedAt=now.
+
+4. The public-principles read path filters only on `publicVisible`,
+   not on `status`. Rejected principles (status='rejected' if any
+   exist from manual rejection) should still be hidden — adjust the
+   filter to `publicVisible=true AND status != 'rejected'`. The
+   point: a positively-set rejection still hides the row, but the
+   default-published state surfaces it.
+
+5. The one-time migration SQL:
+       UPDATE "Principle"
+       SET status        = 'accepted',
+           "publicVisible" = true,
+           "reviewedAt"  = COALESCE("reviewedAt", "createdAt"),
+           "publishedAt" = COALESCE("publishedAt", "createdAt"),
+           "updatedAt"   = NOW()
+       WHERE status = 'draft';
+   Wrapped in a transaction. Migration timestamp uses
+   `<YYYYMMDDHHMMSS>_auto_accept_existing_drafts`. Update
+   `tests/migrations/test_migration_linearity.py` (or wherever Round
+   19b prompt 19 put it) to expect the new migration as the most
+   recent step.
+
+6. Tests:
+   - Update every test in noosphere/tests/ that asserts the old
+     draft-state behavior. The canonical query for "tests to update":
+     grep for the literal strings "draft" near "Principle" or
+     "principleKind" near "None"/"NULL"/"is None" in a context that
+     implies a gate.
+   - Add a new test
+     `noosphere/tests/test_auto_accept_principles.py` that exercises
+     the end-to-end flow: ingest a small artifact → run extraction
+     → run distillation → assert (a) the Conclusion has principle_kind
+     set, (b) the Principle landed with status='accepted', (c) the
+     /principles read path includes it.
+   - Update the smoke harness's algorithm-pipeline integration test
+     (Round 19b prompt 22) to assume principles are immediately
+     accepted; remove any setup code that manually flips draft → accept.
+
+7. Bug-replay regression catalog entry:
+   - Slug: `auto_accept_principles_2026_05_17`
+   - Symptom: a new principle extracted from an artifact remained
+     invisible on /principles because the triage gate required
+     founder action; the founder did not want that gate.
+   - Fix: principles auto-accept on extraction; publication is the
+     default state.
+   - Assertion: after running PrincipleExtractor on a fixture chunk
+     and persisting, the resulting Conclusion has principleKind set
+     and the Principle (if distillation runs) lands with
+     status='accepted'.
+
+SAFETY PROPERTIES
+=================
+* No live-trading code path is touched. The principle layer is read-
+  only from the trading side.
+* The schema's `status` enum is preserved (draft / accepted /
+  rejected / merged / needs_rereview). The change is which value is
+  the default and how the data is written, not the data model itself.
+  This keeps backward-compatibility with any external reader that
+  filters by status.
+* The migration is forward-only and idempotent: running it twice
+  produces the same result. Provide a `down` migration that reverts
+  every row to status='draft' for safety, even though the firm does
+  not intend to roll back.
+* No conclusion or principle is DELETED by this prompt. Drafts
+  become accepted; rejected rows (if any) stay rejected. The
+  worst-case from a bad agent extraction is "a wrong principle is
+  publicly visible," which the founder can remediate post-hoc via
+  the manual rejection path (UPDATE status='rejected'). The blast
+  radius is bounded by the firm's own corpus.
+
+DELIVERABLES
+============
+* noosphere/claim_extractor.py — PrincipleExtractor returns
+  Conclusions with principle_kind set on success.
+* noosphere/store.py — put_conclusion writes principle_kind into
+  payload_json; the Prisma-mirror write sets principleKind on insert.
+* noosphere/distillation/principle_distillation.py —
+  sync_drafts_to_codex writes accepted-by-default rows.
+* theseus-codex/src/lib/principlesApi.ts — listPublicPrinciples
+  filter updated.
+* theseus-codex/prisma/migrations/<ts>_auto_accept_existing_drafts/
+  migration.sql — one-time UPDATE.
+* noosphere/tests/test_auto_accept_principles.py — new test.
+* Updates to existing tests grepping for "draft" / "principleKind"
+  NULL / "triage gate" assertions.
+* Updates to scripts/smoke/api_endpoints.py — drop any manual
+  triage step in the smoke flow.
+* Updates to tests/regression_catalog.py — new bug-replay entry.
+
+VERIFICATION
+============
+After this prompt completes, the following commands should succeed:
+  1. `python -m noosphere principles distill` produces drafts that,
+     when synced via sync_drafts_to_codex, land as accepted+public.
+  2. The /principles page surfaces newly-extracted principles within
+     one page reload of ingest.
+  3. The existing 28 draft Principles in the Prisma table have
+     migrated to status='accepted', publicVisible=true.
+  4. The bug-testing gate (run via `./run_prompts.sh --gate-only`)
+     passes, including the new auto-accept regression test.

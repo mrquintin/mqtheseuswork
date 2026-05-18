@@ -1,0 +1,154 @@
+TITLE
+=====
+Decommission the principle and conclusion triage UI surfaces.
+
+CONTEXT
+=======
+With prompt 29 making principle/conclusion acceptance automatic on
+extraction, the two existing triage UIs are now empty queues by
+design:
+
+  * /(authed)/extractor/re-extract  — surfaced legacy first-person
+    conclusions for principle-shaped rewrite. The rewrite now happens
+    automatically and the rationale-as-proposal pattern is gone.
+
+  * /(authed)/principles/queue      — surfaced draft Principles for
+    accept/reject/merge triage. Distillation now writes accepted
+    rows directly.
+
+Leaving these pages in place creates two confusions:
+  1. They appear as live navigation items but always show an empty
+     queue, suggesting the system is broken when it's actually
+     working as designed.
+  2. The Accept/Reject/Edit buttons on those pages would, if clicked
+     on a hypothetical future draft, set fields that are now the
+     default; they're inert.
+
+This prompt decommissions both UIs. The user's preference (founder
+direction, 2026-05-17): no human gate on principle/conclusion entry
+into the noosphere model.
+
+SCOPE
+=====
+IN SCOPE
+  * Repurpose /(authed)/extractor/re-extract as a READ-ONLY audit log
+    of recent legacy first-person conclusions that the new extractor
+    has rewritten. Show the original first-person text + the new
+    principle text side-by-side, but with no Accept/Edit/Reject
+    buttons. Title the page "Extraction audit log." The point: the
+    founder can still inspect what the agent did, just can't gate it.
+  * Repurpose /(authed)/principles/queue similarly: a READ-ONLY
+    "Recent principle additions" log showing the most-recent N
+    Principles by createdAt desc, with no accept/reject buttons.
+    Title the page "Recent principles." Link out to /principles/[id]
+    for each row.
+  * Update the authed navigation surface (sidebar, top nav, or
+    wherever links to these pages live) so the link text reflects
+    the new read-only purpose: "Extraction log" and "Recent
+    principles" rather than "Re-extract triage queue" and
+    "Principle queue."
+  * Delete any client-side or server-side handlers wired to the
+    old Accept/Reject/Edit actions on these pages. Any API routes
+    that wrote `status='accepted'` or `principleKind` based on
+    button clicks are now dead code and should be removed (or
+    repurposed to power administrative-only retroactive flips,
+    behind a separate operator-only route).
+  * Search for any other UI surface that mentioned "triage queue"
+    or "principle queue" in copy, button text, or notification
+    badges. Update or remove.
+
+OUT OF SCOPE
+  * Removing the database `status` column or its enum values. The
+    schema stays intact; only the UI changes.
+  * Adding a new public-review gate. The founder may add one in a
+    later round if desired; this prompt is decommissioning, not
+    repurposing-with-new-rules.
+  * The `/(authed)/algorithms/queue` (algorithm-drafter triage queue)
+    — that's a separate concept (algorithms, not principles or
+    conclusions) and is not affected by founder direction. Leave it
+    in place.
+
+REQUIREMENTS
+============
+1. /(authed)/extractor/re-extract becomes a read-only page:
+   - Same query (first-person conclusions, top 200 by createdAt
+     desc) but display only.
+   - No buttons. No mutating form actions. No client-side state.
+   - Page title and breadcrumb: "Extraction audit log."
+   - Add a small note at the top of the page: "Principle extraction
+     is automatic. This page is a historical audit log."
+
+2. /(authed)/principles/queue becomes a read-only page:
+   - Query: top N Principles by createdAt desc (no status filter
+     anymore, since draft is gone). Show id, text preview, domains,
+     convictionScore, createdAt.
+   - No buttons. Each row links to /principles/[id].
+   - Page title: "Recent principles."
+
+3. Navigation:
+   - Update any sidebar/header that linked to these as "triage" or
+     "queue" surfaces. Use the new copy.
+   - If the operator dashboard had a "drafts pending review" badge
+     or count widget, retire it or replace with "recent additions"
+     count.
+
+4. Delete dead handlers:
+   - Any server action / API route / form handler whose only job
+     was to flip Principle.status or Conclusion.principleKind based
+     on a triage button click. If those routes had no other purpose,
+     delete them. If they're shared with other code paths, leave
+     them in place but ensure no UI calls them.
+
+5. Tests:
+   - Update e2e/integration tests that asserted clickable triage
+     buttons on either page. The new tests assert read-only display.
+   - Remove tests that exercised the accept/reject button flow on
+     these pages.
+   - Add a smoke check that both pages load with HTTP 200 and
+     contain the new copy ("Extraction audit log" / "Recent
+     principles").
+
+6. Bug-replay regression catalog:
+   - Add slug `decommissioned_triage_uis_2026_05_17` documenting
+     that these pages used to be triage queues. Symptom: founder
+     interpreted empty triage queues as system failure. Fix:
+     repurposed as audit log. Assertion: GET on each path returns
+     200 with the new title and no Accept/Reject buttons in the
+     rendered HTML.
+
+SAFETY PROPERTIES
+=================
+* No data is modified or deleted. Existing Principle and Conclusion
+  rows are untouched.
+* No live-trading code path is affected.
+* If a future round wants to reintroduce a triage step, the schema
+  fields (status, reviewedAt, publishedAt) are still there. The
+  decommission is UI-only; the data model retains capacity for
+  optional human review.
+
+DELIVERABLES
+============
+* theseus-codex/src/app/(authed)/extractor/re-extract/page.tsx —
+  read-only.
+* theseus-codex/src/app/(authed)/extractor/re-extract/ReExtractClient.tsx —
+  delete or convert to a non-interactive renderer.
+* theseus-codex/src/app/(authed)/principles/queue/page.tsx —
+  read-only.
+* theseus-codex/src/app/(authed)/principles/queue/QueueClient.tsx —
+  delete or convert.
+* Authed navigation copy updates (wherever the sidebar/nav lives).
+* Dead-handler cleanup (api routes if any).
+* Test updates per requirement 5.
+* New regression catalog entry per requirement 6.
+
+VERIFICATION
+============
+After this prompt completes:
+  1. Navigating to /(authed)/extractor/re-extract loads a read-only
+     audit log with no actionable buttons.
+  2. Navigating to /(authed)/principles/queue loads a read-only
+     "recent principles" page.
+  3. The /principles public page surfaces recently-added Principles
+     (the auto-accepted ones from prompt 29) immediately.
+  4. The bug-testing gate (`./run_prompts.sh --gate-only`) passes,
+     including the new decommissioning smoke check.

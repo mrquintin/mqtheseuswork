@@ -742,8 +742,8 @@ async function ActivePrinciplesPanel({ tenant }: { tenant: TenantContext }) {
       >
         <DashboardEmptyState
           heading="No accepted principles yet."
-          hint="Principles surface here once a distilled candidate has been accepted in the triage queue."
-          action={{ href: "/principles/queue", label: "Open triage queue" }}
+          hint="Principles surface here once distillation produces them — extraction auto-accepts, so the row appears as soon as the pipeline runs."
+          action={{ href: "/principles/queue", label: "Recent principles" }}
         />
       </section>
     );

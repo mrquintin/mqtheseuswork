@@ -1,65 +1,32 @@
+import Link from "next/link";
 import { redirect } from "next/navigation";
 
-import { hydrateClusterConclusions, listQueuedPrinciples } from "@/lib/principlesApi";
+import { listRecentPrinciples } from "@/lib/principlesApi";
 import { requireTenantContext } from "@/lib/tenant";
-
-import QueueClient, { type QueueRow } from "./QueueClient";
 
 export const dynamic = "force-dynamic";
 
+const RECENT_LIMIT = 100;
+
 /**
- * Founder triage queue for distilled principles.
+ * Recent principles — read-only audit log. Replaces the old
+ * founder-action surface at this URL (decommissioned 2026-05-17 per
+ * `decommissioned_triage_uis_2026_05_17` in BUG_CATALOG.md).
  *
- * Shows draft + needs-re-review rows, conviction-sorted. The detail
- * page (`/principles/[id]`) carries accept-with-edit / reject-with-
- * reason / merge-with-existing.
- *
- * The queue treats principles as reviewable artifacts: each row prints
- * the cluster size, the distinct domain count, and any drift reason
- * the re-distillation pass attached, so the reviewer reads the
- * provenance next to the candidate text. The conclusions under each
- * candidate are hydrated here and rendered as one-click links by the
- * client layer (`QueueClient`), which also carries keyboard navigation
- * and the page-scoped command palette.
+ * Distillation now auto-accepts (`auto_accept_principles_2026_05_17`);
+ * this page renders the most-recent principles descending by
+ * `createdAt`, with no actionable buttons. Each row links to the
+ * canonical detail at `/principles/[id]`.
  */
-export default async function PrinciplesQueuePage() {
+export default async function RecentPrinciplesPage() {
   const tenant = await requireTenantContext();
   if (!tenant) redirect("/login");
 
-  const rows = await listQueuedPrinciples(tenant.organizationId);
-
-  // Hydrate every cluster conclusion in one query, then partition back
-  // onto each row — the founder reads the candidate next to the
-  // conclusions it generalizes without a click.
-  const allConclusionIds = Array.from(
-    new Set(rows.flatMap((r) => r.clusterConclusionIds)),
-  );
-  const hydrated = await hydrateClusterConclusions(
-    tenant.organizationId,
-    allConclusionIds,
-  );
-  const conclusionById = new Map(hydrated.map((c) => [c.id, c]));
-
-  const queueRows: QueueRow[] = rows.map((r) => ({
-    id: r.id,
-    text: r.text,
-    convictionScore: r.convictionScore,
-    domainBreadth: r.domainBreadth,
-    status: r.status,
-    driftReason: r.driftReason,
-    domains: r.domains,
-    clusterConclusionIds: r.clusterConclusionIds,
-    citedConclusionIds: r.citedConclusionIds,
-    conclusions: r.clusterConclusionIds
-      .map((id) => conclusionById.get(id))
-      .filter(
-        (c): c is { id: string; text: string; confidenceTier: string } =>
-          Boolean(c),
-      ),
-  }));
+  const rows = await listRecentPrinciples(tenant.organizationId, RECENT_LIMIT);
 
   return (
     <main
+      data-testid="recent-principles"
       style={{
         maxWidth: "1080px",
         margin: "0 auto",
@@ -75,27 +42,24 @@ export default async function PrinciplesQueuePage() {
             margin: 0,
           }}
         >
-          Principles · triage queue
+          Recent principles
         </h1>
         <p
           className="mono"
           style={{
             fontSize: "0.65rem",
-            letterSpacing: "0.24em",
+            letterSpacing: "0.18em",
             textTransform: "uppercase",
-            color: "var(--amber-dim)",
+            color: "var(--parchment-dim)",
             marginTop: "0.4rem",
           }}
+          data-testid="recent-principles-banner"
         >
-          {queueRows.length} awaiting review
+          Principle distillation is automatic. Read-only log, most
+          recent first.
         </p>
-        {/* R-019: ordering criterion is shown explicitly so the reader
-         * knows what "top of the queue" means. Today the queue is
-         * conviction-sorted and the ordering is fixed; the popover with
-         * alternatives is left to a follow-up pass (see SUMMARY.md). */}
         <p
           className="mono"
-          data-testid="queue-ordering-criterion"
           style={{
             fontSize: "0.65rem",
             letterSpacing: "0.18em",
@@ -104,27 +68,11 @@ export default async function PrinciplesQueuePage() {
             marginTop: "0.2rem",
           }}
         >
-          Ordered by: conviction (descending)
-        </p>
-        <p
-          style={{
-            fontFamily: "'EB Garamond', serif",
-            fontStyle: "italic",
-            color: "var(--parchment-dim)",
-            marginTop: "0.75rem",
-            maxWidth: "44em",
-            lineHeight: 1.55,
-          }}
-        >
-          Each draft is a candidate principle the firm keeps re-deriving
-          across its conclusions. Conviction is conservative: a single
-          high-centrality conclusion does not produce a principle —
-          convergence across domains does. Accept (with edits), reject
-          (with reason), or merge into an existing principle.
+          {rows.length} principle{rows.length === 1 ? "" : "s"} in window
         </p>
       </header>
 
-      {queueRows.length === 0 ? (
+      {rows.length === 0 ? (
         <p
           className="mono"
           style={{
@@ -135,10 +83,85 @@ export default async function PrinciplesQueuePage() {
             padding: "2rem 0",
           }}
         >
-          No drafts in the queue.
+          No principles distilled yet.
         </p>
       ) : (
-        <QueueClient rows={queueRows} />
+        <ul
+          style={{
+            listStyle: "none",
+            padding: 0,
+            margin: 0,
+            display: "flex",
+            flexDirection: "column",
+            gap: "0.85rem",
+          }}
+        >
+          {rows.map((row) => (
+            <li
+              key={row.id}
+              className="portal-card"
+              data-testid="recent-principle-row"
+              style={{ padding: "1.1rem 1.3rem" }}
+            >
+              <div
+                style={{
+                  display: "flex",
+                  justifyContent: "space-between",
+                  alignItems: "baseline",
+                  gap: "1rem",
+                }}
+              >
+                <Link
+                  href={`/principles/${row.id}`}
+                  style={{
+                    color: "var(--gold)",
+                    textDecoration: "none",
+                    fontSize: "1rem",
+                    fontFamily: "'EB Garamond', serif",
+                    flex: 1,
+                  }}
+                >
+                  {row.text}
+                </Link>
+                <span
+                  className="mono"
+                  title="Conviction score"
+                  style={{
+                    fontSize: "0.75rem",
+                    color: "var(--amber)",
+                    letterSpacing: "0.1em",
+                  }}
+                >
+                  {row.convictionScore.toFixed(2)}
+                </span>
+              </div>
+
+              <div
+                className="mono"
+                style={{
+                  marginTop: "0.5rem",
+                  fontSize: "0.65rem",
+                  letterSpacing: "0.18em",
+                  textTransform: "uppercase",
+                  color: "var(--parchment-dim)",
+                  display: "flex",
+                  flexWrap: "wrap",
+                  gap: "0.75rem",
+                }}
+              >
+                <span>{new Date(row.createdAt).toLocaleDateString()}</span>
+                <span>status · {row.status}</span>
+                {row.domains.length > 0 ? (
+                  <span>
+                    domains ·{" "}
+                    {row.domains.slice(0, 4).join(", ")}
+                    {row.domains.length > 4 ? "…" : ""}
+                  </span>
+                ) : null}
+              </div>
+            </li>
+          ))}
+        </ul>
       )}
     </main>
   );

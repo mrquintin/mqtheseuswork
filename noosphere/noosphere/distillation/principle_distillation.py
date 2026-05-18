@@ -29,7 +29,7 @@ import json
 import math
 import uuid
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any, Iterable, Optional, Sequence
 
 from anthropic import Anthropic
@@ -965,47 +965,50 @@ def sync_drafts_to_codex(
     organization_id: str,
     drafts: Sequence[DraftPrinciple],
     now: Optional[datetime] = None,
-    replace_unreviewed_drafts: bool = True,
+    replace_recently_accepted: bool = True,
     id_factory: Any = _principle_id,
 ) -> dict[str, int]:
     """
     Persist a distillation pass into the Codex ``Principle`` table.
 
-    Every row lands as ``draft`` / ``needs_rereview`` / ``merged`` —
-    never ``accepted`` and never ``publicVisible``. Publishing a
-    principle is a founder action in the triage UI; this sync only
-    fills the queue.
+    Per founder direction (2026-05-17), every queueable draft lands as
+    ``accepted`` + ``publicVisible=true`` on insert. ``reviewedAt`` and
+    ``publishedAt`` are stamped to the insert time. ``needs_rereview``
+    and ``merged`` rows still carry their own status — only the plain
+    ``draft`` status flips to ``accepted`` on the way in.
 
-    When ``replace_unreviewed_drafts`` is set (the default), any
-    existing ``draft`` rows the founder has not yet touched
-    (``reviewedAt IS NULL``) are deleted first, so re-running
-    distillation refreshes the queue instead of piling duplicates onto
-    it — rows the founder has already accepted / rejected / merged are
-    never touched.
+    When ``replace_recently_accepted`` is set (the default), any
+    ``accepted`` rows the sync itself produced within the last 24 hours
+    are deleted first, so re-running distillation refreshes recent
+    additions instead of piling duplicates onto them — historical
+    accepted rows (older than 24h) and rows the founder explicitly
+    rejected are never touched.
 
     ``conn`` is a DB connection the caller owns (psycopg2 against the
     real Codex, or the ``codex_bridge`` SQLite shim in tests). The
     caller is responsible for closing it.
 
-    Returns counts: ``{"inserted", "deleted_stale", "draft",
+    Returns counts: ``{"inserted", "deleted_stale", "accepted",
     "needs_rereview", "merged"}``.
     """
-    ts = (now or datetime.now(timezone.utc)).isoformat()
+    now_dt = now or datetime.now(timezone.utc)
+    ts = now_dt.isoformat()
     cur = _dict_cursor(conn)
     counts = {
         "inserted": 0,
         "deleted_stale": 0,
-        "draft": 0,
+        "accepted": 0,
         "needs_rereview": 0,
         "merged": 0,
     }
 
-    if replace_unreviewed_drafts:
+    if replace_recently_accepted:
+        cutoff = (now_dt - timedelta(hours=24)).isoformat()
         cur.execute(
             'DELETE FROM "Principle" '
             'WHERE "organizationId" = %s AND status = %s '
-            'AND "reviewedAt" IS NULL',
-            (organization_id, PrincipleStatus.DRAFT),
+            'AND "publishedAt" IS NOT NULL AND "publishedAt" >= %s',
+            (organization_id, PrincipleStatus.ACCEPTED, cutoff),
         )
         counts["deleted_stale"] = int(cur.rowcount or 0)
 
@@ -1014,17 +1017,29 @@ def sync_drafts_to_codex(
     insert_sql = f'INSERT INTO "Principle" ({columns}) VALUES ({placeholders})'
 
     for draft in drafts:
-        status = draft.status
-        if status not in (
+        draft_status = draft.status
+        if draft_status not in (
             PrincipleStatus.DRAFT,
             PrincipleStatus.NEEDS_REREVIEW,
             PrincipleStatus.MERGED,
         ):
-            # The sync never publishes; anything else is a bug upstream.
             logger.warning(
-                "skipping draft with non-queue status %r", status
+                "skipping draft with non-queue status %r", draft_status
             )
             continue
+        # Plain drafts auto-accept on insert; needs_rereview and merged
+        # keep their own status (they represent founder-relevant signals
+        # the auto-accept path should not silently overwrite).
+        if draft_status == PrincipleStatus.DRAFT:
+            status = PrincipleStatus.ACCEPTED
+            public_visible = True
+            reviewed_at: Optional[str] = ts
+            published_at: Optional[str] = ts
+        else:
+            status = draft_status
+            public_visible = False
+            reviewed_at = None
+            published_at = None
         row = (
             id_factory(),
             organization_id,
@@ -1038,13 +1053,13 @@ def sync_drafts_to_codex(
             float(draft.conviction_score),
             int(draft.domain_breadth),
             float(draft.cluster_centroid_similarity),
-            False,  # publicVisible — never set by the sync
+            public_visible,
             draft.drift_reason,
             None,  # reviewedByFounderId — founder action only
             ts,  # createdAt
             ts,  # updatedAt
-            None,  # reviewedAt
-            None,  # publishedAt
+            reviewed_at,
+            published_at,
         )
         cur.execute(insert_sql, row)
         counts["inserted"] += 1

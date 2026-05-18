@@ -184,6 +184,57 @@ override) and the API boot-check is the runtime backstop.
 - **Test:** shares `test_b06_sync_requires_supabase_access_token` and
   `test_b15_sync_push_requires_rotation_token`.
 
+## B16 — `auto_accept_principles_2026_05_17`: triage gate hid extracted principles
+
+Slug: `auto_accept_principles_2026_05_17`.
+
+A principle extracted from an artifact stayed invisible on
+`/principles` because `sync_drafts_to_codex` inserted it as
+`status='draft'` + `publicVisible=false`, and the public read path
+only surfaced rows where both `status='accepted'` AND
+`publicVisible=true`. Publication therefore required a founder action
+in the triage UI for every extracted row — a gate the founder never
+asked for.
+
+Per founder direction (2026-05-17), the gate is removed: plain drafts
+auto-accept on sync, the public read filter collapses to
+`publicVisible AND status != 'rejected'`, and a one-time migration
+flips every existing draft to accepted. The founder remediates a bad
+extraction by setting `status='rejected'` rather than approving each
+correct one.
+
+- **Fix:** `noosphere/distillation/principle_distillation.py`
+  (`sync_drafts_to_codex` auto-accepts) +
+  `theseus-codex/src/lib/principlesApi.ts:listPublicPrinciples`
+  (filter) +
+  `theseus-codex/prisma/migrations/20260517020000_auto_accept_existing_drafts/migration.sql`.
+- **Test:** `test_b16_auto_accept_principles_no_triage_gate`.
+
+## B17 — `decommissioned_triage_uis_2026_05_17`: empty triage queues misread as system failure
+
+Slug: `decommissioned_triage_uis_2026_05_17`.
+
+After auto-accept landed (B16), the founder navigated to
+`/(authed)/principles/queue` and `/(authed)/extractor/re-extract`,
+saw the queues empty by design, and interpreted the empty state as a
+broken extractor — the Accept / Reject / Edit buttons on the pages
+implied "founder action required" even though no row would ever land
+there again. The two pages were repurposed as READ-ONLY audit logs
+(`/principles/queue` → "Recent principles" by `createdAt` desc;
+`/extractor/re-extract` → "Extraction audit log") with all mutating
+affordances removed. The schema retains `status` / `reviewedAt` /
+`publishedAt` so a future operator surface can be reintroduced
+without a migration; the founder remediates a bad extraction by
+flipping `status='rejected'` directly.
+
+- **Fix:** `theseus-codex/src/app/(authed)/principles/queue/page.tsx`
+  + `theseus-codex/src/app/(authed)/extractor/re-extract/page.tsx`
+  (read-only renderers) + removal of
+  `theseus-codex/src/app/(authed)/principles/[id]/triage/` and the
+  `acceptPrinciple`/`rejectPrinciple`/`mergePrinciple` helpers from
+  `principlesApi.ts`.
+- **Test:** `test_b17_decommissioned_triage_uis`.
+
 ---
 
 ## How to add a new entry

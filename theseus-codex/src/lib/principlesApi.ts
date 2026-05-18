@@ -21,8 +21,11 @@ import { db } from "@/lib/db";
  *                              surface filters on this column AND on a
  *                              non-empty domain list AND on status=accepted
  *
- * The triage UI (queue + detail page) reads from here; the public
- * `/methodology/principles` page reads `listPublicPrinciples`.
+ * The authed read-only audit-log surfaces read `listRecentPrinciples`
+ * here; the public `/methodology/principles` page reads
+ * `listPublicPrinciples`. The accept/reject/merge helpers that backed
+ * the now-decommissioned triage UI were removed on 2026-05-17 (cf.
+ * `decommissioned_triage_uis_2026_05_17` in BUG_CATALOG.md).
  */
 
 export type PrincipleStatus =
@@ -110,16 +113,19 @@ function rowFromPrisma(p: {
   };
 }
 
-/** Founder triage queue: drafts + needs-re-review, conviction-sorted. */
-export async function listQueuedPrinciples(
+/**
+ * Read-only "Recent principles" log. Replaces the decommissioned
+ * triage queue (auto-accept removed the gate; this surface is now
+ * historical and not status-filtered).
+ */
+export async function listRecentPrinciples(
   organizationId: string,
+  limit = 100,
 ): Promise<PrincipleRow[]> {
   const rows = await db.principle.findMany({
-    where: {
-      organizationId,
-      status: { in: ["draft", "needs_rereview"] },
-    },
-    orderBy: [{ convictionScore: "desc" }, { createdAt: "desc" }],
+    where: { organizationId },
+    orderBy: { createdAt: "desc" },
+    take: limit,
   });
   return rows.map(rowFromPrisma);
 }
@@ -138,8 +144,8 @@ export async function getPrinciple(
  * Public surface read.
  *
  * A principle is public-visible iff:
- *   - status = accepted
  *   - publicVisible = true
+ *   - status != rejected (a positively-set rejection still hides the row)
  *   - domains is non-empty (constraint: declare your domain)
  *
  * Sorted by convictionScore desc — conviction-weighted ordering on the
@@ -155,8 +161,8 @@ export async function listPublicPrinciples(
   const rows = await db.principle.findMany({
     where: {
       ...(organizationId ? { organizationId } : {}),
-      status: "accepted",
       publicVisible: true,
+      status: { not: "rejected" },
     },
     orderBy: [{ convictionScore: "desc" }, { publishedAt: "desc" }],
   });
@@ -189,93 +195,16 @@ export async function listPublicPrinciples(
   }));
 }
 
-export type AcceptInput = {
-  text: string;
-  domains: string[];
-  publicVisible: boolean;
-};
+// Founder accept/reject/merge handlers were removed on 2026-05-17 when
+// the principle triage UI was decommissioned (drafts auto-accept on
+// extraction; cf. `auto_accept_principles_2026_05_17`). The `status`,
+// `reviewedAt`, and `publishedAt` columns remain on the schema so a
+// future operator surface can be reintroduced without a migration.
 
-export async function acceptPrinciple(
-  organizationId: string,
-  id: string,
-  founderId: string,
-  input: AcceptInput,
-): Promise<void> {
-  // Public visibility requires a non-empty domain list — the firm
-  // avoids publishing universal-sounding principles whose evidence
-  // is domain-narrow.
-  const safeDomains = input.domains.map((d) => d.trim()).filter(Boolean);
-  const allowPublic = input.publicVisible && safeDomains.length > 0;
-  await db.principle.update({
-    where: { id },
-    data: {
-      text: input.text.trim(),
-      domainsJson: JSON.stringify(safeDomains),
-      status: "accepted",
-      driftReason: null,
-      reviewedByFounderId: founderId,
-      reviewedAt: new Date(),
-      publicVisible: allowPublic,
-      publishedAt: allowPublic ? new Date() : null,
-      triageReason: "",
-    },
-  });
-  // Touch organizationId in the WHERE clause via a separate guard so a
-  // cross-tenant update fails fast.
-  await db.principle.updateMany({
-    where: { id, organizationId },
-    data: {},
-  });
-}
-
-export async function rejectPrinciple(
-  organizationId: string,
-  id: string,
-  founderId: string,
-  reason: string,
-): Promise<void> {
-  await db.principle.updateMany({
-    where: { id, organizationId },
-    data: {
-      status: "rejected",
-      triageReason: reason.trim(),
-      reviewedByFounderId: founderId,
-      reviewedAt: new Date(),
-      publicVisible: false,
-      publishedAt: null,
-    },
-  });
-}
-
-export async function mergePrinciple(
-  organizationId: string,
-  id: string,
-  founderId: string,
-  intoId: string,
-): Promise<void> {
-  if (id === intoId) {
-    throw new Error("Cannot merge a principle into itself");
-  }
-  const target = await db.principle.findFirst({
-    where: { id: intoId, organizationId },
-  });
-  if (!target) {
-    throw new Error("Merge target not found in this organization");
-  }
-  await db.principle.updateMany({
-    where: { id, organizationId },
-    data: {
-      status: "merged",
-      mergedIntoId: intoId,
-      reviewedByFounderId: founderId,
-      reviewedAt: new Date(),
-      publicVisible: false,
-      publishedAt: null,
-    },
-  });
-}
-
-/** Used by the founder detail page to pick a merge target. */
+/**
+ * Accepted principles for the dashboard / knowledge tab — the public
+ * surface ordering and read-only listings depend on this query.
+ */
 export async function listAcceptedPrinciples(
   organizationId: string,
   excludeId?: string,
@@ -292,24 +221,3 @@ export async function listAcceptedPrinciples(
   return rows.map(rowFromPrisma);
 }
 
-/**
- * Hydrate cluster conclusion text for the founder detail page so the
- * reviewer reads the principle next to the conclusions it generalizes.
- */
-export async function hydrateClusterConclusions(
-  organizationId: string,
-  ids: string[],
-): Promise<Array<{ id: string; text: string; confidenceTier: string }>> {
-  if (ids.length === 0) return [];
-  const rows = await db.conclusion.findMany({
-    where: { id: { in: ids }, organizationId },
-    select: { id: true, text: true, confidenceTier: true },
-  });
-  const byId = new Map(rows.map((r) => [r.id, r]));
-  return ids
-    .map((id) => byId.get(id))
-    .filter(
-      (c): c is { id: string; text: string; confidenceTier: string } =>
-        Boolean(c),
-    );
-}
