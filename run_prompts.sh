@@ -584,7 +584,10 @@ run_ready_to_sync_gate() {
 
   local gate_args=()
   [ -n "$GATE_FROM" ] && gate_args+=("--from" "$GATE_FROM")
-  "$gate" "${gate_args[@]}"
+  # Under `set -u` (nounset), expanding an empty array directly with
+  # "${gate_args[@]}" errors out on zsh/bash 4. Use the `${var+...}`
+  # form so an empty array expands to nothing instead of erroring.
+  "$gate" ${gate_args[@]+"${gate_args[@]}"}
   return $?
 }
 
