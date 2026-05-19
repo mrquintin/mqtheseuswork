@@ -1,0 +1,69 @@
+================================================================================
+27 — Settings + admin pages
+================================================================================
+
+GOAL
+A small set of operator-tunable pages: business context, extractor
+toggles, cost dashboard, methods registry, audit log + chain
+verification, drift signals, decay preview, refusal dashboard.
+
+Single-user, so no auth gating beyond what the existing app does.
+Functional forms; minimal polish.
+
+TASK
+
+1. /settings index app/settings/page.tsx — link list to the sub-pages.
+
+2. /settings/business-context — edit the Meta key `business_context`.
+   Textarea, save button, audit-logged.
+
+3. /settings/extractor — toggle these Meta keys:
+   - extractor_enabled (default '1')
+   - extractor_daily_chunk_limit (default '5000')
+   - factcheck_web_enabled (default '1')
+   - factcheck_daily_limit (default '30')
+   - decay_auto_archive (default '0')
+   - operator_speaker_names (CSV; default 'colin,colin yuan')
+   - operator_email_domain (default '@marsestate')
+   - cost_daily_cap_usd (default '5')
+
+4. /settings/cost — cost dashboard.
+   Total spend this month, last month. Daily stacked bar chart
+   (cost by category) over the last 30 days. Top-10 methods by total
+   cost. Per-feature breakdown (extraction / oracle / decision_test /
+   factcheck / clustering / faithfulness / conflict / contradiction).
+   Reads from cost_rollup_daily (populated by prompt 28's recordCost).
+
+5. /admin/methods — method registry view.
+   Table of all rows from `methods`. Per row: invocations (last 30
+   days), failures, p50 ms, p95 ms, total cost. Per-method detail
+   page /admin/methods/[id] with recent invocations table (paged).
+
+6. /admin/audit — audit log viewer.
+   Filters: actor (kind + id), action, subject_kind, date range.
+   "Verify chain" button → calls GET /api/admin/audit/verify and
+   shows the result.
+
+7. /admin/refusals — refusal dashboard.
+   Aggregates RIGOR_GATE_BLOCK and RIGOR_GATE_PASS audit events from
+   the last 30 days. Per check name: count blocked, count warned.
+   Sparkline. Callout: "Probably broken: <check name> has not fired
+   in 30 days" if zero events.
+
+8. /admin/drift — drift signals.
+   Calls detectDriftAll(30, 0.15) (prompt 20) and renders.
+
+9. /admin/decay — decay preview + apply.
+   Calls runDecayTick({ dryRun: true }) and renders the list of
+   principles that WOULD be decayed or archived. An "Apply now"
+   button calls runDecayTick({ dryRun: false }) with confirmation +
+   audit.
+
+ACCEPTANCE CRITERIA
+- Each page renders with the seed data + any organic data.
+- Toggling factcheck_web_enabled to '0' makes the next fact-check
+  use the LLM-only fallback (verifiable in /admin/audit).
+- The audit "Verify chain" button returns ok.
+- Cost dashboard shows realistic spend after a few Oracle calls.
+
+================================================================================

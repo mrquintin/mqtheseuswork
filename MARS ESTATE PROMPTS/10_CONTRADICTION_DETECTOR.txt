@@ -1,0 +1,146 @@
+================================================================================
+10 — Contradiction detector (Sonnet judge, embedding pre-filter)
+================================================================================
+
+GOAL
+Detect logical contradictions between Principles. Persist as
+Contradiction rows; insert two contradicts Relationship edges; emit
+audit event.
+
+TASK
+
+1. Create lib/engine/validate/contradiction.ts:
+
+  import { invokeMethod, registerMethod } from '@/lib/methods/registry';
+  import { callClaudeJson } from '@/lib/methods/anthropic';
+  import { Principles, Contradictions, Relationships, getDb, isVecLoaded } from '@/lib/db';
+  import { recordEvent } from '@/lib/audit/recordEvent';
+  import { ACTIONS } from '@/lib/audit/actions';
+
+  const BAND = { min: 0.45, max: 0.92 };
+  const SEVERITY_FLOOR = 0.4;
+
+  const SYSTEM = `You are a logical contradiction detector for Mars Estate. Given two business principles, decide whether they LOGICALLY CONTRADICT — they cannot both be true under any reasonable interpretation.
+
+LOOK FOR
+- Direct negation ("we always X" vs "we never X")
+- Quantifier conflict ("all" vs "most")
+- Modal conflict ("must" vs "cannot")
+- Definitional incompatibility
+
+NOT contradiction
+- Different topics that happen to be close in embedding space.
+- Strategic tension (e.g. premium positioning vs mass distribution — that's a CONFLICT, not a contradiction).
+- An old statement of the same principle (just stale, not contradicted).
+
+OUTPUT JSON: { "contradicts": boolean, "severity": 0..1, "rationale": "one paragraph" }`;
+
+  interface Input { leftId: number; rightId: number; }
+  interface Output { contradiction: { id: number } | null; }
+
+  export function registerContradictionDetector(): void {
+    registerMethod<Input, Output>({
+      id: 'contradiction_detector_v1',
+      name: 'Contradiction Detector',
+      version: '1.0.0',
+      run: async ({ leftId, rightId }) => {
+        if (leftId === rightId) return { contradiction: null };
+        if (Contradictions.isFalsePositive(leftId, rightId)) return { contradiction: null };
+        const existing = Contradictions.findOpen(leftId, rightId);
+        if (existing) return { contradiction: { id: existing.id } };
+        const left = Principles.get(leftId);
+        const right = Principles.get(rightId);
+        if (!left || !right) return { contradiction: null };
+
+        const cosine = await principleCosine(leftId, rightId);
+        if (cosine < BAND.min || cosine > BAND.max) return { contradiction: null };
+
+        const { json } = await callClaudeJson<{ contradicts: boolean; severity: number; rationale: string }>({
+          model: 'claude-sonnet-4-6',
+          system: SYSTEM,
+          user: `PRINCIPLE A:\n${left.canonical_statement}\n\nPRINCIPLE B:\n${right.canonical_statement}`,
+          maxTokens: 600,
+        });
+        if (!json.contradicts || json.severity < SEVERITY_FLOOR) return { contradiction: null };
+
+        const c = Contradictions.create({
+          left_id: leftId, right_id: rightId,
+          severity: json.severity,
+          detected_by: 'contradiction_detector_v1',
+          rationale: json.rationale,
+        });
+        Relationships.create({
+          rel_type: 'contradicts',
+          source_kind: 'principle', source_id: leftId,
+          target_kind: 'principle', target_id: rightId,
+          strength: json.severity, detected_by: 'contradiction_detector_v1',
+        });
+        Relationships.create({
+          rel_type: 'contradicts',
+          source_kind: 'principle', source_id: rightId,
+          target_kind: 'principle', target_id: leftId,
+          strength: json.severity, detected_by: 'contradiction_detector_v1',
+        });
+        recordEvent({
+          actorKind: 'method', actorId: 'contradiction_detector_v1',
+          action: ACTIONS.CONTRADICTION_DETECT,
+          subjectKind: 'contradiction', subjectId: String(c.id),
+          payload: { leftId, rightId, severity: json.severity },
+        });
+        return { contradiction: { id: c.id } };
+      },
+    });
+  }
+
+  async function principleCosine(a: number, b: number): Promise<number> {
+    if (!isVecLoaded()) return 0.5; // conservative middle value forces the LLM judge through
+    const row = getDb().prepare(
+      `SELECT vec_distance_cosine(
+                (SELECT embedding FROM vec_chunks WHERE chunk_id = ?),
+                (SELECT embedding FROM vec_chunks WHERE chunk_id = ?)
+              ) AS dist`
+    ).get(BigInt(-a), BigInt(-b)) as { dist: number | null } | undefined;
+    if (row?.dist == null) return 0;
+    return 1 - row.dist;
+  }
+
+  export async function detectContradictionsAgainstNeighbours(principleId: number, k = 15): Promise<number[]> {
+    if (!isVecLoaded()) return [];
+    const row = getDb().prepare(
+      `SELECT chunk_id FROM vec_chunks
+        WHERE embedding MATCH (SELECT embedding FROM vec_chunks WHERE chunk_id = ?)
+          AND chunk_id < 0 AND chunk_id <> ?
+        ORDER BY distance LIMIT ?`
+    ).all(BigInt(-principleId), BigInt(-principleId), k) as Array<{ chunk_id: number }>;
+    const found: number[] = [];
+    for (const r of row) {
+      const otherId = -r.chunk_id;
+      const out = await invokeMethod<Input, Output>('contradiction_detector_v1', { leftId: principleId, rightId: otherId });
+      if (out.contradiction) found.push(out.contradiction.id);
+    }
+    return found;
+  }
+
+2. Status / dismissal: when the operator dismisses a Contradiction from
+   the UI (prompt 19), insert a finding_false_positives row with
+   kind='contradiction' so the sweep won't recreate it. Add audit event
+   CONTRADICTION_RESOLVE.
+
+3. Trigger points:
+   - End of principle_cluster_v1 (after canonicalize): for every newly
+     created principle, run detectContradictionsAgainstNeighbours.
+   - Weekly Cowork sweep (prompt 17).
+
+4. Register: add `registerContradictionDetector()` to
+   lib/methods/registerAll.ts.
+
+ACCEPTANCE CRITERIA
+- Test pair "We always offer exclusivity to top distributors" vs "We
+  never offer exclusivity to any distributor" produces a Contradiction
+  with severity > 0.7.
+- Test pair "We sell wholesale" vs "We sell DTC" yields NO
+  Contradiction.
+- Dismissing a Contradiction inserts a finding_false_positives row;
+  re-running the detector on the same pair returns null.
+
+================================================================================

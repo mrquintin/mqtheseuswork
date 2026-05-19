@@ -1,0 +1,207 @@
+================================================================================
+17 — Outcomes + inverse-inference post-mortem + revision approvals
+================================================================================
+
+GOAL
+Operator records what actually happened for a past Decision. The
+platform runs inverse inference to suggest principle-conviction
+adjustments. The operator approves or dismisses each suggestion;
+approved ones shift conviction and record DriftEvents.
+
+TASK
+
+1. Create lib/engine/reason/outcomes.ts:
+
+  import { Outcomes, Decisions } from '@/lib/db';
+  import { recordEvent } from '@/lib/audit/recordEvent';
+  import { ACTIONS } from '@/lib/audit/actions';
+  import { reconcileOutcome, type InverseResult } from './inverse';
+
+  export interface RecordOutcomeInput {
+    decisionId: number;
+    happened?: 0 | 1 | null;
+    actualText: string;
+    confidenceInDescription?: number;
+    recordedBy?: string;
+  }
+
+  export async function recordOutcome(input: RecordOutcomeInput): Promise<{
+    outcomeId: number; postmortem: InverseResult;
+  }> {
+    const d = Decisions.get(input.decisionId);
+    if (!d) throw new Error('decision not found');
+    let brier: number | null = null;
+    if (input.happened === 0 || input.happened === 1) {
+      brier = (d.confidence - input.happened) ** 2;
+    }
+    const o = Outcomes.create({
+      decision_id: input.decisionId,
+      happened: input.happened ?? null,
+      actual_text: input.actualText,
+      confidence_in_description: input.confidenceInDescription ?? null,
+      brier_component: brier,
+    });
+    recordEvent({
+      actorKind: 'user', actorId: input.recordedBy ?? 'colin',
+      action: ACTIONS.OUTCOME_RECORD,
+      subjectKind: 'outcome', subjectId: String(o.id),
+      payload: { decisionId: input.decisionId, happened: input.happened, brier },
+    });
+    const postmortem = await reconcileOutcome(o.id);
+    return { outcomeId: o.id, postmortem };
+  }
+
+2. Create lib/engine/reason/inverse.ts:
+
+  import { invokeMethod, registerMethod } from '@/lib/methods/registry';
+  import { callClaudeJson } from '@/lib/methods/anthropic';
+  import { Outcomes, Decisions, Principles, RevisionSuggestions } from '@/lib/db';
+  import { recordEvent } from '@/lib/audit/recordEvent';
+  import { ACTIONS } from '@/lib/audit/actions';
+
+  const SYSTEM = `You do post-mortem analysis for Mars Estate. Given a past DECISION (prediction + recommended answer), the actual OUTCOME, and the PRINCIPLES involved with their prior roles, decide for each principle whether the actual outcome REINFORCES, UNDERMINES, or is NEUTRAL toward it.
+
+For each principle suggest a small conviction delta in [-0.30, +0.30]:
+- reinforcing a SUPPORTED principle    → +0.05 .. +0.15
+- undermining a SUPPORTED principle    → -0.10 .. -0.25
+- reinforcing a CONTRADICTING principle → +0.10 .. +0.20
+- undermining a CONTRADICTING principle → -0.05 .. -0.10
+
+Scale by how decisive the outcome was.
+
+OUTPUT JSON:
+{
+  "alignment": "aligned"|"partially_aligned"|"opposite",
+  "principleRevisions": [{
+    "principleId": int,
+    "priorRole": "supported"|"contradicted"|"context",
+    "implication": "reinforces"|"undermines"|"neutral",
+    "suggestedDelta": float,
+    "rationale": "one sentence"
+  }],
+  "driftAlerts": ["..."]
+}`;
+
+  export interface InverseResult {
+    outcomeId: number;
+    decisionId: number;
+    alignment: string;
+    principleRevisions: Array<{
+      principleId: number; priorRole: string; implication: string;
+      suggestedDelta: number; rationale: string;
+    }>;
+    driftAlerts: string[];
+    suggestionIds: number[];
+  }
+
+  export function registerInverseInference(): void {
+    registerMethod<{ outcomeId: number }, InverseResult>({
+      id: 'inverse_inference_v1',
+      name: 'Inverse Inference / Post-mortem',
+      version: '1.0.0',
+      run: async ({ outcomeId }) => {
+        const o = Outcomes.getById(outcomeId);
+        if (!o) throw new Error('outcome not found');
+        const d = Decisions.get(o.decision_id);
+        if (!d) throw new Error('decision not found');
+        const chain = JSON.parse(d.evidence_chain_json ?? '[]') as Array<{
+          principleId: number; role: string; weight: number;
+        }>;
+        const principleBlock = chain.map((c, i) => {
+          const p = Principles.get(c.principleId);
+          return p ? `[${i+1}] (id=${c.principleId}, role=${c.role}, weight=${c.weight.toFixed(2)}) ${p.canonical_statement}` : '';
+        }).filter(Boolean).join('\n');
+        const { json } = await callClaudeJson<{
+          alignment: string;
+          principleRevisions: InverseResult['principleRevisions'];
+          driftAlerts: string[];
+        }>({
+          model: 'claude-sonnet-4-6',
+          system: SYSTEM,
+          user: `DECISION (asked ${d.asked_at}):\n${d.question}\n\nSYSTEM'S ANSWER (confidence ${d.confidence.toFixed(2)}):\n${d.answer}\n\nACTUAL OUTCOME (recorded ${o.recorded_at}):\n${o.actual_text}\n\nINVOLVED PRINCIPLES:\n${principleBlock}`,
+          maxTokens: 1500,
+        });
+        const suggestionIds: number[] = [];
+        for (const r of json.principleRevisions) {
+          const sug = RevisionSuggestions.create({
+            outcome_id: outcomeId, principle_id: r.principleId,
+            prior_role: r.priorRole, implication: r.implication,
+            suggested_delta: r.suggestedDelta, rationale: r.rationale,
+          });
+          suggestionIds.push(sug.id);
+          recordEvent({
+            actorKind: 'method', actorId: 'inverse_inference_v1',
+            action: ACTIONS.REVISION_SUGGEST,
+            subjectKind: 'principle_revision_suggestion', subjectId: String(sug.id),
+            payload: { outcomeId, principleId: r.principleId, delta: r.suggestedDelta },
+          });
+        }
+        return { outcomeId, decisionId: d.id, ...json, suggestionIds };
+      },
+    });
+  }
+
+  export async function reconcileOutcome(outcomeId: number): Promise<InverseResult> {
+    return invokeMethod<{ outcomeId: number }, InverseResult>('inverse_inference_v1', { outcomeId });
+  }
+
+3. Operator approval at lib/engine/reason/applyRevision.ts:
+
+  import { RevisionSuggestions, Principles, DriftEvents } from '@/lib/db';
+  import { recordEvent } from '@/lib/audit/recordEvent';
+  import { ACTIONS } from '@/lib/audit/actions';
+
+  export function acceptRevision(suggestionId: number, byUserId: string): void {
+    const s = RevisionSuggestions.get(suggestionId);
+    if (!s || s.status !== 'open') throw new Error('not actionable');
+    const p = Principles.get(s.principle_id);
+    if (!p) throw new Error('principle missing');
+    const prior = p.conviction;
+    const next = Math.max(0, Math.min(1, prior + s.suggested_delta));
+    Principles.setConviction(p.id, next);
+    DriftEvents.create({
+      principle_id: p.id, prior_conviction: prior, new_conviction: next,
+      delta: next - prior, cause: 'post_mortem', cause_ref: String(s.outcome_id),
+    });
+    RevisionSuggestions.setStatus(suggestionId, 'accepted', byUserId);
+    recordEvent({
+      actorKind: 'user', actorId: byUserId,
+      action: ACTIONS.REVISION_ACCEPT,
+      subjectKind: 'principle_revision_suggestion', subjectId: String(suggestionId),
+      payload: { principleId: p.id, delta: s.suggested_delta, prior, next },
+    });
+  }
+
+  export function dismissRevision(suggestionId: number, byUserId: string): void {
+    const s = RevisionSuggestions.get(suggestionId);
+    if (!s || s.status !== 'open') throw new Error('not actionable');
+    RevisionSuggestions.setStatus(suggestionId, 'dismissed', byUserId);
+    recordEvent({
+      actorKind: 'user', actorId: byUserId,
+      action: ACTIONS.REVISION_DISMISS,
+      subjectKind: 'principle_revision_suggestion', subjectId: String(suggestionId),
+      payload: { principleId: s.principle_id },
+    });
+  }
+
+4. API endpoints:
+   - POST /api/decisions/[id]/outcome — body {happened, actualText,
+     confidenceInDescription}; wraps recordOutcome.
+   - POST /api/revisions/[id]/accept
+   - POST /api/revisions/[id]/dismiss
+
+5. Chat tool lib/chat/tools/record_outcome.ts — lets the chatbot
+   prompt Colin to record an outcome when he describes one in
+   conversation. Add to REGISTERED_TOOLS.
+
+6. Register method: add `registerInverseInference()` to
+   lib/methods/registerAll.ts.
+
+ACCEPTANCE CRITERIA
+- Recording an Outcome on a past Decision returns an InverseResult
+  with ≥ 1 principleRevisions entry.
+- Approving a revision shifts the Principle's conviction (visible on
+  /principles) and writes a DriftEvent with cause='post_mortem'.
+- Dismissing leaves conviction unchanged.
+
+================================================================================

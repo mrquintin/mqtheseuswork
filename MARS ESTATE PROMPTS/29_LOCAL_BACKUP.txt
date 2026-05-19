@@ -1,0 +1,92 @@
+================================================================================
+29 — Local backup of data/mars.db (launchd + restore runbook)
+================================================================================
+
+GOAL
+A scheduled local backup of data/mars.db using SQLite's online .backup
+command, encrypted and copied to iCloud Drive. A documented restore
+runbook in docs/.
+
+TASK
+
+1. Backup script scripts/backup-db.sh:
+
+  #!/usr/bin/env bash
+  set -euo pipefail
+  SRC="${1:-./data/mars.db}"
+  DEST_DIR="${BACKUP_DIR:-$HOME/Library/Mobile Documents/com~apple~CloudDocs/MARS_ESTATE_BACKUPS}"
+  mkdir -p "$DEST_DIR"
+  STAMP=$(date -u +%Y%m%dT%H%M%SZ)
+  OUT="$DEST_DIR/mars-${STAMP}.db"
+  sqlite3 "$SRC" ".backup '$OUT'"
+  gzip -9 "$OUT"
+  find "$DEST_DIR" -name 'mars-*.db.gz' -mtime +60 -delete
+  echo "Backup: $OUT.gz"
+
+   Make it executable: `chmod +x scripts/backup-db.sh`.
+
+2. launchd plist template scripts/com.marsestate.backup.plist (the
+   operator copies and edits __REPO_PATH__ to the actual absolute
+   path of the dashboard repo):
+
+  <?xml version="1.0" encoding="UTF-8"?>
+  <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+  <plist version="1.0">
+  <dict>
+    <key>Label</key><string>com.marsestate.backup</string>
+    <key>ProgramArguments</key>
+    <array>
+      <string>/bin/bash</string>
+      <string>__REPO_PATH__/scripts/backup-db.sh</string>
+    </array>
+    <key>StartCalendarInterval</key>
+    <dict>
+      <key>Hour</key><integer>3</integer>
+      <key>Minute</key><integer>15</integer>
+    </dict>
+    <key>StandardOutPath</key><string>/tmp/marsestate-backup.log</string>
+    <key>StandardErrorPath</key><string>/tmp/marsestate-backup.err</string>
+  </dict>
+  </plist>
+
+   Installation note in docs/RESTORE.md: copy the plist to
+   ~/Library/LaunchAgents/, edit __REPO_PATH__, then
+   `launchctl load ~/Library/LaunchAgents/com.marsestate.backup.plist`.
+
+3. Snapshot-on-demand endpoint
+   app/api/admin/snapshot/route.ts — runs scripts/backup-db.sh from
+   the repo's working directory and returns the resulting filename in
+   the response. Single-user, no auth, but reject if request lacks
+   `?token=` matching a Meta key snapshot_token (set on first call).
+
+4. /admin → add a "Snapshot now" button that POSTs to the snapshot
+   endpoint and surfaces the filename.
+
+5. Restore runbook docs/RESTORE.md:
+
+  # Restoring data/mars.db from a backup
+
+  1. Stop the dashboard (close the terminal that's running start.command).
+  2. Choose the most recent `mars-YYYYMMDDT...gz` from
+     `~/Library/Mobile Documents/com~apple~CloudDocs/MARS_ESTATE_BACKUPS/`.
+  3. Decompress: `gunzip -k mars-...db.gz` (the -k keeps the .gz).
+  4. Move the current DB aside: `mv data/mars.db data/mars.db.bad.YYYYMMDD`.
+  5. Copy the backup: `cp mars-...db data/mars.db`.
+  6. Relaunch start.command.
+  7. Smoke test:
+     - Open /principles, /decisions, /admin/audit.
+     - Click "Verify chain" — should return ok.
+     - If chain is broken, the backup itself was bad; pick an earlier one.
+
+   Note on Time Machine: do not rely on Time Machine alone — SQLite
+   in WAL mode + Time Machine can corrupt under active writes. The
+   launchd-scheduled `.backup` is the authoritative snapshot.
+
+ACCEPTANCE CRITERIA
+- Running `bash scripts/backup-db.sh` creates a timestamped `.db.gz`
+  in the backup folder.
+- Loading the plist with launchctl schedules the daily 3:15 AM run.
+- The restore runbook is followed end-to-end successfully on a test
+  copy of the DB.
+
+================================================================================

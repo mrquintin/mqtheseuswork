@@ -1,0 +1,159 @@
+================================================================================
+33 — Audit ledger: every write audits; chain holds; tampering detected
+================================================================================
+
+GOAL
+Prove that every state-changing v2 operation writes an audit event,
+that the hash chain is unbroken after a representative load, and that
+manual mutation of any single audit field is detected by
+verifyAuditChain.
+
+TASK
+
+1. scripts/test/audit-chain.ts — synthetic load + tamper:
+
+  import assert from 'node:assert';
+  import { getDb, Meta } from '../../lib/db';
+  import { recordEvent } from '../../lib/audit/recordEvent';
+  import { verifyAuditChain } from '../../lib/audit/verifyChain';
+  import { ACTIONS } from '../../lib/audit/actions';
+
+  // Snapshot starting state so we don't poison real audit history.
+  const db = getDb();
+  const startMax = (db.prepare(`SELECT COALESCE(MAX(id),0) AS m FROM audit_events`).get() as { m: number }).m;
+
+  // 1. Write 25 events.
+  for (let i = 0; i < 25; i++) {
+    recordEvent({
+      actorKind: 'method', actorId: 'test_audit_v1',
+      action: ACTIONS.METHOD_INVOKE,
+      subjectKind: 'method_invocation', subjectId: String(i),
+      payload: { i, ts: Date.now() },
+    });
+  }
+  let result = verifyAuditChain();
+  assert.strictEqual(result.ok, true, `chain broken after writes: ${JSON.stringify(result)}`);
+
+  // 2. Tamper: change one payload_json on the last 5 rows individually.
+  // Each tampering should be caught.
+  const rows = db.prepare(
+    `SELECT id, payload_json FROM audit_events
+     WHERE id > ? ORDER BY id DESC LIMIT 5`
+  ).all(startMax) as Array<{ id: number; payload_json: string }>;
+  for (const r of rows) {
+    const original = r.payload_json;
+    db.prepare(`UPDATE audit_events SET payload_json = ? WHERE id = ?`)
+      .run(original + ' X', r.id);
+    result = verifyAuditChain();
+    assert.strictEqual(result.ok, false, `tampering at id ${r.id} not detected`);
+    assert.ok((result as { ok: false; break: { brokenAtId: number } }).break.brokenAtId === r.id || (result as any).break.brokenAtId < r.id, 'wrong brokenAtId');
+    // Restore.
+    db.prepare(`UPDATE audit_events SET payload_json = ? WHERE id = ?`).run(original, r.id);
+  }
+  result = verifyAuditChain();
+  assert.strictEqual(result.ok, true, 'chain should heal after restore');
+
+  // 3. Tamper: change prev_event_hash on one row.
+  const target = rows[2];
+  const origPrev = db.prepare(`SELECT prev_event_hash AS p FROM audit_events WHERE id = ?`).get(target.id) as { p: string };
+  db.prepare(`UPDATE audit_events SET prev_event_hash = 'BOGUS' WHERE id = ?`).run(target.id);
+  result = verifyAuditChain();
+  assert.strictEqual(result.ok, false, 'prev_event_hash tamper not detected');
+  db.prepare(`UPDATE audit_events SET prev_event_hash = ? WHERE id = ?`).run(origPrev.p, target.id);
+
+  // 4. Delete a row mid-chain.
+  const mid = rows[3];
+  const midRow = db.prepare(`SELECT * FROM audit_events WHERE id = ?`).get(mid.id);
+  db.prepare(`DELETE FROM audit_events WHERE id = ?`).run(mid.id);
+  result = verifyAuditChain();
+  assert.strictEqual(result.ok, false, 'mid-chain deletion not detected');
+  // Restore the deleted row.
+  db.prepare(
+    `INSERT INTO audit_events (id, occurred_at, actor_kind, actor_id, action,
+                               subject_kind, subject_id, payload_json,
+                               payload_hash, prev_event_hash, this_event_hash)
+     VALUES (?,?,?,?,?,?,?,?,?,?,?)`
+  ).run(
+    (midRow as any).id, (midRow as any).occurred_at, (midRow as any).actor_kind,
+    (midRow as any).actor_id, (midRow as any).action, (midRow as any).subject_kind,
+    (midRow as any).subject_id, (midRow as any).payload_json, (midRow as any).payload_hash,
+    (midRow as any).prev_event_hash, (midRow as any).this_event_hash
+  );
+
+  console.log('[audit-chain] OK');
+
+2. scripts/test/audit-coverage.ts — exercises one operation per v2
+   ACTION verb and confirms an audit row was written. Pattern: for
+   each action, perform the smallest representative operation, then
+   assert the audit table grew by exactly one row with that action.
+
+  import assert from 'node:assert';
+  import { getDb, Principles, Contradictions, Conflicts, FactChecks,
+           Decisions, Outcomes, RevisionSuggestions } from '../../lib/db';
+  import { recordEvent } from '../../lib/audit/recordEvent';
+  import { ACTIONS } from '../../lib/audit/actions';
+
+  const db = getDb();
+  const countByAction = (action: string) =>
+    (db.prepare(`SELECT COUNT(*) AS n FROM audit_events WHERE action = ?`).get(action) as { n: number }).n;
+
+  // For each ACTION verb v2 uses, perform the smallest plausible op that
+  // *should* emit it and assert the count incremented.
+  const cases: Array<{ action: string; fire: () => void }> = [
+    {
+      action: ACTIONS.PRINCIPLE_CREATE,
+      fire: () => recordEvent({ actorKind: 'method', action: ACTIONS.PRINCIPLE_CREATE,
+        subjectKind: 'principle', subjectId: '0', payload: {} }),
+    },
+    {
+      action: ACTIONS.CLAIM_EXTRACT,
+      fire: () => recordEvent({ actorKind: 'method', action: ACTIONS.CLAIM_EXTRACT,
+        subjectKind: 'claim', subjectId: '0', payload: {} }),
+    },
+    // ...repeat for every ACTIONS.* entry. Synthetic emissions are fine
+    // for coverage; the integration tests prove the real call paths
+    // actually fire them.
+  ];
+  for (const c of cases) {
+    const before = countByAction(c.action);
+    c.fire();
+    const after = countByAction(c.action);
+    assert.strictEqual(after, before + 1, `audit for ${c.action} did not increment`);
+  }
+  console.log('[audit-coverage] OK');
+
+3. scripts/test/audit-real-paths.ts — confirms the REAL call paths
+   actually emit audit events (no synthetic recordEvent shortcuts).
+   For each module added by prompts 04–20, do a minimal real call:
+
+  - Insert a fake email_cache row + chunk, manually invoke
+    claim_extractor_v1, assert CLAIM_EXTRACT events were written for
+    each insertion AND a METHOD_INVOKE row exists.
+  - Manually invoke principle_cluster_v1, assert PRINCIPLE_CREATE
+    when a new cluster is born.
+  - Manually invoke contradiction_detector_v1 on a synthetic pair,
+    assert CONTRADICTION_DETECT.
+  - Same for conflict_detector_v1.
+  - Insert a Decision via askOracle or testDecision (mocked LLM
+    via stub if no key), assert DECISION_CREATE.
+  - recordOutcome → assert OUTCOME_RECORD + REVISION_SUGGEST.
+  - acceptRevision → assert REVISION_ACCEPT.
+  - dismissRevision → assert REVISION_DISMISS.
+
+  Pattern same as audit-coverage but with the actual functions.
+  Each block:
+    const before = countByAction(...);
+    await actualFunction(...);
+    assert(countByAction(...) > before);
+
+4. Add to package.json:
+
+  "test:audit": "tsx scripts/test/audit-chain.ts && tsx scripts/test/audit-coverage.ts && tsx scripts/test/audit-real-paths.ts"
+
+ACCEPTANCE CRITERIA
+- `npm run test:audit` exits 0.
+- Every ACTIONS.* verb has at least one row in audit_events after
+  test:audit runs (verify with a final SELECT).
+- Manual mutation of any single audit field is caught.
+
+================================================================================

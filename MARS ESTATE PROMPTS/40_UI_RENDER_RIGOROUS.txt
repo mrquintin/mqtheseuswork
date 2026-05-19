@@ -1,0 +1,121 @@
+================================================================================
+40 — UI render smoke: every new route returns 200 and renders expected text
+================================================================================
+
+GOAL
+Catch hydration errors, broken Server Component imports, missing
+exports, broken Next.js dynamic params before they reach the operator.
+HTTP-fetch based; no Playwright. Heavier browser-level testing is left
+to manual / future work.
+
+TASK
+
+1. scripts/test/ui-routes.ts — runs against the dev server (npm run
+   dev). Asserts each new route returns 200 and contains a route-
+   specific marker string in the HTML.
+
+  import assert from 'node:assert';
+
+  const base = process.env.TEST_BASE_URL ?? 'http://localhost:3000';
+
+  // Get an existing principle id, decision id, contradiction id from the seed.
+  // Use the JSON endpoints we already expose OR query SQLite directly.
+  // Simplest: read from the DB.
+  const { getDb } = await import('../../lib/db');
+  const db = getDb();
+  const pId = (db.prepare(`SELECT id FROM principles ORDER BY id ASC LIMIT 1`).get() as { id: number })?.id;
+  const dId = (db.prepare(`SELECT id FROM decisions ORDER BY id ASC LIMIT 1`).get() as { id: number })?.id;
+  const cId = (db.prepare(`SELECT id FROM contradictions ORDER BY id ASC LIMIT 1`).get() as { id?: number })?.id;
+  const fId = (db.prepare(`SELECT id FROM conflicts_of_interest ORDER BY id ASC LIMIT 1`).get() as { id?: number })?.id;
+  const xId = (db.prepare(`SELECT id FROM fact_checks ORDER BY id ASC LIMIT 1`).get() as { id?: number })?.id;
+
+  type Check = { path: string; expect: string };
+  const checks: Check[] = [
+    { path: '/',                    expect: 'Principles' },     // PrinciplesPanel landed
+    { path: '/principles',          expect: 'Principles' },
+    { path: '/decisions',           expect: 'Decisions' },
+    { path: '/decisions/new',       expect: 'Decision' },
+    { path: '/contradictions',      expect: 'Contradictions' },
+    { path: '/conflicts',           expect: 'Conflicts' },
+    { path: '/factchecks',          expect: 'Fact' },
+    { path: '/settings',            expect: 'Settings' },
+    { path: '/settings/business-context', expect: 'Business' },
+    { path: '/settings/extractor',  expect: 'Extractor' },
+    { path: '/settings/cost',       expect: 'Cost' },
+    { path: '/admin/methods',       expect: 'Methods' },
+    { path: '/admin/audit',         expect: 'Audit' },
+    { path: '/admin/refusals',      expect: 'Refusal' },
+    { path: '/admin/drift',         expect: 'Drift' },
+    { path: '/admin/decay',         expect: 'Decay' },
+  ];
+  if (pId) {
+    checks.push({ path: `/principles/${pId}`, expect: 'Claims' });
+    checks.push({ path: `/cascade/principle/${pId}`, expect: 'Cascade' });
+  }
+  if (dId) {
+    checks.push({ path: `/decisions/${dId}`, expect: 'Outcome' });
+    checks.push({ path: `/cascade/decision/${dId}`, expect: 'Cascade' });
+  }
+  if (cId) checks.push({ path: `/contradictions/${cId}`, expect: 'principle' });
+  if (fId) checks.push({ path: `/conflicts/${fId}`,      expect: 'principle' });
+  if (xId) checks.push({ path: `/factchecks/${xId}`,     expect: 'erdict' });
+
+  for (const c of checks) {
+    const r = await fetch(base + c.path);
+    assert.strictEqual(r.status, 200, `${c.path} returned ${r.status}`);
+    const text = await r.text();
+    assert.ok(text.includes(c.expect), `${c.path} missing marker "${c.expect}"`);
+    // Hydration sanity: no Next.js error overlay markers.
+    assert.ok(!text.includes('__next-error') && !text.includes('Internal Server Error'),
+      `${c.path} contains Next error overlay`);
+  }
+  console.log('[ui-routes] OK (' + checks.length + ' routes checked)');
+
+2. scripts/test/ui-api.ts — POSTs to the new API endpoints with
+   minimal valid bodies and asserts status + a JSON shape marker.
+
+  import assert from 'node:assert';
+
+  const base = process.env.TEST_BASE_URL ?? 'http://localhost:3000';
+
+  // POST /api/oracle/ask
+  let r = await fetch(base + '/api/oracle/ask', {
+    method: 'POST', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ question: 'Should we ship?' }),
+  });
+  assert.strictEqual(r.status, 200);
+  const j = await r.json();
+  assert.ok(j.decisionId);
+
+  // POST /api/decisions/test
+  r = await fetch(base + '/api/decisions/test', {
+    method: 'POST', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ proposedDecision: 'open a tasting room' }),
+  });
+  assert.strictEqual(r.status, 200);
+
+  // Missing body → 400
+  r = await fetch(base + '/api/oracle/ask', {
+    method: 'POST', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({}),
+  });
+  assert.strictEqual(r.status, 400);
+
+  // GET /api/admin/audit/verify
+  r = await fetch(base + '/api/admin/audit/verify');
+  assert.strictEqual(r.status, 200);
+
+  console.log('[ui-api] OK');
+
+3. Add to package.json:
+
+  "test:ui": "tsx scripts/test/ui-routes.ts && tsx scripts/test/ui-api.ts"
+
+   This script requires the dev server running.
+
+ACCEPTANCE CRITERIA
+- With `npm run dev` running, `npm run test:ui` exits 0.
+- A broken Server Component (e.g. importing a missing symbol)
+  fails the route 500-style check.
+
+================================================================================

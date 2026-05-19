@@ -1,0 +1,87 @@
+================================================================================
+21 — Principles panel (replaces MetricsPanel on the home page)
+================================================================================
+
+GOAL
+A new home-page panel showing the top 5 highest-conviction principles
++ counts of open contradictions / conflicts / refuted fact-checks.
+Replaces the existing MetricsPanel placeholder slot in app/page.tsx.
+
+The visual system is established in app/globals.css and the existing
+Panel component (components/Panel.tsx). Match it exactly: parchment
+text, Cormorant Garamond display serif for principle statements,
+oxblood for warning counts, brass for accents.
+
+TASK
+
+1. Create components/PrinciplesPanel.tsx:
+
+  import { Panel } from './Panel';
+  import { Principles, Contradictions, Conflicts, FactChecks } from '@/lib/db';
+  import Link from 'next/link';
+
+  export async function PrinciplesPanel() {
+    const top = Principles.topByConviction(5);
+    const openContras  = Contradictions.countOpen();
+    const openConflicts = Conflicts.countOpen();
+    const refutedFc    = FactChecks.countOpenByVerdict('refuted');
+
+    return (
+      <Panel
+        title="Principles"
+        subtitle="Mars Estate's standing positions"
+        href="/principles"
+      >
+        {top.length === 0 ? (
+          <p className="text-sm text-parchment-500 italic">
+            Principles will appear as the indexer extracts and clusters claims
+            from email, meetings, and the vault.
+          </p>
+        ) : (
+          <ul className="space-y-2 text-parchment-200">
+            {top.map(p => (
+              <li key={p.id} className="flex items-baseline justify-between gap-3">
+                <Link
+                  href={`/principles/${p.id}`}
+                  className="display-serif italic text-base hover:text-brass-300 truncate"
+                >
+                  {p.canonical_statement}
+                </Link>
+                <span className="text-xs tabular-nums text-parchment-500">
+                  {(p.conviction * 100).toFixed(0)}%
+                </span>
+              </li>
+            ))}
+          </ul>
+        )}
+        <div className="mt-4 pt-3 border-t hairline flex justify-between text-xs text-parchment-500">
+          <Link href="/contradictions" className={openContras > 0 ? 'text-oxblood-300' : ''}>
+            {openContras} contradictions
+          </Link>
+          <Link href="/conflicts" className={openConflicts > 0 ? 'text-oxblood-300' : ''}>
+            {openConflicts} conflicts
+          </Link>
+          <Link href="/factchecks" className={refutedFc > 0 ? 'text-oxblood-300' : ''}>
+            {refutedFc} refuted
+          </Link>
+        </div>
+      </Panel>
+    );
+  }
+
+2. Update app/page.tsx: replace `<MetricsPanel />` with
+   `<PrinciplesPanel />`. Keep CommunicationsPanel, TodosPanel, and
+   ResearchPanel as-is. Remove the MetricsPanel import.
+
+3. Leave components/MetricsPanel.tsx in place (do not delete). It's
+   not used; that's fine.
+
+ACCEPTANCE CRITERIA
+- The home page renders the Principles panel in the slot Metrics
+  used to occupy. The other three panels remain unchanged.
+- With seed data (prompt 30), the top 5 principles render with
+  conviction percentages.
+- The three count links link to /contradictions, /conflicts,
+  /factchecks. When the count is > 0, the link renders in oxblood.
+
+================================================================================

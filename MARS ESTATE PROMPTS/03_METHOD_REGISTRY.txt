@@ -1,0 +1,199 @@
+================================================================================
+03 — Method registry + Anthropic wrapper + AsyncLocalStorage context
+================================================================================
+
+GOAL
+A central registry every algorithmic method (claim_extractor_v1,
+faithfulness_v1, oracle_forward_v1, ...) routes through. Tracks
+invocations, durations, costs. Provides an Anthropic JSON-mode wrapper
+that automatically attributes cost to the enclosing invocation.
+
+TASK
+
+1. Create lib/methods/registry.ts:
+
+  import { createHash } from 'node:crypto';
+  import { getDb } from '@/lib/db';
+  import { recordEvent } from '@/lib/audit/recordEvent';
+  import { ACTIONS } from '@/lib/audit/actions';
+  import { methodAls } from './context';
+
+  export interface Method<I, O> {
+    id: string;
+    name: string;
+    version: string;
+    description?: string;
+    run: (input: I) => Promise<O>;
+  }
+
+  const REGISTRY = new Map<string, Method<unknown, unknown>>();
+
+  export function registerMethod<I, O>(m: Method<I, O>): void {
+    REGISTRY.set(m.id, m as unknown as Method<unknown, unknown>);
+    getDb().prepare(
+      `INSERT INTO methods (id, name, version, interface_json, registered_at)
+       VALUES (?, ?, ?, ?, datetime('now'))
+       ON CONFLICT(id) DO UPDATE SET name=excluded.name, version=excluded.version`
+    ).run(m.id, m.name, m.version, JSON.stringify({ description: m.description ?? null }));
+  }
+
+  export function listMethods(): Method<unknown, unknown>[] {
+    return Array.from(REGISTRY.values());
+  }
+
+  const sha = (s: string) => createHash('sha256').update(s).digest('hex');
+
+  export async function invokeMethod<I, O>(id: string, input: I): Promise<O> {
+    const m = REGISTRY.get(id) as Method<I, O> | undefined;
+    if (!m) throw new Error(`method not registered: ${id}`);
+    const conn = getDb();
+    const inputHash = sha(JSON.stringify(input));
+    const insertRes = conn.prepare(
+      `INSERT INTO method_invocations (method_id, input_hash, status, started_at)
+       VALUES (?, ?, 'running', datetime('now'))`
+    ).run(m.id, inputHash);
+    const invocationId = Number(insertRes.lastInsertRowid);
+    recordEvent({
+      actorKind: 'method', actorId: m.id,
+      action: ACTIONS.METHOD_INVOKE,
+      subjectKind: 'method_invocation', subjectId: String(invocationId),
+      payload: { inputHash },
+    });
+    const t0 = Date.now();
+    try {
+      const output = await methodAls.run({ methodId: m.id, invocationId }, () => m.run(input));
+      const outputHash = sha(JSON.stringify(output ?? null));
+      conn.prepare(
+        `UPDATE method_invocations
+           SET status='succeeded', finished_at=datetime('now'),
+               duration_ms=?, output_hash=?
+         WHERE id=?`
+      ).run(Date.now() - t0, outputHash, invocationId);
+      return output;
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      conn.prepare(
+        `UPDATE method_invocations
+           SET status='failed', finished_at=datetime('now'),
+               duration_ms=?, error_text=?
+         WHERE id=?`
+      ).run(Date.now() - t0, msg.slice(0, 1000), invocationId);
+      throw e;
+    }
+  }
+
+  export function setCostForInvocation(invocationId: number, costUsd: number): void {
+    getDb().prepare(
+      `UPDATE method_invocations SET cost_usd = COALESCE(cost_usd, 0) + ? WHERE id = ?`
+    ).run(costUsd, invocationId);
+  }
+
+  export interface TrackRecord {
+    invocations: number; failures: number; refusals: number;
+    p50Ms: number | null; p95Ms: number | null; totalCostUsd: number;
+  }
+  export function getTrackRecord(methodId: string, days = 30): TrackRecord {
+    const rows = getDb().prepare(
+      `SELECT status, duration_ms, cost_usd FROM method_invocations
+       WHERE method_id = ? AND started_at >= datetime('now', ?)`
+    ).all(methodId, `-${days} days`) as Array<{
+      status: string; duration_ms: number | null; cost_usd: number | null;
+    }>;
+    const ds = rows.filter(r => r.duration_ms != null).map(r => r.duration_ms!).sort((a, b) => a - b);
+    const p = (q: number) => ds.length === 0 ? null : ds[Math.floor((ds.length - 1) * q)];
+    return {
+      invocations: rows.length,
+      failures: rows.filter(r => r.status === 'failed').length,
+      refusals: rows.filter(r => r.status === 'refused').length,
+      p50Ms: p(0.5), p95Ms: p(0.95),
+      totalCostUsd: rows.reduce((s, r) => s + (r.cost_usd ?? 0), 0),
+    };
+  }
+
+2. Create lib/methods/context.ts:
+
+  import { AsyncLocalStorage } from 'node:async_hooks';
+  export interface MethodContext { methodId: string; invocationId: number; }
+  export const methodAls = new AsyncLocalStorage<MethodContext>();
+  export function getCurrentMethod(): MethodContext | undefined {
+    return methodAls.getStore();
+  }
+
+3. Create lib/methods/anthropic.ts — JSON-mode wrapper that
+   attributes cost to the enclosing method invocation:
+
+  import Anthropic from '@anthropic-ai/sdk';
+  import { getCurrentMethod } from './context';
+  import { setCostForInvocation } from './registry';
+  import { recordCost } from '@/lib/ops/cost';   // created in prompt 22
+
+  const PRICING = {
+    'claude-sonnet-4-6':         { input: 3,   output: 15 },
+    'claude-haiku-4-5-20251001': { input: 0.8, output: 4 },
+  } as const;
+
+  const client = new Anthropic();
+
+  export async function callClaudeJson<T>(args: {
+    model: 'claude-sonnet-4-6' | 'claude-haiku-4-5-20251001';
+    system: string;
+    user: string;
+    maxTokens?: number;
+  }): Promise<{ json: T; usage: { inTok: number; outTok: number; costUsd: number } }> {
+    const res = await client.messages.create({
+      model: args.model,
+      max_tokens: args.maxTokens ?? 2000,
+      temperature: 0,
+      system: args.system,
+      messages: [{ role: 'user', content: args.user }],
+    });
+    const text = res.content.filter(b => b.type === 'text')
+      .map(b => (b as { type: 'text'; text: string }).text).join('');
+    let parsed: unknown;
+    try { parsed = JSON.parse(text); }
+    catch {
+      const res2 = await client.messages.create({
+        model: args.model,
+        max_tokens: args.maxTokens ?? 2000,
+        temperature: 0,
+        system: args.system + '\n\nIMPORTANT: respond with valid JSON only, no prose.',
+        messages: [{ role: 'user', content: args.user }],
+      });
+      const text2 = res2.content.filter(b => b.type === 'text')
+        .map(b => (b as { type: 'text'; text: string }).text).join('');
+      parsed = JSON.parse(text2);
+    }
+    const inTok = res.usage.input_tokens;
+    const outTok = res.usage.output_tokens;
+    const p = PRICING[args.model];
+    const costUsd = (inTok / 1e6) * p.input + (outTok / 1e6) * p.output;
+    const ctx = getCurrentMethod();
+    if (ctx) { setCostForInvocation(ctx.invocationId, costUsd); recordCost({ category: 'llm', methodId: ctx.methodId, costUsd }); }
+    return { json: parsed as T, usage: { inTok, outTok, costUsd } };
+  }
+
+4. Create lib/methods/registerAll.ts that imports register* functions
+   from every method module added by later prompts and calls them. For
+   now, leave the imports list empty; later prompts append:
+
+  export function registerAllMethods() {
+    // Calls populated by later prompts.
+  }
+
+5. Update instrumentation.ts to call registerAllMethods() once on
+   server start:
+
+  export async function register() {
+    // ...existing code if any...
+    const { registerAllMethods } = await import('@/lib/methods/registerAll');
+    registerAllMethods();
+  }
+
+ACCEPTANCE CRITERIA
+- On server start, the methods table is created (already from prompt
+  01) and is empty until later prompts register methods.
+- A scratch invokeMethod call against a manually-registered noop
+  method writes a row in method_invocations with status='succeeded'.
+- Throwing inside a method run leaves status='failed' with error_text.
+
+================================================================================

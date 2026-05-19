@@ -1,0 +1,150 @@
+================================================================================
+20 — Drift monitor + decay tick (Cowork scheduled tasks + internal endpoints)
+================================================================================
+
+GOAL
+Detect principles whose conviction has shifted materially in a recent
+window. Decay principles whose backing is old and unreinforced. Run as
+Cowork scheduled tasks following the existing scripts/scheduled-task-*.md
+pattern.
+
+TASK
+
+1. Drift detector at lib/engine/rigor/drift.ts:
+
+  import { getDb, Principles } from '@/lib/db';
+
+  export interface DriftSignal {
+    principleId: number;
+    windowDays: number;
+    priorConviction: number;
+    currentConviction: number;
+    deltaSum: number;
+    classification: 'rising' | 'falling' | 'oscillating';
+  }
+
+  export function detectDriftAll(windowDays = 30, minDelta = 0.15): DriftSignal[] {
+    const since = new Date(Date.now() - windowDays * 86400000).toISOString();
+    const rows = getDb().prepare(
+      `SELECT principle_id,
+              SUM(delta)  AS sum,
+              MAX(ABS(delta)) AS maxAbs,
+              SUM(CASE WHEN delta > 0 THEN 1 ELSE 0 END) AS up,
+              SUM(CASE WHEN delta < 0 THEN 1 ELSE 0 END) AS down
+         FROM drift_events
+        WHERE detected_at >= ?
+        GROUP BY principle_id
+       HAVING ABS(SUM(delta)) >= ? OR maxAbs >= ?`
+    ).all(since, minDelta, minDelta) as Array<{
+      principle_id: number; sum: number; up: number; down: number;
+    }>;
+    const out: DriftSignal[] = [];
+    for (const r of rows) {
+      const p = Principles.get(r.principle_id);
+      if (!p) continue;
+      out.push({
+        principleId: r.principle_id, windowDays,
+        priorConviction: p.conviction - r.sum,
+        currentConviction: p.conviction,
+        deltaSum: r.sum,
+        classification: r.up > 0 && r.down > 0 ? 'oscillating' : r.sum > 0 ? 'rising' : 'falling',
+      });
+    }
+    return out;
+  }
+
+2. Decay at lib/engine/rigor/decay.ts:
+
+  import { Principles, DecayPoliciesRepo, DriftEvents, getDb } from '@/lib/db';
+  import { recordEvent } from '@/lib/audit/recordEvent';
+  import { ACTIONS } from '@/lib/audit/actions';
+
+  export interface DecayResult { scanned: number; decayed: number; archived: number; }
+
+  export function runDecayTick(opts: { dryRun?: boolean } = {}): DecayResult {
+    const principles = Principles.listActive();
+    const policies = DecayPoliciesRepo.list();
+    const policyFor = (p: any) => {
+      const doms = (p.domains as string[] | null) ?? [];
+      const specific = policies.find(po => po.domain && doms.includes(po.domain));
+      return specific ?? policies.find(po => !po.domain)!;
+    };
+    const result: DecayResult = { scanned: principles.length, decayed: 0, archived: 0 };
+    const now = Date.now();
+    for (const p of principles) {
+      if (p.conviction_pinned) continue;
+      const policy = policyFor(p);
+      const ageMonths = (now - new Date(p.last_observed_at + 'Z').getTime())
+        / (1000 * 60 * 60 * 24 * 30);
+      const decayedConviction = p.conviction * Math.pow(0.5, ageMonths / policy.half_life_months);
+      if (decayedConviction < policy.floor_conviction) {
+        if (!opts.dryRun) {
+          Principles.archive(p.id);
+          recordEvent({
+            actorKind: 'method', actorId: 'decay_v1',
+            action: ACTIONS.PRINCIPLE_ARCHIVE,
+            subjectKind: 'principle', subjectId: String(p.id),
+            payload: { decayedConviction, ageMonths, policyId: policy.id },
+          });
+        }
+        result.archived++;
+      } else if (Math.abs(decayedConviction - p.conviction) > 0.05) {
+        if (!opts.dryRun) {
+          DriftEvents.create({
+            principle_id: p.id, prior_conviction: p.conviction,
+            new_conviction: decayedConviction, delta: decayedConviction - p.conviction,
+            cause: 'decay',
+          });
+          Principles.setConviction(p.id, decayedConviction);
+        }
+        result.decayed++;
+      }
+    }
+    return result;
+  }
+
+3. Internal endpoints (called only by Cowork tasks; gated by
+   X-Cron-Secret header). Add INTERNAL_SWEEP_SECRET to the env load
+   (the project doesn't have env validation yet; check process.env
+   directly with a helpful error if missing):
+
+   POST /api/internal/sweep/contradictions — body { pairs: [[a, b], ...] }
+     For each pair, invokeMethod('contradiction_detector_v1', ...).
+   POST /api/internal/sweep/conflicts        — same shape
+   GET  /api/internal/drift/scan?windowDays=N — returns DriftSignals
+   POST /api/internal/decay/tick?dryRun=1     — runs runDecayTick
+
+4. Cowork scheduled task prompts (paste into a Cowork session to
+   create the scheduled tasks; same shape as
+   scripts/scheduled-task-comms-brief.md):
+
+   scripts/scheduled-task-validation-sweep.md
+     Task id: mars-estate-validation-sweep
+     Schedule: 0 4 * * 1 (Mondays at 4 AM local).
+     Body: instruct Cowork to call the dashboard's internal endpoints —
+     sample the top 50 principles by conviction; for each pair within
+     the set whose embedding cosine > 0.45 (via a tiny SQL helper
+     exposed at GET /api/internal/principles/cosine-pairs?topN=50&minCos=0.45),
+     POST to /sweep/contradictions and /sweep/conflicts; then GET
+     /drift/scan and write a one-paragraph summary as a comms-brief
+     item if any high-severity (> 0.7) findings emerged.
+
+   scripts/scheduled-task-decay-tick.md
+     Task id: mars-estate-decay-tick
+     Schedule: 0 5 1 * * (1st of month at 5 AM).
+     Body: POST /decay/tick?dryRun=1 first and publish a comms-brief
+     preview. After 48 hours, the operator can POST /decay/tick (no
+     dryRun) via the /admin/decay page (prompt 27).
+
+5. Surface drift signals on /drift (prompt 27) and decay preview on
+   /decay (prompt 27).
+
+ACCEPTANCE CRITERIA
+- detectDriftAll(30, 0.15) returns DriftSignals for principles whose
+  cumulative conviction shifted > 0.15 in 30 days.
+- runDecayTick({dryRun: true}) returns counts and mutates nothing.
+- Internal endpoints reject requests without the secret header.
+- Pasting the two scheduled-task prompts into Cowork creates the
+  tasks and they fire on schedule.
+
+================================================================================

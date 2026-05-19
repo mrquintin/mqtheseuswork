@@ -1,0 +1,130 @@
+================================================================================
+11 — Conflict-of-interest detector (business-strategy conflict)
+================================================================================
+
+GOAL
+Detect when two Principles, while not logically contradictory, are
+strategically incompatible — pursuing both materially undercuts each
+other. Distinct from contradiction. Persist as ConflictOfInterest
+rows. Domain pre-filter: pairs that share no strategic domain are
+skipped.
+
+TASK
+
+1. Create lib/engine/validate/conflict.ts:
+
+  import { registerMethod } from '@/lib/methods/registry';
+  import { callClaudeJson } from '@/lib/methods/anthropic';
+  import { Principles, Conflicts, Relationships, Meta } from '@/lib/db';
+  import { recordEvent } from '@/lib/audit/recordEvent';
+  import { ACTIONS } from '@/lib/audit/actions';
+
+  const SEVERITY_FLOOR = 0.4;
+
+  const DEFAULT_BUSINESS_CONTEXT =
+    'Mars Estate is a small-production luxury wine producer focused on Howell Mountain Cabernet, allocation-based distribution, and a NYC restaurant/retail launch channel. Operator is Colin Yuan. Brand posture: cult, low-volume, $80+/bottle, allocation list.';
+
+  const SYSTEM = (ctx: string) => `You are a business-strategy conflict detector for Mars Estate. Given two business principles that share at least one strategic domain, decide whether pursuing them simultaneously would MATERIALLY UNDERCUT each other in practice. This is DIFFERENT from logical contradiction — strategic incompatibility, not formal incompatibility.
+
+BUSINESS CONTEXT
+${ctx}
+
+EXAMPLES OF CONFLICT
+- Premium brand positioning AND mass-distribution channels.
+- Conservative cash management AND aggressive expansion.
+- Limited-allocation scarcity AND chasing every new account.
+
+NOT CONFLICT
+- Premium positioning AND high-end DTC tasting room (mutually reinforcing).
+- Growth focus AND hiring a sales director (operational support).
+
+If the conflict is ASYMMETRIC (A undercuts B more than vice versa), say so in directionalNote.
+
+OUTPUT JSON: {
+  "conflicts": boolean,
+  "severity": 0..1,
+  "domain": "...",
+  "rationale": "one paragraph",
+  "asymmetric": boolean,
+  "directionalNote": "..."
+}`;
+
+  interface Input { leftId: number; rightId: number; }
+  interface Output { conflict: { id: number } | null; }
+
+  export function registerConflictDetector(): void {
+    registerMethod<Input, Output>({
+      id: 'conflict_detector_v1',
+      name: 'Conflict-of-Interest Detector',
+      version: '1.0.0',
+      run: async ({ leftId, rightId }) => {
+        if (leftId === rightId) return { conflict: null };
+        if (Conflicts.isFalsePositive(leftId, rightId)) return { conflict: null };
+        const existing = Conflicts.findOpenBetween(leftId, rightId);
+        if (existing) return { conflict: { id: existing.id } };
+        const left = Principles.get(leftId);
+        const right = Principles.get(rightId);
+        if (!left || !right) return { conflict: null };
+
+        const lds = (left.domains as string[] | null) ?? [];
+        const rds = (right.domains as string[] | null) ?? [];
+        const overlap = lds.filter(d => rds.includes(d));
+        if (overlap.length === 0) return { conflict: null };
+
+        const ctx = Meta.get('business_context') ?? DEFAULT_BUSINESS_CONTEXT;
+        const { json } = await callClaudeJson<{
+          conflicts: boolean; severity: number; domain: string;
+          rationale: string; asymmetric: boolean; directionalNote: string;
+        }>({
+          model: 'claude-sonnet-4-6',
+          system: SYSTEM(ctx),
+          user: `PRINCIPLE A:\n${left.canonical_statement}\n\nPRINCIPLE B:\n${right.canonical_statement}\n\nSHARED DOMAINS: ${overlap.join(', ')}`,
+          maxTokens: 700,
+        });
+        if (!json.conflicts || json.severity < SEVERITY_FLOOR) return { conflict: null };
+
+        const c = Conflicts.create({
+          left_id: leftId, right_id: rightId,
+          severity: json.severity, domain: json.domain,
+          rationale: json.rationale,
+          asymmetric: json.asymmetric ? 1 : 0,
+          directional_note: json.directionalNote,
+          detected_by: 'conflict_detector_v1',
+        });
+        Relationships.create({
+          rel_type: 'conflicts_with',
+          source_kind: 'principle', source_id: leftId,
+          target_kind: 'principle', target_id: rightId,
+          strength: json.severity, detected_by: 'conflict_detector_v1',
+        });
+        recordEvent({
+          actorKind: 'method', actorId: 'conflict_detector_v1',
+          action: ACTIONS.CONFLICT_DETECT,
+          subjectKind: 'conflict', subjectId: String(c.id),
+          payload: { leftId, rightId, severity: json.severity, domain: json.domain },
+        });
+        return { conflict: { id: c.id } };
+      },
+    });
+  }
+
+2. Business context document:
+   - Stored in meta table under key `business_context`.
+   - If absent, the DEFAULT_BUSINESS_CONTEXT above is used. The
+     /settings/business-context page (prompt 27) lets the operator
+     edit it.
+
+3. Trigger points: same as the contradiction detector
+   (newly-created principles, weekly Cowork sweep).
+
+4. Register: add `registerConflictDetector()` to
+   lib/methods/registerAll.ts.
+
+ACCEPTANCE CRITERIA
+- "premium $80+/bottle positioning" vs "pursue Costco distribution" →
+  conflict severity > 0.7, domain ~ 'brand' or 'distribution'.
+- "premium positioning" vs "high-end DTC tasting room" → NO conflict.
+- Domain filter skips a pair that shares no domains without burning an
+  LLM call.
+
+================================================================================

@@ -1,0 +1,80 @@
+================================================================================
+25 — /cascade/[kind]/[id] (provenance visualization)
+================================================================================
+
+GOAL
+An interactive layered visualization of how a Decision or Principle
+descends from its underlying principles, claims, and sources. Uses the
+prompt 14 cascade helpers. Stays light — no Cytoscape; a small custom
+SVG layered layout (~150 LOC) keeps bundle size down and the visual
+quiet enough to match the editorial aesthetic.
+
+TASK
+
+1. Layered layout helper at lib/ui/layered-layout.ts:
+
+  export interface LaidOutNode { id: string; x: number; y: number; r: number; label: string; depth: number; color: string; meta?: unknown; }
+  export interface LaidOutEdge { fromId: string; toId: string; label: string; }
+  export function layeredLayout(nodes: Array<{ id: string; label: string; depth: number; loadBearing: number; meta?: unknown }>,
+                                edges: Array<{ from: string; to: string; label: string }>,
+                                opts: { width: number; depthSpacing: number; minSpacing: number }):
+    { nodes: LaidOutNode[]; edges: LaidOutEdge[]; height: number };
+
+  // Sort nodes by depth. Within a depth, distribute evenly along x.
+  // Node radius proportional to loadBearing (clamped 8..32 px).
+  // Color by depth (root=oxblood, principles=brass, claims/sources=parchment).
+
+2. Page app/cascade/[kind]/[id]/page.tsx (kind in {decision, principle}):
+
+  import { Header } from '@/components/Header';
+  import { cascadeForDecision, diagnoseCascade } from '@/lib/engine/graph/cascade';
+  import { CascadeSvg } from './CascadeSvg';
+  import { DiagnosticsBanner } from './DiagnosticsBanner';
+
+  export default async function CascadePage({ params }: { params: Promise<{ kind: string; id: string }> }) {
+    const { kind, id } = await params;
+    const g = kind === 'decision'
+      ? cascadeForDecision(parseInt(id, 10))
+      : await principleCascade(parseInt(id, 10));  // small helper that walks claims
+    const diag = diagnoseCascade(g);
+    return (
+      <main className="min-h-screen">
+        <Header />
+        <div className="mx-auto max-w-6xl px-8 py-10">
+          <h1 className="display-serif text-2xl mb-2">Cascade</h1>
+          <DiagnosticsBanner diag={diag} />
+          <CascadeSvg graph={g} />
+          <div className="mt-4 flex gap-3 text-xs">
+            <button>Copy as Mermaid</button>
+            <button>Download SVG</button>
+          </div>
+        </div>
+      </main>
+    );
+  }
+
+3. components for the page:
+   - app/cascade/[kind]/[id]/CascadeSvg.tsx ('use client') — SVG
+     using layered-layout. onClick a node opens a side panel with
+     the node's detail; clicking a Principle node deep-links to
+     /principles/[id].
+   - app/cascade/[kind]/[id]/DiagnosticsBanner.tsx — renders
+     thinFoundation / staleAncestor / contradictedAncestor flags,
+     each linking to the relevant detail page.
+
+4. Export buttons:
+   - "Copy as Mermaid": converts the cascade to a Mermaid flowchart
+     string and puts it on the clipboard (use a small mermaid-from-
+     cascade helper).
+   - "Download SVG": serializes the rendered SVG via
+     XMLSerializer.
+
+ACCEPTANCE CRITERIA
+- /cascade/decision/[seedDecisionId] renders three layers with the
+  decision at top, principles in middle, claims at bottom.
+- Clicking a Principle node opens a side panel showing canonical
+  statement + conviction + a link to /principles/[id].
+- DiagnosticsBanner shows applicable flags (thinFoundation true when
+  fewer than 3 distinct sources back the decision).
+
+================================================================================

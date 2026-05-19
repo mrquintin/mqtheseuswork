@@ -1,0 +1,87 @@
+================================================================================
+26 — Chat integration: new tools + Decision-Test mode toggle + prompt delta
+================================================================================
+
+GOAL
+Extend the existing chat (app/api/chat/route.ts, lib/chat/tools.ts,
+lib/chat/prompt.ts, components/chat/*) so the Theseus-layer features
+are available there too. Don't break what's there.
+
+TASK
+
+1. New chat tools — each in lib/chat/tools/<name>.ts, registered in
+   REGISTERED_TOOLS in lib/chat/tools.ts. Follow the existing
+   add_todo.ts shape exactly:
+
+   - oracle_ask                  (already defined in prompt 15)
+   - test_decision               (already defined in prompt 16)
+   - record_outcome              (already defined in prompt 17)
+   - list_open_contradictions    — returns top-N open contradictions
+       sorted by severity, with both principles' canonical statements.
+   - list_open_conflicts         — same for conflicts.
+   - list_factcheck_concerns     — lists open FactCheck rows where
+       verdict in {refuted, mixed}.
+   - cascade_for_decision        — given decisionId, returns the
+       CascadeGraph JSON from prompt 14.
+   - propose_principle_edit      — given principleId and proposedText,
+       creates a PrincipleRevisionSuggestion with cause='chat_proposal'
+       and status='open'. Does NOT mutate the principle; the operator
+       approves in the UI (or via the existing approve/dismiss
+       endpoints from prompt 17).
+
+2. Update lib/chat/prompt.ts — append a new section to the existing
+   system prompt (do not rewrite the existing sections; the
+   business-context and voice sections are correct and load-bearing):
+
+   ## Mars Estate's intellectual capital layer
+
+   Beyond the raw chunks above, the system maintains an extracted body
+   of PRINCIPLES (Mars Estate's standing positions) with conviction
+   scores, and detects three classes of issue:
+     - logical contradictions between principles
+     - strategic conflicts of interest between principles
+     - factual / empirical inaccuracy of principles or claims
+
+   Tools available:
+     - oracle_ask: principle-grounded answer to a strategic question
+     - test_decision: structured pros/cons/conflicts/factual warnings for "should we" questions
+     - record_outcome: log what actually happened for a past decision
+     - list_open_contradictions / list_open_conflicts / list_factcheck_concerns: triage the queues
+     - cascade_for_decision: trace a past decision back to sources
+     - propose_principle_edit: file a revision suggestion the operator can approve
+
+   PREFER oracle_ask / test_decision for strategic questions —
+   they retrieve PRINCIPLES (not just chunks) and persist a Decision
+   record. Plain chunk retrieval is right for retrieval questions
+   ("when did Lindsay say…?").
+
+3. Decision-Test mode toggle:
+   - components/chat/ChatBar.tsx — add a small two-state toggle
+     ("Oracle" | "Decision Test") near the input. Persist in
+     localStorage under key `marsEstateChatMode`.
+   - components/chat/ChatView.tsx (and ChatBar) — when Decision-Test
+     mode is active, change the input placeholder ("Should we …?") and
+     prepend a directive to the user message before posting:
+       [Decision Test mode] Use the test_decision tool with the
+       message below as proposed_decision.\n\n
+   - The decoration is invisible to the operator; Claude treats it
+     as instruction.
+
+4. Citation chips for v2 results:
+   - When the chat assistant message includes an OracleOutput tool
+     result, render the evidence list as CitationChip components
+     (principle variant from prompt 08). Each chip → /principles/[id].
+   - When the assistant returns a test_decision result, render the
+     pros/cons/conflicts/factualWarnings as a structured block above
+     the prose answer.
+
+ACCEPTANCE CRITERIA
+- Asking "Should we sign exclusivity with Houston?" in the chat
+  triggers test_decision (especially when Decision-Test mode is on)
+  and renders structured output.
+- "List our open contradictions" triggers list_open_contradictions.
+- The mode toggle persists across reloads.
+- Existing chat tools (add_todo, search_email, get_latest_brief, etc.)
+  continue to work unchanged.
+
+================================================================================

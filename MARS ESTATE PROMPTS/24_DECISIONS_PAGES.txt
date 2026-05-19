@@ -1,0 +1,80 @@
+================================================================================
+24 — /decisions list + /decisions/[id] + /decisions/new
+================================================================================
+
+GOAL
+Browse every Decision (Oracle answer or Decision Test). On each detail
+page, render the evidence chain with inline citation chips; record an
+Outcome; review and approve the post-mortem's principle-revision
+suggestions; submit a new structured Decision via /decisions/new.
+
+TASK
+
+1. List page app/decisions/page.tsx:
+   - Tabs: All, Pending Outcomes (resolution_date past, no outcome),
+     With Outcomes, Blocked.
+   - Columns: asked_at, kind (icon: Oracle vs Decision Test), question
+     (truncated), verdict (for decision_test), confidence bar,
+     has-outcome flag, Brier (if outcome).
+   - Sort: asked_at desc default; toggle to confidence or brier.
+
+2. Detail page app/decisions/[id]/page.tsx:
+   Header — question, kind, asked_at, confidence bar, link to thread
+   (if from chat).
+
+   Body — rendered answer.
+   - For Oracle: prose answer with inline [N] citation chips. Each
+     N → /principles/[principleId] (use CitationChip with the
+     principle variant from prompt 08).
+   - For Decision Test: structured blocks for pros, cons, conflicts,
+     factualWarnings, openUncertainties, recommendedFollowUp.
+
+   Counters section — list of CounterClaims (sorted by strength desc).
+
+   Cascade preview — small visualization showing the decision → top
+   principles → claim leaves. Full link to /cascade/decision/[id].
+
+   Outcome panel —
+   - If no Outcome: form with "happened" (Yes / No / N/A), actual_text
+     textarea, confidence-in-description slider, "Record outcome"
+     button.
+   - If Outcome exists: render it (happened, actual_text, recorded_at,
+     brier) + the post-mortem panel below.
+
+   Post-mortem panel — when an Outcome exists:
+   - On first render, call reconcileOutcome(outcomeId). Cache the
+     InverseResult in a small client-state pattern OR persist on
+     Outcome via a new column outcome.postmortem_json if you prefer
+     (additive migration, idempotent).
+   - List principleRevisions: each row shows the principle, prior role,
+     implication, suggested delta, rationale. Approve / Dismiss
+     buttons per row (call applyRevision.acceptRevision /
+     dismissRevision).
+   - Drift alerts banner if any.
+
+3. New-decision page app/decisions/new/page.tsx:
+   - Form (client component): mode toggle "Oracle" / "Decision Test",
+     question textarea, optional context, resolution criterion,
+     resolution date.
+   - Submit → POST /api/oracle/ask or /api/decisions/test → redirect
+     to /decisions/[id].
+
+4. Server actions app/decisions/_actions.ts:
+   - recordOutcomeAction(decisionId, input) — wraps prompt 17's
+     recordOutcome.
+   - acceptRevisionAction(suggestionId) — wraps acceptRevision.
+   - dismissRevisionAction(suggestionId) — wraps dismissRevision.
+   - applyOverrideAction(decisionId, checkName, justification) —
+     wraps applyOverride from prompt 19.
+
+ACCEPTANCE CRITERIA
+- /decisions lists seeded decisions, sorted asked_at desc.
+- The detail page renders evidence with citation chips; clicking a
+  chip navigates to /principles/[id].
+- Recording an outcome triggers the post-mortem and renders it inline.
+- Approving a suggested revision shifts the Principle.conviction
+  (verify by reloading /principles).
+- /decisions/new in Decision Test mode produces a structured-answer
+  detail page.
+
+================================================================================

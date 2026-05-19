@@ -1,0 +1,111 @@
+================================================================================
+39 — Chat integration: every new tool registered; schemas valid; SSE survives tool errors
+================================================================================
+
+GOAL
+The existing chat endpoint must continue to work AND every new v2 tool
+must be registered with a valid Anthropic tool spec AND a thrown error
+inside any tool handler must surface as a structured `tool_result`
+event in the SSE stream (not crash the connection).
+
+TASK
+
+1. scripts/test/chat-tools-registered.ts:
+
+  import assert from 'node:assert';
+  import { REGISTERED_TOOLS, TOOL_HANDLERS, CHAT_TOOL_SPECS, TOOL_NAMES } from '../../lib/chat/tools';
+
+  const expectedNewTools = [
+    'oracle_ask', 'test_decision', 'record_outcome',
+    'list_open_contradictions', 'list_open_conflicts',
+    'list_factcheck_concerns', 'cascade_for_decision',
+    'propose_principle_edit',
+  ];
+  const expectedOriginal = [
+    'add_todo', 'list_open_todos', 'mark_todo_done',
+    'search_email', 'search_meetings', 'search_vault',
+    'get_latest_brief', 'propose_research_focus', 'trigger_research_now',
+  ];
+
+  for (const t of [...expectedNewTools, ...expectedOriginal]) {
+    assert(TOOL_NAMES.includes(t), `tool ${t} not registered`);
+    assert(TOOL_HANDLERS[t], `handler ${t} missing`);
+  }
+
+  // Every tool spec has a name, description, input_schema with type 'object'.
+  for (const t of CHAT_TOOL_SPECS) {
+    assert.ok(t.name && t.description && t.input_schema, `spec malformed: ${t.name}`);
+    assert.strictEqual(t.input_schema.type, 'object');
+  }
+
+  // Names are unique.
+  const set = new Set(TOOL_NAMES);
+  assert.strictEqual(set.size, TOOL_NAMES.length, 'duplicate tool names');
+
+  console.log('[chat-tools-registered] OK');
+
+2. scripts/test/chat-tool-error-surface.ts — runs against a live dev
+   server. Posts to /api/chat with a message that should trigger a
+   tool call whose handler throws (use a test-only handler that
+   throws); confirms the SSE stream contains a `tool_result` event
+   with ok: false and ends with a `done` event, not an unhandled
+   error or socket close.
+
+  import assert from 'node:assert';
+
+  const base = process.env.TEST_BASE_URL ?? 'http://localhost:3000';
+
+  // Plant a transient test tool by writing a tiny test-only tool file
+  // wired into REGISTERED_TOOLS guarded by NODE_ENV === 'test'. The
+  // tool throws on first invocation.
+  //
+  // (The simplest version: add `test_throw` to TOOL_HANDLERS only when
+  // `process.env.MARS_TEST_MODE === '1'`. The test sets that env, then
+  // restores. Document the gate in lib/chat/tools.ts.)
+
+  process.env.MARS_TEST_MODE = '1';
+  const res = await fetch(base + '/api/chat', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ message: 'Use the test_throw tool to verify error surfacing.' }),
+  });
+  assert.strictEqual(res.status, 200);
+  const reader = res.body!.getReader();
+  let acc = '';
+  while (true) {
+    const { value, done } = await reader.read();
+    if (done) break;
+    acc += new TextDecoder().decode(value);
+  }
+  assert.ok(acc.includes('tool_result'), 'SSE should include tool_result event');
+  assert.ok(acc.includes('"ok":false') || acc.includes('"ok": false'), 'tool_result should be ok:false');
+  assert.ok(acc.includes('event: done'), 'SSE must reach done event');
+  console.log('[chat-tool-error-surface] OK');
+
+3. scripts/test/chat-tool-schema-anthropic.ts — round-trip every tool
+   spec through the Anthropic SDK's `Anthropic.Tool` type-check (use
+   the SDK's type structurally; no live API call needed).
+
+  import assert from 'node:assert';
+  import { CHAT_TOOL_SPECS } from '../../lib/chat/tools';
+  // Anthropic SDK exposes a Tool type compatible with our spec.
+  // We don't need the SDK to validate — JSON-Schema validate is enough.
+  for (const t of CHAT_TOOL_SPECS) {
+    const s: any = t.input_schema;
+    assert.strictEqual(typeof s, 'object');
+    assert.strictEqual(s.type, 'object');
+    if (s.properties) assert.strictEqual(typeof s.properties, 'object');
+    if (s.required) assert.ok(Array.isArray(s.required));
+  }
+  console.log('[chat-tool-schema-anthropic] OK');
+
+4. Add to package.json:
+
+  "test:chat":      "tsx scripts/test/chat-tools-registered.ts && tsx scripts/test/chat-tool-schema-anthropic.ts",
+  "test:chat:http": "tsx scripts/test/chat-tool-error-surface.ts"
+
+ACCEPTANCE CRITERIA
+- `npm run test:chat` exits 0 (no server required).
+- `npm run test:chat:http` exits 0 when the dev server is running.
+
+================================================================================

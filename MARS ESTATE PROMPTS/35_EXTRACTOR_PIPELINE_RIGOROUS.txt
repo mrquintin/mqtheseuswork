@@ -1,0 +1,258 @@
+================================================================================
+35 — Extractor pipeline: extractor + faithfulness + clustering + conviction
+================================================================================
+
+GOAL
+Exhaustive edge-case tests for the ingestion stack (prompts 04–07).
+Catches the bugs that classroom-style happy-path tests miss: empty
+input, oversize input, prompt-injection input, idempotency across
+re-extraction, near-duplicate clustering, NLI gating against
+semantic-similarity false-merges, conviction edge cases.
+
+These tests stub the LLM by registering test-only methods with the
+same ids when ANTHROPIC_API_KEY is unset, so the assertions are
+deterministic. When the key IS set, real LLM calls run.
+
+TASK
+
+1. scripts/test/helpers/llm-stub.ts — register stub methods with the
+   same ids as the production ones, OVERWRITING the production
+   registrations when LLM_STUB=1:
+
+  import { registerMethod } from '../../../lib/methods/registry';
+  import type { FaithfulnessResult } from '../../../lib/engine/extract/faithfulness';
+
+  export function installFaithfulnessStub(rules: Array<{ premiseMatch: RegExp; hypothesisMatch: RegExp; result: FaithfulnessResult }>) {
+    registerMethod({
+      id: 'faithfulness_v1', name: 'STUB faithfulness', version: '1.0.0-stub',
+      run: async ({ premise, hypothesis }: { premise: string; hypothesis: string }) => {
+        for (const r of rules) {
+          if (r.premiseMatch.test(premise) && r.hypothesisMatch.test(hypothesis)) return r.result;
+        }
+        return { label: 'entail', probability: 0.9, entailmentScore: 0.9, rationale: 'stub default entail' };
+      },
+    });
+  }
+
+  export function installExtractorStub(yieldClaims: (content: string) => Array<{ text: string; modality: any; spanStart: number; spanEnd: number; confidence: number }>) {
+    registerMethod({
+      id: 'claim_extractor_v1', name: 'STUB extractor', version: '1.0.0-stub',
+      run: async (input: any) => {
+        const raws = yieldClaims(input.content);
+        const { Claims } = await import('../../../lib/db');
+        const insertedIds: number[] = [];
+        for (const r of raws) {
+          const c = Claims.create({
+            chunk_id: input.chunkId, source_kind: input.source_kind, source_id: input.source_id,
+            source_ref: input.source_ref, text: r.text, modality: r.modality,
+            speaker: input.speaker, extractor_method: 'claim_extractor_v1',
+            extractor_confidence: r.confidence, faithfulness_score: 0.9,
+            span_start: r.spanStart, span_end: r.spanEnd,
+          } as any);
+          insertedIds.push(c.id);
+        }
+        return { inserted: raws.length, rejected: 0, insertedIds };
+      },
+    });
+  }
+
+  // Add installClusterStub, installCanonicalizeStub similarly when needed.
+
+2. scripts/test/extractor-edge-cases.ts:
+
+  import assert from 'node:assert';
+  import { getDb, Claims } from '../../lib/db';
+  import { extractClaimsForChunk } from '../../lib/engine/extract/extractor';
+  import { installExtractorStub, installFaithfulnessStub } from './helpers/llm-stub';
+
+  installFaithfulnessStub([]);
+
+  // EDGE 1: empty content → 0 claims, no error.
+  installExtractorStub(() => []);
+  let r = await extractClaimsForChunk({
+    chunkId: 9_990_001, source_kind: 'obsidian', source_id: 't1', source_ref: 't', content: '', speaker: 'colin',
+  });
+  assert.strictEqual(r.inserted, 0);
+  assert.strictEqual(r.rejected, 0);
+
+  // EDGE 2: extractor yields a claim with span out of bounds → REJECTED, not inserted.
+  installExtractorStub((c) => [{ text: 'x', modality: 'assertion', spanStart: -1, spanEnd: 9999, confidence: 0.9 }]);
+  r = await extractClaimsForChunk({
+    chunkId: 9_990_002, source_kind: 'obsidian', source_id: 't2', source_ref: 't', content: 'short content', speaker: 'colin',
+  });
+  assert.strictEqual(r.inserted, 0);
+  assert.strictEqual(r.rejected, 1);
+
+  // EDGE 3: extractor yields a claim with span >80% of chunk → REJECTED.
+  installExtractorStub((c) => [{ text: 'x', modality: 'assertion', spanStart: 0, spanEnd: c.length, confidence: 0.9 }]);
+  r = await extractClaimsForChunk({
+    chunkId: 9_990_003, source_kind: 'obsidian', source_id: 't3', source_ref: 't', content: 'short content', speaker: 'colin',
+  });
+  assert.strictEqual(r.inserted, 0);
+  assert.strictEqual(r.rejected, 1);
+
+  // EDGE 4: faithfulness below 0.5 → REJECTED.
+  installExtractorStub((c) => [{ text: 'we will hire 10 salespeople', modality: 'assertion', spanStart: 0, spanEnd: 5, confidence: 0.9 }]);
+  installFaithfulnessStub([{ premiseMatch: /.*/, hypothesisMatch: /.*/, result: { label: 'neutral', probability: 0.3, entailmentScore: 0.3, rationale: 'stub' } }]);
+  r = await extractClaimsForChunk({
+    chunkId: 9_990_004, source_kind: 'obsidian', source_id: 't4', source_ref: 't', content: 'short content', speaker: 'colin',
+  });
+  assert.strictEqual(r.inserted, 0);
+  assert.strictEqual(r.rejected, 1);
+
+  // EDGE 5: faithfulness at exactly 0.5 boundary → INSERTED.
+  installFaithfulnessStub([{ premiseMatch: /.*/, hypothesisMatch: /.*/, result: { label: 'entail', probability: 0.5, entailmentScore: 0.5, rationale: 'stub' } }]);
+  r = await extractClaimsForChunk({
+    chunkId: 9_990_005, source_kind: 'obsidian', source_id: 't5', source_ref: 't', content: 'short content', speaker: 'colin',
+  });
+  assert.strictEqual(r.inserted, 1);
+
+  // EDGE 6: non-ASCII content (é, ñ, →, emoji) does not crash. Span offsets must be CHAR offsets not byte offsets.
+  installExtractorStub((c) => [{ text: 'café opens at noon', modality: 'assertion', spanStart: 0, spanEnd: 4, confidence: 0.9 }]);
+  installFaithfulnessStub([]);
+  r = await extractClaimsForChunk({
+    chunkId: 9_990_006, source_kind: 'obsidian', source_id: 't6', source_ref: 't', content: 'café 🍷 → wine', speaker: 'colin',
+  });
+  assert.strictEqual(r.inserted, 1);
+
+  // EDGE 7: oversize chunk (50 KB) doesn't crash; LLM-call layer is responsible for splitting.
+  const big = 'a'.repeat(50000);
+  installExtractorStub(() => []);
+  r = await extractClaimsForChunk({
+    chunkId: 9_990_007, source_kind: 'obsidian', source_id: 't7', source_ref: 't', content: big, speaker: 'colin',
+  });
+  assert.strictEqual(r.inserted, 0);
+
+  // EDGE 8: cleanup — remove synthetic claims.
+  getDb().prepare(`DELETE FROM claims WHERE source_id LIKE 't%'`).run();
+
+  console.log('[extractor-edge-cases] OK');
+
+3. scripts/test/clustering-edge-cases.ts:
+
+  import assert from 'node:assert';
+  import { getDb, Claims, Principles } from '../../lib/db';
+  import { invokeMethod } from '../../lib/methods/registry';
+  import { installFaithfulnessStub } from './helpers/llm-stub';
+
+  const db = getDb();
+  // Snapshot before-state so we clean precisely.
+  const before = (db.prepare(`SELECT COUNT(*) AS n FROM principles`).get() as { n: number }).n;
+
+  // EDGE 1: first claim → new principle.
+  const c1 = Claims.create({
+    source_kind: 'obsidian', source_id: 'cluster_t1', source_ref: 't',
+    text: 'we prioritize wholesale restaurant relationships',
+    modality: 'assertion', speaker: 'colin',
+    extractor_method: 'claim_extractor_v1', extractor_confidence: 0.9,
+    faithfulness_score: 0.9, span_start: 0, span_end: 30,
+  } as any);
+  // For deterministic clustering without real embeddings, stub the
+  // cluster method's NLI step to entail when text matches.
+  installFaithfulnessStub([
+    { premiseMatch: /wholesale|restaurant/i, hypothesisMatch: /wholesale|restaurant/i,
+      result: { label: 'entail', probability: 0.95, entailmentScore: 0.95, rationale: 'stub' } },
+    { premiseMatch: /.*/, hypothesisMatch: /.*/, result: { label: 'neutral', probability: 0.3, entailmentScore: 0.3, rationale: 'stub' } },
+  ]);
+  const r1 = await invokeMethod('principle_cluster_v1', { claimIds: [c1.id] }) as any;
+  assert.strictEqual(r1.assignments[0].created, true, 'first claim should create principle');
+  const newPid = r1.assignments[0].principleId;
+
+  // EDGE 2: paraphrase joins existing.
+  const c2 = Claims.create({
+    source_kind: 'obsidian', source_id: 'cluster_t2', source_ref: 't',
+    text: 'restaurant wholesale comes first for us',
+    modality: 'assertion', speaker: 'colin',
+    extractor_method: 'claim_extractor_v1', extractor_confidence: 0.9,
+    faithfulness_score: 0.9, span_start: 0, span_end: 20,
+  } as any);
+  const r2 = await invokeMethod('principle_cluster_v1', { claimIds: [c2.id] }) as any;
+  // Either joins (created:false, same principleId) or starts a separate one
+  // when sqlite-vec is unavailable. In stub mode, force the join via NLI
+  // pre-filter assumption. If sqlite-vec unavailable, the test should
+  // SKIP this assertion with a clear log.
+  const { isVecLoaded } = await import('../../lib/db');
+  if (isVecLoaded()) {
+    assert.strictEqual(r2.assignments[0].principleId, newPid, 'paraphrase should join existing cluster');
+    assert.strictEqual(r2.assignments[0].created, false);
+  } else {
+    console.log('[clustering] sqlite-vec not loaded — skipping join assertion');
+  }
+
+  // EDGE 3: orthogonal claim → new principle.
+  const c3 = Claims.create({
+    source_kind: 'obsidian', source_id: 'cluster_t3', source_ref: 't',
+    text: 'vineyard expansion is the priority',
+    modality: 'assertion', speaker: 'colin',
+    extractor_method: 'claim_extractor_v1', extractor_confidence: 0.9,
+    faithfulness_score: 0.9, span_start: 0, span_end: 20,
+  } as any);
+  const r3 = await invokeMethod('principle_cluster_v1', { claimIds: [c3.id] }) as any;
+  assert.notStrictEqual(r3.assignments[0].principleId, newPid, 'orthogonal claim must NOT join');
+
+  // EDGE 4: re-cluster an already-assigned claim → no-op.
+  const r4 = await invokeMethod('principle_cluster_v1', { claimIds: [c1.id] }) as any;
+  assert.strictEqual(r4.assignments[0].principleId, newPid);
+  assert.strictEqual(r4.assignments[0].created, false);
+
+  // CLEANUP
+  db.prepare(`DELETE FROM claims WHERE source_id LIKE 'cluster_t%'`).run();
+  db.prepare(`DELETE FROM principles WHERE id > ?`).run(before === 0 ? 0 : before);
+  // (Be more precise in real test: track created ids and delete by id.)
+
+  console.log('[clustering-edge-cases] OK');
+
+4. scripts/test/conviction-edge-cases.ts:
+
+  import assert from 'node:assert';
+  import { getDb, Claims, Principles } from '../../lib/db';
+  import { recomputeConviction, pinConviction, unpinConviction } from '../../lib/engine/extract/conviction';
+
+  // EDGE 1: zero claims → conviction 0.
+  const p = Principles.create({ canonical_statement: 'test conviction edges',
+    first_observed_at: '2026-01-01', last_observed_at: '2026-01-01' } as any);
+  let conv = await recomputeConviction(p.id);
+  assert.strictEqual(conv, 0);
+
+  // EDGE 2: single Colin assertion (recent) → conviction in [0.45, 0.85].
+  Claims.create({
+    source_kind: 'obsidian', source_id: 'cv_t1', source_ref: 't',
+    text: 'x', modality: 'assertion', speaker: 'colin',
+    extractor_method: 'claim_extractor_v1', extractor_confidence: 0.9,
+    faithfulness_score: 0.9, span_start: 0, span_end: 1, principle_id: p.id,
+  } as any);
+  Principles.updateCanonical(p.id, { last_observed_at: new Date().toISOString().replace('T',' ').slice(0,19) } as any);
+  conv = await recomputeConviction(p.id);
+  assert.ok(conv >= 0.45 && conv <= 0.85, `single Colin assertion conviction ${conv} out of band`);
+
+  // EDGE 3: pinned conviction respected by recompute.
+  pinConviction(p.id, 0.9, 'test');
+  conv = await recomputeConviction(p.id);
+  assert.strictEqual(conv, 0.9);
+
+  // EDGE 4: unpin restores formula.
+  unpinConviction(p.id, 'test');
+  conv = await recomputeConviction(p.id);
+  assert.ok(conv !== 0.9 || Math.abs(conv - 0.9) > 0.01, 'unpin should release the pin');
+
+  // EDGE 5: very old principle (3 years ago) → recency near 0, conviction low.
+  Principles.updateCanonical(p.id, { last_observed_at: '2023-05-15' } as any);
+  conv = await recomputeConviction(p.id);
+  assert.ok(conv < 0.5, `3-year-old principle conviction ${conv} too high`);
+
+  // CLEANUP
+  getDb().prepare(`DELETE FROM claims WHERE source_id LIKE 'cv_t%'`).run();
+  getDb().prepare(`DELETE FROM principles WHERE id = ?`).run(p.id);
+
+  console.log('[conviction-edge-cases] OK');
+
+5. Add to package.json:
+
+  "test:extract": "tsx scripts/test/extractor-edge-cases.ts && tsx scripts/test/clustering-edge-cases.ts && tsx scripts/test/conviction-edge-cases.ts"
+
+ACCEPTANCE CRITERIA
+- `npm run test:extract` exits 0 with the live ANTHROPIC and VOYAGE
+  keys, AND exits 0 with both unset (the stub helpers carry it).
+- Synthetic test rows are always cleaned up.
+
+================================================================================

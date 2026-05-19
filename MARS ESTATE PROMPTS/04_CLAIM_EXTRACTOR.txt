@@ -1,0 +1,184 @@
+================================================================================
+04 — Claim extractor (runs as a downstream stage of the indexer)
+================================================================================
+
+GOAL
+After lib/index/worker.ts embeds a chunk into embeddings_chunks +
+vec_chunks, an extraction pass runs over the chunk's content and writes
+zero-to-several Claim rows linked back to that chunk_id.
+
+TASK
+
+1. Update lib/db.ts. The existing EmbeddingsChunks.replaceForSource
+   returns just a count. Change it to also return the newly-inserted
+   chunk ids:
+
+   - Add `replaceForSourceReturningIds(source_kind, source_id, inserts):
+     { count: number; chunkIds: number[] }`. Collect
+     Number(insChunk.run(...).lastInsertRowid) into an array inside the
+     transaction.
+   - Keep the existing replaceForSource as a thin wrapper that returns
+     `.count` for backward compatibility with the current call sites.
+
+2. Create lib/engine/extract/extractor.ts:
+
+  import { invokeMethod, registerMethod } from '@/lib/methods/registry';
+  import { callClaudeJson } from '@/lib/methods/anthropic';
+  import { Claims, EmailCache, MeetingCache } from '@/lib/db';
+  import { recordEvent } from '@/lib/audit/recordEvent';
+  import { ACTIONS } from '@/lib/audit/actions';
+  import { checkFaithfulness } from './faithfulness';
+  import type { EmbeddingSourceKind } from '@/lib/types';
+
+  const SYSTEM = `You are a claim extractor for Mars Estate, a small-production luxury winery on Howell Mountain. Read ONE CHUNK of text (an email message, meeting utterance, or Obsidian note paragraph) and return a JSON array of atomic business claims the speaker is genuinely asserting or considering.
+
+RULES
+1. ATOMIC: one subject, one predicate, one quantifier. Never combine with "and"/"but".
+2. FAITHFUL: every claim must be directly entailed by the chunk. Do not infer beyond the text.
+3. MODALITY: one of
+   - assertion    (stated as true)
+   - prediction   (expected to happen)
+   - question     (unsure / asking)
+   - counter      (countering an idea)
+   - hypothetical (exploring an option)
+4. SPAN: 0-indexed [start, end] character offsets inside the chunk. Span MUST contain the verb or core noun phrase. Reject claims that span the entire chunk.
+5. If the chunk has no atomic business claims (small talk, greetings, logistics, signatures), return { "claims": [] }.
+6. Be CONSERVATIVE. Zero claims is fine. Fabricated claims poison the principle layer for months.
+
+OUTPUT (strict JSON):
+{ "claims": [ { "text": string, "modality": "assertion"|"prediction"|"question"|"counter"|"hypothetical", "spanStart": int, "spanEnd": int, "confidence": 0..1 } ] }`;
+
+  interface ExtractorInput {
+    chunkId: number;
+    source_kind: EmbeddingSourceKind;
+    source_id: string;
+    source_ref: string | null;
+    content: string;
+    speaker: string | null;
+  }
+  interface RawClaim { text: string; modality: any; spanStart: number; spanEnd: number; confidence: number; }
+  interface ExtractorOutput { inserted: number; rejected: number; insertedIds: number[]; }
+
+  export function registerClaimExtractor(): void {
+    registerMethod<ExtractorInput, ExtractorOutput>({
+      id: 'claim_extractor_v1',
+      name: 'Claim Extractor',
+      version: '1.0.0',
+      run: async (input) => {
+        const { json } = await callClaudeJson<{ claims: RawClaim[] }>({
+          model: 'claude-sonnet-4-6',
+          system: SYSTEM,
+          user: `[Source: ${input.source_ref ?? input.source_kind}]\n[Speaker: ${input.speaker ?? 'unknown'}]\n\n${input.content}`,
+          maxTokens: 1500,
+        });
+        const insertedIds: number[] = [];
+        let inserted = 0, rejected = 0;
+        for (const raw of json.claims) {
+          if (raw.spanStart < 0 || raw.spanEnd > input.content.length || raw.spanEnd <= raw.spanStart) { rejected++; continue; }
+          if ((raw.spanEnd - raw.spanStart) > 0.8 * input.content.length) { rejected++; continue; }
+          const premise = input.content.slice(raw.spanStart, raw.spanEnd);
+          const fc = await checkFaithfulness({ premise, hypothesis: raw.text });
+          if (fc.entailmentScore < 0.5) { rejected++; continue; }
+          const claim = Claims.create({
+            chunk_id: input.chunkId,
+            source_kind: input.source_kind,
+            source_id: input.source_id,
+            source_ref: input.source_ref,
+            text: raw.text,
+            modality: raw.modality,
+            speaker: input.speaker,
+            extractor_method: 'claim_extractor_v1',
+            extractor_confidence: raw.confidence,
+            faithfulness_score: fc.entailmentScore,
+            span_start: raw.spanStart,
+            span_end: raw.spanEnd,
+          });
+          recordEvent({
+            actorKind: 'method', actorId: 'claim_extractor_v1',
+            action: ACTIONS.CLAIM_EXTRACT,
+            subjectKind: 'claim', subjectId: String(claim.id),
+            payload: { chunkId: input.chunkId, modality: raw.modality, faithfulness: fc.entailmentScore },
+          });
+          insertedIds.push(claim.id);
+          inserted++;
+        }
+        return { inserted, rejected, insertedIds };
+      },
+    });
+  }
+
+  export async function extractClaimsForChunk(input: ExtractorInput) {
+    return invokeMethod<ExtractorInput, ExtractorOutput>('claim_extractor_v1', input);
+  }
+
+  // Helper used by the indexer to derive the speaker label for a chunk.
+  export function deriveSpeaker(kind: EmbeddingSourceKind, source_id: string,
+                                content: string): string | null {
+    if (kind === 'obsidian') return 'colin';
+    if (kind === 'email') {
+      // source_id is `${thread_id}::${message_id}` per the existing indexer;
+      // look up the email_cache row by message_id and read from_label.
+      const messageId = source_id.split('::').pop();
+      if (!messageId) return null;
+      const row = (require('@/lib/db').EmailCache as any).getByMessageId?.(messageId);
+      return row?.from_label ?? null;
+    }
+    if (kind === 'meeting') {
+      // source_id is the granola_id; meeting transcripts may prefix utterances.
+      const m = content.match(/^([A-Z][a-zA-Z .'-]{1,40}):\s/);
+      if (m) return m[1];
+      const row = (require('@/lib/db').MeetingCache as any).getByGranolaId?.(source_id);
+      return row?.title ?? null;
+    }
+    return null;
+  }
+
+  // If EmailCache / MeetingCache lack getByMessageId / getByGranolaId, add
+  // them as small repo methods in lib/db.ts now.
+
+3. Wire the extractor into lib/index/worker.ts. Find the existing
+   per-source loop that calls EmbeddingsChunks.replaceForSource and then
+   markIndexed. Patch it:
+
+  // before: const count = EmbeddingsChunks.replaceForSource(kind, sid, inserts);
+  // after:
+  const { chunkIds } = EmbeddingsChunks.replaceForSourceReturningIds(kind, sid, inserts);
+  // ...existing markIndexed call unchanged...
+  for (let i = 0; i < chunkIds.length; i++) {
+    const ins = inserts[i];
+    try {
+      await extractClaimsForChunk({
+        chunkId: chunkIds[i],
+        source_kind: kind,
+        source_id: sid,
+        source_ref: ins.source_ref ?? null,
+        content: ins.content,
+        speaker: deriveSpeaker(kind, sid, ins.content),
+      });
+    } catch (e) {
+      console.warn('[indexer] claim extraction failed for chunk', chunkIds[i], e);
+    }
+  }
+
+4. Per-tick budget: don't extract more than 50 chunks per indexer tick.
+   The next tick continues the backlog. Implement by tracking a counter
+   in the worker tick scope.
+
+5. Daily backlog cap: before each extraction call, count today's
+   CLAIM_EXTRACT audit events; if >= 5000 (default), skip with a
+   console warn. (Operator-tunable via the Meta key
+   `extractor_daily_chunk_limit` — read at the top of the worker tick.)
+
+6. Register: add `registerClaimExtractor()` to
+   lib/methods/registerAll.ts's body.
+
+ACCEPTANCE CRITERIA
+- After saving a new vault note containing 3 obvious business claims,
+  within ~90 seconds the claims table has 3 new rows linked to the
+  right chunk_id, each with valid span indices and a non-null
+  faithfulness_score.
+- Re-running the indexer (or saving the same file again) is a no-op
+  for unchanged content.
+- Extractor failures log a warning but do NOT halt the indexer.
+
+================================================================================

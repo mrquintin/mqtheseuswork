@@ -1,0 +1,159 @@
+================================================================================
+19 — Lightweight rigor gate (3 checks, warn-or-block)
+================================================================================
+
+GOAL
+Before an Oracle answer or decision-test verdict is returned as final,
+it passes through a small set of registered checks. Failures warn or
+block; blocks can be overridden with a written justification (audited).
+
+TASK
+
+1. Create lib/engine/rigor/gate.ts:
+
+  import { Decisions, Principles, FactChecks, Conflicts, Claims } from '@/lib/db';
+  import { recordEvent } from '@/lib/audit/recordEvent';
+  import { ACTIONS } from '@/lib/audit/actions';
+
+  export interface GateCheck {
+    name: string;
+    description: string;
+    severity: 'warn' | 'block';
+    evaluate: (decisionId: number) => { pass: boolean; reason?: string };
+  }
+
+  export interface GateOutcome {
+    decision: 'pass' | 'pass_with_warnings' | 'blocked';
+    failures: Array<{ checkName: string; reason: string; severity: 'warn' | 'block' }>;
+  }
+
+  const CHECKS: GateCheck[] = [];
+  export function registerGateCheck(c: GateCheck): void { CHECKS.push(c); }
+
+  export function evaluateGate(decisionId: number): GateOutcome {
+    const failures: GateOutcome['failures'] = [];
+    for (const c of CHECKS) {
+      const r = c.evaluate(decisionId);
+      if (!r.pass) failures.push({ checkName: c.name, reason: r.reason ?? '', severity: c.severity });
+    }
+    const blocked = failures.some(f => f.severity === 'block');
+    const decision: GateOutcome['decision'] = blocked ? 'blocked'
+      : failures.length === 0 ? 'pass' : 'pass_with_warnings';
+    if (decision === 'blocked') {
+      recordEvent({
+        actorKind: 'system',
+        action: ACTIONS.RIGOR_GATE_BLOCK,
+        subjectKind: 'decision', subjectId: String(decisionId),
+        payload: { failures },
+      });
+    } else {
+      recordEvent({
+        actorKind: 'system',
+        action: ACTIONS.RIGOR_GATE_PASS,
+        subjectKind: 'decision', subjectId: String(decisionId),
+        payload: { decision, warnings: failures },
+      });
+    }
+    return { decision, failures };
+  }
+
+  // ---- default checks -------------------------------------------------
+
+  registerGateCheck({
+    name: 'provenance_complete',
+    description: 'Every supporting principle has at least one non-rejected claim with a non-empty source_ref.',
+    severity: 'warn',
+    evaluate: (decisionId) => {
+      const d = Decisions.get(decisionId);
+      if (!d) return { pass: true };
+      const chain = JSON.parse(d.evidence_chain_json ?? '[]') as Array<{ principleId: number; role?: string }>;
+      for (const e of chain) {
+        const claims = Claims.listForPrinciple(e.principleId).filter(c => !c.is_rejected);
+        if (claims.length === 0 || claims.every(c => !c.source_ref)) {
+          return { pass: false, reason: `principle ${e.principleId} lacks anchored claims` };
+        }
+      }
+      return { pass: true };
+    },
+  });
+
+  registerGateCheck({
+    name: 'factual_warnings_acknowledged',
+    description: 'No supporting principle has an open refuted fact-check.',
+    severity: 'block',
+    evaluate: (decisionId) => {
+      const d = Decisions.get(decisionId);
+      if (!d) return { pass: true };
+      const chain = JSON.parse(d.evidence_chain_json ?? '[]') as Array<{ principleId: number; role: string }>;
+      for (const e of chain.filter(x => x.role === 'supports')) {
+        const fc = FactChecks.recentForTarget('principle', e.principleId, 1)[0];
+        if (fc?.verdict === 'refuted' && fc.status === 'open') {
+          return { pass: false, reason: `supporting principle ${e.principleId} has open refuted fact-check ${fc.id}` };
+        }
+      }
+      return { pass: true };
+    },
+  });
+
+  registerGateCheck({
+    name: 'unaddressed_high_severity_conflict',
+    description: 'No activated conflict above severity 0.7 without an explicit counter.',
+    severity: 'warn',
+    evaluate: (decisionId) => {
+      const d = Decisions.get(decisionId);
+      if (!d) return { pass: true };
+      const counters = JSON.parse(d.counters_json ?? '[]') as unknown[];
+      const chain = JSON.parse(d.evidence_chain_json ?? '[]') as Array<{ principleId: number }>;
+      const pids = chain.map(e => e.principleId);
+      for (let i = 0; i < pids.length; i++) {
+        for (let j = i + 1; j < pids.length; j++) {
+          const c = Conflicts.findOpenBetween(pids[i], pids[j]);
+          if (c && c.severity > 0.7 && counters.length === 0) {
+            return { pass: false, reason: `conflict ${c.id} severity ${c.severity.toFixed(2)} not addressed in counters` };
+          }
+        }
+      }
+      return { pass: true };
+    },
+  });
+
+2. Override helper at lib/engine/rigor/override.ts:
+
+  import { recordEvent } from '@/lib/audit/recordEvent';
+  import { ACTIONS } from '@/lib/audit/actions';
+
+  export interface OverrideInput {
+    decisionId: number;
+    checkName: string;
+    justification: string;
+    byUserId: string;
+  }
+
+  export function applyOverride(input: OverrideInput): void {
+    if (input.justification.trim().length < 30) {
+      throw new Error('justification must be ≥ 30 chars');
+    }
+    recordEvent({
+      actorKind: 'user', actorId: input.byUserId,
+      action: ACTIONS.DECISION_OVERRIDE,
+      subjectKind: 'decision', subjectId: String(input.decisionId),
+      payload: { checkName: input.checkName, justification: input.justification },
+    });
+  }
+
+3. Wire into Oracle (prompt 15) and Decision Test (prompt 16):
+   - After Decisions.create succeeds, call evaluateGate(decisionId).
+   - If outcome.decision === 'blocked' and no overrides exist:
+     set Decisions.setBlockedBy(id, outcome.failures.map(f => f.checkName))
+     and include the outcome in the method's returned payload as
+     `gateOutcome`.
+   - The UI (prompts 21, 27) renders gate failures + an override form.
+
+ACCEPTANCE CRITERIA
+- A Decision whose supporting principles include one with an open
+  refuted fact-check returns decision === 'blocked'.
+- An override with justification < 30 chars throws.
+- Override action is in audit log; subsequent calls to the same
+  Decision are unblocked.
+
+================================================================================

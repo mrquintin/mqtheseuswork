@@ -1,0 +1,137 @@
+================================================================================
+34 — Method registry: invocation, cost, failure, idempotent register, drift
+================================================================================
+
+GOAL
+Prove the method registry behaves correctly across the conditions any
+production use will hit: every call writes one MethodInvocation row,
+cost is attributed to the right invocation even across nested LLM
+calls, failures are recorded with error text, registering a method
+twice is idempotent, getTrackRecord computes correct stats.
+
+TASK
+
+1. scripts/test/registry-roundtrip.ts:
+
+  import assert from 'node:assert';
+  import { getDb } from '../../lib/db';
+  import { registerMethod, invokeMethod, setCostForInvocation,
+           listMethods, getTrackRecord } from '../../lib/methods/registry';
+  import { methodAls } from '../../lib/methods/context';
+
+  const db = getDb();
+  const startInv = (db.prepare(`SELECT COUNT(*) AS n FROM method_invocations`).get() as { n: number }).n;
+
+  // 1. Register a noop method and confirm row in methods.
+  registerMethod({
+    id: 'test_noop_v1', name: 'noop', version: '1.0.0',
+    run: async (x: { value: number }) => ({ doubled: x.value * 2 }),
+  });
+  const m = db.prepare(`SELECT * FROM methods WHERE id = ?`).get('test_noop_v1');
+  assert.ok(m, 'noop method not in methods table');
+
+  // 2. Re-register the same id: should NOT create a duplicate row.
+  registerMethod({
+    id: 'test_noop_v1', name: 'noop', version: '1.0.1',
+    run: async (x: { value: number }) => ({ doubled: x.value * 2 }),
+  });
+  const dupes = db.prepare(`SELECT COUNT(*) AS n FROM methods WHERE id = ?`).get('test_noop_v1') as { n: number };
+  assert.strictEqual(dupes.n, 1, 're-register should upsert, not duplicate');
+
+  // 3. Invoke successfully → one new invocation, status='succeeded',
+  //    output_hash set, duration_ms set.
+  const out = await invokeMethod<{ value: number }, { doubled: number }>('test_noop_v1', { value: 21 });
+  assert.deepStrictEqual(out, { doubled: 42 });
+  const succRow = db.prepare(
+    `SELECT * FROM method_invocations WHERE method_id = ? ORDER BY id DESC LIMIT 1`
+  ).get('test_noop_v1') as any;
+  assert.strictEqual(succRow.status, 'succeeded');
+  assert.ok(succRow.output_hash, 'output_hash should be set');
+  assert.ok(succRow.duration_ms != null && succRow.duration_ms >= 0, 'duration_ms should be set');
+
+  // 4. setCostForInvocation outside the run context: explicit costs accumulate.
+  const before = succRow.cost_usd ?? 0;
+  setCostForInvocation(succRow.id, 0.0125);
+  setCostForInvocation(succRow.id, 0.005);
+  const after = db.prepare(`SELECT cost_usd FROM method_invocations WHERE id = ?`).get(succRow.id) as { cost_usd: number };
+  assert.strictEqual(after.cost_usd, before + 0.0175);
+
+  // 5. Failure path: throw inside run.
+  registerMethod({
+    id: 'test_throw_v1', name: 'throw', version: '1.0.0',
+    run: async () => { throw new Error('boom'); },
+  });
+  let threw = false;
+  try { await invokeMethod('test_throw_v1', {}); } catch { threw = true; }
+  assert(threw, 'invokeMethod should rethrow');
+  const failRow = db.prepare(
+    `SELECT * FROM method_invocations WHERE method_id = ? ORDER BY id DESC LIMIT 1`
+  ).get('test_throw_v1') as any;
+  assert.strictEqual(failRow.status, 'failed');
+  assert.ok(failRow.error_text?.includes('boom'), 'error_text should contain the message');
+
+  // 6. Unknown method id.
+  let unknownThrew = false;
+  try { await invokeMethod('does_not_exist', {}); } catch { unknownThrew = true; }
+  assert(unknownThrew);
+
+  // 7. Track record.
+  const tr = getTrackRecord('test_noop_v1', 30);
+  assert(tr.invocations >= 1);
+  assert.strictEqual(tr.failures, 0);
+  assert.ok(tr.p50Ms == null || typeof tr.p50Ms === 'number');
+
+  // 8. Nested invocation: cost recorded by inner call attributes to outer.
+  registerMethod({
+    id: 'test_outer_v1', name: 'outer', version: '1.0.0',
+    run: async () => {
+      const ctx = methodAls.getStore()!;
+      // Simulate an inner LLM call recording cost into the outer context.
+      setCostForInvocation(ctx.invocationId, 0.001);
+      return { ok: true };
+    },
+  });
+  const beforeOuter = (db.prepare(`SELECT COUNT(*) AS n FROM method_invocations`).get() as { n: number }).n;
+  await invokeMethod('test_outer_v1', {});
+  const outerRow = db.prepare(
+    `SELECT * FROM method_invocations WHERE method_id = ? ORDER BY id DESC LIMIT 1`
+  ).get('test_outer_v1') as any;
+  assert.ok((outerRow.cost_usd ?? 0) >= 0.001, 'inner setCost should attribute to outer invocation');
+
+  // 9. listMethods includes all registered.
+  const all = listMethods().map((m: any) => m.id);
+  assert(all.includes('test_noop_v1') && all.includes('test_throw_v1') && all.includes('test_outer_v1'));
+
+  console.log('[registry-roundtrip] OK');
+
+2. scripts/test/registry-real-methods.ts — confirms every v2 method
+   created by prompts 04–18 is actually registered at boot. Imports
+   registerAllMethods from lib/methods/registerAll, calls it, then
+   asserts every expected method id is present.
+
+  import assert from 'node:assert';
+  import { listMethods } from '../../lib/methods/registry';
+  import { registerAllMethods } from '../../lib/methods/registerAll';
+
+  registerAllMethods();
+  const ids = new Set(listMethods().map((m: any) => m.id));
+  for (const expected of [
+    'claim_extractor_v1', 'faithfulness_v1', 'principle_cluster_v1',
+    'principle_canonicalize_v1', 'domain_classifier_v1',
+    'contradiction_detector_v1', 'conflict_detector_v1',
+    'factual_classifier_v1', 'factcheck_web_v1',
+    'oracle_forward_v1', 'decision_test_v1',
+    'inverse_inference_v1', 'counter_generator_v1',
+  ]) assert(ids.has(expected), `method ${expected} not registered`);
+  console.log('[registry-real-methods] OK');
+
+3. Add to package.json:
+
+  "test:registry": "tsx scripts/test/registry-roundtrip.ts && tsx scripts/test/registry-real-methods.ts"
+
+ACCEPTANCE CRITERIA
+- `npm run test:registry` exits 0.
+- Every expected v2 method appears in listMethods() after boot.
+- Failures, costs, nested cost attribution all behave as asserted.
+
+================================================================================

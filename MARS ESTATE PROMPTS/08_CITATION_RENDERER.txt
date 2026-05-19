@@ -1,0 +1,68 @@
+================================================================================
+08 — Citation renderer for Claims
+================================================================================
+
+GOAL
+The chunk-level anchor work is already done by the existing indexer
+(every chunk has source_kind/source_id/source_ref). All v2 needs is a
+small renderer that turns a Claim into a display string + deep link
+usable by the new UI surfaces. Reuse the existing CitationChip
+component (components/chat/CitationChip.tsx).
+
+TASK
+
+1. Create lib/engine/extract/anchor.ts:
+
+  import type { Claim } from '@/lib/types';
+
+  export interface ClaimAnchor {
+    primary: string;
+    detail?: string;
+    deepLink?: string;
+  }
+
+  export function renderClaimAnchor(c: Claim): ClaimAnchor {
+    const ref = c.source_ref ?? '';
+    switch (c.source_kind) {
+      case 'email': {
+        // source_ref already follows the existing indexer's format
+        // ("From · subject · date" or similar). Use it as-is.
+        return {
+          primary: ref || 'email',
+          deepLink: `/emails/${encodeURIComponent(c.source_id)}#chunk-${c.chunk_id ?? 0}`,
+        };
+      }
+      case 'meeting': {
+        return {
+          primary: ref || 'meeting',
+          deepLink: `/meetings/${encodeURIComponent(c.source_id)}#chunk-${c.chunk_id ?? 0}`,
+        };
+      }
+      case 'obsidian': {
+        // source_id is the vault-relative path; source_ref is the display form.
+        return {
+          primary: ref || c.source_id,
+          deepLink: `obsidian://open?vault=${encodeURIComponent('MARS ESTATE')}&file=${encodeURIComponent(c.source_id)}`,
+        };
+      }
+    }
+  }
+
+2. Extend components/chat/CitationChip.tsx to accept a new prop variant
+   `principle` and `claim`. The existing chip renders chunks; add
+   rendering for principles (linking /principles/[id]) and claims (which
+   call renderClaimAnchor for the displayString).
+
+3. Create a small audit script scripts/audit-claim-anchors.ts that
+   walks every Claim and reports any with empty source_ref. Exits 0 if
+   all clean. Don't auto-fix; this is a diagnostic surface only.
+
+ACCEPTANCE CRITERIA
+- renderClaimAnchor returns a non-empty primary string for every Claim
+  created by the extractor.
+- CitationChip renders correctly for {chunk, claim, principle} variants
+  in the existing chat answer view.
+- scripts/audit-claim-anchors.ts exits 0 against a fresh extracted
+  corpus.
+
+================================================================================

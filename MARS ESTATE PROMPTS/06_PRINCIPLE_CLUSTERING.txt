@@ -1,0 +1,204 @@
+================================================================================
+06 — Principle clustering + canonicalization
+================================================================================
+
+GOAL
+Group new claims into Principles using cosine similarity + bidirectional
+NLI entailment. Refine the canonical statement once a cluster gains
+≥ 5 claims. Principle embeddings live in vec_chunks with chunk_id =
+-principle_id so the existing search infrastructure works.
+
+TASK
+
+1. Create lib/engine/extract/cluster.ts:
+
+  import { invokeMethod, registerMethod } from '@/lib/methods/registry';
+  import { Claims, Principles, getDb, isVecLoaded } from '@/lib/db';
+  import { embedTexts } from '@/lib/voyage';
+  import { checkFaithfulness } from './faithfulness';
+  import { recordEvent } from '@/lib/audit/recordEvent';
+  import { ACTIONS } from '@/lib/audit/actions';
+  import { classifyDomains } from '@/lib/engine/validate/domainClassifier'; // prompt 09
+  import { recomputeConviction } from './conviction';                          // prompt 07
+
+  const MATCH_THRESHOLD = 0.78;
+  const TOP_K_CANDIDATES = 5;
+
+  interface ClusterInput { claimIds: number[]; }
+  interface Assignment { claimId: number; principleId: number; created: boolean; }
+  interface ClusterOutput { assignments: Assignment[]; }
+
+  export async function upsertPrincipleEmbedding(principleId: number, emb: Float32Array): Promise<void> {
+    if (!isVecLoaded()) return;
+    const conn = getDb();
+    const buf = Buffer.from(emb.buffer, emb.byteOffset, emb.byteLength);
+    conn.prepare(`DELETE FROM vec_chunks WHERE chunk_id = ?`).run(BigInt(-principleId));
+    conn.prepare(`INSERT INTO vec_chunks (chunk_id, embedding) VALUES (?, ?)`)
+        .run(BigInt(-principleId), buf);
+  }
+
+  async function topKPrinciples(emb: Float32Array, k: number):
+    Promise<Array<{ principleId: number; cosine: number }>> {
+    if (!isVecLoaded()) {
+      // Cosine fallback in JS. At Mars Estate scale (~few thousand principles
+      // foreseeable) this is fine.
+      const all = Principles.listActive();
+      // Note: principle embeddings aren't denormalized onto the principles
+      // row; for the fallback, re-embed canonical_statement on the fly OR
+      // cache in a Map. Choose whichever the operator prefers. For v1 keep
+      // it simple: skip fallback and return empty (forces new cluster).
+      return [];
+    }
+    const conn = getDb();
+    const buf = Buffer.from(emb.buffer, emb.byteOffset, emb.byteLength);
+    const rows = conn.prepare(
+      `SELECT chunk_id, distance FROM vec_chunks
+        WHERE embedding MATCH ? AND chunk_id < 0
+        ORDER BY distance LIMIT ?`
+    ).all(buf, k) as Array<{ chunk_id: number; distance: number }>;
+    return rows.map(r => ({ principleId: -r.chunk_id, cosine: 1 - r.distance }));
+  }
+
+  export function registerPrincipleCluster(): void {
+    registerMethod<ClusterInput, ClusterOutput>({
+      id: 'principle_cluster_v1',
+      name: 'Principle Clustering',
+      version: '1.0.0',
+      run: async (input) => {
+        const assignments: Assignment[] = [];
+        for (const claimId of input.claimIds) {
+          const claim = Claims.get(claimId);
+          if (!claim) continue;
+          if (claim.principle_id != null) {
+            assignments.push({ claimId, principleId: claim.principle_id, created: false });
+            continue;
+          }
+
+          const [emb] = await embedTexts([claim.text]);
+          const candidates = await topKPrinciples(emb, TOP_K_CANDIDATES);
+
+          let best: { principleId: number; score: number } | null = null;
+          for (const cand of candidates) {
+            const p = Principles.get(cand.principleId);
+            if (!p) continue;
+            const fwd = await checkFaithfulness({ premise: p.canonical_statement, hypothesis: claim.text });
+            const bwd = await checkFaithfulness({ premise: claim.text, hypothesis: p.canonical_statement });
+            const nli = (fwd.entailmentScore + bwd.entailmentScore) / 2;
+            const combined = 0.5 * cand.cosine + 0.5 * nli;
+            if (!best || combined > best.score) best = { principleId: cand.principleId, score: combined };
+          }
+
+          let assigned: { principleId: number; created: boolean };
+          if (best && best.score > MATCH_THRESHOLD) {
+            Claims.assignPrinciple(claimId, best.principleId);
+            Principles.updateCanonical(best.principleId, {
+              last_observed_at: new Date().toISOString().replace('T', ' ').slice(0, 19),
+            } as any);
+            assigned = { principleId: best.principleId, created: false };
+          } else {
+            const created = Principles.create({
+              canonical_statement: claim.text,
+              first_observed_at: claim.extracted_at,
+              last_observed_at: claim.extracted_at,
+            } as any);
+            await upsertPrincipleEmbedding(created.id, emb);
+            Claims.assignPrinciple(claimId, created.id);
+            recordEvent({
+              actorKind: 'method', actorId: 'principle_cluster_v1',
+              action: ACTIONS.PRINCIPLE_CREATE,
+              subjectKind: 'principle', subjectId: String(created.id),
+              payload: { fromClaimId: claimId },
+            });
+            // Classify domains immediately (so conflict detection can pre-filter).
+            try { await classifyDomains({ principleId: created.id }); } catch {}
+            assigned = { principleId: created.id, created: true };
+          }
+          assignments.push({ claimId, ...assigned });
+        }
+
+        const affected = Array.from(new Set(assignments.map(a => a.principleId)));
+        for (const pid of affected) await recomputeConviction(pid);
+        for (const pid of affected) {
+          const claimCount = Claims.listForPrinciple(pid).length;
+          if (claimCount > 0 && claimCount % 5 === 0) {
+            await invokeMethod('principle_canonicalize_v1', { principleId: pid });
+          }
+        }
+        return { assignments };
+      },
+    });
+  }
+
+2. Create lib/engine/extract/canonicalize.ts:
+
+  import { registerMethod } from '@/lib/methods/registry';
+  import { callClaudeJson } from '@/lib/methods/anthropic';
+  import { embedTexts } from '@/lib/voyage';
+  import { Principles, Claims } from '@/lib/db';
+  import { recordEvent } from '@/lib/audit/recordEvent';
+  import { ACTIONS } from '@/lib/audit/actions';
+  import { upsertPrincipleEmbedding } from './cluster';
+
+  const SYSTEM = `You are refining the canonical statement of a Mars Estate business principle. Below are N atomic claims clustered as expressing the same principle. Produce ONE canonical statement.
+
+RULES
+- Subject is "we" if all claims are first-person; otherwise the implied subject.
+- Preserve the strongest modality present (assertion > prediction > hypothetical).
+- ≤ 25 words.
+- No hedging unless the cluster itself hedges.
+
+OUTPUT JSON: { "canonicalStatement": "...", "rationale": "one sentence" }`;
+
+  export function registerCanonicalize(): void {
+    registerMethod<{ principleId: number }, { canonicalStatement: string }>({
+      id: 'principle_canonicalize_v1',
+      name: 'Principle Canonicalize',
+      version: '1.0.0',
+      run: async ({ principleId }) => {
+        const p = Principles.get(principleId);
+        if (!p) throw new Error('principle not found');
+        const claims = Claims.listForPrinciple(principleId).filter(c => !c.is_rejected);
+        const claimTexts = claims.map((c, i) => `${i+1}. (${c.modality}) ${c.text}`).join('\n');
+        const { json } = await callClaudeJson<{ canonicalStatement: string; rationale: string }>({
+          model: 'claude-sonnet-4-6',
+          system: SYSTEM,
+          user: `CURRENT canonical:\n${p.canonical_statement}\n\nCLAIMS:\n${claimTexts}`,
+          maxTokens: 300,
+        });
+        const next = json.canonicalStatement.trim();
+        if (next !== p.canonical_statement) {
+          Principles.updateCanonical(principleId, { canonical_statement: next } as any);
+          const [emb] = await embedTexts([next]);
+          await upsertPrincipleEmbedding(principleId, emb);
+          recordEvent({
+            actorKind: 'method', actorId: 'principle_canonicalize_v1',
+            action: ACTIONS.PRINCIPLE_CANONICALIZE,
+            subjectKind: 'principle', subjectId: String(principleId),
+            payload: { from: p.canonical_statement, to: next, rationale: json.rationale },
+          });
+        }
+        return { canonicalStatement: next };
+      },
+    });
+  }
+
+3. Wire clustering into the extractor (prompt 04). After
+   extractClaimsForChunk returns, call:
+
+   await invokeMethod('principle_cluster_v1', { claimIds: result.insertedIds });
+
+   inside the indexer's per-chunk catch block (or as a separate step
+   immediately after). Keep clustering serial per source.
+
+4. Register: add `registerPrincipleCluster()` and
+   `registerCanonicalize()` to lib/methods/registerAll.ts.
+
+ACCEPTANCE CRITERIA
+- 5 paraphrased claims about "we prioritize wholesale" cluster into one
+  Principle.
+- A claim about "we focus on DTC tasting room" does NOT join the
+  wholesale cluster (NLI gate blocks false-merge despite high cosine).
+- After 5 claims in a cluster, canonicalize fires and refines the
+  canonical_statement.
+
+================================================================================

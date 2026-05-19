@@ -1,0 +1,88 @@
+================================================================================
+31 — Smoke tests (tsx scripts; no test framework)
+================================================================================
+
+GOAL
+A small set of end-to-end smoke tests that exercise the new layer
+against the local DB. Run with `bash scripts/test-v2-all.sh`. No
+Playwright; this is a local-only single-user app.
+
+TASK
+
+1. scripts/test-v2-extraction.ts
+   - Insert a synthetic email_cache row with body containing 3 known
+     business claims. Insert a single matching embeddings_chunks row
+     (or trigger the indexer to run once via ensureIndexerStarted +
+     wait).
+   - Assert claims.count grew by ≥ 3 with the right source_kind/source_id.
+   - Clean up the synthetic rows.
+
+2. scripts/test-v2-clustering.ts
+   - Insert 5 paraphrased claims about "we prioritize wholesale" (via
+     Claims.create directly).
+   - invokeMethod('principle_cluster_v1', { claimIds: [...] }).
+   - Assert all 5 claims share the same principle_id.
+
+3. scripts/test-v2-contradiction.ts
+   - Seed two principles "We always offer exclusivity to top
+     distributors" and "We never offer exclusivity to any distributor"
+     with overlapping domains.
+   - invokeMethod('contradiction_detector_v1', { leftId, rightId }).
+   - Assert one Contradiction row with severity > 0.7.
+   - Mark dismissed; re-run; assert no new row.
+
+4. scripts/test-v2-conflict.ts
+   - Seed two principles "premium $80+/bottle positioning" and
+     "pursue Costco distribution"; ensure they share at least one
+     domain.
+   - invokeMethod('conflict_detector_v1', { leftId, rightId }).
+   - Assert one Conflict row.
+
+5. scripts/test-v2-oracle.ts
+   - askOracle({ question: 'Should we accept Costco?' }).
+   - Assert: result.evidence.length ≥ 3, result.decisionId > 0;
+     Decisions.get(result.decisionId) exists.
+
+6. scripts/test-v2-decision-test.ts
+   - testDecision({ proposedDecision: 'Sign 12-month exclusivity with
+     Houston' }).
+   - Assert: result.verdict in {supports, mixed, against,
+     insufficient_signal}; result.cons.length ≥ 1 OR
+     result.conflicts.length ≥ 1.
+
+7. scripts/test-v2-outcome.ts
+   - Pick the seeded Decision (or create one).
+   - recordOutcome({ decisionId, happened: 0, actualText: '...' }).
+   - Assert Outcomes.getForDecision returns the row;
+     RevisionSuggestions.listForOutcome has ≥ 1 entry.
+
+8. scripts/test-v2-audit.ts
+   - Run all of the above (or just import their side effects).
+   - verifyAuditChain() returns ok: true.
+
+9. scripts/test-v2-all.sh:
+
+  #!/usr/bin/env bash
+  set -e
+  for f in scripts/test-v2-*.ts; do
+    echo "=== $f ==="
+    tsx "$f"
+  done
+  echo "all v2 tests passed"
+
+   Make it executable.
+
+10. Each test should mock the LLM via an env switch when the
+    ANTHROPIC_API_KEY is unset, OR skip with a clear message
+    "ANTHROPIC_API_KEY not set; skipping LLM-dependent test".
+    Implement by exporting a small `isLlmAvailable()` helper from
+    lib/methods/anthropic.ts and gating in each test.
+
+ACCEPTANCE CRITERIA
+- With ANTHROPIC_API_KEY and VOYAGE_API_KEY set, `bash
+  scripts/test-v2-all.sh` runs all 8 tests and exits 0.
+- Without keys, scripts skip the LLM-dependent assertions with a
+  clear log line, no false failures.
+- Each test cleans up after itself (no leaked rows).
+
+================================================================================

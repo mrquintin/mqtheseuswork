@@ -1,0 +1,120 @@
+================================================================================
+22 — /principles list + /principles/[id] detail
+================================================================================
+
+GOAL
+The primary new UI surface. Browse and deeply inspect Mars Estate's
+principles: constituent claims with citations, contradictions, conflicts,
+fact-checks, drift, counter-claims, and decisions that descended from
+each principle.
+
+Style: match the existing dashboard. Header component (components/
+Header.tsx), the Cormorant Garamond display serif, parchment palette,
+oxblood/brass accents. Don't introduce shadcn — the codebase has its
+own primitives.
+
+TASK
+
+1. List page app/principles/page.tsx (server component):
+
+  import { Header } from '@/components/Header';
+  import { Principles } from '@/lib/db';
+  import { PrincipleRow } from '@/components/PrincipleRow';
+  import Link from 'next/link';
+
+  export default async function PrinciplesPage(props: {
+    searchParams: Promise<{ status?: string; sort?: string }>;
+  }) {
+    const sp = await props.searchParams;
+    const status = sp.status === 'archived' ? 'archived' : 'active';
+    const sort = sp.sort ?? 'conviction';
+    const items = sort === 'conviction'
+      ? Principles.topByConviction(100, { status })
+      : Principles.list({ status, orderBy: sort });
+
+    return (
+      <main className="min-h-screen">
+        <Header />
+        <div className="mx-auto max-w-5xl px-8 py-10">
+          <h1 className="display-serif text-3xl mb-2">Principles</h1>
+          <p className="text-parchment-500 text-sm mb-6">
+            Mars Estate's standing positions, distilled from email, meetings, and the vault.
+          </p>
+          <div className="flex gap-3 mb-4 text-sm">
+            <Link href="?status=active"   className={status==='active'   ? 'text-brass-300' : 'text-parchment-500'}>Active</Link>
+            <Link href="?status=archived" className={status==='archived' ? 'text-brass-300' : 'text-parchment-500'}>Archived</Link>
+            <span className="ml-auto text-parchment-500">
+              Sort: <Link href="?sort=conviction">conviction</Link>
+              <span className="mx-1">·</span>
+              <Link href="?sort=recent">recent activity</Link>
+            </span>
+          </div>
+          {items.length === 0 ? (
+            <p className="text-parchment-500 italic">No principles yet — the indexer needs to extract and cluster claims first.</p>
+          ) : (
+            <ul className="space-y-3">
+              {items.map(p => <PrincipleRow key={p.id} p={p} />)}
+            </ul>
+          )}
+        </div>
+      </main>
+    );
+  }
+
+2. components/PrincipleRow.tsx — row component:
+   - Canonical statement (italic Cormorant Garamond, hover → brass).
+   - Conviction bar (custom SVG, thin, brass fill).
+   - Right-aligned badges: open contradictions count, open conflicts,
+     refuted fact-checks, recent drift indicator (small triangle).
+   - Click → /principles/[id].
+
+3. Detail page app/principles/[id]/page.tsx:
+   Header with canonical statement (editable inline for editor+; for
+   single-user this is always editable), conviction bar with the
+   four-term tooltip (countTerm, authority, modality, recency), domain
+   pills, status indicator, pin toggle. Below: tabs.
+
+   Tabs (custom — match the existing visual style; one file per tab):
+   - app/principles/[id]/ClaimsTab.tsx       — list of constituent
+     claims with speaker, citation, faithfulness; sortable by date
+     or speaker.
+   - app/principles/[id]/CascadeTab.tsx      — small graph of the
+     principle's relationships (uses prompt 14 helpers).
+   - app/principles/[id]/ContradictionsTab.tsx — open + resolved
+     contradictions involving this principle, with resolution actions.
+   - app/principles/[id]/ConflictsTab.tsx    — same for conflicts.
+   - app/principles/[id]/FactchecksTab.tsx   — verdicts + sources.
+   - app/principles/[id]/CountersTab.tsx     — top counter-claims;
+     "Generate counters" button (calls counter_generator_v1).
+   - app/principles/[id]/DriftTab.tsx        — sparkline + DriftEvent
+     timeline.
+   - app/principles/[id]/DecisionsTab.tsx    — Decisions whose
+     evidence_chain references this principle.
+
+4. Server actions in app/principles/[id]/_actions.ts:
+   - editCanonicalStatement(id, newText) — calls
+     Principles.updateCanonical, records audit
+     ACTIONS.PRINCIPLE_UPDATE.
+   - pinConviction(id, value, byUserId)
+   - unpinConviction(id, byUserId)
+   - archivePrinciple(id, byUserId)
+   - retirePrinciple(id, byUserId)
+   - mergeIntoOther(sourceId, targetId, byUserId)
+   - generateCountersNow(id)
+
+5. Helper components:
+   - components/ConvictionBar.tsx
+   - components/ConvictionBreakdown.tsx (the tooltip)
+   - components/DriftSparkline.tsx (12-month conviction sparkline)
+   - components/DomainPill.tsx
+
+ACCEPTANCE CRITERIA
+- /principles loads with seeded principles sorted by conviction desc.
+- /principles/[id] renders all 8 tabs with real data from the DB.
+- Conviction tooltip shows the four numeric components.
+- Pinning a value persists across reloads; recomputeConviction
+  respects the pin.
+- "Generate counters" button creates CounterClaim rows visible on
+  the Counters tab.
+
+================================================================================

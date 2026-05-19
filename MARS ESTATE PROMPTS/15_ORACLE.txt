@@ -1,0 +1,207 @@
+================================================================================
+15 — Oracle (forward inference; method + chat tool + standalone endpoint)
+================================================================================
+
+GOAL
+A principle-grounded reasoned answer for a free-text question.
+Persisted as a Decision row with kind = 'oracle_query'. Available as a
+new chat tool (oracle_ask) and as a standalone endpoint
+(POST /api/oracle/ask).
+
+TASK
+
+1. Create lib/engine/reason/oracle.ts:
+
+  import { invokeMethod, registerMethod } from '@/lib/methods/registry';
+  import { callClaudeJson } from '@/lib/methods/anthropic';
+  import { embedTexts } from '@/lib/voyage';
+  import { Principles, Decisions, Claims, getDb, isVecLoaded, Meta } from '@/lib/db';
+  import { recordEvent } from '@/lib/audit/recordEvent';
+  import { ACTIONS } from '@/lib/audit/actions';
+
+  const DEFAULT_MAX_PRINCIPLES = 25;
+
+  const SYSTEM = (ctx: string) => `You are the reasoning engine for Mars Estate, a small luxury winery on Howell Mountain. Answer the user's question by reasoning over a list of MARS ESTATE PRINCIPLES retrieved from a knowledge graph. Each principle is tagged with a role (supports / contradicts / context) and a weight in [0,1] (relevance × conviction).
+
+BUSINESS CONTEXT
+${ctx}
+
+RULES
+1. Anchor every paragraph of your answer to one or more principles by bracketed index, e.g. [3].
+2. Higher-weight principles get more reasoning weight.
+3. If supporting and contradicting principles BOTH have high weight, do NOT manufacture a confidence you don't have. Lay out the trade-off explicitly.
+4. If no principles speak to the question with weight > 0.3, say so and list the open questions Mars Estate would need to answer.
+5. Identify open questions implied by the trade-off.
+
+OUTPUT JSON: { "answer": "...", "confidence": 0..1, "openQuestions": ["...", "..."] }`;
+
+  export interface OracleInput {
+    question: string;
+    maxPrinciples?: number;
+    threadId?: number | null;
+  }
+  export interface OracleOutput {
+    decisionId: number;
+    answer: string;
+    confidence: number;
+    evidence: Array<{
+      principleId: number; principleStatement: string;
+      role: 'supports' | 'contradicts' | 'context';
+      weight: number; supportingClaimIds: number[];
+    }>;
+    openQuestions: string[];
+  }
+
+  async function topKPrinciples(qEmb: Float32Array, k: number): Promise<Array<{ principleId: number; cosine: number }>> {
+    if (!isVecLoaded()) return [];
+    const buf = Buffer.from(qEmb.buffer, qEmb.byteOffset, qEmb.byteLength);
+    const rows = getDb().prepare(
+      `SELECT chunk_id, distance FROM vec_chunks
+        WHERE embedding MATCH ? AND chunk_id < 0
+        ORDER BY distance LIMIT ?`
+    ).all(buf, k) as Array<{ chunk_id: number; distance: number }>;
+    return rows.map(r => ({ principleId: -r.chunk_id, cosine: 1 - r.distance }));
+  }
+
+  async function classifyRoles(question: string, items: Array<{ principleStatement: string }>):
+    Promise<Array<{ role: 'supports' | 'contradicts' | 'context' }>> {
+    const { json } = await callClaudeJson<{ roles: Array<'supports'|'contradicts'|'context'> }>({
+      model: 'claude-haiku-4-5-20251001',
+      system: `For each principle below, classify its relation to the QUESTION as: supports | contradicts | context. OUTPUT JSON: { "roles": ["...","...",...] } — array index matches input order.`,
+      user: `QUESTION:\n${question}\n\nPRINCIPLES:\n${items.map((p, i) => `${i+1}. ${p.principleStatement}`).join('\n')}`,
+      maxTokens: 400,
+    });
+    return json.roles.map(r => ({ role: r }));
+  }
+
+  function topClaimsForPrinciple(pid: number, n: number): number[] {
+    return Claims.listForPrinciple(pid)
+      .filter(c => !c.is_rejected)
+      .sort((a, b) => (b.faithfulness_score ?? 0) - (a.faithfulness_score ?? 0))
+      .slice(0, n)
+      .map(c => c.id);
+  }
+
+  export function registerOracle(): void {
+    registerMethod<OracleInput, OracleOutput>({
+      id: 'oracle_forward_v1',
+      name: 'Oracle Forward Inference',
+      version: '1.0.0',
+      run: async (input) => {
+        const max = input.maxPrinciples ?? DEFAULT_MAX_PRINCIPLES;
+        const [qEmb] = await embedTexts([input.question]);
+        const candidates = await topKPrinciples(qEmb, max);
+        const enriched = candidates.map(c => ({ ...c, principle: Principles.get(c.principleId) }))
+                                   .filter(c => c.principle != null);
+        const roles = await classifyRoles(input.question, enriched.map(c => ({ principleStatement: c.principle!.canonical_statement })));
+        const evidence: OracleOutput['evidence'] = enriched.map((c, i) => ({
+          principleId: c.principleId,
+          principleStatement: c.principle!.canonical_statement,
+          role: roles[i].role,
+          weight: c.cosine * c.principle!.conviction,
+          supportingClaimIds: topClaimsForPrinciple(c.principleId, 3),
+        }));
+
+        const businessContext = Meta.get('business_context') ??
+          'Mars Estate — small-production Howell Mountain Cabernet, allocation model, NYC retail target.';
+        const principleBlock = evidence.map((e, i) =>
+          `[${i+1}] (role: ${e.role}, weight: ${e.weight.toFixed(2)}) ${e.principleStatement}`
+        ).join('\n');
+
+        const { json } = await callClaudeJson<{ answer: string; confidence: number; openQuestions: string[] }>({
+          model: 'claude-sonnet-4-6',
+          system: SYSTEM(businessContext),
+          user: `QUESTION:\n${input.question}\n\nRETRIEVED PRINCIPLES:\n${principleBlock}`,
+          maxTokens: 1500,
+        });
+
+        const d = Decisions.create({
+          kind: 'oracle_query',
+          thread_id: input.threadId ?? null,
+          question: input.question,
+          answer: json.answer,
+          confidence: json.confidence,
+          evidence_chain_json: JSON.stringify(evidence),
+          counters_json: '[]',
+        });
+        recordEvent({
+          actorKind: 'method', actorId: 'oracle_forward_v1',
+          action: ACTIONS.DECISION_CREATE,
+          subjectKind: 'decision', subjectId: String(d.id),
+          payload: { kind: 'oracle_query', principleCount: evidence.length },
+        });
+
+        return { decisionId: d.id, answer: json.answer, confidence: json.confidence, evidence, openQuestions: json.openQuestions };
+      },
+    });
+  }
+
+  export async function askOracle(input: OracleInput): Promise<OracleOutput> {
+    return invokeMethod<OracleInput, OracleOutput>('oracle_forward_v1', input);
+  }
+
+2. Create the chat tool at lib/chat/tools/oracle_ask.ts following the
+   existing chat-tool pattern (look at add_todo.ts for the shape):
+
+  import type { RegisteredTool } from '../tool-types';
+  import { askOracle } from '@/lib/engine/reason/oracle';
+
+  export const oracleAskTool: RegisteredTool = {
+    spec: {
+      name: 'oracle_ask',
+      description: 'Answer a strategic question by retrieving and reasoning over Mars Estate PRINCIPLES. Use when the question is strategic ("how should we think about X", "what is our position on Y"), not retrieval ("when did Z happen"). Persists a Decision record. Returns the cited principles and evidence chain inline.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          question: { type: 'string', description: 'The strategic question' },
+          max_principles: { type: 'integer', description: 'Max principles to retrieve (default 25)' },
+        },
+        required: ['question'],
+      },
+    },
+    handler: async (input: { question: string; max_principles?: number }) => {
+      const result = await askOracle({
+        question: input.question,
+        maxPrinciples: input.max_principles,
+      });
+      return {
+        ok: true,
+        result_summary: `Oracle answer (${result.evidence.length} principles, confidence ${result.confidence.toFixed(2)}); decision ${result.decisionId}`,
+        result,
+      };
+    },
+  };
+
+3. Register the tool: add `oracleAskTool` to the REGISTERED_TOOLS array
+   in lib/chat/tools.ts.
+
+4. Standalone API at app/api/oracle/ask/route.ts:
+
+  import { NextResponse } from 'next/server';
+  import { askOracle } from '@/lib/engine/reason/oracle';
+
+  export const dynamic = 'force-dynamic';
+  export const runtime = 'nodejs';
+
+  export async function POST(req: Request) {
+    const body = await req.json().catch(() => ({}));
+    if (typeof body.question !== 'string' || !body.question.trim()) {
+      return NextResponse.json({ error: 'question required' }, { status: 400 });
+    }
+    const result = await askOracle({
+      question: body.question,
+      maxPrinciples: body.max_principles ?? 25,
+    });
+    return NextResponse.json(result);
+  }
+
+5. Register method: add `registerOracle()` to
+   lib/methods/registerAll.ts.
+
+ACCEPTANCE CRITERIA
+- POST /api/oracle/ask {question: "What's our position on Costco?"}
+  returns an answer with ≥ 3 evidence entries and a persisted Decision.
+- The chatbot, asked a strategic "how should we think about X", calls
+  oracle_ask and the structured evidence appears in the chat answer.
+
+================================================================================

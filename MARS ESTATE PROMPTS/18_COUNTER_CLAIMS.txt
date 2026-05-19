@@ -1,0 +1,127 @@
+================================================================================
+18 — Counter-claim generation
+================================================================================
+
+GOAL
+For any Principle or Decision, generate the strongest counter-claims
+the system can produce. Graph counters (from existing contradictions /
+conflicts) are free; LLM counters (steelman) cost an LLM call.
+
+Trigger automatically at the end of decision_test_v1. Trigger on
+demand via UI button on the Principle detail page. Do NOT auto-run
+for every principle (cost).
+
+TASK
+
+1. Create lib/engine/reason/counter.ts:
+
+  import { invokeMethod, registerMethod } from '@/lib/methods/registry';
+  import { callClaudeJson } from '@/lib/methods/anthropic';
+  import { Principles, Decisions, CounterClaims, Contradictions, Conflicts, Meta } from '@/lib/db';
+  import { recordEvent } from '@/lib/audit/recordEvent';
+  import { ACTIONS } from '@/lib/audit/actions';
+
+  const SYSTEM = (ctx: string) => `You are an adversarial reasoner for Mars Estate. Given a TARGET (principle or proposed decision) and BUSINESS CONTEXT, produce the 2 strongest counter-arguments. Each must be SPECIFIC, FALSIFIABLE, and distinct from the other.
+
+BUSINESS CONTEXT
+${ctx}
+
+OUTPUT JSON: { "counters": [{ "text": "...", "strength": 0..1, "angle": "cashflow"|"brand_risk"|"execution"|"market"|"timing"|"capacity"|"reputation" }] }`;
+
+  interface Input {
+    target: { kind: 'principle' | 'decision'; id: number };
+    maxFromGraph?: number;
+    maxFromLlm?: number;
+  }
+  interface Output { generated: number; counterIds: number[]; }
+
+  export function registerCounterGenerator(): void {
+    registerMethod<Input, Output>({
+      id: 'counter_generator_v1',
+      name: 'Counter-Claim Generator',
+      version: '1.0.0',
+      run: async ({ target, maxFromGraph = 3, maxFromLlm = 2 }) => {
+        const ids: number[] = [];
+
+        if (target.kind === 'principle') {
+          for (const c of Contradictions.openInvolving(target.id).slice(0, maxFromGraph)) {
+            const otherId = c.left_id === target.id ? c.right_id : c.left_id;
+            const other = Principles.get(otherId);
+            if (!other) continue;
+            const cc = CounterClaims.create({
+              target_kind: 'principle', target_id: target.id,
+              text: `Counter (open contradiction): ${other.canonical_statement}`,
+              strength: c.severity, angle: 'graph_contradiction',
+              generated_by: 'counter_from_graph_v1',
+            });
+            ids.push(cc.id);
+          }
+          for (const c of Conflicts.openInvolving(target.id).slice(0, maxFromGraph)) {
+            const otherId = c.left_id === target.id ? c.right_id : c.left_id;
+            const other = Principles.get(otherId);
+            if (!other) continue;
+            const cc = CounterClaims.create({
+              target_kind: 'principle', target_id: target.id,
+              text: `Counter (open conflict): ${other.canonical_statement}`,
+              strength: c.severity, angle: c.domain ?? 'graph_conflict',
+              generated_by: 'counter_from_graph_v1',
+            });
+            ids.push(cc.id);
+          }
+        }
+
+        const targetText = target.kind === 'principle'
+          ? (Principles.get(target.id)?.canonical_statement ?? '')
+          : (Decisions.get(target.id)?.question ?? '');
+        if (!targetText) return { generated: ids.length, counterIds: ids };
+
+        const ctx = Meta.get('business_context') ??
+          'Mars Estate — Howell Mountain luxury Cabernet, allocation, NYC retail target.';
+        const { json } = await callClaudeJson<{ counters: Array<{ text: string; strength: number; angle: string }> }>({
+          model: 'claude-sonnet-4-6',
+          system: SYSTEM(ctx),
+          user: `TARGET (${target.kind}):\n${targetText}`,
+          maxTokens: 700,
+        });
+        for (const c of json.counters.slice(0, maxFromLlm)) {
+          const cc = CounterClaims.create({
+            target_kind: target.kind, target_id: target.id,
+            text: c.text, strength: c.strength, angle: c.angle,
+            generated_by: 'counter_from_llm_v1',
+          });
+          ids.push(cc.id);
+        }
+        recordEvent({
+          actorKind: 'method', actorId: 'counter_generator_v1',
+          action: ACTIONS.COUNTER_GENERATE,
+          subjectKind: target.kind, subjectId: String(target.id),
+          payload: { generated: ids.length },
+        });
+        return { generated: ids.length, counterIds: ids };
+      },
+    });
+  }
+
+  export async function generateCounters(input: Input): Promise<Output> {
+    return invokeMethod<Input, Output>('counter_generator_v1', input);
+  }
+
+2. Wire into decision_test_v1 (prompt 16). At the end of its run, when
+   the new Decision's counters_json is empty/short, call
+   generateCounters({ target: { kind: 'decision', id: d.id } })
+   and persist the returned counter ids into Decision.counters_json
+   (alongside the cons already there).
+
+3. Surface on the Principle detail page (prompt 19) — a "Generate
+   counters" button that calls generateCounters; renders the
+   resulting CounterClaims rows sorted by strength desc.
+
+4. Register method: add `registerCounterGenerator()` to
+   lib/methods/registerAll.ts.
+
+ACCEPTANCE CRITERIA
+- For a Principle with 1 open contradiction + 1 open conflict, calling
+  generateCounters returns ≥ 2 graph counters + 2 LLM counters.
+- Counters render on the principle detail page sorted by strength.
+
+================================================================================

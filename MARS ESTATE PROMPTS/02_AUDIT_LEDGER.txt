@@ -1,0 +1,95 @@
+================================================================================
+02 — Audit ledger (recordEvent + verifyChain)
+================================================================================
+
+GOAL
+A small, hash-chained audit ledger that every state-changing operation
+in the new intellectual-capital layer will call. Lightweight tamper
+evidence (SHA-256 chain; no signing).
+
+TASK
+
+1. Create lib/audit/recordEvent.ts:
+
+  import { createHash } from 'node:crypto';
+  import { getDb } from '@/lib/db';
+
+  export type AuditActorKind = 'user' | 'method' | 'system' | 'cowork';
+
+  export interface RecordEventInput {
+    actorKind: AuditActorKind;
+    actorId?: string;
+    action: string;
+    subjectKind: string;
+    subjectId: string;
+    payload: unknown;
+  }
+
+  function sha256(s: string): string {
+    return createHash('sha256').update(s).digest('hex');
+  }
+
+  export function recordEvent(input: RecordEventInput): { id: number } {
+    const conn = getDb();
+    const payloadJson = JSON.stringify(input.payload ?? null);
+    const payloadHash = sha256(payloadJson);
+    const prev = conn.prepare(
+      `SELECT this_event_hash FROM audit_events ORDER BY id DESC LIMIT 1`
+    ).get() as { this_event_hash: string } | undefined;
+    const prevEventHash = prev?.this_event_hash ?? null;
+    const occurredAt = new Date().toISOString().replace('T',' ').slice(0,19);
+    const thisEventHash = sha256([
+      occurredAt, input.action, input.subjectKind, input.subjectId,
+      payloadHash, prevEventHash ?? ''
+    ].join('|'));
+    const res = conn.prepare(
+      `INSERT INTO audit_events
+         (occurred_at, actor_kind, actor_id, action,
+          subject_kind, subject_id, payload_json,
+          payload_hash, prev_event_hash, this_event_hash)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    ).run(
+      occurredAt, input.actorKind, input.actorId ?? null, input.action,
+      input.subjectKind, input.subjectId, payloadJson,
+      payloadHash, prevEventHash, thisEventHash
+    );
+    return { id: Number(res.lastInsertRowid) };
+  }
+
+2. Create lib/audit/verifyChain.ts that walks every row, recomputes
+   the payload_hash and this_event_hash, and returns
+   { ok: true } | { ok: false, break: { brokenAtId, reason } }.
+
+3. Create lib/audit/actions.ts with a single ACTIONS const enumerating
+   the canonical verb strings used everywhere:
+
+  CLAIM_EXTRACT, CLAIM_FAITHFULNESS, CLAIM_REJECT, CLAIM_REASSIGN,
+  PRINCIPLE_CREATE, PRINCIPLE_UPDATE, PRINCIPLE_CANONICALIZE,
+  PRINCIPLE_MERGE, PRINCIPLE_ARCHIVE, PRINCIPLE_RETIRE, PRINCIPLE_PIN,
+  CONTRADICTION_DETECT, CONTRADICTION_RESOLVE,
+  CONFLICT_DETECT, CONFLICT_RESOLVE,
+  FACTCHECK_RUN, FACTCHECK_RESOLVE,
+  COUNTER_GENERATE,
+  DECISION_CREATE, DECISION_BLOCKED, DECISION_OVERRIDE,
+  OUTCOME_RECORD, REVISION_SUGGEST, REVISION_ACCEPT, REVISION_DISMISS,
+  RIGOR_GATE_PASS, RIGOR_GATE_BLOCK,
+  METHOD_REGISTER, METHOD_INVOKE, METHOD_DRIFT,
+  DECAY_RUN, SWEEP_CONTRADICTION, SWEEP_CONFLICT.
+
+4. Expose the verification at app/api/admin/audit/verify/route.ts
+   (GET, returns the JSON from verifyChain).
+
+CONVENTION the next prompts will follow
+Every state-changing v2 write ends with a recordEvent call. Use the
+ACTIONS constants by name (never literals). Don't wrap recordEvent in
+the same transaction as the business write — the audit entry should
+survive an aborted business write.
+
+ACCEPTANCE CRITERIA
+- After ten recordEvent calls, verifyChain returns { ok: true }.
+- Editing a row's payload_json in sqlite3 manually and re-running
+  verifyChain returns { ok: false, break: { brokenAtId, reason:
+  'payload_hash mismatch' } }.
+- GET /api/admin/audit/verify returns the JSON result.
+
+================================================================================

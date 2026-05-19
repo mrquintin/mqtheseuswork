@@ -1,0 +1,93 @@
+================================================================================
+13 — Coherence vector (per claim and per principle)
+================================================================================
+
+GOAL
+A structured CoherenceVector snapshot on every Claim and Principle,
+aggregating the validation signals computed by the previous prompts.
+Recomputed on relevant state changes. The scalar form is derived on
+demand; the vector is always retained.
+
+TASK
+
+1. Create lib/engine/validate/coherence.ts:
+
+  import { Claims, Principles, Contradictions, Conflicts, FactChecks } from '@/lib/db';
+
+  export type CoherenceVector = {
+    faithfulness?: number;
+    contradiction?: { count: number; maxSeverity: number };
+    conflict?: { count: number; maxSeverity: number };
+    factual?: { verdict: string; confidence: number };
+    computedAt: string;
+  };
+
+  export function computeClaimCoherence(claimId: number): CoherenceVector {
+    const c = Claims.get(claimId);
+    if (!c) throw new Error('claim not found');
+    const fcs = FactChecks.recentForTarget('claim', claimId, 1);
+    const fc = fcs[0];
+    const v: CoherenceVector = {
+      faithfulness: c.faithfulness_score ?? undefined,
+      factual: fc ? { verdict: fc.verdict, confidence: fc.confidence } : undefined,
+      computedAt: new Date().toISOString(),
+    };
+    Claims.setCoherenceVector(claimId, v);
+    return v;
+  }
+
+  export function computePrincipleCoherence(principleId: number): CoherenceVector {
+    const p = Principles.get(principleId);
+    if (!p) throw new Error('principle not found');
+    const cons = Contradictions.openInvolving(principleId);
+    const cfs = Conflicts.openInvolving(principleId);
+    const fcs = FactChecks.recentForTarget('principle', principleId, 1);
+    const fc = fcs[0];
+    const v: CoherenceVector = {
+      contradiction: { count: cons.length, maxSeverity: cons.reduce((m, c) => Math.max(m, c.severity), 0) },
+      conflict:      { count: cfs.length,  maxSeverity: cfs.reduce((m, c) => Math.max(m, c.severity), 0) },
+      factual: fc ? { verdict: fc.verdict, confidence: fc.confidence } : undefined,
+      computedAt: new Date().toISOString(),
+    };
+    Principles.setCoherenceVector(principleId, v);
+    return v;
+  }
+
+  export function aggregateToScalar(v: CoherenceVector): number {
+    let score = 1.0;
+    if (v.faithfulness != null) score *= 0.3 + 0.7 * v.faithfulness;
+    if (v.contradiction && v.contradiction.count > 0) score *= 1 - 0.4 * v.contradiction.maxSeverity;
+    if (v.conflict && v.conflict.count > 0)            score *= 1 - 0.25 * v.conflict.maxSeverity;
+    if (v.factual) {
+      if (v.factual.verdict === 'refuted')      score *= 0.3;
+      else if (v.factual.verdict === 'mixed')   score *= 0.7;
+      else if (v.factual.verdict === 'unverifiable') score *= 0.9;
+    }
+    return Math.max(0, Math.min(1, score));
+  }
+
+2. Recompute triggers (call sites):
+   - After Contradiction status changes (open → resolved/dismissed,
+     re-detection), recompute coherence for both principles involved.
+   - After Conflict status changes, same.
+   - After a FactCheck is created or resolved, recompute coherence for
+     the target.
+   - After a Claim is added to a Principle (cluster), recompute the
+     Principle's vector.
+   - After a Claim is rejected, recompute that Claim's vector AND its
+     Principle's vector.
+
+3. Read sites: the principle detail page (prompt 19) and decision
+   detail page (prompt 21) call computePrincipleCoherence /
+   computeClaimCoherence at render time (cheap; mostly DB lookups) and
+   show the structured vector plus the scalar tooltip.
+
+ACCEPTANCE CRITERIA
+- Principle with 2 open contradictions (severity 0.7 and 0.5) and 0
+  conflicts has contradiction.count = 2, maxSeverity = 0.7,
+  aggregateToScalar(v) < 0.7.
+- Resolving one contradiction decreases the count and raises the scalar
+  on next recompute.
+- Adding a refuted FactCheck cuts the scalar to about 0.3× prior.
+
+================================================================================

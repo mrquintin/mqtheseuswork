@@ -20,9 +20,6 @@ import {
 import { founderDisplayName } from "@/lib/founderDisplay";
 import PageHeader from "@/components/design/PageHeader";
 import PrimaryNav, { PrimaryNavLink } from "@/components/nav/PrimaryNav";
-import DashboardConclusionsClient, {
-  type DashboardConclusionCard,
-} from "./DashboardConclusionsClient";
 import AccountDisplayNameNudge from "./AccountDisplayNameNudge";
 import DashboardSignals, { type DashboardSignal } from "./DashboardSignals";
 import { listAcceptedPrinciples } from "@/lib/principlesApi";
@@ -30,70 +27,23 @@ import { listAcceptedPrinciples } from "@/lib/principlesApi";
 /**
  * Dashboard — operator home.
  *
- * Round 21 makes principles the spine: the main rail is "Active
- * principles" — the firm's accepted principles, conviction-ranked, so
- * the operator lands on the rules the firm is currently using to
- * judge new evidence. The previous main rail ("Recent conclusions")
- * shrinks to a secondary panel beneath it, because conclusions are
- * now evidence for or against a principle rather than the top-level
- * artifact.
+ * Round 21 makes principles the spine: accepted principles are the
+ * durable rules the firm is currently using to judge new evidence.
+ * Raw Conclusion rows remain provenance / calibration material for
+ * principles, algorithms, publications, and drift, but the dashboard
+ * should not present them as the operator's primary artifact.
  *
  * Hierarchy, top to bottom: (1) processing health, (2) compact review
- * signals, (3) Active principles rail (primary), (4) Recent
- * conclusions and uploads (secondary), (5) drift events and reviewer-
- * agreement telemetry. Decorative framing and the display-name
+ * signals, (3) recent uploads and active principles, (4) drift events
+ * and reviewer-agreement telemetry. Decorative framing and the display-name
  * reminder stay demoted below the primary work surface.
  */
-
-async function getDashboardConclusions(tenant: TenantContext) {
-  return db.conclusion.findMany({
-    where: {
-      organizationId: tenant.organizationId,
-      // Hide conclusions this founder has dismissed from their
-      // dashboard. Other founders' dashboards are unaffected.
-      dashboardDismissals: {
-        none: { founderId: tenant.founderId },
-      },
-    },
-    orderBy: { createdAt: "desc" },
-    take: 8,
-  });
-}
-
-type DashboardConclusion = Awaited<
-  ReturnType<typeof getDashboardConclusions>
->[number];
-
-async function getHiddenDashboardConclusionCount(tenant: TenantContext) {
-  return db.dashboardDismissal.count({
-    where: {
-      founderId: tenant.founderId,
-      conclusion: { organizationId: tenant.organizationId },
-    },
-  });
-}
-
-function toDashboardConclusionCard(
-  conclusion: DashboardConclusion,
-): DashboardConclusionCard {
-  return {
-    id: conclusion.id,
-    confidenceTier: conclusion.confidenceTier,
-    topicHint: conclusion.topicHint,
-    text: conclusion.text,
-  };
-}
 
 export default async function DashboardPage() {
   const tenant = await requireTenantContext();
   if (!tenant) {
     return null;
   }
-
-  const [conclusions, hiddenConclusionCount] = await Promise.all([
-    getDashboardConclusions(tenant),
-    getHiddenDashboardConclusionCount(tenant),
-  ]);
 
   const showDisplayNameNudge =
     !tenant.founderDisplayName && !tenant.accountNudgeDismissedAt;
@@ -117,6 +67,7 @@ export default async function DashboardPage() {
           description={`Welcome back, ${tenant.founderName}. Processing health, review signals, and recent activity are below.`}
           actions={
             <PrimaryNav>
+              <PrimaryNavLink href="/knowledge?tab=map">Map</PrimaryNavLink>
               <PrimaryNavLink href="/principles">Principles</PrimaryNavLink>
               <PrimaryNavLink href="/algorithms">Algorithms</PrimaryNavLink>
               <PrimaryNavLink href="/knowledge?tab=library">
@@ -168,36 +119,16 @@ export default async function DashboardPage() {
         </Suspense>
 
         {/*
-         * Primary rail — Active principles. The firm's spine: the
-         * rules it is currently using to judge new evidence,
-         * conviction-ranked with the most recently informed by a new
-         * decision floated to the top. Conclusions are demoted to the
-         * secondary grid below since they are now evidence for or
-         * against a principle.
-         */}
-        <Suspense
-          fallback={
-            <DashboardSectionFallback
-              label="ACTIVE PRINCIPLES · ..."
-              heading="Loading active principles…"
-              hint="Accepted principles appear here, conviction-ranked."
-              style={{ marginTop: "1rem" }}
-            />
-          }
-        >
-          <ActivePrinciplesPanel tenant={tenant} />
-        </Suspense>
-
-        {/*
-         * Secondary grid — what just happened. Ingested uploads
-         * (left) and fresh conclusions (right). These used to be the
-         * dashboard's main rail; in Round 21 they sit one tier below
-         * Active principles.
+         * Main work grid — what just happened (uploads) next to the
+         * accepted rules that now govern interpretation (principles).
+         * The old recent-conclusions card was removed because raw
+         * Conclusion rows are now intermediate provenance / calibration
+         * records, not the dashboard's top-level artifact.
          */}
         <div
           style={{
             display: "grid",
-            gridTemplateColumns: "1fr 1fr",
+            gridTemplateColumns: "repeat(auto-fit, minmax(320px, 1fr))",
             gap: "1.5rem",
             marginTop: "1.25rem",
           }}
@@ -214,10 +145,17 @@ export default async function DashboardPage() {
             <RecentUploadsPanel tenant={tenant} />
           </Suspense>
 
-          <DashboardConclusionsClient
-            initialConclusions={conclusions.map(toDashboardConclusionCard)}
-            initialHiddenCount={hiddenConclusionCount}
-          />
+          <Suspense
+            fallback={
+              <DashboardSectionFallback
+                label="ACTIVE PRINCIPLES · ..."
+                heading="Loading active principles…"
+                hint="Accepted principles appear here, conviction-ranked."
+              />
+            }
+          >
+            <ActivePrinciplesPanel tenant={tenant} />
+          </Suspense>
         </div>
 
         <div className="meander" aria-hidden="true" />
@@ -738,7 +676,6 @@ async function ActivePrinciplesPanel({ tenant }: { tenant: TenantContext }) {
       <section
         className="ascii-frame"
         data-label="ACTIVE PRINCIPLES · 0"
-        style={{ marginTop: "1rem" }}
       >
         <DashboardEmptyState
           heading="No accepted principles yet."
@@ -789,7 +726,6 @@ async function ActivePrinciplesPanel({ tenant }: { tenant: TenantContext }) {
       className="ascii-frame"
       data-label={`ACTIVE PRINCIPLES · ${toRoman(visible.length) || visible.length}`}
       data-testid="dashboard-active-principles"
-      style={{ marginTop: "1rem" }}
     >
       <div style={{ display: "flex", flexDirection: "column", gap: "0.5rem" }}>
         {visible.map((p) => {

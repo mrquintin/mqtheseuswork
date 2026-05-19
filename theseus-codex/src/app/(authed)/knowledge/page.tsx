@@ -9,8 +9,10 @@ import LibraryPage from "../library/LibraryPage";
 import RetiredRouteToast from "./RetiredRouteToast";
 import KnowledgePrinciplesTab from "./PrinciplesTab";
 import KnowledgeCasesTab from "./CasesTab";
+import KnowledgeMapTab from "./MapTab";
 
 const KNOWLEDGE_TABS = [
+  { id: "map", label: "Map" },
   { id: "conclusions", label: "Conclusions" },
   { id: "principles", label: "Principles" },
   { id: "cases", label: "Cases" },
@@ -37,7 +39,7 @@ type KnowledgeSearchParams = {
 function resolveTab(raw: string | undefined): KnowledgeTab {
   return KNOWLEDGE_TABS.some((tab) => tab.id === raw)
     ? (raw as KnowledgeTab)
-    : "conclusions";
+    : "map";
 }
 
 export default async function KnowledgePage({
@@ -78,7 +80,9 @@ export default async function KnowledgePage({
         />
       </section>
 
-      {activeTab === "conclusions" ? (
+      {activeTab === "map" ? (
+        <KnowledgeMapTab />
+      ) : activeTab === "conclusions" ? (
         <ConclusionsPage searchParams={Promise.resolve(sp)} />
       ) : activeTab === "principles" ? (
         <KnowledgePrinciplesTab />

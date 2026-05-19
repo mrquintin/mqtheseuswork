@@ -1,0 +1,184 @@
+================================================================================
+12 — Factual / empirical verification (Claude web_search server-tool)
+================================================================================
+
+GOAL
+For factual claims (statistics, regulations, market facts, history,
+definitions), run a web-grounded check using the
+`web_search_20250305` Claude server-tool already wired in
+lib/research/run-now.ts. Persist verdicts as FactCheck rows.
+
+Gated by:
+- Claim.modality === 'assertion'
+- A small "factual classifier" call (Haiku) — opinions, preferences,
+  and predictions are skipped.
+- Daily web-search cap stored in Meta.
+- Feature flag in Meta: `factcheck_web_enabled` (default '1'). When
+  '0', falls back to LLM-only.
+
+TASK
+
+1. Create lib/engine/validate/factualClassifier.ts:
+
+  import { invokeMethod, registerMethod } from '@/lib/methods/registry';
+  import { callClaudeJson } from '@/lib/methods/anthropic';
+
+  const SYSTEM = `Classify a single Mars Estate business claim by whether it is a CHECKABLE FACT.
+
+CHECKABLE: statistic, regulation, market data, history, definition with an external answer.
+NOT CHECKABLE: opinion, preference, plan, prediction, hypothetical, internal-only fact (revenue, headcount).
+
+If checkable, also tag the kind: statistic | regulation | market | history | definition.
+If not, tag: opinion | preference | plan | prediction | hypothetical | internal.
+
+OUTPUT JSON: { "factual": boolean, "kind": "...", "rationale": "one sentence" }`;
+
+  interface Input { text: string; }
+  interface Output { factual: boolean; kind: string; rationale: string; }
+
+  export function registerFactualClassifier(): void {
+    registerMethod<Input, Output>({
+      id: 'factual_classifier_v1',
+      name: 'Factual Classifier',
+      version: '1.0.0',
+      run: async ({ text }) => {
+        const { json } = await callClaudeJson<Output>({
+          model: 'claude-haiku-4-5-20251001',
+          system: SYSTEM,
+          user: `CLAIM: ${text}`,
+          maxTokens: 200,
+        });
+        return json;
+      },
+    });
+  }
+
+  export async function classifyFactual(text: string): Promise<Output> {
+    return invokeMethod<Input, Output>('factual_classifier_v1', { text });
+  }
+
+2. Create lib/engine/validate/factcheck.ts:
+
+  import Anthropic from '@anthropic-ai/sdk';
+  import { registerMethod, setCostForInvocation } from '@/lib/methods/registry';
+  import { getCurrentMethod } from '@/lib/methods/context';
+  import { FactChecks, Meta } from '@/lib/db';
+  import { recordEvent } from '@/lib/audit/recordEvent';
+  import { ACTIONS } from '@/lib/audit/actions';
+  import { recordCost } from '@/lib/ops/cost';
+
+  const MODEL = 'claude-sonnet-4-6';
+  const WEB_SEARCH_TOOL_TYPE = 'web_search_20250305';
+  const DEFAULT_DAILY_CAP = 30;
+
+  const SYSTEM = `You are a factual verifier for Mars Estate. Given a CLAIM, use web search to gather evidence, then return a verdict.
+
+VERDICTS
+- supported: clear primary-source evidence backs the claim.
+- refuted:   clear evidence contradicts the claim.
+- mixed:     evidence on both sides; claim is partially true or context-dependent.
+- unverifiable: insufficient public evidence to judge.
+
+Cite the specific results that support your verdict. Be calibrated; "supported" requires strong primary-source evidence (regulatory sites, official statistics, the entity's own press releases).
+
+After web searches, OUTPUT JSON only:
+{
+  "verdict": "supported" | "refuted" | "mixed" | "unverifiable",
+  "confidence": 0..1,
+  "rationale": "1-2 paragraphs",
+  "citations": [{ "url": "...", "title": "...", "excerpt": "..." }]
+}`;
+
+  interface Input { targetKind: 'claim' | 'principle'; targetId: number; text: string; }
+  interface Output { factCheckId: number; verdict: string; }
+
+  export function registerFactCheck(): void {
+    registerMethod<Input, Output>({
+      id: 'factcheck_web_v1',
+      name: 'Web-grounded Fact Check',
+      version: '1.0.0',
+      run: async ({ targetKind, targetId, text }) => {
+        const today = new Date().toISOString().slice(0, 10);
+        const counterKey = `factcheck_daily_count:${today}`;
+        const dailyCap = parseInt(Meta.get('factcheck_daily_limit') ?? String(DEFAULT_DAILY_CAP), 10);
+        const count = parseInt(Meta.get(counterKey) ?? '0', 10);
+        const webEnabled = (Meta.get('factcheck_web_enabled') ?? '1') === '1';
+        if (!webEnabled || count >= dailyCap) {
+          return await llmOnlyCheck({ targetKind, targetId, text });
+        }
+        const client = new Anthropic();
+        const res = await client.messages.create({
+          model: MODEL,
+          max_tokens: 2000,
+          temperature: 0,
+          system: SYSTEM,
+          tools: [{ type: WEB_SEARCH_TOOL_TYPE, name: 'web_search', max_uses: 4 }] as never,
+          messages: [{ role: 'user', content: `CLAIM:\n${text}` }],
+        });
+        Meta.set(counterKey, String(count + 1));
+        const inTok = res.usage.input_tokens, outTok = res.usage.output_tokens;
+        const costUsd = (inTok / 1e6) * 3 + (outTok / 1e6) * 15 + 0.04; // ~$0.01 per web_search use, assume up to 4
+        const ctx = getCurrentMethod();
+        if (ctx) { setCostForInvocation(ctx.invocationId, costUsd); recordCost({ category: 'web_search', methodId: 'factcheck_web_v1', costUsd }); }
+
+        const joined = res.content.filter(b => b.type === 'text').map(b => (b as { type: 'text'; text: string }).text).join('');
+        const m = joined.match(/\{[\s\S]*\}\s*$/);
+        const raw = m ? JSON.parse(m[0]) : { verdict: 'unverifiable', confidence: 0.2, rationale: 'no parsable verdict', citations: [] };
+
+        const fc = FactChecks.create({
+          target_kind: targetKind, target_id: targetId,
+          verdict: raw.verdict, confidence: raw.confidence,
+          detected_by: 'factcheck_web_v1', rationale: raw.rationale,
+          sources_json: JSON.stringify(raw.citations ?? []),
+        });
+        recordEvent({
+          actorKind: 'method', actorId: 'factcheck_web_v1',
+          action: ACTIONS.FACTCHECK_RUN,
+          subjectKind: 'fact_check', subjectId: String(fc.id),
+          payload: { targetKind, targetId, verdict: raw.verdict },
+        });
+        return { factCheckId: fc.id, verdict: raw.verdict };
+      },
+    });
+  }
+
+  async function llmOnlyCheck(input: Input): Promise<Output> {
+    // Plain Sonnet call, no web search. Verdict comes from training knowledge.
+    // Implement as a smaller registered method 'factcheck_llm_v1' OR inline.
+    // Insert FactCheck row with detected_by='factcheck_llm_v1', sources_json='[]'.
+    throw new Error('TODO implement llm-only fallback when web cap exceeded');
+  }
+
+3. Trigger points:
+   - At claim insertion in the extractor (prompt 04), after faithfulness
+     passes, call `classifyFactual(claim.text)`. If
+     `factual === true` and `kind in {statistic, regulation, market,
+     history, definition}`, enqueue the claim for fact-check.
+   - The enqueue is just a Meta-backed queue (a JSON array under key
+     `factcheck_pending_claim_ids`). A background tick inside
+     lib/index/worker.ts drains the queue (5 per tick, every minute)
+     so a backlog ingest doesn't burst the web-search cap.
+
+4. Re-checking on canonicalize: when canonicalize updates a Principle's
+   canonical_statement, enqueue a principle-level fact-check
+   (target_kind='principle') for the principle.
+
+5. Operator overrides: from /factchecks/[id] (prompt 20), the operator
+   can dismiss a verdict (sets status='dismissed', audit event
+   FACTCHECK_RESOLVE) or trigger a re-run (calls factcheck_web_v1
+   again, new row supersedes the old via detected_at).
+
+6. Register: add `registerFactualClassifier()` and `registerFactCheck()`
+   to lib/methods/registerAll.ts.
+
+ACCEPTANCE CRITERIA
+- "Federal excise tax on still wine is $1.07/gallon" → classifier says
+  factual:true, kind:regulation; fact-check returns verdict 'supported'
+  with TTB.gov citation(s).
+- "Our wine is the best" → classifier says factual:false; no fact-check
+  runs.
+- Setting `factcheck_web_enabled=0` makes the next call use the
+  llm-only fallback.
+- Hitting the daily cap routes the next call to llm-only and logs.
+
+================================================================================

@@ -1,0 +1,206 @@
+================================================================================
+16 — Decision-test ("Should we do X?")
+================================================================================
+
+GOAL
+Structured "should we do X?" output: verdict, pros, cons, conflicts,
+factual warnings, open uncertainties. Persisted as Decision row with
+kind = 'decision_test'. Available as a new chat tool (test_decision)
+and as a standalone endpoint (POST /api/decisions/test).
+
+TASK
+
+1. Create lib/engine/reason/decisionTest.ts:
+
+  import { invokeMethod, registerMethod } from '@/lib/methods/registry';
+  import { callClaudeJson } from '@/lib/methods/anthropic';
+  import { embedTexts } from '@/lib/voyage';
+  import { Principles, Conflicts, FactChecks, Decisions, getDb, isVecLoaded, Meta } from '@/lib/db';
+  import { recordEvent } from '@/lib/audit/recordEvent';
+  import { ACTIONS } from '@/lib/audit/actions';
+
+  const REFRAME_SYSTEM = `Convert this proposed Mars Estate decision into the implicit business claims it would create if pursued. List 3-7 atomic claims. ≤ 25 words each. OUTPUT JSON: { "claims": ["...", "..."] }`;
+
+  const DECISION_SYSTEM = (ctx: string) => `You are the Mars Estate decision-test engine.
+
+BUSINESS CONTEXT
+${ctx}
+
+You receive:
+- the proposed decision
+- 3-7 implicit business claims it would create
+- retrieved Mars Estate PRINCIPLES tagged role/weight
+- KNOWN CONFLICTS that the decision would activate
+- FACTUAL WARNINGS on implicit claims
+
+VERDICTS
+- supports: principles strongly endorse; act.
+- mixed: real trade-off; lay out and let operator decide.
+- against: principles strongly oppose; flag.
+- insufficient_signal: not enough principle weight to judge.
+
+OUTPUT JSON:
+{
+  "verdict": "supports"|"mixed"|"against"|"insufficient_signal",
+  "confidence": 0..1,
+  "pros":  [{ "principleId": int, "statement": "...", "weight": 0..1, "rationale": "..." }],
+  "cons":  [{ "principleId": int, "statement": "...", "weight": 0..1, "rationale": "..." }],
+  "conflicts": [{ "conflictId": int, "severity": 0..1, "description": "..." }],
+  "factualWarnings": [{ "factCheckId": int, "verdict": "...", "rationale": "..." }],
+  "openUncertainties": ["..."],
+  "recommendedFollowUp": ["..."]
+}`;
+
+  export interface DTInput {
+    proposedDecision: string;
+    optionalContext?: string;
+    resolutionCriterion?: string;
+    resolutionDate?: string;
+    threadId?: number | null;
+  }
+  export interface DTOutput {
+    decisionId: number;
+    verdict: 'supports'|'mixed'|'against'|'insufficient_signal';
+    confidence: number;
+    pros: Array<{ principleId: number; statement: string; weight: number; rationale: string }>;
+    cons: Array<{ principleId: number; statement: string; weight: number; rationale: string }>;
+    conflicts: Array<{ conflictId: number; severity: number; description: string }>;
+    factualWarnings: Array<{ factCheckId: number; verdict: string; rationale: string }>;
+    openUncertainties: string[];
+    recommendedFollowUp: string[];
+  }
+
+  async function topKPrinciples(emb: Float32Array, k: number): Promise<Array<{ principleId: number; cosine: number }>> {
+    if (!isVecLoaded()) return [];
+    const buf = Buffer.from(emb.buffer, emb.byteOffset, emb.byteLength);
+    const rows = getDb().prepare(
+      `SELECT chunk_id, distance FROM vec_chunks
+        WHERE embedding MATCH ? AND chunk_id < 0
+        ORDER BY distance LIMIT ?`
+    ).all(buf, k) as Array<{ chunk_id: number; distance: number }>;
+    return rows.map(r => ({ principleId: -r.chunk_id, cosine: 1 - r.distance }));
+  }
+
+  export function registerDecisionTest(): void {
+    registerMethod<DTInput, DTOutput>({
+      id: 'decision_test_v1',
+      name: 'Decision Test',
+      version: '1.0.0',
+      run: async (input) => {
+        const { json: reframed } = await callClaudeJson<{ claims: string[] }>({
+          model: 'claude-sonnet-4-6',
+          system: REFRAME_SYSTEM,
+          user: input.proposedDecision + (input.optionalContext ? `\n\nContext:\n${input.optionalContext}` : ''),
+          maxTokens: 500,
+        });
+
+        const implicit = reframed.claims;
+        const perClaim = await Promise.all(implicit.map(async c => {
+          const [emb] = await embedTexts([c]);
+          return await topKPrinciples(emb, 8);
+        }));
+
+        const byPid = new Map<number, { cosine: number; principle: any }>();
+        for (const list of perClaim) {
+          for (const item of list) {
+            const p = Principles.get(item.principleId);
+            if (!p) continue;
+            const cur = byPid.get(item.principleId);
+            const merged = { cosine: Math.max(cur?.cosine ?? 0, item.cosine), principle: p };
+            byPid.set(item.principleId, merged);
+          }
+        }
+        const retrieved = Array.from(byPid.entries()).map(([pid, v]) => ({
+          principleId: pid, weight: v.cosine * v.principle.conviction,
+          principle: v.principle,
+        }));
+
+        const activatedConflicts: DTOutput['conflicts'] = [];
+        const ids = retrieved.map(r => r.principleId);
+        for (let i = 0; i < ids.length; i++) {
+          for (let j = i + 1; j < ids.length; j++) {
+            const c = Conflicts.findOpenBetween(ids[i], ids[j]);
+            if (c) activatedConflicts.push({ conflictId: c.id, severity: c.severity, description: c.rationale ?? '' });
+          }
+        }
+
+        const factualWarnings: DTOutput['factualWarnings'] = [];
+        for (const r of retrieved) {
+          const fc = FactChecks.recentForTarget('principle', r.principleId, 1)[0];
+          if (fc && (fc.verdict === 'refuted' || fc.verdict === 'mixed') && fc.status === 'open') {
+            factualWarnings.push({ factCheckId: fc.id, verdict: fc.verdict, rationale: fc.rationale ?? '' });
+          }
+        }
+
+        const principleBlock = retrieved.map((r, i) =>
+          `[${i+1}] (weight ${r.weight.toFixed(2)}) ${r.principle.canonical_statement}`
+        ).join('\n');
+        const conflictBlock = activatedConflicts.length === 0 ? '(none detected)'
+          : activatedConflicts.map(c => `- conflictId ${c.conflictId} (severity ${c.severity.toFixed(2)}): ${c.description}`).join('\n');
+        const factualBlock = factualWarnings.length === 0 ? '(none flagged)'
+          : factualWarnings.map(f => `- factCheckId ${f.factCheckId} (${f.verdict}): ${f.rationale}`).join('\n');
+
+        const ctx = Meta.get('business_context') ??
+          'Mars Estate — small-production Howell Mountain Cabernet, allocation, NYC retail target.';
+
+        const { json } = await callClaudeJson<DTOutput>({
+          model: 'claude-sonnet-4-6',
+          system: DECISION_SYSTEM(ctx),
+          user: `PROPOSED DECISION:\n${input.proposedDecision}\n\nIMPLICIT CLAIMS:\n${implicit.map((c, i) => `${i+1}. ${c}`).join('\n')}\n\nRETRIEVED PRINCIPLES:\n${principleBlock}\n\nACTIVATED CONFLICTS:\n${conflictBlock}\n\nFACTUAL WARNINGS:\n${factualBlock}`,
+          maxTokens: 2000,
+        });
+
+        const d = Decisions.create({
+          kind: 'decision_test',
+          thread_id: input.threadId ?? null,
+          question: input.proposedDecision,
+          optional_context: input.optionalContext ?? null,
+          answer: JSON.stringify({ verdict: json.verdict, pros: json.pros, cons: json.cons }),
+          verdict: json.verdict,
+          confidence: json.confidence,
+          evidence_chain_json: JSON.stringify(json.pros.concat(json.cons).map(p => ({
+            principleId: p.principleId, role: json.pros.some(x => x.principleId === p.principleId) ? 'supports' : 'contradicts',
+            weight: p.weight, supportingClaimIds: [],
+          }))),
+          counters_json: JSON.stringify(json.cons),
+          resolution_criterion: input.resolutionCriterion ?? null,
+          resolution_date: input.resolutionDate ?? null,
+        });
+        recordEvent({
+          actorKind: 'method', actorId: 'decision_test_v1',
+          action: ACTIONS.DECISION_CREATE,
+          subjectKind: 'decision', subjectId: String(d.id),
+          payload: { kind: 'decision_test', verdict: json.verdict, conflicts: activatedConflicts.length },
+        });
+        return { decisionId: d.id, ...json };
+      },
+    });
+  }
+
+  export async function testDecision(input: DTInput): Promise<DTOutput> {
+    return invokeMethod<DTInput, DTOutput>('decision_test_v1', input);
+  }
+
+2. Chat tool at lib/chat/tools/test_decision.ts (same shape as
+   oracle_ask). Description: "Test a proposed decision against Mars
+   Estate principles. Use when the user asks 'should we do X?' or
+   'what would happen if we Y'. Returns structured verdict + pros/cons
+   / conflicts / factual warnings. Persists a Decision record."
+   Add to REGISTERED_TOOLS.
+
+3. Standalone API at app/api/decisions/test/route.ts (mirror the
+   oracle endpoint from prompt 15).
+
+4. Register method: add `registerDecisionTest()` to
+   lib/methods/registerAll.ts.
+
+ACCEPTANCE CRITERIA
+- testDecision({ proposedDecision: "Sign 12-month exclusivity with the
+  Houston distributor" }) returns a verdict in {supports, mixed,
+  against, insufficient_signal} with at least one pro AND/OR con AND
+  ideally at least one activated conflict (given the seeded conflicts).
+- The Decision row is persisted with kind = 'decision_test'.
+- The chatbot picks up the new tool and uses it for "should we"
+  questions.
+
+================================================================================

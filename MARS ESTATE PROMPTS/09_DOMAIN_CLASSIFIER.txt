@@ -1,0 +1,80 @@
+================================================================================
+09 — Domain classifier (small Haiku call; gates the conflict detector)
+================================================================================
+
+GOAL
+Tag every Principle with one or more strategic domains drawn from a
+fixed vocabulary. Conflict-of-interest detection (prompt 11) pre-filters
+on shared domain so the LLM judge runs only on plausible pairs.
+
+TASK
+
+1. Create lib/engine/validate/domains.ts:
+
+  export const DOMAINS = [
+    'brand', 'pricing', 'distribution', 'growth', 'cashflow',
+    'supplier', 'talent', 'regulation', 'sustainability',
+    'customer_experience', 'operations', 'marketing',
+    'partnerships', 'product_quality', 'IP', 'market',
+  ] as const;
+  export type Domain = typeof DOMAINS[number];
+
+2. Create lib/engine/validate/domainClassifier.ts:
+
+  import { invokeMethod, registerMethod } from '@/lib/methods/registry';
+  import { callClaudeJson } from '@/lib/methods/anthropic';
+  import { Principles } from '@/lib/db';
+  import { DOMAINS, type Domain } from './domains';
+
+  const SYSTEM = `Classify the following Mars Estate business principle into one or more strategic domains. A principle belongs to 1–3 domains. Only return domains from the list.
+
+DOMAINS: ${DOMAINS.join(', ')}
+
+OUTPUT JSON: { "domains": ["...","..."], "rationale": "one sentence" }`;
+
+  interface Input { principleId: number; }
+  interface Output { domains: Domain[]; }
+
+  export function registerDomainClassifier(): void {
+    registerMethod<Input, Output>({
+      id: 'domain_classifier_v1',
+      name: 'Domain Classifier',
+      version: '1.0.0',
+      run: async ({ principleId }) => {
+        const p = Principles.get(principleId);
+        if (!p) return { domains: [] };
+        const { json } = await callClaudeJson<{ domains: string[]; rationale: string }>({
+          model: 'claude-haiku-4-5-20251001',
+          system: SYSTEM,
+          user: `PRINCIPLE:\n${p.canonical_statement}`,
+          maxTokens: 200,
+        });
+        const domains = json.domains.filter((d): d is Domain =>
+          (DOMAINS as readonly string[]).includes(d)
+        );
+        Principles.setDomains(principleId, domains);
+        return { domains };
+      },
+    });
+  }
+
+  export async function classifyDomains(input: Input): Promise<Output> {
+    return invokeMethod<Input, Output>('domain_classifier_v1', input);
+  }
+
+3. The cluster method (prompt 06) already calls classifyDomains() for
+   every newly-created principle. For existing principles created before
+   this prompt shipped, add a one-shot script
+   scripts/backfill-domains.ts that iterates principles with NULL
+   domains and classifies. Bounded by daily cost cap.
+
+4. Register: add `registerDomainClassifier()` to
+   lib/methods/registerAll.ts.
+
+ACCEPTANCE CRITERIA
+- A new Principle "We position as premium $80+/bottle" gets domains
+  ['brand', 'pricing'] (or similar).
+- Backfill script runs against an existing principle corpus and
+  populates the domains column for all rows.
+
+================================================================================

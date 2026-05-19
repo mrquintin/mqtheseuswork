@@ -1,0 +1,144 @@
+================================================================================
+32 — Static correctness gate (typecheck, lint, schema integrity, migrate idempotency)
+================================================================================
+
+GOAL
+Catch the entire class of bugs that don't need a running app: type
+errors, lint violations, broken SQL, broken FK constraints, broken
+CHECK constraints, non-idempotent migrations. This is the cheap gate
+that runs first in every test sequence.
+
+TASK
+
+1. package.json scripts — ensure these exist:
+
+  "typecheck":      "tsc --noEmit",
+  "lint":           "next lint",
+  "test:static":    "npm run typecheck && npm run lint && tsx scripts/test/schema-integrity.ts && tsx scripts/test/migrate-idempotency.ts"
+
+2. scripts/test/schema-integrity.ts — uses node:assert and the
+   existing getDb() to verify every new table, column, constraint,
+   and index. Runs against the live data/mars.db (does NOT delete
+   it). Pattern:
+
+  import assert from 'node:assert';
+  import { getDb } from '../../lib/db';
+
+  const db = getDb();
+
+  // 1. All expected tables exist.
+  const tables = db.prepare(`SELECT name FROM sqlite_master WHERE type='table'`)
+    .all().map((r: any) => r.name);
+  const expected = [
+    'claims','principles','relationships','contradictions','conflicts_of_interest',
+    'fact_checks','counter_claims','decisions','outcomes','drift_events',
+    'principle_revision_suggestions','finding_false_positives','methods',
+    'method_invocations','audit_events','cost_rollup_daily','decay_policies',
+  ];
+  for (const t of expected) assert(tables.includes(t), `missing table: ${t}`);
+
+  // 2. Every expected column exists on every expected table.
+  // Helper: assertColumns(table, ['col1','col2',...])
+  const assertColumns = (table: string, cols: string[]) => {
+    const have = db.prepare(`PRAGMA table_info(${table})`).all().map((r: any) => r.name);
+    for (const c of cols) assert(have.includes(c), `${table} missing column ${c}`);
+  };
+  assertColumns('claims', ['id','chunk_id','source_kind','source_id','source_ref','text','modality','speaker','extractor_method','extractor_confidence','faithfulness_score','span_start','span_end','is_rejected','rejection_reason','principle_id','coherence_vector','extracted_at','updated_at']);
+  assertColumns('principles', ['id','canonical_statement','conviction','conviction_pinned','conviction_pinned_at','coherence_vector','first_observed_at','last_observed_at','status','domains','tags','created_at','updated_at']);
+  // ... (repeat for every new table)
+
+  // 3. CHECK constraints reject bad data.
+  // claims.modality must be in enum
+  let threw = false;
+  try {
+    db.prepare(`INSERT INTO claims (source_kind, source_id, text, modality, extractor_method, extractor_confidence)
+                VALUES ('email','x','t','BOGUS','m',0.5)`).run();
+  } catch { threw = true; }
+  assert(threw, 'claims.modality CHECK should reject BOGUS');
+
+  // 4. FK CASCADE works.
+  // Insert a principle, a contradiction referencing it, delete the principle,
+  // assert the contradiction is gone.
+  const p = db.prepare(`INSERT INTO principles (canonical_statement) VALUES ('test cascade')`).run();
+  const pid = Number(p.lastInsertRowid);
+  const p2 = db.prepare(`INSERT INTO principles (canonical_statement) VALUES ('test cascade 2')`).run();
+  const pid2 = Number(p2.lastInsertRowid);
+  const c = db.prepare(`INSERT INTO contradictions (left_id,right_id,severity,detected_by) VALUES (?,?,0.5,'test')`).run(pid, pid2);
+  const cid = Number(c.lastInsertRowid);
+  db.prepare(`DELETE FROM principles WHERE id = ?`).run(pid);
+  const exists = db.prepare(`SELECT id FROM contradictions WHERE id = ?`).get(cid);
+  assert(exists == null, 'contradiction should have been CASCADE deleted');
+  db.prepare(`DELETE FROM principles WHERE id = ?`).run(pid2);
+
+  // 5. All expected indexes exist.
+  const indexes = db.prepare(`SELECT name FROM sqlite_master WHERE type='index'`)
+    .all().map((r: any) => r.name);
+  for (const i of [
+    'idx_claims_chunk','idx_claims_source','idx_claims_principle','idx_claims_faithfulness',
+    'idx_principles_status','idx_principles_conviction',
+    'idx_rel_source','idx_rel_target','idx_rel_type',
+    'idx_contradictions_status','idx_conflicts_status',
+    'idx_fact_checks_target','idx_fact_checks_status',
+    'idx_counter_claims_target',
+    'idx_decisions_asked','idx_decisions_kind',
+    'idx_drift_events_principle','idx_revision_suggestions_status',
+    'idx_method_inv_method','idx_audit_subject','idx_audit_occurred',
+  ]) assert(indexes.includes(i), `missing index: ${i}`);
+
+  // 6. vec_chunks virtual table exists (only if sqlite-vec loaded).
+  const { isVecLoaded } = await import('../../lib/db');
+  if (isVecLoaded()) {
+    assert(tables.includes('vec_chunks'), 'vec_chunks should exist when sqlite-vec loaded');
+  } else {
+    console.log('[schema-integrity] sqlite-vec not loaded; skipping vec_chunks check');
+  }
+
+  // 7. Default decay policies seeded.
+  const dp = db.prepare(`SELECT COUNT(*) AS n FROM decay_policies`).get() as { n: number };
+  assert(dp.n >= 1, 'default decay policy should be seeded');
+
+  console.log('[schema-integrity] OK');
+
+3. scripts/test/migrate-idempotency.ts — re-runs migrate() and asserts
+   no rows or columns changed. Pattern:
+
+  import assert from 'node:assert';
+  import { getDb } from '../../lib/db';
+
+  const db = getDb();
+  const beforeTables = db.prepare(`SELECT name FROM sqlite_master WHERE type='table' ORDER BY name`).all();
+  const beforeCols: Record<string, string[]> = {};
+  for (const t of beforeTables) {
+    beforeCols[(t as any).name] = db.prepare(`PRAGMA table_info(${(t as any).name})`)
+      .all().map((r: any) => r.name).sort();
+  }
+  const beforeIndexes = db.prepare(`SELECT name FROM sqlite_master WHERE type='index' ORDER BY name`).all();
+  const beforeRows: Record<string, number> = {};
+  for (const t of beforeTables) {
+    const n = db.prepare(`SELECT COUNT(*) AS n FROM ${(t as any).name}`).get() as { n: number };
+    beforeRows[(t as any).name] = n.n;
+  }
+
+  // Re-trigger migrate() by re-importing fresh (use a fresh require).
+  delete require.cache[require.resolve('../../lib/db')];
+  await import('../../lib/db');
+
+  const afterTables = db.prepare(`SELECT name FROM sqlite_master WHERE type='table' ORDER BY name`).all();
+  const afterIndexes = db.prepare(`SELECT name FROM sqlite_master WHERE type='index' ORDER BY name`).all();
+  assert.deepStrictEqual(beforeTables, afterTables, 'tables changed across re-migrate');
+  assert.deepStrictEqual(beforeIndexes, afterIndexes, 'indexes changed across re-migrate');
+  for (const t of beforeTables) {
+    const name = (t as any).name;
+    const cols = db.prepare(`PRAGMA table_info(${name})`).all().map((r: any) => r.name).sort();
+    assert.deepStrictEqual(cols, beforeCols[name], `${name}: columns changed across re-migrate`);
+    const n = db.prepare(`SELECT COUNT(*) AS n FROM ${name}`).get() as { n: number };
+    assert.strictEqual(n.n, beforeRows[name], `${name}: row count changed across re-migrate`);
+  }
+  console.log('[migrate-idempotency] OK');
+
+ACCEPTANCE CRITERIA
+- `npm run test:static` exits 0.
+- Removing any expected table or column reports the exact missing item.
+- Re-running migrate() twice does not change the schema or any row.
+
+================================================================================

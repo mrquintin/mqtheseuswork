@@ -1,0 +1,114 @@
+================================================================================
+43 — Master test runner (test:all)
+================================================================================
+
+GOAL
+A single command that runs every test category in the right order
+(cheap-and-static first, integration last) and reports a summary.
+Fail-fast.
+
+TASK
+
+1. Add to package.json:
+
+  "test:all":       "npm run test:static && npm run test:audit && npm run test:registry && npm run test:extract && npm run test:validate && npm run test:reason && npm run test:bg && npm run test:fail && npm run test:chat",
+  "test:all:http":  "npm run test:ui && npm run test:bg:http && npm run test:chat:http && npm run test:e2e",
+  "test:everything": "npm run test:all && npm run test:all:http"
+
+2. scripts/test/run-all.sh — equivalent shell-script entry point with
+   clearer per-step output:
+
+  #!/usr/bin/env bash
+  set -euo pipefail
+  trap 'echo "FAILED at: $BASH_COMMAND" >&2' ERR
+
+  echo "=== STATIC ==="
+  npm run typecheck
+  npm run lint
+  tsx scripts/test/schema-integrity.ts
+  tsx scripts/test/migrate-idempotency.ts
+
+  echo "=== AUDIT ==="
+  tsx scripts/test/audit-chain.ts
+  tsx scripts/test/audit-coverage.ts
+  tsx scripts/test/audit-real-paths.ts
+
+  echo "=== REGISTRY ==="
+  tsx scripts/test/registry-roundtrip.ts
+  tsx scripts/test/registry-real-methods.ts
+
+  echo "=== EXTRACT ==="
+  tsx scripts/test/extractor-edge-cases.ts
+  tsx scripts/test/clustering-edge-cases.ts
+  tsx scripts/test/conviction-edge-cases.ts
+
+  echo "=== VALIDATE ==="
+  tsx scripts/test/contradiction-edge-cases.ts
+  tsx scripts/test/conflict-edge-cases.ts
+  tsx scripts/test/factcheck-edge-cases.ts
+  tsx scripts/test/coherence-edge-cases.ts
+
+  echo "=== REASON ==="
+  tsx scripts/test/oracle-edge-cases.ts
+  tsx scripts/test/decision-test-edge-cases.ts
+  tsx scripts/test/outcome-edge-cases.ts
+  tsx scripts/test/rigor-gate-edge-cases.ts
+
+  echo "=== BACKGROUND ==="
+  tsx scripts/test/drift-edge-cases.ts
+  tsx scripts/test/decay-edge-cases.ts
+  tsx scripts/test/cost-cap-edge-cases.ts
+
+  echo "=== FAILURE INJECTION ==="
+  tsx scripts/test/fail-missing-anthropic.ts
+  tsx scripts/test/fail-malformed-llm-json.ts
+  tsx scripts/test/fail-oversize-input.ts
+  tsx scripts/test/fail-cost-cap-mid-extraction.ts
+
+  echo "=== CHAT ==="
+  tsx scripts/test/chat-tools-registered.ts
+  tsx scripts/test/chat-tool-schema-anthropic.ts
+
+  if [ "${SKIP_HTTP:-0}" != "1" ]; then
+    echo "=== HTTP (requires dev server) ==="
+    tsx scripts/test/cron-security.ts
+    tsx scripts/test/ui-routes.ts
+    tsx scripts/test/ui-api.ts
+    tsx scripts/test/chat-tool-error-surface.ts
+    tsx scripts/test/e2e-pipeline.ts
+  fi
+
+  echo
+  echo "ALL TESTS PASSED."
+
+  Make it executable.
+
+3. Pre-flight row-count snapshot — add as scripts/test/_setup-snapshot.ts.
+   Before running the suite, capture row counts of every v2 table.
+   After, compare and warn on any uncleaned rows. The master runner
+   sources this at start and end:
+
+  // start
+  tsx scripts/test/_setup-snapshot.ts > /tmp/marsestate-test-snapshot.json
+  # ...all tests run...
+  # end
+  tsx scripts/test/_setup-snapshot.ts compare /tmp/marsestate-test-snapshot.json
+
+  The compare mode reads the snapshot, recompares, and fails if any
+  v2 table grew by more than a small tolerance (e.g. 5 rows, to
+  absorb expected audit-event growth from the tests themselves).
+
+4. CI usage note: in the repo's CHANGELOG or README, add:
+   "Before releasing any v2 change, run `npm run test:everything`
+   with the dev server up. Treat any non-zero exit as a release
+   blocker."
+
+ACCEPTANCE CRITERIA
+- `npm run test:all` exits 0 against a clean DB (or one seeded with
+  prompt 30's seed-v2).
+- `npm run test:everything` exits 0 with `npm run dev` running in
+  another terminal.
+- After the suite completes, v2 row counts have not grown beyond the
+  small allowed tolerance.
+
+================================================================================

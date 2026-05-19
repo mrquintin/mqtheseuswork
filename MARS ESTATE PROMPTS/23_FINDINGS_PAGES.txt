@@ -1,0 +1,72 @@
+================================================================================
+23 — /contradictions, /conflicts, /factchecks (triage queues)
+================================================================================
+
+GOAL
+Three triage pages — list + detail for each finding type — in the
+existing dashboard's visual style.
+
+TASK
+
+1. Shared row component components/FindingRow.tsx — used by all three
+   list pages. Renders: severity bar (or verdict badge for fact-checks),
+   target principle(s), detected_at, status, click-through.
+
+2. /contradictions
+   - app/contradictions/page.tsx — list of Contradiction rows.
+     Filter: status (open / resolved / dismissed / all; default open).
+     Sort: severity × (left.conviction + right.conviction), desc.
+     Columns: severity, left principle statement (truncated),
+     contradicts-arrow, right principle statement, detected_at,
+     status.
+   - app/contradictions/[id]/page.tsx — detail.
+     Both principles side-by-side with full canonical statements,
+     conviction bars, severity, rationale. Action buttons (each
+     requires a ≥ 30-char justification; records audit
+     CONTRADICTION_RESOLVE):
+       - Acknowledge (keep both)
+       - Resolve by editing (deep-links to /principles/[id] with a
+         banner)
+       - Resolve by retiring one (operator picks)
+       - Dismiss as false positive (inserts finding_false_positives
+         row with kind='contradiction')
+
+3. /conflicts (same shape as /contradictions, with these additions):
+   - List shows a domain pill per row.
+   - Asymmetric conflicts render with a directional arrow in the list
+     and a callout in the detail (A undercuts B more than vice versa).
+   - Dismiss inserts finding_false_positives with kind='conflict'.
+
+4. /factchecks
+   - app/factchecks/page.tsx — list of FactCheck rows.
+     Default filter: verdict in {refuted, mixed, unverifiable} AND
+     status='open'.
+     Columns: verdict badge (colored — refuted=oxblood,
+     mixed=brass, unverifiable=parchment-500), target text
+     (truncated), parent principle, confidence, sources_count,
+     detected_at.
+   - app/factchecks/[id]/page.tsx — detail.
+     Verdict badge, confidence bar, rationale, sources consulted (list
+     with expandable excerpts). Action buttons:
+       - Acknowledge (verdict is correct — consider editing principle)
+       - Dismiss (verdict is wrong — supersedes will not re-create
+         the same verdict on next run)
+       - Re-run (triggers factcheck_web_v1 again; new row supersedes
+         by detected_at)
+       - Add manual source URL (recorded in
+         Meta.factcheck_extra_sources:<targetKind>:<targetId>; the
+         next run includes the URL as additional context)
+
+5. Server actions in
+   app/contradictions/_actions.ts, app/conflicts/_actions.ts,
+   app/factchecks/_actions.ts. Each action records the appropriate
+   audit event.
+
+ACCEPTANCE CRITERIA
+- All three list pages render with seeded findings sorted by severity.
+- Each detail page renders side-by-side or verdict view as described.
+- Dismissing a contradiction or conflict inserts a
+  finding_false_positives row; the weekly sweep skips that pair.
+- Re-running a fact-check creates a new row (does NOT mutate the old).
+
+================================================================================

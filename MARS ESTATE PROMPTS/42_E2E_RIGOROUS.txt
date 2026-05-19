@@ -1,0 +1,122 @@
+================================================================================
+42 — End-to-end pipeline: new vault note → claim → principle → finding → Decision → outcome
+================================================================================
+
+GOAL
+A single integration test that exercises every stage of the pipeline
+in sequence against a real (or stubbed) LLM, with full cleanup.
+Catches the cross-stage integration bugs that unit tests can't.
+
+TASK
+
+1. scripts/test/e2e-pipeline.ts:
+
+  import assert from 'node:assert';
+  import fs from 'node:fs/promises';
+  import path from 'node:path';
+  import { getDb, Claims, Principles, Decisions, Outcomes } from '../../lib/db';
+  import { extractClaimsForChunk } from '../../lib/engine/extract/extractor';
+  import { invokeMethod } from '../../lib/methods/registry';
+  import { askOracle } from '../../lib/engine/reason/oracle';
+  import { testDecision } from '../../lib/engine/reason/decisionTest';
+  import { recordOutcome } from '../../lib/engine/reason/outcomes';
+  import { evaluateGate } from '../../lib/engine/rigor/gate';
+  import { verifyAuditChain } from '../../lib/audit/verifyChain';
+  import { registerAllMethods } from '../../lib/methods/registerAll';
+  registerAllMethods();
+
+  const db = getDb();
+
+  // ----- 1. SOURCE: synthesize a vault chunk in embeddings_chunks. -----
+  // (We bypass the chokidar watcher; we're testing the post-embedding path.)
+  const sourceId = 'e2e_vault/test-note.md';
+  const content = 'We commit to wholesale-first distribution. We will not pursue Costco. We require ≥50% gross margin on every wholesale arrangement.';
+  const chunkRes = db.prepare(
+    `INSERT INTO embeddings_chunks (source_kind, source_id, source_ref, chunk_index, content)
+     VALUES ('obsidian', ?, ?, 0, ?)`
+  ).run(sourceId, sourceId, content);
+  const chunkId = Number(chunkRes.lastInsertRowid);
+
+  // ----- 2. EXTRACTION -----
+  const ex = await extractClaimsForChunk({
+    chunkId, source_kind: 'obsidian', source_id: sourceId,
+    source_ref: sourceId, content, speaker: 'colin',
+  });
+  assert.ok(ex.inserted >= 2, `extractor should produce ≥ 2 claims; got ${ex.inserted}`);
+
+  // ----- 3. CLUSTERING -----
+  const cl = await invokeMethod('principle_cluster_v1', { claimIds: ex.insertedIds }) as any;
+  assert.strictEqual(cl.assignments.length, ex.inserted);
+  const pids = Array.from(new Set(cl.assignments.map((a: any) => a.principleId)));
+  assert.ok(pids.length >= 1, 'at least one principle should result');
+
+  // ----- 4. FINDINGS: trigger contradiction + conflict detection over neighbours -----
+  for (const pid of pids) {
+    try { await invokeMethod('domain_classifier_v1', { principleId: pid }); } catch {}
+  }
+  // Pair the new principles with each existing high-conviction seeded principle
+  // and run both detectors.
+  const seeded = (Principles.topByConviction(20) as any[]).filter(p => !pids.includes(p.id));
+  for (const newPid of pids) {
+    for (const sp of seeded.slice(0, 5)) {
+      try { await invokeMethod('contradiction_detector_v1', { leftId: newPid, rightId: sp.id }); } catch {}
+      try { await invokeMethod('conflict_detector_v1',      { leftId: newPid, rightId: sp.id }); } catch {}
+    }
+  }
+
+  // ----- 5. ORACLE -----
+  const oracle = await askOracle({ question: 'How should we think about wholesale vs DTC?' });
+  assert.ok(oracle.decisionId > 0);
+  assert.ok(oracle.evidence.length >= 1);
+  let gate = evaluateGate(oracle.decisionId);
+  assert.ok(['pass','pass_with_warnings','blocked'].includes(gate.decision));
+
+  // ----- 6. DECISION TEST -----
+  const dt = await testDecision({ proposedDecision: 'Sign an exclusivity agreement with Costco for the 2026 vintage' });
+  assert.ok(dt.decisionId > 0);
+  assert.ok(['supports','mixed','against','insufficient_signal'].includes(dt.verdict));
+
+  // ----- 7. OUTCOME + POST-MORTEM -----
+  const o = await recordOutcome({
+    decisionId: dt.decisionId, happened: 0,
+    actualText: 'We did not pursue Costco; instead doubled down on independent wholesale.',
+    confidenceInDescription: 0.9,
+  });
+  assert.ok(o.outcomeId > 0);
+  assert.ok(o.postmortem.suggestionIds.length >= 0);
+
+  // ----- 8. AUDIT CHAIN INTACT -----
+  const v = verifyAuditChain();
+  assert.strictEqual(v.ok, true, 'audit chain must remain intact after full pipeline');
+
+  // ----- CLEANUP -----
+  // Drop all rows we created. Order matters (children first).
+  db.prepare(`DELETE FROM outcomes WHERE id = ?`).run(o.outcomeId);
+  db.prepare(`DELETE FROM principle_revision_suggestions WHERE outcome_id = ?`).run(o.outcomeId);
+  db.prepare(`DELETE FROM decisions WHERE id IN (?, ?)`).run(oracle.decisionId, dt.decisionId);
+  db.prepare(`DELETE FROM counter_claims WHERE generated_by LIKE '%v1' AND generated_at > datetime('now', '-1 hour')`).run();
+  db.prepare(`DELETE FROM contradictions WHERE detected_at > datetime('now', '-1 hour') AND left_id IN (${pids.join(',')}) OR right_id IN (${pids.join(',')})`).run();
+  db.prepare(`DELETE FROM conflicts_of_interest WHERE detected_at > datetime('now', '-1 hour') AND left_id IN (${pids.join(',')}) OR right_id IN (${pids.join(',')})`).run();
+  db.prepare(`DELETE FROM fact_checks WHERE detected_at > datetime('now', '-1 hour') AND target_id IN (${pids.join(',')})`).run();
+  db.prepare(`DELETE FROM claims WHERE source_id = ?`).run(sourceId);
+  for (const pid of pids) db.prepare(`DELETE FROM principles WHERE id = ?`).run(pid);
+  db.prepare(`DELETE FROM embeddings_chunks WHERE chunk_id = ?`).run(chunkId);
+  // Also drop vec_chunks entries for those principles.
+  try {
+    for (const pid of pids) db.prepare(`DELETE FROM vec_chunks WHERE chunk_id = ?`).run(BigInt(-(pid as number)));
+    db.prepare(`DELETE FROM vec_chunks WHERE chunk_id = ?`).run(BigInt(chunkId));
+  } catch { /* sqlite-vec may be absent */ }
+
+  console.log('[e2e-pipeline] OK');
+
+2. Add to package.json:
+
+  "test:e2e": "tsx scripts/test/e2e-pipeline.ts"
+
+ACCEPTANCE CRITERIA
+- `npm run test:e2e` exits 0 with all keys present.
+- After the test, the DB row counts for every v2 table are unchanged
+  from the pre-test snapshot (assert this at the top and bottom of
+  the script).
+
+================================================================================

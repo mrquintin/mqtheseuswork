@@ -162,6 +162,9 @@ export default function MobileNavDrawer({ authed }: { authed: boolean }) {
               <Link className="public-nav-drawer-link mono" href="/methodology">
                 Methodology
               </Link>
+              <Link className="public-nav-drawer-link mono" href="/docs">
+                Docs
+              </Link>
               <Link className="public-nav-drawer-link mono" href="/currents">
                 Currents
               </Link>

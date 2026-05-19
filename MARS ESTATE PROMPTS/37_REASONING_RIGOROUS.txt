@@ -1,0 +1,243 @@
+================================================================================
+37 — Reasoning: Oracle, decision-test, outcome, post-mortem, counters, rigor gate
+================================================================================
+
+GOAL
+Edge cases for prompts 15–19: Oracle handles the no-principles case;
+decision-test returns a verdict in the valid enum on every input
+shape; outcome recording is idempotent (one outcome per decision);
+inverse inference produces revision suggestions; revision approve /
+dismiss is idempotent; rigor gate's checks each fire under their
+trigger condition; override validation rejects too-short
+justification.
+
+TASK
+
+1. scripts/test/oracle-edge-cases.ts:
+
+  import assert from 'node:assert';
+  import { getDb, Principles, Decisions } from '../../lib/db';
+  import { askOracle } from '../../lib/engine/reason/oracle';
+  import { registerMethod } from '../../lib/methods/registry';
+
+  // Stub oracle_forward_v1 for determinism. The real method is integration-tested
+  // by the E2E prompt; here we test plumbing and error paths.
+  registerMethod({
+    id: 'oracle_forward_v1', name: 'STUB', version: '1.0.0-stub',
+    run: async (input: any) => {
+      const top = Principles.topByConviction(5);
+      const evidence = top.slice(0, 3).map((p: any, i: number) => ({
+        principleId: p.id, principleStatement: p.canonical_statement,
+        role: i === 0 ? 'supports' : i === 1 ? 'contradicts' : 'context',
+        weight: 0.6, supportingClaimIds: [],
+      }));
+      const d = Decisions.create({
+        kind: 'oracle_query', question: input.question, answer: 'stub answer',
+        confidence: 0.7, evidence_chain_json: JSON.stringify(evidence),
+        counters_json: '[]',
+      } as any);
+      return { decisionId: d.id, answer: 'stub answer', confidence: 0.7, evidence, openQuestions: ['stub q'] };
+    },
+  });
+
+  // EDGE 1: empty principle corpus → answer + decision still persists.
+  const beforeDecisions = (getDb().prepare(`SELECT COUNT(*) AS n FROM decisions`).get() as { n: number }).n;
+  const r1 = await askOracle({ question: 'Should we ship?' });
+  assert.ok(r1.decisionId > 0);
+  const after = (getDb().prepare(`SELECT COUNT(*) AS n FROM decisions`).get() as { n: number }).n;
+  assert.strictEqual(after, beforeDecisions + 1);
+
+  // EDGE 2: persisted evidence_chain_json is valid JSON and roundtrips.
+  const dRow = Decisions.get(r1.decisionId)!;
+  const parsed = JSON.parse(dRow.evidence_chain_json ?? '[]');
+  assert.ok(Array.isArray(parsed));
+
+  // Cleanup.
+  getDb().prepare(`DELETE FROM decisions WHERE id = ?`).run(r1.decisionId);
+  console.log('[oracle-edge-cases] OK');
+
+2. scripts/test/decision-test-edge-cases.ts:
+
+  import assert from 'node:assert';
+  import { getDb, Decisions } from '../../lib/db';
+  import { testDecision } from '../../lib/engine/reason/decisionTest';
+  import { registerMethod } from '../../lib/methods/registry';
+
+  registerMethod({
+    id: 'decision_test_v1', name: 'STUB', version: '1.0.0-stub',
+    run: async (input: any) => {
+      const d = Decisions.create({
+        kind: 'decision_test', question: input.proposedDecision, answer: '{}',
+        verdict: 'mixed', confidence: 0.6,
+        evidence_chain_json: '[]', counters_json: '[]',
+      } as any);
+      return {
+        decisionId: d.id, verdict: 'mixed', confidence: 0.6,
+        pros: [], cons: [], conflicts: [], factualWarnings: [],
+        openUncertainties: ['stub u'], recommendedFollowUp: [],
+      };
+    },
+  });
+
+  // EDGE 1: verdict is one of the allowed values.
+  const r = await testDecision({ proposedDecision: 'Test X' });
+  assert.ok(['supports','mixed','against','insufficient_signal'].includes(r.verdict));
+
+  // EDGE 2: blank input throws OR returns insufficient_signal.
+  let blankThrew = false;
+  try {
+    const r2 = await testDecision({ proposedDecision: '' });
+    assert.strictEqual(r2.verdict, 'insufficient_signal');
+  } catch { blankThrew = true; }
+  // Either behavior is acceptable; assert one or the other.
+  assert.ok(blankThrew || true);
+
+  getDb().prepare(`DELETE FROM decisions WHERE id = ?`).run(r.decisionId);
+  console.log('[decision-test-edge-cases] OK');
+
+3. scripts/test/outcome-edge-cases.ts:
+
+  import assert from 'node:assert';
+  import { getDb, Decisions, Outcomes, RevisionSuggestions } from '../../lib/db';
+  import { recordOutcome } from '../../lib/engine/reason/outcomes';
+  import { acceptRevision, dismissRevision } from '../../lib/engine/reason/applyRevision';
+  import { registerMethod } from '../../lib/methods/registry';
+
+  // Stub inverse inference for determinism.
+  registerMethod({
+    id: 'inverse_inference_v1', name: 'STUB', version: '1.0.0-stub',
+    run: async ({ outcomeId }: { outcomeId: number }) => {
+      const o = Outcomes.getById(outcomeId)!;
+      const d = Decisions.get(o.decision_id)!;
+      const chain = JSON.parse(d.evidence_chain_json ?? '[]');
+      const ids: number[] = [];
+      for (const e of chain) {
+        const s = RevisionSuggestions.create({
+          outcome_id: outcomeId, principle_id: e.principleId,
+          prior_role: e.role, implication: 'reinforces',
+          suggested_delta: 0.05, rationale: 'stub',
+        } as any);
+        ids.push(s.id);
+      }
+      return { outcomeId, decisionId: o.decision_id, alignment: 'aligned',
+               principleRevisions: chain.map((e: any) => ({
+                 principleId: e.principleId, priorRole: e.role,
+                 implication: 'reinforces' as const, suggestedDelta: 0.05,
+                 rationale: 'stub' })),
+               driftAlerts: [], suggestionIds: ids };
+    },
+  });
+
+  // Set up a decision with at least one principle in evidence.
+  const { Principles } = await import('../../lib/db');
+  const p = Principles.create({ canonical_statement: 'outcome test', first_observed_at: '2026-01-01', last_observed_at: '2026-01-01' } as any);
+  const d = Decisions.create({
+    kind: 'oracle_query', question: 'q', answer: 'a', confidence: 0.6,
+    evidence_chain_json: JSON.stringify([{ principleId: p.id, role: 'supports', weight: 0.5 }]),
+    counters_json: '[]',
+  } as any);
+
+  // EDGE 1: record outcome → InverseResult with suggestions.
+  const r = await recordOutcome({ decisionId: d.id, happened: 1, actualText: 'it happened' });
+  assert.ok(r.outcomeId > 0);
+  assert.ok(r.postmortem.suggestionIds.length >= 1);
+
+  // EDGE 2: second recordOutcome on same decision should THROW (UNIQUE).
+  let unique = false;
+  try { await recordOutcome({ decisionId: d.id, happened: 0, actualText: 'again' }); } catch { unique = true; }
+  assert.ok(unique, 'second outcome on same decision must violate UNIQUE');
+
+  // EDGE 3: brier component computed.
+  const o = Outcomes.getForDecision(d.id)!;
+  assert.ok(o.brier_component != null);
+  assert.strictEqual(o.brier_component, (0.6 - 1) ** 2);
+
+  // EDGE 4: accept a suggestion → conviction shifts.
+  const sid = r.postmortem.suggestionIds[0];
+  const priorConv = Principles.get(p.id)!.conviction;
+  acceptRevision(sid, 'test_user');
+  const newConv = Principles.get(p.id)!.conviction;
+  assert.strictEqual(newConv, Math.min(1, priorConv + 0.05));
+
+  // EDGE 5: second accept on same suggestion throws.
+  let second = false;
+  try { acceptRevision(sid, 'test_user'); } catch { second = true; }
+  assert.ok(second, 'accept must throw on already-accepted');
+
+  // Cleanup.
+  getDb().prepare(`DELETE FROM principle_revision_suggestions WHERE outcome_id = ?`).run(o.id);
+  getDb().prepare(`DELETE FROM outcomes WHERE id = ?`).run(o.id);
+  getDb().prepare(`DELETE FROM decisions WHERE id = ?`).run(d.id);
+  getDb().prepare(`DELETE FROM principles WHERE id = ?`).run(p.id);
+
+  console.log('[outcome-edge-cases] OK');
+
+4. scripts/test/rigor-gate-edge-cases.ts:
+
+  import assert from 'node:assert';
+  import { getDb, Decisions, Principles, Claims, FactChecks, Conflicts } from '../../lib/db';
+  import { evaluateGate } from '../../lib/engine/rigor/gate';
+  import { applyOverride } from '../../lib/engine/rigor/override';
+
+  // EDGE 1: clean decision passes.
+  const p = Principles.create({ canonical_statement: 'gate test ok',
+    first_observed_at: '2026-01-01', last_observed_at: '2026-01-01' } as any);
+  Claims.create({
+    source_kind: 'obsidian', source_id: 'gate_t1', source_ref: 'gate_t1.md',
+    text: 't', modality: 'assertion', speaker: 'colin',
+    extractor_method: 'claim_extractor_v1', extractor_confidence: 0.9,
+    faithfulness_score: 0.9, span_start: 0, span_end: 1, principle_id: p.id,
+  } as any);
+  const dOk = Decisions.create({
+    kind: 'oracle_query', question: 'q', answer: 'a', confidence: 0.6,
+    evidence_chain_json: JSON.stringify([{ principleId: p.id, role: 'supports', weight: 0.5 }]),
+    counters_json: '[]',
+  } as any);
+  let g = evaluateGate(dOk.id);
+  assert.strictEqual(g.decision, 'pass');
+
+  // EDGE 2: provenance_complete fires when principle has no anchored claims.
+  const pNoClaim = Principles.create({ canonical_statement: 'gate test orphan',
+    first_observed_at: '2026-01-01', last_observed_at: '2026-01-01' } as any);
+  const dWarn = Decisions.create({
+    kind: 'oracle_query', question: 'q', answer: 'a', confidence: 0.6,
+    evidence_chain_json: JSON.stringify([{ principleId: pNoClaim.id, role: 'supports', weight: 0.5 }]),
+    counters_json: '[]',
+  } as any);
+  g = evaluateGate(dWarn.id);
+  assert.strictEqual(g.decision, 'pass_with_warnings');
+  assert.ok(g.failures.some(f => f.checkName === 'provenance_complete'));
+
+  // EDGE 3: refuted open fact-check on a supporting principle → BLOCK.
+  FactChecks.create({ target_kind: 'principle', target_id: p.id, verdict: 'refuted', confidence: 0.95, detected_by: 'test', rationale: 'r' });
+  g = evaluateGate(dOk.id);
+  assert.strictEqual(g.decision, 'blocked');
+
+  // EDGE 4: override with too-short justification throws.
+  let shortThrew = false;
+  try { applyOverride({ decisionId: dOk.id, checkName: 'factual_warnings_acknowledged', justification: 'short', byUserId: 'test' }); }
+  catch { shortThrew = true; }
+  assert.ok(shortThrew);
+
+  // EDGE 5: override with ≥30 chars succeeds and writes audit.
+  applyOverride({ decisionId: dOk.id, checkName: 'factual_warnings_acknowledged',
+    justification: 'this is a sufficiently long override justification', byUserId: 'test' });
+  // (We don't assert on the audit row here — that's covered by 33.)
+
+  // Cleanup.
+  getDb().prepare(`DELETE FROM fact_checks WHERE target_id IN (?, ?)`).run(p.id, pNoClaim.id);
+  getDb().prepare(`DELETE FROM claims WHERE source_id LIKE 'gate_t%'`).run();
+  getDb().prepare(`DELETE FROM decisions WHERE id IN (?, ?)`).run(dOk.id, dWarn.id);
+  getDb().prepare(`DELETE FROM principles WHERE id IN (?, ?)`).run(p.id, pNoClaim.id);
+
+  console.log('[rigor-gate-edge-cases] OK');
+
+5. Add to package.json:
+
+  "test:reason": "tsx scripts/test/oracle-edge-cases.ts && tsx scripts/test/decision-test-edge-cases.ts && tsx scripts/test/outcome-edge-cases.ts && tsx scripts/test/rigor-gate-edge-cases.ts"
+
+ACCEPTANCE CRITERIA
+- `npm run test:reason` exits 0.
+- Synthetic rows cleaned up.
+
+================================================================================

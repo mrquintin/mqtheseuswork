@@ -71,6 +71,9 @@ export default function PublicHeader({ authed }: { authed: boolean }) {
         <Link href="/algorithms" style={{ color: "var(--amber-dim)", textDecoration: "none" }}>
           Algorithms
         </Link>
+        <Link href="/docs" style={{ color: "var(--amber-dim)", textDecoration: "none" }}>
+          Docs
+        </Link>
         <CurrentsNavPulse label="Currents" />
         <ForecastsNavPulse label="Forecasts" />
       </nav>

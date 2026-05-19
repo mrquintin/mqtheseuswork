@@ -664,11 +664,11 @@ model Conclusion {
 
   @@index([organizationId])
   @@index([organizationId, normalizedText])
-  // Dashboard "recent conclusions" panel orders by `createdAt DESC`
-  // over the org and takes 8. ~12k Conclusion rows per org in
-  // production means the prior plan (index scan on organizationId →
-  // in-memory sort) hit ~400 ms p95. This composite serves the
-  // ORDER BY directly so the LIMIT short-circuits.
+  // Legacy recent-conclusion and audit surfaces order by `createdAt DESC`
+  // over the org. ~12k Conclusion rows per org in production means the
+  // prior plan (index scan on organizationId → in-memory sort) hit
+  // ~400 ms p95. This composite serves the ORDER BY directly so the
+  // LIMIT short-circuits.
   @@index([organizationId, createdAt(sort: Desc)])
 }
 

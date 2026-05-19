@@ -1,0 +1,160 @@
+================================================================================
+30 — Seed data for v2 tables (idempotent)
+================================================================================
+
+GOAL
+Wine-business-themed seeds for principles, contradictions, conflicts,
+fact-checks, decisions, and outcomes so day-one demos show the new
+surfaces non-empty. Idempotent: checks Meta.seeded_v2 = '1' and
+short-circuits.
+
+The existing seed flow uses one-shot seed-*.json files imported on
+boot (see comms-seed.ts, research-seed.ts, source-seed.ts). Follow
+that pattern.
+
+TASK
+
+1. Create scripts/seed-v2.ts:
+
+  import { Meta, Principles, Contradictions, Conflicts, FactChecks,
+           Decisions, Outcomes, isVecLoaded } from '../lib/db';
+  import { embedTexts } from '../lib/voyage';
+  import { upsertPrincipleEmbedding } from '../lib/engine/extract/cluster';
+
+  async function main() {
+    if (Meta.get('seeded_v2') === '1') {
+      console.log('[seed-v2] already seeded; skip');
+      return;
+    }
+
+    const specs = [
+      { stmt: 'We prioritize wholesale relationships with restaurants over DTC volume.',
+        domains: ['distribution','brand'], conviction: 0.78 },
+      { stmt: 'Our positioning is premium: $80+/bottle, allocation-based, low volume.',
+        domains: ['brand','pricing'], conviction: 0.86 },
+      { stmt: 'We do not pursue mass-market distribution channels (Costco, Total Wine).',
+        domains: ['distribution','brand'], conviction: 0.82 },
+      { stmt: 'We require ≥ 50% gross margin on every wholesale arrangement.',
+        domains: ['pricing','cashflow'], conviction: 0.74 },
+      { stmt: 'The Howell Mountain tasting room exists for brand-building, not as a revenue line.',
+        domains: ['brand','customer_experience'], conviction: 0.68 },
+      { stmt: 'We use estate-grown fruit exclusively for the flagship label.',
+        domains: ['product_quality','brand'], conviction: 0.80 },
+      { stmt: 'Sustainability practices are core to our identity (CCOF certified).',
+        domains: ['brand','sustainability'], conviction: 0.65 },
+      { stmt: 'Cashflow runway is maintained at ≥ 18 months at all times.',
+        domains: ['cashflow'], conviction: 0.77 },
+      { stmt: 'We expand allocation rather than chase new accounts.',
+        domains: ['growth','distribution'], conviction: 0.71 },
+      { stmt: 'Vineyard expansion is prioritized over winery expansion.',
+        domains: ['operations','growth'], conviction: 0.62 },
+      { stmt: 'We do not extend payment terms beyond 30 days for new accounts.',
+        domains: ['cashflow','customer_experience'], conviction: 0.69 },
+      { stmt: 'Brand exclusivity is granted only to top-tier restaurant partners.',
+        domains: ['brand','distribution'], conviction: 0.74 },
+      { stmt: 'California wine market is shifting toward lower-priced segments.',
+        domains: ['market'], conviction: 0.45 },
+      { stmt: 'Federal excise tax on still wine is $1.07/gallon.',
+        domains: ['regulation'], conviction: 0.92 },
+      { stmt: 'Direct-to-consumer represents about 12% of our revenue.',
+        domains: ['cashflow','growth'], conviction: 0.55 },
+      // Intentional contradiction with #6 (estate-grown exclusively):
+      { stmt: 'We supplemented the 2024 flagship with purchased Russian River fruit.',
+        domains: ['product_quality'], conviction: 0.42 },
+      // Intentional conflict with #2 + #3 (premium / no mass channels):
+      { stmt: 'We are exploring Texas market entry aggressively.',
+        domains: ['growth','distribution'], conviction: 0.50 },
+    ];
+
+    const embeddings = await embedTexts(specs.map(s => s.stmt));
+    const pids: number[] = [];
+    for (let i = 0; i < specs.length; i++) {
+      const s = specs[i];
+      const created = Principles.create({
+        canonical_statement: s.stmt,
+        conviction: s.conviction,
+        first_observed_at: '2026-01-01',
+        last_observed_at: '2026-05-15',
+      } as any);
+      Principles.setDomains(created.id, s.domains);
+      if (isVecLoaded()) await upsertPrincipleEmbedding(created.id, embeddings[i]);
+      pids.push(created.id);
+    }
+
+    Contradictions.create({
+      left_id: pids[5], right_id: pids[15],
+      severity: 0.85, detected_by: 'seed_v2',
+      rationale: 'Estate-grown exclusivity is contradicted directly by adding purchased fruit.',
+    });
+
+    Conflicts.create({
+      left_id: pids[8], right_id: pids[16],
+      severity: 0.72, domain: 'growth', detected_by: 'seed_v2',
+      rationale: 'Expanding allocation to existing accounts and chasing a new geography compete for the same scarce inventory and brand attention.',
+      asymmetric: 0,
+    });
+    Conflicts.create({
+      left_id: pids[10], right_id: pids[11],
+      severity: 0.55, domain: 'customer_experience', detected_by: 'seed_v2',
+      rationale: 'Top-tier exclusivity partners typically expect — and receive — payment flexibility that the strict no-extended-terms principle disallows.',
+      asymmetric: 1,
+      directional_note: 'The exclusivity principle is more likely to be eroded by payment-terms rigidity than vice versa.',
+    });
+
+    FactChecks.create({
+      target_kind: 'principle', target_id: pids[13],
+      verdict: 'supported', confidence: 0.96,
+      detected_by: 'seed_v2',
+      rationale: 'Per TTB regulations, federal excise tax on still wine ≤ 14% ABV is $1.07/gallon for the first 30,000 gallons.',
+      sources_json: JSON.stringify([{ url: 'https://ttb.gov/wine/wine-tax-rates', title: 'TTB Wine Tax Rates', excerpt: '...$1.07/gallon...' }]),
+    });
+    FactChecks.create({
+      target_kind: 'principle', target_id: pids[12],
+      verdict: 'mixed', confidence: 0.60,
+      detected_by: 'seed_v2',
+      rationale: 'Industry data shows mixed signals: total volume is declining but premium tier is more resilient than commodity.',
+      sources_json: JSON.stringify([{ url: 'https://winebusiness.com/...', title: 'CA wine market 2024', excerpt: '...mixed...' }]),
+    });
+
+    const d = Decisions.create({
+      kind: 'decision_test',
+      question: 'Should we open a tasting room in Sonoma to expand brand reach?',
+      answer: JSON.stringify({ verdict: 'against', pros: [], cons: [] }),
+      verdict: 'against', confidence: 0.74,
+      evidence_chain_json: JSON.stringify([
+        { principleId: pids[4], role: 'context',     weight: 0.4, supportingClaimIds: [] },
+        { principleId: pids[9], role: 'contradicts', weight: 0.7, supportingClaimIds: [] },
+      ]),
+      counters_json: '[]',
+      asked_at: '2025-09-15',
+      resolution_date: '2026-04-15',
+    });
+    Outcomes.create({
+      decision_id: d.id, happened: 0,
+      actual_text: 'We deferred Sonoma in favor of doubling down on vineyard expansion. The principle ranking held up.',
+      confidence_in_description: 0.9, brier_component: (0.74 - 1) ** 2,
+    });
+
+    Meta.set('seeded_v2', '1');
+    console.log('[seed-v2] done');
+  }
+
+  main().catch(e => { console.error(e); process.exit(1); });
+
+2. Add to package.json scripts:
+   "seed:v2": "tsx scripts/seed-v2.ts"
+
+3. Optional: run the seed once on first server boot.
+   In instrumentation.ts, after registerAllMethods(), add a
+   best-effort import that calls scripts/seed-v2.ts's main() (use
+   await import path; swallow errors so a seed failure never blocks
+   boot). The script's own Meta gate prevents re-runs.
+
+ACCEPTANCE CRITERIA
+- Fresh data/mars.db + first server start: /principles shows ~17
+  principles, /contradictions shows 1 open, /conflicts shows 2 open
+  (one asymmetric), /factchecks shows 2 (one supported, one mixed),
+  /decisions shows 1 with outcome.
+- Re-running does not duplicate any row.
+
+================================================================================

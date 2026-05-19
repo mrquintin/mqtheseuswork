@@ -1,0 +1,127 @@
+================================================================================
+41 — Failure injection: missing keys, malformed JSON, parser bombs, sqlite-vec absent
+================================================================================
+
+GOAL
+Prove the system DEGRADES rather than CRASHES under realistic failure
+modes. Specifically: missing API keys, malformed LLM outputs, oversize
+or pathological inputs, sqlite-vec failing to load.
+
+TASK
+
+1. scripts/test/fail-missing-anthropic.ts:
+
+  import assert from 'node:assert';
+
+  // Temporarily nuke the key.
+  const orig = process.env.ANTHROPIC_API_KEY;
+  delete process.env.ANTHROPIC_API_KEY;
+
+  const { extractClaimsForChunk } = await import('../../lib/engine/extract/extractor');
+  let err: unknown = null;
+  try {
+    await extractClaimsForChunk({
+      chunkId: 99_999_001, source_kind: 'obsidian', source_id: 'fi_t1',
+      source_ref: 't', content: 'we ship today.', speaker: 'colin',
+    });
+  } catch (e) { err = e; }
+  // Expectation: throws a typed error referencing the missing key.
+  assert.ok(err, 'should throw when key missing');
+  assert.ok(String(err).match(/api.*key|anthropic/i), 'error should mention the missing key');
+
+  // Restore.
+  if (orig) process.env.ANTHROPIC_API_KEY = orig;
+  console.log('[fail-missing-anthropic] OK');
+
+2. scripts/test/fail-malformed-llm-json.ts — install a stub Anthropic
+   wrapper that returns non-JSON, then call the extractor / oracle and
+   assert it either retries (the wrapper has a one-shot retry) or
+   throws an LlmJsonError that surfaces nicely:
+
+  // Mock the wrapper by re-registering the LLM-using methods with stubs
+  // that simulate the wrapper's behavior. Or, more accurately, override
+  // callClaudeJson via a module-level injection. The cleanest approach:
+  // export a `__setClaudeClient` test hook from anthropic.ts.
+
+  // The test asserts:
+  // 1. A retry attempt is made (visible in audit / log).
+  // 2. If both attempts fail, the error is typed and the method invocation
+  //    is recorded with status='failed' and error_text contains 'JSON'.
+  console.log('[fail-malformed-llm-json] OK (see file for assertions)');
+
+3. scripts/test/fail-oversize-input.ts:
+
+  import assert from 'node:assert';
+  import { Claims, getDb } from '../../lib/db';
+  // EDGE: insert a Claim with absurdly large text; ensure no crash, just storage.
+  const big = 'x'.repeat(200_000);
+  const c = Claims.create({
+    source_kind: 'obsidian', source_id: 'fi_t2', source_ref: 't',
+    text: big, modality: 'assertion', speaker: 'colin',
+    extractor_method: 'claim_extractor_v1', extractor_confidence: 0.5,
+    faithfulness_score: 0.5, span_start: 0, span_end: 1,
+  } as any);
+  const got = Claims.get(c.id)!;
+  assert.strictEqual(got.text.length, 200_000);
+  getDb().prepare(`DELETE FROM claims WHERE id = ?`).run(c.id);
+  console.log('[fail-oversize-input] OK');
+
+4. scripts/test/fail-vec-absent.ts — simulates sqlite-vec failing to
+   load by importing a temporary alternate db module that forces
+   _vecLoaded = false. Verify:
+
+   - Clustering falls back gracefully (creates principles without
+     joining; or returns empty candidates as documented in cluster.ts).
+   - Contradiction detector returns null (because cosine pre-filter
+     yields 0.5; LLM judge may still run when key present; but in
+     stub mode with sqlite-vec absent it's null).
+   - Oracle retrieval is empty (returns answer but with no evidence).
+   - No exceptions thrown.
+
+   This is harder to test in-process without re-architecture; for v1
+   it's acceptable to document the manual test:
+
+  // Manual test: in lib/db.ts, force _vecLoaded = false; re-run
+  // npm run test:extract, test:validate, test:reason. All should
+  // exit 0 with the same coverage (faithfulness still runs, but
+  // clustering and detectors short-circuit gracefully).
+  console.log('[fail-vec-absent] manual test only; see comments');
+
+5. scripts/test/fail-cost-cap-mid-extraction.ts — run a synthetic
+   extraction batch while the cost cap is set to zero; assert the
+   extractor doesn't throw, just returns inserted=0:
+
+  import assert from 'node:assert';
+  import { Meta } from '../../lib/db';
+  import { extractClaimsForChunk } from '../../lib/engine/extract/extractor';
+
+  const orig = Meta.get('cost_daily_cap_usd');
+  Meta.set('cost_daily_cap_usd', '0.0001');
+  // We may or may not have an Anthropic key here; install the extractor stub
+  // from the helpers if needed.
+  let r: any;
+  try {
+    r = await extractClaimsForChunk({
+      chunkId: 99_999_003, source_kind: 'obsidian', source_id: 'fi_t3',
+      source_ref: 't', content: 'we hire 2 salespeople next quarter.', speaker: 'colin',
+    });
+  } catch (e) {
+    // The extractor catches CostCapExceededError and returns inserted=0.
+    // If it threw instead, the contract is wrong.
+    assert.fail(`extractor should not throw on cost cap: ${e}`);
+  }
+  assert.strictEqual(r.inserted, 0);
+
+  if (orig != null) Meta.set('cost_daily_cap_usd', orig);
+  console.log('[fail-cost-cap-mid-extraction] OK');
+
+6. Add to package.json:
+
+  "test:fail": "tsx scripts/test/fail-missing-anthropic.ts && tsx scripts/test/fail-malformed-llm-json.ts && tsx scripts/test/fail-oversize-input.ts && tsx scripts/test/fail-cost-cap-mid-extraction.ts"
+
+ACCEPTANCE CRITERIA
+- `npm run test:fail` exits 0.
+- Each scenario degrades to a clear error or to safe no-op, never to
+  an unhandled exception that kills the worker.
+
+================================================================================

@@ -1,0 +1,91 @@
+================================================================================
+28 — Cost tracking (rollup + daily cap enforcement)
+================================================================================
+
+GOAL
+A per-day, per-category, per-method rollup of LLM + embedding +
+web-search spend with a soft daily cap that can be raised from
+/settings/extractor. The method-registry Anthropic wrapper (prompt 03)
+already records cost via recordCost; this prompt creates that helper
+and wires similar instrumentation for embeddings and web-search.
+
+TASK
+
+1. Create lib/ops/cost.ts:
+
+  import { getDb } from '@/lib/db';
+
+  export function recordCost(input: {
+    category: 'llm' | 'embedding' | 'web_search' | 'storage';
+    methodId?: string;
+    costUsd: number;
+    units?: number;
+  }): void {
+    const day = new Date().toISOString().slice(0, 10);
+    getDb().prepare(
+      `INSERT INTO cost_rollup_daily (day, category, method_id, cost_usd, units)
+       VALUES (?, ?, ?, ?, ?)
+       ON CONFLICT(day, category, method_id) DO UPDATE SET
+         cost_usd = cost_rollup_daily.cost_usd + excluded.cost_usd,
+         units    = cost_rollup_daily.units    + excluded.units`
+    ).run(day, input.category, input.methodId ?? null, input.costUsd, input.units ?? 1);
+  }
+
+2. Create lib/ops/costCap.ts:
+
+  import { getDb, Meta } from '@/lib/db';
+
+  const DEFAULT_CAP_USD = 5;
+
+  export class CostCapExceededError extends Error {
+    constructor(public spent: number, public cap: number) {
+      super(`daily cost cap exceeded: $${spent.toFixed(2)} > $${cap.toFixed(2)}`);
+    }
+  }
+
+  export function assertUnderDailyCap(extraUsd = 0): void {
+    const day = new Date().toISOString().slice(0, 10);
+    const row = getDb().prepare(
+      `SELECT COALESCE(SUM(cost_usd), 0) AS spent FROM cost_rollup_daily WHERE day = ?`
+    ).get(day) as { spent: number };
+    const cap = parseFloat(Meta.get('cost_daily_cap_usd') ?? String(DEFAULT_CAP_USD));
+    if (row.spent + extraUsd > cap) {
+      throw new CostCapExceededError(row.spent + extraUsd, cap);
+    }
+  }
+
+3. Wire embeddings cost: edit lib/voyage.ts. After each successful
+   embed call, compute approximate cost (Voyage's voyage-3-large is
+   roughly $0.18 per 1M tokens; treat token ≈ char/4 unless the
+   client returns usage) and call recordCost({ category: 'embedding',
+   methodId: 'embedding_voyage_v1', costUsd, units: numInputs }).
+
+4. Wire web-search cost: already in prompt 12 (factcheck_web_v1
+   adds 0.04 USD per call as a rough $0.01 × max_uses=4 estimate).
+
+5. Wire LLM cost: prompt 03's callClaudeJson already calls
+   recordCost. Confirm the import lands.
+
+6. Enforce the cap at the start of every LLM-using method's run() —
+   add assertUnderDailyCap() to:
+   - claim_extractor_v1 (extracting bursts is the most expensive
+     thing the system does)
+   - oracle_forward_v1
+   - decision_test_v1
+   - factcheck_web_v1
+   - contradiction_detector_v1
+   - conflict_detector_v1
+   On CostCapExceededError:
+   - Extractor: log + return { inserted: 0, rejected: 0, insertedIds: [] }.
+   - Oracle / decision_test: re-throw; the route handler should map to
+     503 with a helpful body so the UI surfaces it ("Daily cost cap
+     reached. Raise in /settings/extractor or wait until tomorrow.").
+
+ACCEPTANCE CRITERIA
+- After a few Oracle calls, cost_rollup_daily has rows for today's
+  date with category='llm' and the right method ids.
+- Setting cost_daily_cap_usd to '0.01' causes the next LLM call to
+  throw CostCapExceededError.
+- /settings/cost (prompt 27) renders today's spend by category.
+
+================================================================================

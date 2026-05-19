@@ -1,0 +1,101 @@
+================================================================================
+05 — Faithfulness check (Haiku NLI judge)
+================================================================================
+
+GOAL
+Cheap NLI-style entailment judge used by the extractor to reject
+paraphrase drift before a Claim hits the DB. Single LLM call, Haiku
+4.5, deterministic (temperature 0).
+
+TASK
+
+1. Create lib/engine/extract/faithfulness.ts:
+
+  import { invokeMethod, registerMethod } from '@/lib/methods/registry';
+  import { callClaudeJson } from '@/lib/methods/anthropic';
+
+  const SYSTEM = `You are a strict natural-language inference judge. Given a PREMISE and a HYPOTHESIS, decide whether the premise ENTAILS the hypothesis.
+
+LABELS
+- entail:     hypothesis is a faithful restatement or logical consequence of the premise. Paraphrase is fine if meaning is preserved.
+- contradict: hypothesis is incompatible with the premise.
+- neutral:    neither — premise doesn't address the hypothesis, or supports it only loosely.
+
+Be STRICT about quantifiers ("some" vs "all"), modality ("might" vs "will"), and negation. Any drift in these → NOT entailment.
+
+OUTPUT (strict JSON):
+{ "label": "entail" | "neutral" | "contradict", "probability": 0..1, "rationale": "one sentence" }`;
+
+  interface NliInput { premise: string; hypothesis: string; }
+  interface NliRaw { label: 'entail'|'neutral'|'contradict'; probability: number; rationale: string; }
+  export interface FaithfulnessResult {
+    label: NliRaw['label'];
+    probability: number;
+    entailmentScore: number;
+    rationale: string;
+  }
+
+  export function registerFaithfulnessCheck(): void {
+    registerMethod<NliInput, FaithfulnessResult>({
+      id: 'faithfulness_v1',
+      name: 'Faithfulness Check (Haiku NLI)',
+      version: '1.0.0',
+      run: async (input) => {
+        const { json } = await callClaudeJson<NliRaw>({
+          model: 'claude-haiku-4-5-20251001',
+          system: SYSTEM,
+          user: `PREMISE:\n${input.premise}\n\nHYPOTHESIS:\n${input.hypothesis}`,
+          maxTokens: 250,
+        });
+        const score =
+          json.label === 'entail'     ? json.probability :
+          json.label === 'contradict' ? 1 - json.probability :
+                                        0.5;
+        return { ...json, entailmentScore: score };
+      },
+    });
+  }
+
+  export async function checkFaithfulness(input: NliInput): Promise<FaithfulnessResult> {
+    return invokeMethod<NliInput, FaithfulnessResult>('faithfulness_v1', input);
+  }
+
+2. Register: add `registerFaithfulnessCheck()` to
+   lib/methods/registerAll.ts.
+
+3. Optional batch variant (lower cost when extracting many claims from
+   one chunk — useful but not required for v1):
+
+  interface BatchInput { premise: string; hypotheses: string[]; }
+  export function registerFaithfulnessBatch(): void {
+    registerMethod<BatchInput, FaithfulnessResult[]>({
+      id: 'faithfulness_batch_v1',
+      name: 'Faithfulness Batch',
+      version: '1.0.0',
+      run: async (input) => {
+        const { json } = await callClaudeJson<{ verdicts: NliRaw[] }>({
+          model: 'claude-haiku-4-5-20251001',
+          system: SYSTEM,
+          user: `PREMISE:\n${input.premise}\n\nFor each of the ${input.hypotheses.length} hypotheses below, judge entailment under the same rules. Return JSON: { "verdicts": [{label,probability,rationale}] } — array index matches input order.\n\n${input.hypotheses.map((h, i) => `H${i+1}: ${h}`).join('\n')}`,
+          maxTokens: 600,
+        });
+        return json.verdicts.map(v => ({
+          ...v,
+          entailmentScore:
+            v.label === 'entail'     ? v.probability :
+            v.label === 'contradict' ? 1 - v.probability : 0.5,
+        }));
+      },
+    });
+  }
+
+ACCEPTANCE CRITERIA
+- checkFaithfulness({ premise: "We will hire two new salespeople in Q3",
+  hypothesis: "Two salespeople will be hired in Q3" }) → entailmentScore
+  > 0.85.
+- checkFaithfulness({ premise: "We might consider Sonoma", hypothesis:
+  "We will open in Sonoma" }) → entailmentScore < 0.5 (modality drift).
+- checkFaithfulness({ premise: "All wines are dry", hypothesis: "Some
+  wines are sweet" }) → label contradict, entailmentScore < 0.2.
+
+================================================================================

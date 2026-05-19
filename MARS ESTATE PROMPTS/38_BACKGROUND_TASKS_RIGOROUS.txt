@@ -1,0 +1,149 @@
+================================================================================
+38 — Background tasks: drift, decay, cost cap, cron-endpoint security
+================================================================================
+
+GOAL
+Verify drift detection signals the right principles in the right
+windows; decay tick honors policies, dry-run mutates nothing, pinned
+principles are skipped; cost cap blocks LLM calls when exceeded;
+internal sweep endpoints reject requests without the secret header.
+
+TASK
+
+1. scripts/test/drift-edge-cases.ts:
+
+  import assert from 'node:assert';
+  import { getDb, Principles, DriftEvents } from '../../lib/db';
+  import { detectDriftAll } from '../../lib/engine/rigor/drift';
+
+  // Seed two principles with drift events of different magnitudes.
+  const p1 = Principles.create({ canonical_statement: 'drift up',
+    conviction: 0.4, first_observed_at: '2026-01-01', last_observed_at: '2026-01-01' } as any);
+  const p2 = Principles.create({ canonical_statement: 'drift small',
+    conviction: 0.4, first_observed_at: '2026-01-01', last_observed_at: '2026-01-01' } as any);
+  const p3 = Principles.create({ canonical_statement: 'drift oscillating',
+    conviction: 0.4, first_observed_at: '2026-01-01', last_observed_at: '2026-01-01' } as any);
+
+  // Recent drift events.
+  const recent = new Date().toISOString().replace('T',' ').slice(0,19);
+  DriftEvents.create({ principle_id: p1.id, prior_conviction: 0.1, new_conviction: 0.4, delta: 0.30, cause: 'new_claim' });
+  DriftEvents.create({ principle_id: p2.id, prior_conviction: 0.39, new_conviction: 0.40, delta: 0.01, cause: 'new_claim' });
+  DriftEvents.create({ principle_id: p3.id, prior_conviction: 0.5, new_conviction: 0.7, delta: 0.20, cause: 'new_claim' });
+  DriftEvents.create({ principle_id: p3.id, prior_conviction: 0.7, new_conviction: 0.5, delta: -0.20, cause: 'new_claim' });
+
+  const signals = detectDriftAll(30, 0.15);
+  const ids = new Set(signals.map(s => s.principleId));
+  assert.ok(ids.has(p1.id), 'p1 should be flagged (large up)');
+  assert.ok(!ids.has(p2.id), 'p2 should NOT be flagged (small)');
+  assert.ok(ids.has(p3.id), 'p3 should be flagged (oscillating)');
+  const p3sig = signals.find(s => s.principleId === p3.id)!;
+  assert.strictEqual(p3sig.classification, 'oscillating');
+
+  // Cleanup.
+  for (const id of [p1.id, p2.id, p3.id]) {
+    getDb().prepare(`DELETE FROM drift_events WHERE principle_id = ?`).run(id);
+    getDb().prepare(`DELETE FROM principles WHERE id = ?`).run(id);
+  }
+  console.log('[drift-edge-cases] OK');
+
+2. scripts/test/decay-edge-cases.ts:
+
+  import assert from 'node:assert';
+  import { getDb, Principles, DecayPoliciesRepo } from '../../lib/db';
+  import { runDecayTick } from '../../lib/engine/rigor/decay';
+
+  // Verify default policies seeded.
+  const policies = DecayPoliciesRepo.list();
+  assert.ok(policies.length >= 1, 'default decay policies should exist');
+
+  // EDGE 1: pinned principle is skipped.
+  const pPinned = Principles.create({ canonical_statement: 'pinned',
+    conviction: 0.6, conviction_pinned: 1, conviction_pinned_at: '2026-01-01',
+    first_observed_at: '2020-01-01', last_observed_at: '2020-01-01' } as any);
+  // EDGE 2: very-old unpinned principle → decays below floor → archived.
+  const pOld = Principles.create({ canonical_statement: 'very old',
+    conviction: 0.3, first_observed_at: '2020-01-01', last_observed_at: '2020-01-01' } as any);
+  // EDGE 3: recent unpinned → barely decays.
+  const pRecent = Principles.create({ canonical_statement: 'recent',
+    conviction: 0.6, first_observed_at: '2026-05-01', last_observed_at: '2026-05-01' } as any);
+
+  // Dry run mutates nothing.
+  const dry = runDecayTick({ dryRun: true });
+  assert.ok(dry.scanned >= 3);
+  const pPinnedAfterDry = Principles.get(pPinned.id)!;
+  assert.strictEqual(pPinnedAfterDry.status, 'active');
+  const pOldAfterDry = Principles.get(pOld.id)!;
+  assert.strictEqual(pOldAfterDry.status, 'active');
+  assert.strictEqual(pOldAfterDry.conviction, 0.3);
+
+  // Live run: pinned untouched, old archived, recent slightly decayed.
+  const live = runDecayTick({});
+  assert.ok(live.archived >= 1);
+  assert.strictEqual(Principles.get(pPinned.id)!.status, 'active');
+  assert.strictEqual(Principles.get(pPinned.id)!.conviction, 0.6);
+  assert.strictEqual(Principles.get(pOld.id)!.status, 'archived');
+
+  // Cleanup.
+  for (const id of [pPinned.id, pOld.id, pRecent.id]) {
+    getDb().prepare(`DELETE FROM drift_events WHERE principle_id = ?`).run(id);
+    getDb().prepare(`DELETE FROM principles WHERE id = ?`).run(id);
+  }
+  console.log('[decay-edge-cases] OK');
+
+3. scripts/test/cost-cap-edge-cases.ts:
+
+  import assert from 'node:assert';
+  import { Meta } from '../../lib/db';
+  import { recordCost } from '../../lib/ops/cost';
+  import { assertUnderDailyCap, CostCapExceededError } from '../../lib/ops/costCap';
+
+  // Save state.
+  const priorCap = Meta.get('cost_daily_cap_usd');
+
+  // Set a tiny cap, record a cost above it, assert next call throws.
+  Meta.set('cost_daily_cap_usd', '0.01');
+  recordCost({ category: 'llm', methodId: 'test_method', costUsd: 0.05 });
+  let threw = false;
+  try { assertUnderDailyCap(); } catch (e) {
+    threw = e instanceof CostCapExceededError;
+  }
+  assert.ok(threw, 'assertUnderDailyCap should throw when over cap');
+
+  // Raise the cap → no throw.
+  Meta.set('cost_daily_cap_usd', '999');
+  assertUnderDailyCap();
+
+  // Restore.
+  if (priorCap != null) Meta.set('cost_daily_cap_usd', priorCap);
+  // Optionally also delete the synthetic cost row from today.
+  console.log('[cost-cap-edge-cases] OK');
+
+4. scripts/test/cron-security.ts — Node fetch against each internal
+   endpoint without and with the secret header.
+
+  import assert from 'node:assert';
+
+  const base = process.env.TEST_BASE_URL ?? 'http://localhost:3000';
+  const endpoints = [
+    'POST /api/internal/sweep/contradictions',
+    'POST /api/internal/sweep/conflicts',
+    'GET  /api/internal/drift/scan?windowDays=7',
+    'POST /api/internal/decay/tick?dryRun=1',
+  ];
+  for (const e of endpoints) {
+    const [method, path] = e.split(' ').map(s => s.trim()).filter(Boolean);
+    const res = await fetch(base + path, { method, headers: { 'content-type': 'application/json' }, body: method === 'GET' ? undefined : '{}' });
+    assert.strictEqual(res.status, 401, `${e} should 401 without header`);
+  }
+  console.log('[cron-security] OK');
+
+5. Add to package.json:
+
+  "test:bg":      "tsx scripts/test/drift-edge-cases.ts && tsx scripts/test/decay-edge-cases.ts && tsx scripts/test/cost-cap-edge-cases.ts",
+  "test:bg:http": "tsx scripts/test/cron-security.ts"
+
+ACCEPTANCE CRITERIA
+- `npm run test:bg` exits 0 (no running server required).
+- `npm run test:bg:http` exits 0 when the dev server is running.
+
+================================================================================

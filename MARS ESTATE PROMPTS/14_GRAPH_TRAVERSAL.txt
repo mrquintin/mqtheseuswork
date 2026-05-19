@@ -1,0 +1,175 @@
+================================================================================
+14 — Graph traversal (SQLite recursive CTE)
+================================================================================
+
+GOAL
+Helpers for one-hop neighbours, K-hop expansion, and cascade traversal
+over the typed graph (claims, principles, decisions + relationships).
+SQLite recursive CTEs. Used by the Oracle, decision-test, and cascade UI.
+
+TASK
+
+1. Create lib/engine/graph/types.ts:
+
+  export type NodeKind = 'claim' | 'principle' | 'decision';
+  export type NodeRef = { kind: NodeKind; id: number };
+
+  export interface EdgeRow {
+    id: number;
+    rel_type: string;
+    source_kind: NodeKind;
+    source_id: number;
+    target_kind: NodeKind;
+    target_id: number;
+    strength: number;
+    detected_by: string;
+    detected_at: string;
+  }
+
+2. Create lib/engine/graph/traverse.ts:
+
+  import { getDb } from '@/lib/db';
+  import type { NodeRef, EdgeRow } from './types';
+
+  export function neighbors(node: NodeRef, opts: {
+    types?: string[]; direction?: 'in' | 'out' | 'both'; limit?: number;
+  } = {}): EdgeRow[] {
+    const conn = getDb();
+    const direction = opts.direction ?? 'both';
+    const limit = opts.limit ?? 50;
+    const where: string[] = [];
+    const params: unknown[] = [];
+    if (direction === 'out' || direction === 'both') {
+      where.push('(source_kind = ? AND source_id = ?)');
+      params.push(node.kind, node.id);
+    }
+    if (direction === 'in' || direction === 'both') {
+      where.push('(target_kind = ? AND target_id = ?)');
+      params.push(node.kind, node.id);
+    }
+    let sql = `SELECT * FROM relationships WHERE ${where.join(' OR ')}`;
+    if (opts.types?.length) {
+      sql += ` AND rel_type IN (${opts.types.map(() => '?').join(',')})`;
+      params.push(...opts.types);
+    }
+    sql += ' ORDER BY strength DESC LIMIT ?';
+    params.push(limit);
+    return conn.prepare(sql).all(...params) as EdgeRow[];
+  }
+
+  // Bounded K-hop expansion. At Mars Estate scale (thousands of nodes max)
+  // pulling neighbours per-discovered-node is fine.
+  export function khop(root: NodeRef, k: number, opts: { maxNodes?: number; types?: string[] } = {}): { nodes: NodeRef[]; edges: EdgeRow[] } {
+    const maxNodes = opts.maxNodes ?? 200;
+    const seen = new Map<string, NodeRef>();
+    const queue: Array<{ node: NodeRef; depth: number }> = [{ node: root, depth: 0 }];
+    const edges: EdgeRow[] = [];
+    const edgeIds = new Set<number>();
+    const key = (n: NodeRef) => `${n.kind}:${n.id}`;
+    seen.set(key(root), root);
+    while (queue.length > 0 && seen.size < maxNodes) {
+      const cur = queue.shift()!;
+      if (cur.depth >= k) continue;
+      const ns = neighbors(cur.node, { types: opts.types, limit: 50 });
+      for (const e of ns) {
+        if (!edgeIds.has(e.id)) { edges.push(e); edgeIds.add(e.id); }
+        const other: NodeRef = (e.source_kind === cur.node.kind && e.source_id === cur.node.id)
+          ? { kind: e.target_kind, id: e.target_id }
+          : { kind: e.source_kind, id: e.source_id };
+        if (!seen.has(key(other))) {
+          seen.set(key(other), other);
+          queue.push({ node: other, depth: cur.depth + 1 });
+        }
+      }
+    }
+    return { nodes: Array.from(seen.values()), edges };
+  }
+
+3. Create lib/engine/graph/cascade.ts:
+
+  import { Decisions, Principles, Claims, Contradictions } from '@/lib/db';
+  import type { NodeRef } from './types';
+
+  export interface CascadeNode {
+    ref: NodeRef;
+    label: string;
+    loadBearing: number;
+    depth: number;
+    meta?: Record<string, unknown>;
+  }
+  export interface CascadeEdge { from: NodeRef; to: NodeRef; label: string; }
+  export interface CascadeGraph { root: NodeRef; nodes: CascadeNode[]; edges: CascadeEdge[]; }
+
+  export function cascadeForDecision(decisionId: number): CascadeGraph {
+    const d = Decisions.get(decisionId);
+    if (!d) throw new Error('decision not found');
+    const chain = JSON.parse(d.evidence_chain_json ?? '[]') as Array<{
+      principleId: number; role: string; weight: number; supportingClaimIds?: number[];
+    }>;
+    const root: NodeRef = { kind: 'decision', id: decisionId };
+    const nodes: CascadeNode[] = [{ ref: root, label: d.question.slice(0, 80), loadBearing: 1, depth: 0 }];
+    const edges: CascadeEdge[] = [];
+    for (const e of chain) {
+      const p = Principles.get(e.principleId);
+      if (!p) continue;
+      const pref: NodeRef = { kind: 'principle', id: p.id };
+      nodes.push({
+        ref: pref, label: p.canonical_statement,
+        loadBearing: (e.weight ?? 0) * p.conviction, depth: 1,
+        meta: { role: e.role, conviction: p.conviction },
+      });
+      edges.push({ from: root, to: pref, label: e.role });
+      for (const cid of e.supportingClaimIds ?? []) {
+        const cl = Claims.get(cid);
+        if (!cl) continue;
+        const cref: NodeRef = { kind: 'claim', id: cl.id };
+        nodes.push({
+          ref: cref, label: cl.text,
+          loadBearing: (e.weight ?? 0) * p.conviction * (cl.faithfulness_score ?? 1),
+          depth: 2,
+          meta: { source_ref: cl.source_ref, faithfulness: cl.faithfulness_score },
+        });
+        edges.push({ from: pref, to: cref, label: 'supported_by' });
+      }
+    }
+    return { root, nodes, edges };
+  }
+
+  export interface CascadeDiagnostic {
+    thinFoundation: boolean;
+    staleAncestor: Array<{ principleId: number; ageDays: number }>;
+    contradictedAncestor: Array<{ principleId: number; contradictionId: number }>;
+  }
+
+  export function diagnoseCascade(g: CascadeGraph): CascadeDiagnostic {
+    const sources = new Set<string>();
+    g.nodes.filter(n => n.ref.kind === 'claim').forEach(n => {
+      const r = n.meta?.source_ref as string | undefined;
+      if (r) sources.add(r);
+    });
+    const thinFoundation = sources.size < 3;
+    const stale: CascadeDiagnostic['staleAncestor'] = [];
+    const contradicted: CascadeDiagnostic['contradictedAncestor'] = [];
+    for (const n of g.nodes.filter(x => x.ref.kind === 'principle')) {
+      const p = Principles.get(n.ref.id);
+      if (!p) continue;
+      const ageDays = (Date.now() - new Date(p.last_observed_at + 'Z').getTime()) / 86400000;
+      if (ageDays > 540) stale.push({ principleId: p.id, ageDays });
+      for (const c of Contradictions.openInvolving(p.id)) {
+        contradicted.push({ principleId: p.id, contradictionId: c.id });
+      }
+    }
+    return { thinFoundation, staleAncestor: stale, contradictedAncestor: contradicted };
+  }
+
+ACCEPTANCE CRITERIA
+- neighbors({kind:'principle', id}) returns incoming + outgoing edges
+  sorted by strength.
+- khop({kind:'principle', id}, 2) returns the 2-hop neighborhood
+  capped at maxNodes.
+- cascadeForDecision(d) returns root → principles (depth 1) → claims
+  (depth 2).
+- diagnoseCascade flags a decision based on fewer than 3 distinct
+  sources as thinFoundation: true.
+
+================================================================================

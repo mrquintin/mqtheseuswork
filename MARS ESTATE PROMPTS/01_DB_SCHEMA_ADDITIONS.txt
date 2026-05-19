@@ -1,0 +1,362 @@
+================================================================================
+01 — Schema additions in lib/db.ts
+================================================================================
+
+GOAL
+Add tables for the intellectual-capital layer (claims, principles, typed
+relationships, contradictions, conflicts-of-interest, fact-checks,
+counter-claims, decisions, outcomes, drift events, revision suggestions,
+false-positive memory, methods, method invocations, audit events, cost
+rollups, decay policies) to the existing migrate() in lib/db.ts. Add the
+TypeScript types in lib/types.ts. Add repo objects following the
+existing pattern (Todos, Comms, ResearchFocusRepo, EmailCache, ...).
+
+TASK
+
+1. Append to migrate(conn) in lib/db.ts (after the existing
+chat_retrievals block), running inside the existing conn.exec():
+
+  -- claims: atomic propositions extracted from one embedding chunk
+  CREATE TABLE IF NOT EXISTS claims (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    chunk_id        INTEGER,
+    source_kind     TEXT NOT NULL CHECK(source_kind IN ('email','meeting','obsidian')),
+    source_id       TEXT NOT NULL,
+    source_ref      TEXT,
+    text            TEXT NOT NULL,
+    modality        TEXT NOT NULL CHECK(modality IN ('assertion','prediction','question','counter','hypothetical')),
+    speaker         TEXT,
+    extractor_method     TEXT NOT NULL,
+    extractor_confidence REAL NOT NULL,
+    faithfulness_score   REAL,
+    span_start      INTEGER,
+    span_end        INTEGER,
+    is_rejected     INTEGER NOT NULL DEFAULT 0,
+    rejection_reason TEXT,
+    principle_id    INTEGER,
+    coherence_vector TEXT,
+    extracted_at    TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at      TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+  CREATE INDEX IF NOT EXISTS idx_claims_chunk        ON claims(chunk_id);
+  CREATE INDEX IF NOT EXISTS idx_claims_source       ON claims(source_kind, source_id);
+  CREATE INDEX IF NOT EXISTS idx_claims_principle    ON claims(principle_id);
+  CREATE INDEX IF NOT EXISTS idx_claims_faithfulness ON claims(faithfulness_score);
+
+  -- principles: clusters of claims; conviction grows with reinforcement, decays with age
+  CREATE TABLE IF NOT EXISTS principles (
+    id                   INTEGER PRIMARY KEY AUTOINCREMENT,
+    canonical_statement  TEXT NOT NULL,
+    conviction           REAL NOT NULL DEFAULT 0,
+    conviction_pinned    INTEGER NOT NULL DEFAULT 0,
+    conviction_pinned_at TEXT,
+    coherence_vector     TEXT,
+    first_observed_at    TEXT NOT NULL DEFAULT (datetime('now')),
+    last_observed_at     TEXT NOT NULL DEFAULT (datetime('now')),
+    status               TEXT NOT NULL DEFAULT 'active' CHECK(status IN ('active','archived','retired','draft')),
+    domains              TEXT,
+    tags                 TEXT,
+    created_at           TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at           TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+  CREATE INDEX IF NOT EXISTS idx_principles_status     ON principles(status);
+  CREATE INDEX IF NOT EXISTS idx_principles_conviction ON principles(conviction DESC);
+
+  -- Principle embeddings are stored in vec_chunks with chunk_id = -principle_id
+  -- (negative so they never collide with real embeddings_chunks rows). This
+  -- reuses the existing search infrastructure. If isVecLoaded() is false,
+  -- principle similarity falls back to cosine in JS.
+
+  -- relationships: typed edges between any two nodes (claim/principle/decision)
+  CREATE TABLE IF NOT EXISTS relationships (
+    id             INTEGER PRIMARY KEY AUTOINCREMENT,
+    rel_type       TEXT NOT NULL CHECK(rel_type IN ('supports','contradicts','refines','instantiates','depends_on','generalizes','presupposes','conflicts_with')),
+    source_kind    TEXT NOT NULL CHECK(source_kind IN ('claim','principle','decision')),
+    source_id      INTEGER NOT NULL,
+    target_kind    TEXT NOT NULL CHECK(target_kind IN ('claim','principle','decision')),
+    target_id      INTEGER NOT NULL,
+    strength       REAL NOT NULL DEFAULT 0.5,
+    detected_by    TEXT NOT NULL,
+    detected_at    TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+  CREATE INDEX IF NOT EXISTS idx_rel_source ON relationships(source_kind, source_id);
+  CREATE INDEX IF NOT EXISTS idx_rel_target ON relationships(target_kind, target_id);
+  CREATE INDEX IF NOT EXISTS idx_rel_type   ON relationships(rel_type);
+
+  -- contradictions: first-class record between two principles
+  CREATE TABLE IF NOT EXISTS contradictions (
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    left_id       INTEGER NOT NULL,
+    right_id      INTEGER NOT NULL,
+    severity      REAL NOT NULL DEFAULT 0.5,
+    detected_by   TEXT NOT NULL,
+    rationale     TEXT,
+    status        TEXT NOT NULL DEFAULT 'open' CHECK(status IN ('open','acknowledged','resolved','dismissed')),
+    resolution    TEXT,
+    resolved_by   TEXT,
+    resolved_at   TEXT,
+    detected_at   TEXT NOT NULL DEFAULT (datetime('now')),
+    FOREIGN KEY (left_id)  REFERENCES principles(id) ON DELETE CASCADE,
+    FOREIGN KEY (right_id) REFERENCES principles(id) ON DELETE CASCADE
+  );
+  CREATE INDEX IF NOT EXISTS idx_contradictions_status ON contradictions(status);
+
+  -- conflicts_of_interest: strategic conflict between two principles
+  CREATE TABLE IF NOT EXISTS conflicts_of_interest (
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    left_id       INTEGER NOT NULL,
+    right_id      INTEGER NOT NULL,
+    severity      REAL NOT NULL DEFAULT 0.5,
+    domain        TEXT,
+    detected_by   TEXT NOT NULL,
+    rationale     TEXT,
+    asymmetric    INTEGER NOT NULL DEFAULT 0,
+    directional_note TEXT,
+    status        TEXT NOT NULL DEFAULT 'open' CHECK(status IN ('open','acknowledged','resolved','dismissed')),
+    resolution    TEXT,
+    resolved_by   TEXT,
+    resolved_at   TEXT,
+    detected_at   TEXT NOT NULL DEFAULT (datetime('now')),
+    FOREIGN KEY (left_id)  REFERENCES principles(id) ON DELETE CASCADE,
+    FOREIGN KEY (right_id) REFERENCES principles(id) ON DELETE CASCADE
+  );
+  CREATE INDEX IF NOT EXISTS idx_conflicts_status ON conflicts_of_interest(status);
+
+  -- fact_checks: empirical verification of a claim or principle
+  CREATE TABLE IF NOT EXISTS fact_checks (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    target_kind     TEXT NOT NULL CHECK(target_kind IN ('claim','principle')),
+    target_id       INTEGER NOT NULL,
+    verdict         TEXT NOT NULL CHECK(verdict IN ('supported','refuted','mixed','unverifiable','not_checked')),
+    confidence      REAL NOT NULL,
+    detected_by     TEXT NOT NULL,
+    rationale       TEXT,
+    sources_json    TEXT,
+    status          TEXT NOT NULL DEFAULT 'open' CHECK(status IN ('open','acknowledged','resolved','dismissed')),
+    acknowledged_by TEXT,
+    acknowledged_at TEXT,
+    detected_at     TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+  CREATE INDEX IF NOT EXISTS idx_fact_checks_target ON fact_checks(target_kind, target_id);
+  CREATE INDEX IF NOT EXISTS idx_fact_checks_status ON fact_checks(status, verdict);
+
+  -- counter_claims: adversarial counters generated for claims, principles, or decisions
+  CREATE TABLE IF NOT EXISTS counter_claims (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    target_kind  TEXT NOT NULL CHECK(target_kind IN ('claim','principle','decision')),
+    target_id    INTEGER NOT NULL,
+    text         TEXT NOT NULL,
+    strength     REAL NOT NULL DEFAULT 0.5,
+    angle        TEXT,
+    generated_by TEXT NOT NULL,
+    generated_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+  CREATE INDEX IF NOT EXISTS idx_counter_claims_target ON counter_claims(target_kind, target_id);
+
+  -- decisions: persisted record of an Oracle answer or Decision-Test
+  CREATE TABLE IF NOT EXISTS decisions (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    kind            TEXT NOT NULL CHECK(kind IN ('oracle_query','decision_test')),
+    thread_id       INTEGER,
+    message_id      INTEGER,
+    question        TEXT NOT NULL,
+    optional_context TEXT,
+    answer          TEXT NOT NULL,
+    verdict         TEXT,
+    confidence      REAL NOT NULL DEFAULT 0.5,
+    evidence_chain_json TEXT,
+    counters_json   TEXT,
+    domains_json    TEXT,
+    resolution_criterion TEXT,
+    resolution_date TEXT,
+    blocked_by      TEXT,
+    method_invocation_id INTEGER,
+    asked_at        TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+  CREATE INDEX IF NOT EXISTS idx_decisions_asked ON decisions(asked_at DESC);
+  CREATE INDEX IF NOT EXISTS idx_decisions_kind  ON decisions(kind);
+
+  -- outcomes: operator-recorded result of a decision
+  CREATE TABLE IF NOT EXISTS outcomes (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    decision_id  INTEGER NOT NULL UNIQUE,
+    happened     INTEGER,
+    actual_text  TEXT NOT NULL,
+    confidence_in_description REAL,
+    brier_component REAL,
+    recorded_at  TEXT NOT NULL DEFAULT (datetime('now')),
+    FOREIGN KEY (decision_id) REFERENCES decisions(id) ON DELETE CASCADE
+  );
+
+  -- drift_events: conviction shifts on principles
+  CREATE TABLE IF NOT EXISTS drift_events (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    principle_id INTEGER NOT NULL,
+    prior_conviction REAL NOT NULL,
+    new_conviction   REAL NOT NULL,
+    delta        REAL NOT NULL,
+    cause        TEXT NOT NULL,
+    cause_ref    TEXT,
+    detected_at  TEXT NOT NULL DEFAULT (datetime('now')),
+    FOREIGN KEY (principle_id) REFERENCES principles(id) ON DELETE CASCADE
+  );
+  CREATE INDEX IF NOT EXISTS idx_drift_events_principle ON drift_events(principle_id, detected_at DESC);
+
+  -- principle_revision_suggestions: emitted by inverse inference
+  CREATE TABLE IF NOT EXISTS principle_revision_suggestions (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    outcome_id   INTEGER NOT NULL,
+    principle_id INTEGER NOT NULL,
+    prior_role   TEXT NOT NULL,
+    implication  TEXT NOT NULL,
+    suggested_delta REAL NOT NULL,
+    rationale    TEXT,
+    status       TEXT NOT NULL DEFAULT 'open' CHECK(status IN ('open','accepted','dismissed')),
+    decided_by   TEXT,
+    decided_at   TEXT,
+    created_at   TEXT NOT NULL DEFAULT (datetime('now')),
+    FOREIGN KEY (outcome_id) REFERENCES outcomes(id) ON DELETE CASCADE,
+    FOREIGN KEY (principle_id) REFERENCES principles(id) ON DELETE CASCADE
+  );
+  CREATE INDEX IF NOT EXISTS idx_revision_suggestions_status ON principle_revision_suggestions(status);
+
+  -- finding_false_positives: dismissed pairs the sweeps must not re-create
+  CREATE TABLE IF NOT EXISTS finding_false_positives (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    kind         TEXT NOT NULL CHECK(kind IN ('contradiction','conflict')),
+    left_id      INTEGER NOT NULL,
+    right_id     INTEGER NOT NULL,
+    marked_by    TEXT,
+    marked_at    TEXT NOT NULL DEFAULT (datetime('now')),
+    UNIQUE(kind, left_id, right_id)
+  );
+
+  -- methods: registered algorithms (claim_extractor_v1, faithfulness_v1, ...)
+  CREATE TABLE IF NOT EXISTS methods (
+    id             TEXT PRIMARY KEY,
+    name           TEXT NOT NULL,
+    version        TEXT NOT NULL,
+    interface_json TEXT,
+    impl_ref       TEXT,
+    drift_baseline_hash TEXT,
+    registered_at  TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+
+  -- method_invocations: one row per call to any registered method
+  CREATE TABLE IF NOT EXISTS method_invocations (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    method_id    TEXT NOT NULL,
+    input_hash   TEXT NOT NULL,
+    output_hash  TEXT,
+    status       TEXT NOT NULL CHECK(status IN ('succeeded','failed','refused','running')),
+    started_at   TEXT NOT NULL DEFAULT (datetime('now')),
+    finished_at  TEXT,
+    duration_ms  INTEGER,
+    cost_usd     REAL,
+    error_text   TEXT,
+    FOREIGN KEY (method_id) REFERENCES methods(id) ON DELETE CASCADE
+  );
+  CREATE INDEX IF NOT EXISTS idx_method_inv_method ON method_invocations(method_id, started_at DESC);
+
+  -- audit_events: hash-chained log of v2-layer state changes
+  CREATE TABLE IF NOT EXISTS audit_events (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    occurred_at     TEXT NOT NULL DEFAULT (datetime('now')),
+    actor_kind      TEXT NOT NULL CHECK(actor_kind IN ('user','method','system','cowork')),
+    actor_id        TEXT,
+    action          TEXT NOT NULL,
+    subject_kind    TEXT NOT NULL,
+    subject_id      TEXT NOT NULL,
+    payload_json    TEXT NOT NULL,
+    payload_hash    TEXT NOT NULL,
+    prev_event_hash TEXT,
+    this_event_hash TEXT NOT NULL
+  );
+  CREATE INDEX IF NOT EXISTS idx_audit_subject  ON audit_events(subject_kind, subject_id);
+  CREATE INDEX IF NOT EXISTS idx_audit_occurred ON audit_events(occurred_at DESC);
+
+  -- cost_rollup_daily: rolling LLM + embedding + web-search spend
+  CREATE TABLE IF NOT EXISTS cost_rollup_daily (
+    day        TEXT NOT NULL,
+    category   TEXT NOT NULL,
+    method_id  TEXT,
+    cost_usd   REAL NOT NULL DEFAULT 0,
+    units      INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (day, category, method_id)
+  );
+
+  -- decay_policies: principle conviction aging
+  CREATE TABLE IF NOT EXISTS decay_policies (
+    id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+    domain              TEXT,
+    half_life_months    REAL NOT NULL,
+    floor_conviction    REAL NOT NULL,
+    reinforcement_extension INTEGER NOT NULL DEFAULT 1,
+    active              INTEGER NOT NULL DEFAULT 1,
+    updated_at          TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+
+2. After the existing seedDefaultResearchFocus(conn) call inside migrate(),
+add an idempotent default decay-policy seed (same pattern):
+
+  function seedDefaultDecayPolicies(conn: Database.Database) {
+    const count = (conn.prepare('SELECT COUNT(*) AS n FROM decay_policies')
+      .get() as { n: number }).n;
+    if (count > 0) return;
+    conn.prepare(
+      `INSERT INTO decay_policies (domain, half_life_months, floor_conviction)
+       VALUES (NULL, 18, 0.15), ('market', 6, 0.20)`
+    ).run();
+  }
+
+  Call seedDefaultDecayPolicies(conn) from migrate() right after
+  seedDefaultResearchFocus(conn).
+
+3. Add types to lib/types.ts using the existing snake_case-DB-shape
+convention (look at Todo, ResearchFocus for the template):
+
+  Claim, NewClaim, Principle, NewPrinciple, Relationship,
+  Contradiction, ConflictOfInterest, FactCheck, FactVerdict,
+  FindingStatus, CounterClaim, Decision, NewDecision, DecisionKind,
+  Outcome, DriftEvent, PrincipleRevisionSuggestion, Method,
+  MethodInvocation, InvocationStatus, AuditEvent, AuditActorKind,
+  DecayPolicy.
+
+4. Add repo objects in lib/db.ts following the existing pattern
+(named export, plain object with .list/.get/.create/.update/.remove
+where applicable). Required surface for each repo:
+
+  Claims: list, listForChunk, listForPrinciple, get, create, update,
+    markRejected, assignPrinciple, setCoherenceVector.
+  Principles: list({status?, orderBy?}), listActive, topByConviction,
+    get, create, updateCanonical, setConviction, pinConviction,
+    unpinConviction, setDomains, archive, retire, merge,
+    setCoherenceVector.
+  Relationships: list, forNode, create, deleteById.
+  Contradictions: listOpen, countOpen, openInvolving, findOpen,
+    isFalsePositive, get, create, setStatus.
+  Conflicts: listOpen, countOpen, openInvolving, findOpenBetween,
+    isFalsePositive, get, create, setStatus.
+  FactChecks: listOpen, countOpenByVerdict, recentForTarget, get,
+    create, setStatus.
+  CounterClaims: listForTarget, create.
+  Decisions: list, listPendingOutcomes, listBlocked, get, create,
+    setBlockedBy, updateAnswer.
+  Outcomes: create, getForDecision, getById.
+  DriftEvents: listForPrinciple, create, recentWindow.
+  RevisionSuggestions: listForOutcome, listOpen, get, create,
+    setStatus.
+  Methods: list, get, register.
+  MethodInvocations: start, succeed, fail, recentForMethod.
+  AuditEvents: append (internal — use recordEvent helper, prompt 02),
+    range, forSubject.
+  DecayPoliciesRepo: list, forDomain.
+
+ACCEPTANCE CRITERIA
+- npm run dev starts cleanly with the new tables created.
+- sqlite3 data/mars.db ".tables" shows the new tables in addition to
+  existing ones.
+- Every repo object can insert and read a sample row.
+- decay_policies has the two default rows on first boot.
+
+================================================================================

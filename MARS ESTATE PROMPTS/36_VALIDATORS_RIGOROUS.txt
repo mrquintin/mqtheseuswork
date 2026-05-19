@@ -1,0 +1,158 @@
+================================================================================
+36 — Validators: contradiction, conflict, fact-check, coherence
+================================================================================
+
+GOAL
+Edge-case coverage for the validation layer (prompts 10–13). Each
+test uses LLM stubs when keys absent so it runs deterministically in
+CI; with keys, it exercises the real LLM paths too.
+
+TASK
+
+1. scripts/test/contradiction-edge-cases.ts:
+
+  import assert from 'node:assert';
+  import { getDb, Principles, Contradictions, isVecLoaded } from '../../lib/db';
+  import { invokeMethod, registerMethod } from '../../lib/methods/registry';
+
+  // Stub the contradiction LLM judge for deterministic outputs.
+  registerMethod({
+    id: 'contradiction_detector_v1', name: 'STUB', version: '1.0.0-stub',
+    run: async ({ leftId, rightId }: { leftId: number; rightId: number }) => {
+      // Real registry version handles all this; for the stub we just
+      // simulate "yes-contradiction-if-text-opposite".
+      const left = Principles.get(leftId), right = Principles.get(rightId);
+      if (!left || !right) return { contradiction: null };
+      if (Contradictions.isFalsePositive(leftId, rightId)) return { contradiction: null };
+      const existing = Contradictions.findOpen(leftId, rightId);
+      if (existing) return { contradiction: { id: existing.id } };
+      const a = left.canonical_statement.toLowerCase();
+      const b = right.canonical_statement.toLowerCase();
+      const contradicts = (a.includes('always') && b.includes('never')) ||
+                           (a.includes('never') && b.includes('always'));
+      if (!contradicts) return { contradiction: null };
+      const c = Contradictions.create({
+        left_id: leftId, right_id: rightId, severity: 0.9,
+        detected_by: 'stub', rationale: 'opposite quantifiers',
+      });
+      return { contradiction: { id: c.id } };
+    },
+  });
+
+  const p1 = Principles.create({ canonical_statement: 'we always offer exclusivity',
+    first_observed_at: '2026-01-01', last_observed_at: '2026-01-01' } as any);
+  const p2 = Principles.create({ canonical_statement: 'we never offer exclusivity',
+    first_observed_at: '2026-01-01', last_observed_at: '2026-01-01' } as any);
+  const p3 = Principles.create({ canonical_statement: 'we sell DTC',
+    first_observed_at: '2026-01-01', last_observed_at: '2026-01-01' } as any);
+
+  // EDGE 1: detect new contradiction.
+  let r = await invokeMethod('contradiction_detector_v1', { leftId: p1.id, rightId: p2.id }) as any;
+  assert.ok(r.contradiction, 'should detect contradiction');
+  const cid = r.contradiction.id;
+
+  // EDGE 2: same pair, second call → returns existing, no duplicate.
+  r = await invokeMethod('contradiction_detector_v1', { leftId: p1.id, rightId: p2.id }) as any;
+  assert.strictEqual(r.contradiction.id, cid);
+
+  // EDGE 3: same id both sides → null.
+  r = await invokeMethod('contradiction_detector_v1', { leftId: p1.id, rightId: p1.id }) as any;
+  assert.strictEqual(r.contradiction, null);
+
+  // EDGE 4: unrelated pair → null.
+  r = await invokeMethod('contradiction_detector_v1', { leftId: p1.id, rightId: p3.id }) as any;
+  assert.strictEqual(r.contradiction, null);
+
+  // EDGE 5: mark dismissed, then re-detect → null (no re-creation).
+  Contradictions.setStatus(cid, 'dismissed', 'test', 'false positive');
+  // Insert into finding_false_positives explicitly (matches the v2-10 path).
+  getDb().prepare(
+    `INSERT OR IGNORE INTO finding_false_positives (kind, left_id, right_id, marked_by) VALUES ('contradiction', ?, ?, 'test')`
+  ).run(p1.id, p2.id);
+  r = await invokeMethod('contradiction_detector_v1', { leftId: p1.id, rightId: p2.id }) as any;
+  assert.strictEqual(r.contradiction, null, 'dismissed pair should not re-create');
+
+  // CLEANUP
+  getDb().prepare(`DELETE FROM finding_false_positives WHERE marked_by = 'test'`).run();
+  getDb().prepare(`DELETE FROM contradictions WHERE id = ?`).run(cid);
+  for (const id of [p1.id, p2.id, p3.id]) getDb().prepare(`DELETE FROM principles WHERE id = ?`).run(id);
+
+  console.log('[contradiction-edge-cases] OK');
+
+2. scripts/test/conflict-edge-cases.ts — similar shape, with:
+   - EDGE 1: no shared domains → return null without LLM call.
+   - EDGE 2: shared domain + clear conflict → Conflict row created.
+   - EDGE 3: re-call returns existing (idempotent).
+   - EDGE 4: dismissed → re-call returns null (finding_false_positives
+     with kind='conflict').
+   - EDGE 5: asymmetric flag set when stub reports asymmetric:true.
+   - Cleanup.
+
+3. scripts/test/factcheck-edge-cases.ts:
+   - EDGE 1: non-factual claim is filtered by the classifier (stub
+     classifier returns factual:false) → no fact-check row created.
+   - EDGE 2: factual claim with stub web verdict 'supported' →
+     FactCheck row inserted.
+   - EDGE 3: daily cap exceeded → next call uses LLM-only fallback
+     (test by setting Meta.factcheck_daily_count:YYYY-MM-DD to a
+     high number).
+   - EDGE 4: re-run a FactCheck creates a NEW row (does not mutate
+     the old).
+   - EDGE 5: dismiss → status='dismissed', audit FACTCHECK_RESOLVE.
+   - Cleanup.
+
+4. scripts/test/coherence-edge-cases.ts:
+
+  import assert from 'node:assert';
+  import { getDb, Principles, Contradictions, Conflicts, FactChecks } from '../../lib/db';
+  import { computePrincipleCoherence, aggregateToScalar } from '../../lib/engine/validate/coherence';
+
+  const p = Principles.create({ canonical_statement: 'coherence test',
+    first_observed_at: '2026-01-01', last_observed_at: '2026-01-01' } as any);
+  const p2 = Principles.create({ canonical_statement: 'coherence test peer',
+    first_observed_at: '2026-01-01', last_observed_at: '2026-01-01' } as any);
+
+  // No findings → all zero.
+  let v = computePrincipleCoherence(p.id);
+  assert.strictEqual(v.contradiction?.count, 0);
+  assert.strictEqual(v.conflict?.count, 0);
+  assert.ok(v.factual == null);
+  assert.strictEqual(aggregateToScalar(v), 1);
+
+  // Add a contradiction.
+  Contradictions.create({ left_id: p.id, right_id: p2.id, severity: 0.7, detected_by: 'test', rationale: 'r' });
+  v = computePrincipleCoherence(p.id);
+  assert.strictEqual(v.contradiction?.count, 1);
+  assert.strictEqual(v.contradiction?.maxSeverity, 0.7);
+  const s1 = aggregateToScalar(v);
+  assert.ok(s1 < 1, 'scalar should drop with contradiction');
+
+  // Add a conflict on top.
+  Conflicts.create({ left_id: p.id, right_id: p2.id, severity: 0.6, detected_by: 'test', rationale: 'r' });
+  v = computePrincipleCoherence(p.id);
+  const s2 = aggregateToScalar(v);
+  assert.ok(s2 < s1);
+
+  // Add a refuted fact-check.
+  FactChecks.create({ target_kind: 'principle', target_id: p.id, verdict: 'refuted', confidence: 0.9, detected_by: 'test', rationale: 'r' });
+  v = computePrincipleCoherence(p.id);
+  const s3 = aggregateToScalar(v);
+  assert.ok(s3 < s2 * 0.5, 'refuted fact-check should cut scalar substantially');
+
+  // Cleanup.
+  getDb().prepare(`DELETE FROM fact_checks WHERE target_id = ?`).run(p.id);
+  getDb().prepare(`DELETE FROM contradictions WHERE left_id = ? OR right_id = ?`).run(p.id, p.id);
+  getDb().prepare(`DELETE FROM conflicts_of_interest WHERE left_id = ? OR right_id = ?`).run(p.id, p.id);
+  getDb().prepare(`DELETE FROM principles WHERE id IN (?, ?)`).run(p.id, p2.id);
+
+  console.log('[coherence-edge-cases] OK');
+
+5. Add to package.json:
+
+  "test:validate": "tsx scripts/test/contradiction-edge-cases.ts && tsx scripts/test/conflict-edge-cases.ts && tsx scripts/test/factcheck-edge-cases.ts && tsx scripts/test/coherence-edge-cases.ts"
+
+ACCEPTANCE CRITERIA
+- `npm run test:validate` exits 0.
+- All synthetic rows cleaned up; no residue in any v2 table.
+
+================================================================================
