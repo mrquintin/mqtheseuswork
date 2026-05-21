@@ -46,7 +46,7 @@ jobs:
         run: ./scripts/run_dead_code_survey.sh
 
       - name: Upload survey artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: dead-code-survey
           path: docs/architecture/Dead_Code_Survey.md

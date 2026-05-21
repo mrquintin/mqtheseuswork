@@ -50,7 +50,7 @@ jobs:
         run: ./build_pdfs.sh
 
       - name: Upload PDF artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: theseus-user-guides
           path: docs/guides/*.pdf
