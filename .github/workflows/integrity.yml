@@ -147,7 +147,7 @@ jobs:
         # on the comment step for dependabot PRs.
         continue-on-error: ${{ github.actor == 'dependabot[bot]' }}
         if: always() && github.event_name == 'pull_request' && steps.comment.outputs.body != ''
-        uses: peter-evans/create-or-update-comment@v4
+        uses: peter-evans/create-or-update-comment@v5
         with:
           issue-number: ${{ github.event.pull_request.number }}
           body: ${{ steps.comment.outputs.body }}
